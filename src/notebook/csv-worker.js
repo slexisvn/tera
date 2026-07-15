@@ -1,4 +1,4 @@
-import { CsvStreamParser } from '../csv.js';
+import { CsvStreamParser } from '../csv-core.js';
 
 const BATCH_ROWS = 16384;
 

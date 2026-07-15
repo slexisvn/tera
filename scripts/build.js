@@ -6,12 +6,14 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
 const dist = resolve(root, 'dist');
+const notebookDist = resolve(root, 'notebook/dist');
 const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
 const dependencyNames = Object.keys(pkg.dependencies ?? {});
 
 rmSync(dist, { recursive: true, force: true });
 rmSync(resolve(root, 'notebook/dist'), { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
+mkdirSync(notebookDist, { recursive: true });
 
 const shared = {
   bundle: true,
@@ -53,11 +55,9 @@ await Promise.all([
   build({
     ...shared,
     platform: 'browser',
-    entryPoints: [resolve(root, 'src/csv-core.js')],
-    outfile: resolve(dist, 'csv.browser.js'),
-    plugins: [optionalDistributedPlugin],
-    external: ['*.node'],
+    entryPoints: [resolve(root, 'src/notebook/csv-worker.js')],
+    outfile: resolve(notebookDist, 'csv-worker.js'),
   }),
 ]);
 
-console.log('Build written to dist/index.node.js, dist/index.browser.js, and dist/csv.browser.js.');
+console.log('Build written to dist/index.node.js, dist/index.browser.js, and notebook/dist/csv-worker.js.');
