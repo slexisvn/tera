@@ -1,0 +1,237 @@
+{
+ "nbformat": 4,
+ "nbformat_minor": 5,
+ "metadata": {
+  "kernelspec": {
+   "name": "tera",
+   "display_name": "Tera"
+  },
+  "language_info": {
+   "name": "tera",
+   "file_extension": ".tera"
+  }
+ },
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "data = load_json(\"examples/pquant/data/prices.json\")\n",
+    "dates = data[\"_dates\"]\n",
+    "syms = [\"FPT\", \"CMG\", \"VCB\", \"BID\", \"CTG\", \"TCB\", \"MBB\", \"ACB\", \"VPB\", \"STB\", \"VIC\", \"VHM\", \"KDH\", \"NLG\", \"HPG\", \"HSG\", \"NKG\", \"MWG\", \"VNM\", \"MSN\", \"PNJ\", \"SSI\", \"VND\", \"HCM\", \"VCI\", \"GAS\", \"POW\", \"PLX\", \"VJC\", \"DGC\"]\n",
+    "ann = 252.0 ** 0.5\n",
+    "print(\"HOSE aligned:\", syms.length, \"tickers,\", dates.length, \"sessions,\", dates[0], \"->\", dates[dates.length - 1])\n",
+    "chart.line(data[\"VNINDEX\"], title=\"VN-Index 2020-2026\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "fn mean(xs: float[]) -> float:\n",
+    "  s = 0.0\n",
+    "  for x in xs:\n",
+    "    s += x\n",
+    "  return s / xs.length\n",
+    "\n",
+    "fn stdev(xs: float[]) -> float:\n",
+    "  m = mean(xs)\n",
+    "  s = 0.0\n",
+    "  for x in xs:\n",
+    "    s += (x - m) * (x - m)\n",
+    "  return (s / (xs.length - 1)) ** 0.5\n",
+    "\n",
+    "fn rets(px: float[]) -> float[]:\n",
+    "  out = []\n",
+    "  i = 1\n",
+    "  while i < px.length:\n",
+    "    out.append(px[i] / px[i - 1] - 1)\n",
+    "    i += 1\n",
+    "  return out\n",
+    "\n",
+    "fn r2(x: float) -> float:\n",
+    "  return (x * 100.0 - (x * 100.0) % 1.0) / 100.0\n",
+    "\n",
+    "fn max_dd(px: float[]) -> float:\n",
+    "  peak = px[0]\n",
+    "  worst = 0.0\n",
+    "  for v in px:\n",
+    "    if v > peak:\n",
+    "      peak = v\n",
+    "    dd = 1.0 - v / peak\n",
+    "    if dd > worst:\n",
+    "      worst = dd\n",
+    "  return worst\n",
+    "\n",
+    "fn cum_equity(rs: float[]) -> float[]:\n",
+    "  eq = []\n",
+    "  v = 1.0\n",
+    "  for r in rs:\n",
+    "    v = v * (1.0 + r)\n",
+    "    eq.append(v)\n",
+    "  return eq\n",
+    "\n",
+    "print(\"helpers ready\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "i2026 = 0\n",
+    "i = 0\n",
+    "while i < dates.length:\n",
+    "  if dates[i].starts_with(\"2026\"):\n",
+    "    i2026 = i\n",
+    "    break\n",
+    "  i += 1\n",
+    "cagrs = []\n",
+    "ytds = []\n",
+    "shps = []\n",
+    "mdds = []\n",
+    "print(\" sym | CAGR% | YTD26% | annVol% | Sharpe | maxDD%\")\n",
+    "for sym in syms:\n",
+    "  px = data[sym]\n",
+    "  r = rets(px)\n",
+    "  cagr = (px[px.length - 1] / px[0]) ** (252.0 / px.length) - 1.0\n",
+    "  ytd = px[px.length - 1] / px[i2026] - 1.0\n",
+    "  cagrs.append(cagr)\n",
+    "  ytds.append(ytd)\n",
+    "  shps.append(sharpe(r, periods_per_year=252))\n",
+    "  mdds.append(max_dd(px))\n",
+    "  print(sym, \"|\", r2(cagr * 100.0), \"|\", r2(ytd * 100.0), \"|\", r2(stdev(r) * ann * 100.0), \"|\", r2(shps[shps.length - 1]), \"|\", r2(mdds[mdds.length - 1] * 100.0))"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "fn top_k(vals: float[], k: int, largest: boolean) -> int[]:\n",
+    "  picked = []\n",
+    "  for v in vals:\n",
+    "    picked.append(false)\n",
+    "  out = []\n",
+    "  while out.length < k:\n",
+    "    bi = -1\n",
+    "    i = 0\n",
+    "    while i < vals.length:\n",
+    "      if picked[i] == false:\n",
+    "        if bi == -1:\n",
+    "          bi = i\n",
+    "        else if largest and vals[i] > vals[bi]:\n",
+    "          bi = i\n",
+    "        else if largest == false and vals[i] < vals[bi]:\n",
+    "          bi = i\n",
+    "      i += 1\n",
+    "    picked[bi] = true\n",
+    "    out.append(bi)\n",
+    "  return out\n",
+    "\n",
+    "print(\"--- TOP 5 CAGR 2020-2026 ---\")\n",
+    "for i in top_k(cagrs, 5, true):\n",
+    "  print(syms[i], r2(cagrs[i] * 100.0), \"%/yr  (YTD26\", r2(ytds[i] * 100.0), \"%)\")\n",
+    "print(\"--- BOTTOM 5 CAGR ---\")\n",
+    "for i in top_k(cagrs, 5, false):\n",
+    "  print(syms[i], r2(cagrs[i] * 100.0), \"%/yr  (YTD26\", r2(ytds[i] * 100.0), \"%)\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "perf = DataFrame(sym=syms, cagr=[c * 100.0 for c in cagrs])\n",
+    "chart.bar(perf, x=\"sym\", y=\"cagr\", title=\"CAGR % by ticker 2020-2026\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "panel = load_csv(\"examples/pquant/data/panel.csv\")\n",
+    "chart.correlation(panel, columns=[\"FPT\", \"VCB\", \"BID\", \"CTG\", \"TCB\", \"MBB\", \"HPG\", \"SSI\", \"VND\", \"VIC\", \"VNM\", \"GAS\"], title=\"Daily return correlation 2020-2026\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "n_mom = 0\n",
+    "n_rev = 0\n",
+    "for sym in syms:\n",
+    "  h = hurst_exponent(rets(data[sym]))\n",
+    "  if h > 0.55:\n",
+    "    n_mom += 1\n",
+    "  else if h < 0.45:\n",
+    "    n_rev += 1\n",
+    "print(\"Hurst regimes over 6 years: momentum\", n_mom, \" mean-revert\", n_rev, \" random-walk\", syms.length - n_mom - n_rev)\n",
+    "print(\"(the 2026-only sample called most names momentum; long samples pull Hurst toward 0.5)\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "vni_r = rets(data[\"VNINDEX\"])\n",
+    "thresh = 4.0 * stdev(vni_r)\n",
+    "events = cusum_events(vni_r, thresh)\n",
+    "print(\"CUSUM shocks on VN-Index over\", dates.length, \"sessions:\", events.length)\n",
+    "shown = 0\n",
+    "for e in events:\n",
+    "  if shown < 12:\n",
+    "    print(\"  \", dates[e + 1])\n",
+    "    shown += 1\n",
+    "if events.length > 12:\n",
+    "  print(\"  ... and\", events.length - 12, \"more\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "best = 0\n",
+    "i = 1\n",
+    "while i < syms.length:\n",
+    "  if ytds[i] > ytds[best]:\n",
+    "    best = i\n",
+    "  i += 1\n",
+    "hot = syms[best]\n",
+    "px = data[hot]\n",
+    "sub = []\n",
+    "k = px.length - 500\n",
+    "while k < px.length:\n",
+    "  sub.append(px[k])\n",
+    "  k += 1\n",
+    "bs = bsadf(sub, min_window=30)\n",
+    "peak = bs[0]\n",
+    "peak_at = 0\n",
+    "i = 0\n",
+    "while i < bs.length:\n",
+    "  if bs[i] > peak:\n",
+    "    peak = bs[i]\n",
+    "    peak_at = i\n",
+    "  i += 1\n",
+    "print(\"bubble check on 2026 top gainer\", hot, \"(last 500 sessions)\")\n",
+    "print(\"BSADF peak\", r2(peak), \"at\", dates[px.length - 500 + peak_at + 30], \" (>1.5 = explosive)\")\n",
+    "chart.line(bs, title=\"BSADF explosiveness: \" + hot)"
+   ],
+   "outputs": []
+  }
+ ]
+}

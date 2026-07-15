@@ -1,0 +1,37 @@
+
+x = tensor([[1.0, 2.0], [3.0, 4.0]], grad=true)
+f = (x ** 2.0).sum()
+f.backward()
+print("f = sum(x^2) =", f)
+print("grad(x) (expected 2x) =", x.grad)
+
+w = randn([3, 1], grad=true)
+inp = tensor([[1.0, 2.0, 3.0]])
+out = (inp @ w).relu().sum()
+out.backward()
+print("grad(w) through relu(inp @ w):", w.grad.shape)
+
+xs = tensor([[-2.0, -1.0], [-1.0, 2.0], [0.0, 0.0], [1.0, -2.0], [2.0, 1.0]])
+ys = tensor([[-6.0], [5.0], [1.0], [-3.0], [8.0]])
+
+wp = zeros([2, 1], grad=true)
+bp = zeros([1], grad=true)
+lr = 0.1
+
+next_log = 0
+for step in range(200):
+  pred = xs @ wp + bp
+  loss = ((pred - ys) ** 2.0).mean()
+  loss.backward()
+  wp = (wp - lr * wp.grad).detach().requires_grad()
+  bp = (bp - lr * bp.grad).detach().requires_grad()
+  if step == next_log:
+    print("step", step, "| loss =", loss)
+    next_log = next_log + 40
+
+print("=== learned params (expect w=[2,3], b=1) ===")
+print("w =", wp)
+print("b =", bp)
+
+frozen = wp.detach()
+print("detach(w) =", frozen)

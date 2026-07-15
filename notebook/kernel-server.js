@@ -1,0 +1,43 @@
+import { createKernel } from './kernel-vscode.js';
+
+const writeProtocol = process.stdout.write.bind(process.stdout);
+
+const toStderr = (...args) => process.stderr.write(args.map(String).join(' ') + '\n');
+console.log = toStderr;
+console.info = toStderr;
+console.warn = toStderr;
+console.error = toStderr;
+
+const kernel = createKernel();
+
+function send(obj) {
+  writeProtocol(JSON.stringify(obj) + '\n');
+}
+
+async function handle(msg) {
+  const { id, type, source } = msg;
+  try {
+    let result;
+    if (type === 'execute') result = await kernel.execute(source);
+    else if (type === 'restart') { kernel.restart(); result = { ok: true }; }
+    else throw new Error(`unknown message '${type}'`);
+    send({ id, ok: true, result });
+  } catch (err) {
+    send({ id, ok: false, error: err && err.message ? err.message : String(err) });
+  }
+}
+
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  buffer += chunk;
+  let idx;
+  while ((idx = buffer.indexOf('\n')) >= 0) {
+    const line = buffer.slice(0, idx);
+    buffer = buffer.slice(idx + 1);
+    if (line.trim()) handle(JSON.parse(line));
+  }
+});
+process.stdin.on('end', () => process.exit(0));
+
+send({ type: 'ready' });

@@ -1,0 +1,53 @@
+
+fn square(n: int) -> int:
+  return n * n
+
+fn factorial(n: int) -> int:
+  acc = 1
+  for i in range(1, n + 1):
+    acc *= i
+  return acc
+
+fn adder(base: int) -> fn(int) -> int:
+  fn add(x: int) -> int:
+    return base + x
+  return add
+
+add10 = adder(10)
+print("square(7)    =", square(7))
+print("factorial(5) =", factorial(5))
+print("add10(5)     =", add10(5))
+
+fn first_over(values: int[], threshold: int) -> int | null:
+  i = 0
+  while i < values.length:
+    v = values[i]
+    i += 1
+    if v <= threshold:
+      continue
+    return v
+  return null
+
+nums = [3, 1, 4, 1, 5, 9, 2, 6]
+print("first value > 4:", first_over(nums, 4))
+
+fn grade(score: int) -> string:
+  if score >= 90:
+    return "A"
+  else if score >= 75:
+    return "B"
+  else if score >= 60:
+    return "C"
+  else:
+    return "F"
+
+for s in [95, 80, 65, 40]:
+  print("score", s, "->", grade(s))
+
+a, b, c = [10, 20, 30]
+print("destructured:", a, b, c)
+
+total = 0
+for x in nums:
+  total += x
+print("sum(nums) =", total, "| mean =", total / nums.length)

@@ -1,0 +1,31 @@
+
+sales = DataFrame(
+  sku=["A-1", "A-2", "B-1", "B-2", "C-9"],
+  category=["alpha", "alpha", "beta", "beta", "gamma"],
+  price=[10.0, 25.0, 40.0, 5.0, 100.0],
+  stock=[100, 0, 30, 0, 7],
+)
+
+print("price > 20:")
+sales.filter("price > 20").select("sku", "price").show()
+
+print("stock > 0 AND price >= 20:")
+sales.where("stock > 0 AND price >= 20").select("sku", "price", "stock").show()
+
+priced = sales.withColumn("price_tax", expr("price * 1.1"))
+priced = priced.withColumn("inventory_value", expr("price * stock"))
+priced.select("sku", "price", "price_tax", "inventory_value").show()
+
+labeled = sales.withColumn("cat_upper", expr("UPPER(category)"))
+labeled = labeled.withColumn("tier", expr("CASE WHEN price >= 50 THEN 'premium' WHEN price >= 20 THEN 'mid' ELSE 'budget' END"))
+labeled.select("sku", "cat_upper", "tier").show()
+
+print("SKUs starting with A-:")
+sales.filter(expr("sku LIKE 'A-%'")).select("sku").show()
+
+print("expensive (expr boolean):")
+sales.filter(expr("price > 30")).select("sku", "price").show()
+
+sales.select("sku", expr("price * 2").alias("double_price")).show()
+
+sales.filter("category != 'beta'").withColumn("net", expr("price - price * 0.1")).select("sku", "net").show()

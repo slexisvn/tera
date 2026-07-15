@@ -1,0 +1,202 @@
+{
+ "nbformat": 4,
+ "nbformat_minor": 5,
+ "metadata": {
+  "kernelspec": {
+   "name": "tera",
+   "display_name": "Tera"
+  },
+  "language_info": {
+   "name": "tera",
+   "file_extension": ".tera"
+  }
+ },
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "data = load_json(\"examples/pquant/data/prices.json\")\n",
+    "dates = data[\"_dates\"]\n",
+    "syms = [\"FPT\", \"CMG\", \"VCB\", \"BID\", \"CTG\", \"TCB\", \"MBB\", \"ACB\", \"VPB\", \"STB\", \"VIC\", \"VHM\", \"KDH\", \"NLG\", \"HPG\", \"HSG\", \"NKG\", \"MWG\", \"VNM\", \"MSN\", \"PNJ\", \"SSI\", \"VND\", \"HCM\", \"VCI\", \"GAS\", \"POW\", \"PLX\", \"VJC\", \"DGC\"]\n",
+    "ann = 252.0 ** 0.5\n",
+    "print(\"HOSE aligned:\", syms.length, \"tickers,\", dates.length, \"sessions,\", dates[0], \"->\", dates[dates.length - 1])"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "fn mean(xs: float[]) -> float:\n",
+    "  s = 0.0\n",
+    "  for x in xs:\n",
+    "    s += x\n",
+    "  return s / xs.length\n",
+    "\n",
+    "fn stdev(xs: float[]) -> float:\n",
+    "  m = mean(xs)\n",
+    "  s = 0.0\n",
+    "  for x in xs:\n",
+    "    s += (x - m) * (x - m)\n",
+    "  return (s / (xs.length - 1)) ** 0.5\n",
+    "\n",
+    "fn rets(px: float[]) -> float[]:\n",
+    "  out = []\n",
+    "  i = 1\n",
+    "  while i < px.length:\n",
+    "    out.append(px[i] / px[i - 1] - 1)\n",
+    "    i += 1\n",
+    "  return out\n",
+    "\n",
+    "fn r2(x: float) -> float:\n",
+    "  return (x * 100.0 - (x * 100.0) % 1.0) / 100.0\n",
+    "\n",
+    "fn max_dd(px: float[]) -> float:\n",
+    "  peak = px[0]\n",
+    "  worst = 0.0\n",
+    "  for v in px:\n",
+    "    if v > peak:\n",
+    "      peak = v\n",
+    "    dd = 1.0 - v / peak\n",
+    "    if dd > worst:\n",
+    "      worst = dd\n",
+    "  return worst\n",
+    "\n",
+    "fn cum_equity(rs: float[]) -> float[]:\n",
+    "  eq = []\n",
+    "  v = 1.0\n",
+    "  for r in rs:\n",
+    "    v = v * (1.0 + r)\n",
+    "    eq.append(v)\n",
+    "  return eq\n",
+    "\n",
+    "print(\"helpers ready\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "basket = [\"FPT\", \"VCB\", \"TCB\", \"MBB\", \"HPG\", \"MWG\", \"VNM\", \"MSN\", \"SSI\", \"GAS\", \"POW\", \"DGC\"]\n",
+    "rmat = []\n",
+    "for sym in basket:\n",
+    "  rmat.append(rets(data[sym]))\n",
+    "t = rmat[0].length\n",
+    "mu = [mean(r) for r in rmat]\n",
+    "print(\"basket:\", basket.length, \"assets,\", t, \"daily returns each (2020-2026)\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "fn cov_matrix(rows: float[][]) -> float[][]:\n",
+    "  n = rows.length\n",
+    "  t = rows[0].length\n",
+    "  mus = [mean(r) for r in rows]\n",
+    "  covm = []\n",
+    "  i = 0\n",
+    "  while i < n:\n",
+    "    line = []\n",
+    "    j = 0\n",
+    "    while j < n:\n",
+    "      s = 0.0\n",
+    "      k = 0\n",
+    "      while k < t:\n",
+    "        s += (rows[i][k] - mus[i]) * (rows[j][k] - mus[j])\n",
+    "        k += 1\n",
+    "      line.append(s / (t - 1))\n",
+    "      j += 1\n",
+    "    covm.append(line)\n",
+    "    i += 1\n",
+    "  return covm\n",
+    "\n",
+    "covm = cov_matrix(rmat)\n",
+    "print(\"covariance ready\", covm.length, \"x\", covm[0].length)"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "n = basket.length\n",
+    "ew = [1.0 / n for x in basket]\n",
+    "rp = risk_parity(covm)\n",
+    "hw = hrp(covm)\n",
+    "mv = mean_variance(mu, covm)\n",
+    "print(\" sym | equal | risk_parity | hrp | mean_var\")\n",
+    "i = 0\n",
+    "while i < n:\n",
+    "  print(basket[i], \"|\", r2(ew[i] * 100.0), \"|\", r2(rp[i] * 100.0), \"|\", r2(hw[i] * 100.0), \"|\", r2(mv[i] * 100.0))\n",
+    "  i += 1"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "wdf = DataFrame(sym=basket, risk_parity=[w * 100.0 for w in rp], hrp=[w * 100.0 for w in hw], mean_var=[w * 100.0 for w in mv])\n",
+    "chart.bar(wdf, x=\"sym\", y=[\"risk_parity\", \"hrp\", \"mean_var\"], title=\"Portfolio weights % by method\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "fn port_rets(weights: float[], rows: float[][]) -> float[]:\n",
+    "  t = rows[0].length\n",
+    "  prets = []\n",
+    "  k = 0\n",
+    "  while k < t:\n",
+    "    step = 0.0\n",
+    "    i = 0\n",
+    "    while i < weights.length:\n",
+    "      step += weights[i] * rows[i][k]\n",
+    "      i += 1\n",
+    "    prets.append(step)\n",
+    "    k += 1\n",
+    "  return prets\n",
+    "\n",
+    "print(\" method | annRet% | annVol% | Sharpe | maxDD%\")\n",
+    "for row in [[\"equal \"], [\"riskpar\"], [\"hrp    \"], [\"meanvar\"]]:\n",
+    "  tag = row[0]\n",
+    "  weights = ew\n",
+    "  if tag == \"riskpar\":\n",
+    "    weights = rp\n",
+    "  else if tag == \"hrp    \":\n",
+    "    weights = hw\n",
+    "  else if tag == \"meanvar\":\n",
+    "    weights = mv\n",
+    "  prets = port_rets(weights, rmat)\n",
+    "  eq = cum_equity(prets)\n",
+    "  print(tag, \"|\", r2(mean(prets) * 25200.0), \"|\", r2(stdev(prets) * ann * 100.0), \"|\", r2(sharpe(prets, periods_per_year=252)), \"|\", r2(max_dd(eq) * 100.0))\n",
+    "print(\"meanvar looks great IN-SAMPLE because it already saw the mu it optimizes - never trust it raw\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "days = [i for i in range(t)]\n",
+    "eqdf = DataFrame(day=days, equal=cum_equity(port_rets(ew, rmat)), risk_parity=cum_equity(port_rets(rp, rmat)), hrp=cum_equity(port_rets(hw, rmat)), mean_var=cum_equity(port_rets(mv, rmat)))\n",
+    "chart.line(eqdf, x=\"day\", y=[\"equal\", \"risk_parity\", \"hrp\", \"mean_var\"], title=\"Growth of 1.0 by allocation method 2020-2026\")"
+   ],
+   "outputs": []
+  }
+ ]
+}

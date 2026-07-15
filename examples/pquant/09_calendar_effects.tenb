@@ -1,0 +1,181 @@
+{
+ "nbformat": 4,
+ "nbformat_minor": 5,
+ "metadata": {
+  "kernelspec": {
+   "name": "tera",
+   "display_name": "Tera"
+  },
+  "language_info": {
+   "name": "tera",
+   "file_extension": ".tera"
+  }
+ },
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "fn mean(xs: float[]) -> float:\n",
+    "  s = 0.0\n",
+    "  for x in xs:\n",
+    "    s += x\n",
+    "  return s / xs.length\n",
+    "\n",
+    "fn stdev(xs: float[]) -> float:\n",
+    "  m = mean(xs)\n",
+    "  s = 0.0\n",
+    "  for x in xs:\n",
+    "    s += (x - m) * (x - m)\n",
+    "  return (s / (xs.length - 1)) ** 0.5\n",
+    "\n",
+    "fn rets(px: float[]) -> float[]:\n",
+    "  out = []\n",
+    "  i = 1\n",
+    "  while i < px.length:\n",
+    "    out.append(px[i] / px[i - 1] - 1)\n",
+    "    i += 1\n",
+    "  return out\n",
+    "\n",
+    "fn r2(x: float) -> float:\n",
+    "  return (x * 100.0 - (x * 100.0) % 1.0) / 100.0\n",
+    "\n",
+    "fn max_dd(px: float[]) -> float:\n",
+    "  peak = px[0]\n",
+    "  worst = 0.0\n",
+    "  for v in px:\n",
+    "    if v > peak:\n",
+    "      peak = v\n",
+    "    dd = 1.0 - v / peak\n",
+    "    if dd > worst:\n",
+    "      worst = dd\n",
+    "  return worst\n",
+    "\n",
+    "fn cum_equity(rs: float[]) -> float[]:\n",
+    "  eq = []\n",
+    "  v = 1.0\n",
+    "  for r in rs:\n",
+    "    v = v * (1.0 + r)\n",
+    "    eq.append(v)\n",
+    "  return eq\n",
+    "\n",
+    "print(\"helpers ready\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "cal = load_csv(\"examples/pquant/data/calendar.csv\")\n",
+    "rows = cal.to_array()\n",
+    "crets = [r.ret for r in rows]\n",
+    "wds = [r.weekday for r in rows]\n",
+    "mos = [r.month for r in rows]\n",
+    "poss = [r.pos_in_month for r in rows]\n",
+    "negs = [r.neg_in_month for r in rows]\n",
+    "print(\"VN-Index calendar dataset:\", crets.length, \"sessions 2020-2026\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "day_names = [\"Mon\", \"Tue\", \"Wed\", \"Thu\", \"Fri\"]\n",
+    "by_day = [[], [], [], [], []]\n",
+    "i = 0\n",
+    "while i < crets.length:\n",
+    "  by_day[wds[i]].append(crets[i])\n",
+    "  i += 1\n",
+    "bps = []\n",
+    "pvals = []\n",
+    "print(\" day | avg bps | n | t-test pvalue\")\n",
+    "d = 0\n",
+    "while d < 5:\n",
+    "  tt = t_test_1samp(by_day[d])\n",
+    "  bps.append(mean(by_day[d]) * 10000.0)\n",
+    "  pvals.append(tt.pvalue)\n",
+    "  print(day_names[d], \"|\", r2(bps[d]), \"|\", by_day[d].length, \"|\", tt.pvalue)\n",
+    "  d += 1\n",
+    "ddf = DataFrame(day=day_names, bps=bps)\n",
+    "chart.bar(ddf, x=\"day\", y=\"bps\", title=\"VN-Index avg daily return by weekday (bps)\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "tom = []\n",
+    "mid = []\n",
+    "i = 0\n",
+    "while i < crets.length:\n",
+    "  if poss[i] <= 2 or negs[i] >= -2:\n",
+    "    tom.append(crets[i])\n",
+    "  else:\n",
+    "    mid.append(crets[i])\n",
+    "  i += 1\n",
+    "tt = t_test_ind(tom, mid)\n",
+    "print(\"turn-of-month (first 2 + last 2 sessions): avg\", r2(mean(tom) * 10000.0), \"bps, n =\", tom.length)\n",
+    "print(\"mid-month rest                           : avg\", r2(mean(mid) * 10000.0), \"bps, n =\", mid.length)\n",
+    "print(\"t-test pvalue:\", tt.pvalue, \" significant at 5%?\", tt.pvalue < 0.05)"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "month_names = [\"Jan\", \"Feb\", \"Mar\", \"Apr\", \"May\", \"Jun\", \"Jul\", \"Aug\", \"Sep\", \"Oct\", \"Nov\", \"Dec\"]\n",
+    "msum = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]\n",
+    "mcnt = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]\n",
+    "i = 0\n",
+    "while i < crets.length:\n",
+    "  msum[mos[i] - 1] += crets[i]\n",
+    "  mcnt[mos[i] - 1] += 1\n",
+    "  i += 1\n",
+    "mbps = []\n",
+    "m = 0\n",
+    "while m < 12:\n",
+    "  mbps.append(msum[m] / mcnt[m] * 10000.0)\n",
+    "  m += 1\n",
+    "mdf = DataFrame(month=month_names, bps=mbps)\n",
+    "chart.bar(mdf, x=\"month\", y=\"bps\", title=\"VN-Index avg daily return by month (bps)\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "summer = []\n",
+    "winter = []\n",
+    "i = 0\n",
+    "while i < crets.length:\n",
+    "  if mos[i] >= 5 and mos[i] <= 10:\n",
+    "    summer.append(crets[i])\n",
+    "  else:\n",
+    "    winter.append(crets[i])\n",
+    "  i += 1\n",
+    "tt2 = t_test_ind(winter, summer)\n",
+    "print(\"sell in May? Nov-Apr avg\", r2(mean(winter) * 10000.0), \"bps vs May-Oct avg\", r2(mean(summer) * 10000.0), \"bps, pvalue\", tt2.pvalue)\n",
+    "n_tests = 5 + 12 + 2\n",
+    "sig05 = 0\n",
+    "for p in pvals:\n",
+    "  if p < 0.05:\n",
+    "    sig05 += 1\n",
+    "print(\"we ran\", n_tests, \"tests - at 5% expect ~1 false positive by pure luck\")\n",
+    "print(\"weekday effects below raw 0.05:\", sig05, \"  Bonferroni threshold:\", 0.05 / n_tests)\n",
+    "print(\"lesson: calendar anomalies must clear multiple-testing corrected thresholds, not raw 0.05\")"
+   ],
+   "outputs": []
+  }
+ ]
+}

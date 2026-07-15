@@ -1,0 +1,9 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <title>Tera</title>
+  <rect width="256" height="256" rx="48" fill="#0f172a"/>
+  <g fill="#7df2d4">
+    <rect x="32" y="40" width="192" height="36" rx="6"/>
+    <rect x="67" y="92" width="122" height="32" rx="6" opacity="0.65"/>
+    <rect x="103" y="140" width="50" height="84" rx="6" opacity="0.4"/>
+  </g>
+</svg>

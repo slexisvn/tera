@@ -1,0 +1,64 @@
+name: Deploy notebook to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 24
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout tera
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install tera dependencies
+        run: npm ci
+
+      - name: Build tera browser bundles
+        run: npm run build
+
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p _site
+          cp notebook/index.html _site/
+          cp notebook/notebook.css _site/
+          mkdir -p _site/chart _site/dist
+          cp notebook/chart/chart.css _site/chart/
+          cp -R notebook/dist/. _site/dist/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

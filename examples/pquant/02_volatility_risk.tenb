@@ -1,0 +1,216 @@
+{
+ "nbformat": 4,
+ "nbformat_minor": 5,
+ "metadata": {
+  "kernelspec": {
+   "name": "tera",
+   "display_name": "Tera"
+  },
+  "language_info": {
+   "name": "tera",
+   "file_extension": ".tera"
+  }
+ },
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "data = load_json(\"examples/pquant/data/prices.json\")\n",
+    "dates = data[\"_dates\"]\n",
+    "syms = [\"FPT\", \"CMG\", \"VCB\", \"BID\", \"CTG\", \"TCB\", \"MBB\", \"ACB\", \"VPB\", \"STB\", \"VIC\", \"VHM\", \"KDH\", \"NLG\", \"HPG\", \"HSG\", \"NKG\", \"MWG\", \"VNM\", \"MSN\", \"PNJ\", \"SSI\", \"VND\", \"HCM\", \"VCI\", \"GAS\", \"POW\", \"PLX\", \"VJC\", \"DGC\"]\n",
+    "ann = 252.0 ** 0.5\n",
+    "print(\"HOSE aligned:\", syms.length, \"tickers,\", dates.length, \"sessions,\", dates[0], \"->\", dates[dates.length - 1])"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "fn mean(xs: float[]) -> float:\n",
+    "  s = 0.0\n",
+    "  for x in xs:\n",
+    "    s += x\n",
+    "  return s / xs.length\n",
+    "\n",
+    "fn stdev(xs: float[]) -> float:\n",
+    "  m = mean(xs)\n",
+    "  s = 0.0\n",
+    "  for x in xs:\n",
+    "    s += (x - m) * (x - m)\n",
+    "  return (s / (xs.length - 1)) ** 0.5\n",
+    "\n",
+    "fn rets(px: float[]) -> float[]:\n",
+    "  out = []\n",
+    "  i = 1\n",
+    "  while i < px.length:\n",
+    "    out.append(px[i] / px[i - 1] - 1)\n",
+    "    i += 1\n",
+    "  return out\n",
+    "\n",
+    "fn r2(x: float) -> float:\n",
+    "  return (x * 100.0 - (x * 100.0) % 1.0) / 100.0\n",
+    "\n",
+    "fn max_dd(px: float[]) -> float:\n",
+    "  peak = px[0]\n",
+    "  worst = 0.0\n",
+    "  for v in px:\n",
+    "    if v > peak:\n",
+    "      peak = v\n",
+    "    dd = 1.0 - v / peak\n",
+    "    if dd > worst:\n",
+    "      worst = dd\n",
+    "  return worst\n",
+    "\n",
+    "fn cum_equity(rs: float[]) -> float[]:\n",
+    "  eq = []\n",
+    "  v = 1.0\n",
+    "  for r in rs:\n",
+    "    v = v * (1.0 + r)\n",
+    "    eq.append(v)\n",
+    "  return eq\n",
+    "\n",
+    "print(\"helpers ready\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "r_fpt = rets(data[\"FPT\"])\n",
+    "jb = jarque_bera(r_fpt)\n",
+    "print(\"FPT daily returns 2020-2026: mean\", r2(mean(r_fpt) * 100.0), \"% sd\", r2(stdev(r_fpt) * 100.0), \"%\")\n",
+    "print(\"jarque-bera stat\", r2(jb.statistic), \" pvalue\", jb.pvalue, \" normal?\", jb.pvalue > 0.05)\n",
+    "chart.histogram(r_fpt, bins=60, title=\"FPT daily returns (fat tails vs normal)\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "abs_r = []\n",
+    "for x in r_fpt:\n",
+    "  a = x\n",
+    "  if a < 0.0:\n",
+    "    a = 0.0 - a\n",
+    "  abs_r.append(a)\n",
+    "lb_r = ljung_box(r_fpt, lags=10)\n",
+    "lb_a = ljung_box(abs_r, lags=10)\n",
+    "print(\"ljung-box returns      p =\", lb_r.pvalue, \" autocorrelated?\", lb_r.pvalue < 0.05)\n",
+    "print(\"ljung-box |returns|    p =\", lb_a.pvalue, \" vol clustering?\", lb_a.pvalue < 0.05)\n",
+    "chart.line(acf(abs_r, nlags=15), title=\"ACF of |returns| (persistence = volatility clustering)\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "g = fit_garch(r_fpt)\n",
+    "print(\"GARCH(1,1) omega\", g.params.omega, \" alpha\", r2(g.params.alpha), \" beta\", r2(g.params.beta))\n",
+    "print(\"persistence\", g.persistence, \" unconditional annVol\", r2((g.unconditionalVariance ** 0.5) * ann * 100.0), \"%\")\n",
+    "cvol = garch_volatility(r_fpt, g.params)\n",
+    "cvol_ann = [v * ann * 100.0 for v in cvol]\n",
+    "chart.line(cvol_ann, title=\"FPT conditional volatility %ann (GARCH) 2020-2026\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "fc = garch_forecast(r_fpt, g.params, 20)\n",
+    "fc_ann = [(v ** 0.5) * ann * 100.0 for v in fc]\n",
+    "print(\"today condVol\", r2(cvol_ann[cvol_ann.length - 1]), \"%  20d-ahead forecast\", r2(fc_ann[fc_ann.length - 1]), \"%\")\n",
+    "chart.line(fc_ann, title=\"GARCH vol forecast next 20 sessions %ann\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "fn k_smallest(xs: float[], k: float) -> float[]:\n",
+    "  picked = []\n",
+    "  for v in xs:\n",
+    "    picked.append(false)\n",
+    "  out = []\n",
+    "  while out.length < k:\n",
+    "    bi = -1\n",
+    "    i = 0\n",
+    "    while i < xs.length:\n",
+    "      if picked[i] == false:\n",
+    "        if bi == -1:\n",
+    "          bi = i\n",
+    "        else if xs[i] < xs[bi]:\n",
+    "          bi = i\n",
+    "      i += 1\n",
+    "    picked[bi] = true\n",
+    "    out.append(xs[bi])\n",
+    "  return out\n",
+    "\n",
+    "fn var_es(r: float[], q: float) -> float[]:\n",
+    "  tail = k_smallest(r, q * r.length)\n",
+    "  return [0.0 - tail[tail.length - 1], 0.0 - mean(tail)]\n",
+    "\n",
+    "for tag in [\"FPT\", \"VNINDEX\"]:\n",
+    "  r = rets(data[tag])\n",
+    "  v95 = var_es(r, 0.05)\n",
+    "  v99 = var_es(r, 0.01)\n",
+    "  print(tag, \" VaR95\", r2(v95[0] * 100.0), \"% ES95\", r2(v95[1] * 100.0), \"% | VaR99\", r2(v99[0] * 100.0), \"% ES99\", r2(v99[1] * 100.0), \"%\")\n",
+    "print(\"with ~1500 obs the 1% tail holds ~15 points - VaR99/ES99 are finally estimable\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "target = 0.20\n",
+    "lev = []\n",
+    "for v in cvol:\n",
+    "  l = target / (v * ann)\n",
+    "  if l > 2.0:\n",
+    "    l = 2.0\n",
+    "  lev.append(l)\n",
+    "scaled = []\n",
+    "i = 1\n",
+    "while i < r_fpt.length:\n",
+    "  scaled.append(lev[i - 1] * r_fpt[i])\n",
+    "  i += 1\n",
+    "print(\"vol targeting 20%: raw annVol\", r2(stdev(r_fpt) * ann * 100.0), \"% -> scaled\", r2(stdev(scaled) * ann * 100.0), \"%\")\n",
+    "print(\"raw Sharpe\", r2(sharpe(r_fpt, periods_per_year=252)), \" scaled Sharpe\", r2(sharpe(scaled, periods_per_year=252)))\n",
+    "chart.line(lev, title=\"Vol-target leverage (cap 2x)\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "vni = data[\"VNINDEX\"]\n",
+    "peak = vni[0]\n",
+    "dd = []\n",
+    "for v in vni:\n",
+    "  if v > peak:\n",
+    "    peak = v\n",
+    "  dd.append((v / peak - 1.0) * 100.0)\n",
+    "print(\"VN-Index max drawdown 2020-2026:\", r2(max_dd(vni) * 100.0), \"% (the 2022 bear market)\")\n",
+    "chart.area(dd, title=\"VN-Index drawdown % (underwater curve)\")"
+   ],
+   "outputs": []
+  }
+ ]
+}

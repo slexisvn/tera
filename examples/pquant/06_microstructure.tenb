@@ -1,0 +1,158 @@
+{
+ "nbformat": 4,
+ "nbformat_minor": 5,
+ "metadata": {
+  "kernelspec": {
+   "name": "tera",
+   "display_name": "Tera"
+  },
+  "language_info": {
+   "name": "tera",
+   "file_extension": ".tera"
+  }
+ },
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "ticks = load_csv(\"examples/pquant/data/fpt_1m.csv\")\n",
+    "rows = ticks.to_array()\n",
+    "prices = [r.price for r in rows]\n",
+    "vols = [r.volume for r in rows]\n",
+    "print(\"FPT 1-minute bars:\", prices.length, \" last 2 weeks of 2026\")\n",
+    "chart.line(prices, title=\"FPT 1m price\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "fn mean(xs: float[]) -> float:\n",
+    "  s = 0.0\n",
+    "  for x in xs:\n",
+    "    s += x\n",
+    "  return s / xs.length\n",
+    "\n",
+    "fn stdev(xs: float[]) -> float:\n",
+    "  m = mean(xs)\n",
+    "  s = 0.0\n",
+    "  for x in xs:\n",
+    "    s += (x - m) * (x - m)\n",
+    "  return (s / (xs.length - 1)) ** 0.5\n",
+    "\n",
+    "fn rets(px: float[]) -> float[]:\n",
+    "  out = []\n",
+    "  i = 1\n",
+    "  while i < px.length:\n",
+    "    out.append(px[i] / px[i - 1] - 1)\n",
+    "    i += 1\n",
+    "  return out\n",
+    "\n",
+    "fn r2(x: float) -> float:\n",
+    "  return (x * 100.0 - (x * 100.0) % 1.0) / 100.0\n",
+    "\n",
+    "fn max_dd(px: float[]) -> float:\n",
+    "  peak = px[0]\n",
+    "  worst = 0.0\n",
+    "  for v in px:\n",
+    "    if v > peak:\n",
+    "      peak = v\n",
+    "    dd = 1.0 - v / peak\n",
+    "    if dd > worst:\n",
+    "      worst = dd\n",
+    "  return worst\n",
+    "\n",
+    "fn cum_equity(rs: float[]) -> float[]:\n",
+    "  eq = []\n",
+    "  v = 1.0\n",
+    "  for r in rs:\n",
+    "    v = v * (1.0 + r)\n",
+    "    eq.append(v)\n",
+    "  return eq\n",
+    "\n",
+    "print(\"helpers ready\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "tot_vol = 0.0\n",
+    "tot_usd = 0.0\n",
+    "i = 0\n",
+    "while i < prices.length:\n",
+    "  tot_vol += vols[i]\n",
+    "  tot_usd += vols[i] * prices[i]\n",
+    "  i += 1\n",
+    "vb = volume_bars(ticks, tot_vol / 60.0)\n",
+    "db = dollar_bars(ticks, tot_usd / 60.0)\n",
+    "print(\"time bars:\", prices.length, \" -> volume bars:\", vb.count(), \" dollar bars:\", db.count())\n",
+    "print(\"idea: sample by activity, not by clock (Lopez de Prado)\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "vcloses = [r.close for r in vb.to_array()]\n",
+    "chart.line(vcloses, title=\"FPT close sampled by VOLUME bars (info-time)\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "signs = tick_rule(prices)\n",
+    "flow = []\n",
+    "c = 0.0\n",
+    "for s in signs:\n",
+    "  c += s\n",
+    "  flow.append(c)\n",
+    "print(\"tick-rule net signed flow (end):\", flow[flow.length - 1], \"of\", signs.length, \"ticks\")\n",
+    "chart.line(flow, title=\"Cumulative order-flow imbalance (tick rule)\")"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "r1 = rets(prices)\n",
+    "dv = []\n",
+    "i = 1\n",
+    "while i < prices.length:\n",
+    "  dv.append(prices[i] * vols[i])\n",
+    "  i += 1\n",
+    "spr = roll_spread(prices)\n",
+    "lam = kyle_lambda(prices, vols)\n",
+    "ami = amihud(r1, dv)\n",
+    "print(\"Roll implied spread:\", r2(spr / prices[prices.length - 1] * 10000.0), \"bps\")\n",
+    "print(\"Kyle lambda (price impact / share):\", lam)\n",
+    "print(\"Amihud illiquidity (|ret| per value traded):\", ami)"
+   ],
+   "outputs": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "source": [
+    "vp = vpin(ticks, tot_vol / 50.0, window=20)\n",
+    "print(\"VPIN last:\", r2(vp[vp.length - 1]), \" (0=balanced flow, ->1=toxic one-sided flow)\")\n",
+    "chart.line(vp, title=\"VPIN order-flow toxicity (FPT)\")"
+   ],
+   "outputs": []
+  }
+ ]
+}
