@@ -1,4 +1,4 @@
-import * as fw from '../index.js';
+import { tensor } from '@slexisvn/mlfw';
 import {
   createEngine, DataFrame, Col, InMemoryRelation,
   col as qcol, lit as qlit, expr as qexpr,
@@ -96,7 +96,7 @@ async function dfToTensor(df, cols) {
       flat[idx++] = v;
     }
   }
-  return fw.tensor(flat, { shape: [n, k] });
+  return tensor(flat, { shape: [n, k] });
 }
 
 async function dfEncode(df, column, knownClasses) {
@@ -117,7 +117,7 @@ async function dfEncode(df, column, knownClasses) {
     }
     encoded[i] = idx;
   }
-  return [fw.tensor(encoded, { shape: [encoded.length] }), classes];
+  return [tensor(encoded, { shape: [encoded.length] }), classes];
 }
 
 DataFrame.prototype.toTensor = function (...cols) { return dfToTensor(this, cols); };

@@ -1,15 +1,13 @@
-import * as fw from '../index.js';
-import { Module } from '../nn/module.js';
-import { LightningModule } from '../lightning/core/module.js';
-
-import { Tensor } from '../tensor/core/tensor.js';
-import { setDefaultDevice, WASM_DEVICE, WEBGPU_DEVICE, GPU_DEVICE } from '../tensor/types/device.js';
-import { preloadWebGPU, preloadCudaRuntime } from '../runtime/backend_registry.js';
-import { flushWebGPUEager } from '../runtime/webgpu.js';
-import { GradMode } from '../autograd/grad_mode.js';
-import { SymbolicTensor } from '../tracing/symbolic_tensor.js';
-import { compile as tracingCompile } from '../tracing/compile.js';
-import { TraceLevel } from '../compiler/pipeline/trace.js';
+import {
+  Module, LightningModule, Tensor,
+  setDefaultDevice, WASM_DEVICE, WEBGPU_DEVICE, GPU_DEVICE,
+  preloadWebGPU, preloadCudaRuntime, flushWebGPUEager,
+  GradMode, SymbolicTensor, compile as tracingCompile, TraceLevel,
+  tensor, ones,
+  add, sub, mul, div, neg, pow, matmul, sign, floor, abs,
+  eq, ne, lt, le, gt, ge,
+  CPUTarget, CUDATarget, WasmTarget, WebGPUTarget,
+} from '@slexisvn/mlfw';
 import { parse } from './parser.js';
 import { CompiledProgramView, formatTrace } from './format.js';
 import { installBuiltins, installSignatures, takeNamed, createDataFrameFromColumns, setUploadedCsv, removeUploadedCsv, beginUploadedCsv, resolveDeviceName, saveModelCheckpoint } from './builtins.js';
@@ -198,14 +196,14 @@ export class TeraRuntime {
   }
 
   applyUnaryMinus(value) {
-    if (isTensorValue(value)) return fw.neg(value);
+    if (isTensorValue(value)) return neg(value);
     return -value;
   }
 
   applyUnaryNot(value) {
     if (isTensorValue(value)) {
-      const one = fw.ones(value.shape, { dtype: value.dtype, device: value.device });
-      return fw.sub(one, value);
+      const one = ones(value.shape, { dtype: value.dtype, device: value.device });
+      return sub(one, value);
     }
     return !value;
   }
@@ -231,14 +229,14 @@ export class TeraRuntime {
     }
     [left, right] = promoteScalars(left, right);
     const fn = {
-      '+': fw.add, '-': fw.sub, '*': fw.mul, '/': fw.div, '**': fw.pow, '@': fw.matmul,
+      '+': add, '-': sub, '*': mul, '/': div, '**': pow, '@': matmul,
       '%': (a, b) => {
-        const q = fw.div(a, b);
-        return fw.sub(a, fw.mul(fw.mul(fw.sign(q), fw.floor(fw.abs(q))), b));
+        const q = div(a, b);
+        return sub(a, mul(mul(sign(q), floor(abs(q))), b));
       },
-      '==': fw.eq, '!=': fw.ne, '<': fw.lt, '<=': fw.le, '>': fw.gt, '>=': fw.ge,
-      'and': fw.mul,
-      'or': (a, b) => fw.sub(fw.add(a, b), fw.mul(a, b)),
+      '==': eq, '!=': ne, '<': lt, '<=': le, '>': gt, '>=': ge,
+      'and': mul,
+      'or': (a, b) => sub(add(a, b), mul(a, b)),
     }[op];
     if (!fn) throw new Error(`Unsupported operator '${op}'`);
     return fn(left, right);
@@ -583,7 +581,7 @@ export class TeraRuntime {
     }
 
     const targetName = named.target ?? 'wasm';
-    const target = targetName === 'gpu' ? fw.CUDATarget() : targetName === 'wasm' ? fw.WasmTarget() : targetName === 'webgpu' ? fw.WebGPUTarget() : fw.CPUTarget();
+    const target = targetName === 'gpu' ? CUDATarget() : targetName === 'wasm' ? WasmTarget() : targetName === 'webgpu' ? WebGPUTarget() : CPUTarget();
     const debug = named.debug ?? false;
     const showSnippet = named.snippet ?? false;
 
@@ -686,8 +684,8 @@ function promoteScalars(left, right) {
   const reference = left instanceof Tensor ? left : right instanceof Tensor ? right : null;
   if (!reference) return [left, right];
   const options = { dtype: reference.dtype, device: reference.device };
-  if (!isTensorValue(left)) left = fw.tensor(left, options);
-  if (!isTensorValue(right)) right = fw.tensor(right, options);
+  if (!isTensorValue(left)) left = tensor(left, options);
+  if (!isTensorValue(right)) right = tensor(right, options);
   return [left, right];
 }
 

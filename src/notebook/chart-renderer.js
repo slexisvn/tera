@@ -1,5 +1,5 @@
 import { renderChart } from './chart/index.js';
-import chartCss from './chart/chart.css';
+import chartCss from '../../notebook/chart/chart.css';
 
 const THEME_CSS = `
 .tera-chart-output {

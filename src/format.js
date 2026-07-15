@@ -1,5 +1,4 @@
-import { Tensor } from '../tensor/core/tensor.js';
-import { Module } from '../nn/module.js';
+import { Module, Tensor } from '@slexisvn/mlfw';
 
 export function formatValueCompact(value) {
   if (value instanceof Tensor) {

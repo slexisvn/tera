@@ -1,4 +1,4 @@
-import { CsvStreamParser } from './dist/csv.esm.js';
+import { CsvStreamParser } from '../csv.js';
 
 const BATCH_ROWS = 16384;
 

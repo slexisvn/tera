@@ -1,6 +1,4 @@
-import * as ml from '../ml/index.js';
-import * as linalg from '../tensor/ops/linalg.js';
-import { Tensor } from '../tensor/core/tensor.js';
+import { Tensor, linalg, ml } from '@slexisvn/mlfw';
 import { takeNamed } from './named_args.js';
 import { snakeNamedToCamel } from './builtins.js';
 

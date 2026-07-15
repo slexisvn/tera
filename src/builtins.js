@@ -1,21 +1,24 @@
-import * as fw from '../index.js';
-import * as ops from '../tensor/ops/ops.js';
-import { Tensor } from '../tensor/core/tensor.js';
-import { CPU_DEVICE, GPU_DEVICE, WASM_DEVICE, WEBGPU_DEVICE } from '../tensor/types/device.js';
-import { flushWebGPUEager } from '../runtime/webgpu.js';
 import { CompiledProgramView, formatTrace, formatValue, formatValueCompact } from './format.js';
-import { printModule } from '../compiler/ir/graph/printer.js';
-import { DataLoader, TensorDataset } from '../data/index.js';
-import { Tokenizer } from '../tokenizer/index.js';
-import { SGD, Adam, AdamW, StepLR, CosineAnnealingLR, ReduceLROnPlateau } from '../optim/index.js';
 import {
+  ops, Tensor, CPU_DEVICE, GPU_DEVICE, WASM_DEVICE, WEBGPU_DEVICE,
+  flushWebGPUEager, printModule,
+  tensor, zeros, ones, empty, full, randn, arange, eye, linspace, randperm,
+  zerosLike, onesLike, emptyLike, fullLike, randnLike,
+  where, cat, stack,
+  Linear, ReLU, GELU, SiLU, Sigmoid, Tanh, LeakyReLU, ELU,
+  Softmax, LogSoftmax, Flatten, Dropout, LayerNorm, BatchNorm1d,
+  BatchNorm2d, Conv1d, Conv2d, MaxPool2d, AvgPool2d,
+  AdaptiveAvgPool2d, Embedding, GRU, GRUCell, LSTM, LSTMCell,
+  CrossEntropyLoss, MSELoss, NLLLoss, BCELoss, Sequential,
+  DataLoader, TensorDataset, Tokenizer,
+  SGD, Adam, AdamW, StepLR, CosineAnnealingLR, ReduceLROnPlateau,
   Trainer, EarlyStopping, ModelCheckpoint, ProgressCallback,
   LearningRateMonitor, Timer, GradientAccumulationScheduler,
   ConsoleLogger, CSVLogger,
   Accuracy, Precision, Recall, F1Score, ConfusionMatrix, MetricCollection,
   serializeCheckpoint, loadCheckpoint, applyCheckpoint,
-} from '../lightning/index.js';
-import { fs } from '#io/fs';
+  memfs as fs,
+} from '@slexisvn/mlfw';
 import { takeNamed } from './named_args.js';
 import {
   DataFrame, createDataFrame, createDataFrameFromColumns,
@@ -42,6 +45,21 @@ export const MODULES = [
   'BCELoss',
 ];
 
+const FACTORY_IMPLS = {
+  tensor, zeros, ones, empty, full, randn, arange, eye, linspace, randperm,
+  zerosLike, onesLike, emptyLike, fullLike, randnLike,
+};
+
+const FREE_TENSOR_IMPLS = { where, cat, stack };
+
+const MODULE_IMPLS = {
+  Linear, ReLU, GELU, SiLU, Sigmoid, Tanh, LeakyReLU, ELU,
+  Softmax, LogSoftmax, Flatten, Dropout, LayerNorm, BatchNorm1d,
+  BatchNorm2d, Conv1d, Conv2d, MaxPool2d, AvgPool2d,
+  AdaptiveAvgPool2d, Embedding, GRU, GRUCell, LSTM, LSTMCell,
+  CrossEntropyLoss, MSELoss, NLLLoss, BCELoss,
+};
+
 export function saveModelCheckpoint(model, path) {
   if (!model || typeof model.stateDict !== 'function') throw new Error('save() requires a model');
   if (typeof path !== 'string') throw new Error('save() requires a file path string');
@@ -51,13 +69,13 @@ export function saveModelCheckpoint(model, path) {
 }
 
 export function installBuiltins(runtime, define) {
-  for (const name of FACTORIES) define(name, (...args) => callWithOptions(fw[name], args));
-  for (const name of FREE_TENSOR_FUNCTIONS) define(name, (...args) => callWithOptions(fw[name] ?? ops[name], args));
-  for (const name of MODULES) define(name, (...args) => constructWithNamed(fw[name], args));
+  for (const name of FACTORIES) define(name, (...args) => callWithOptions(FACTORY_IMPLS[name], args));
+  for (const name of FREE_TENSOR_FUNCTIONS) define(name, (...args) => callWithOptions(FREE_TENSOR_IMPLS[name] ?? ops[name], args));
+  for (const name of MODULES) define(name, (...args) => constructWithNamed(MODULE_IMPLS[name], args));
 
   installQueryBuiltins(define);
 
-  define('Sequential', (...args) => new fw.Sequential(...args));
+  define('Sequential', (...args) => new Sequential(...args));
 
   define('range', (...args) => {
     let start = 0, stop, step = 1;
@@ -214,8 +232,8 @@ export function resolveDeviceName(name) {
 function constructWithNamed(Type, args) {
   const named = takeNamed(args);
   delete named.__named;
-  if (Type === fw.Softmax || Type === fw.LogSoftmax) return new Type(named.axis ?? args[0] ?? -1);
-  if (Type === fw.Conv1d || Type === fw.Conv2d) return new Type(...args, named);
+  if (Type === Softmax || Type === LogSoftmax) return new Type(named.axis ?? args[0] ?? -1);
+  if (Type === Conv1d || Type === Conv2d) return new Type(...args, named);
   return new Type(...args, ...Object.values(named));
 }
 

@@ -1,5 +1,4 @@
-import * as numeric from '../numeric/index.js';
-import * as ops from '../tensor/ops/ops.js';
+import { numeric, ops } from '@slexisvn/mlfw';
 import { takeNamed } from './named_args.js';
 import { snakeNamedToCamel } from './builtins.js';
 

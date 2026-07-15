@@ -1,4 +1,6 @@
-import { TeraRuntime, formatValue, memfs } from '../dist/index.js';
+import { memfs } from '@slexisvn/mlfw';
+import { formatValue } from '../format.js';
+import { TeraRuntime } from '../runtime.js';
 import { createChartApi, isChartSpec } from './chart/index.js';
 
 const DF_PREVIEW_ROWS = 50;

@@ -1,4 +1,4 @@
-import { dispatcher } from '../dispatcher/dispatcher.js';
+import { dispatcher } from '@slexisvn/mlfw';
 
 export class SignatureRegistry {
   constructor() {

@@ -1,4 +1,6 @@
-import { CsvStreamParser, analyzeDocument, buildMethodReturns } from './dist/mlfw.esm.js';
+import { analyzeDocument } from '../check.js';
+import { CsvStreamParser } from '../csv-core.js';
+import { buildMethodReturns } from '../method_returns.js';
 import { renderChart } from './chart/index.js';
 import { CHART_METHOD_DOCS, chartMethodOwner } from './chart/docs.js';
 import { highlightHtml, TYPE_SET } from './highlight.js';
@@ -6,8 +8,8 @@ import { initNotebookDocs, setNotebookDocsError, updateNotebookDocs } from './te
 import { appendInlineCode } from './format.js';
 import { serializeNotebook, parseNotebook } from './tenb.js';
 
-const STORAGE_KEY = 'mlfw-notebook-v1';
-const THEME_KEY = 'mlfw-notebook-theme';
+const STORAGE_KEY = 'tera-notebook-v1';
+const THEME_KEY = 'tera-notebook-theme';
 
 const KEYWORDS = [
   'model', 'forward', 'train', 'validate', 'optimizer', 'return', 'fn',
