@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, copyFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -59,3 +59,5 @@ await Promise.all([
     outfile: resolve(notebookDist, 'csv-worker.js'),
   }),
 ]);
+
+copyFileSync(resolve(root, 'vscode-ext/language-data.json'), resolve(root, 'notebook/dist/language-data.json'));
