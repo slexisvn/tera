@@ -58,6 +58,13 @@ await Promise.all([
     entryPoints: [resolve(root, 'src/notebook/csv-worker.js')],
     outfile: resolve(notebookDist, 'csv-worker.js'),
   }),
+  build({
+    ...shared,
+    platform: 'browser',
+    entryPoints: [resolve(root, 'src/notebook/kernel-worker.js')],
+    plugins: [optionalDistributedPlugin],
+    outfile: resolve(notebookDist, 'kernel-worker.js'),
+  }),
 ]);
 
 copyFileSync(resolve(root, 'vscode-ext/language-data.json'), resolve(root, 'notebook/dist/language-data.json'));
