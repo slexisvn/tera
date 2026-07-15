@@ -40,14 +40,14 @@ await Promise.all([
     ...shared,
     platform: 'node',
     entryPoints: [resolve(root, 'src/index.js')],
-    outfile: resolve(dist, 'index.node.js'),
+    outfile: resolve(dist, 'index.js'),
     external: [...dependencyNames, '*.node'],
   }),
   build({
     ...shared,
     platform: 'browser',
     entryPoints: [resolve(root, 'src/notebook/index.js')],
-    outfile: resolve(dist, 'index.browser.js'),
+    outfile: resolve(notebookDist, 'index.js'),
     define: { 'process.env.NODE_ENV': '"production"' },
     plugins: [optionalDistributedPlugin],
     external: ['*.node'],
@@ -59,5 +59,3 @@ await Promise.all([
     outfile: resolve(notebookDist, 'csv-worker.js'),
   }),
 ]);
-
-console.log('Build written to dist/index.node.js, dist/index.browser.js, and notebook/dist/csv-worker.js.');
