@@ -25,16 +25,6 @@ const shared = {
   logLevel: 'info',
 };
 
-const optionalDistributedPlugin = {
-  name: 'optional-distributed-query-engine',
-  setup(build) {
-    build.onResolve({ filter: /distributed\/.*\.js$/ }, (args) => ({
-      path: args.path,
-      external: true,
-    }));
-  },
-};
-
 await Promise.all([
   build({
     ...shared,
@@ -49,7 +39,6 @@ await Promise.all([
     entryPoints: [resolve(root, 'src/notebook/index.js')],
     outfile: resolve(notebookDist, 'index.js'),
     define: { 'process.env.NODE_ENV': '"production"' },
-    plugins: [optionalDistributedPlugin],
     external: ['*.node'],
   }),
   build({
@@ -62,7 +51,6 @@ await Promise.all([
     ...shared,
     platform: 'browser',
     entryPoints: [resolve(root, 'src/notebook/kernel-worker.js')],
-    plugins: [optionalDistributedPlugin],
     outfile: resolve(notebookDist, 'kernel-worker.js'),
   }),
 ]);
