@@ -1,21 +1,13 @@
 import fs from 'node:fs';
 import { TeraRuntime } from './runtime.js';
 import { checkSource } from './check.js';
-import { buildMethodReturns } from './method_returns.js';
+import { defaultMethodReturns } from './default_method_returns.js';
 import { formatValue } from './format.js';
 import { formatDiagnostic } from './diagnostics.js';
 import { startRepl } from './repl.js';
 
-let cachedMethodReturns;
 function methodReturns() {
-  if (cachedMethodReturns !== undefined) return cachedMethodReturns;
-  try {
-    const url = new URL('../../vscode-ext/language-data.json', import.meta.url);
-    cachedMethodReturns = buildMethodReturns(JSON.parse(fs.readFileSync(url, 'utf8')));
-  } catch {
-    cachedMethodReturns = null;
-  }
-  return cachedMethodReturns;
+  return defaultMethodReturns();
 }
 
 export const CLI_USAGE = `Usage:
@@ -82,7 +74,7 @@ export async function executeSource(source, {
   try {
     const { diagnostics } = checkSource(source, { methodReturns: methodReturns() });
     if (reportDiagnostics(diagnostics, source, filename, stderr)) return 1;
-    const result = await new TeraRuntime({ output: stdout }).execute(source);
+    const result = await new TeraRuntime({ output: stdout }).executeAsync(source);
     const text = formatValue(result);
     if (text) stdout(text);
     return 0;

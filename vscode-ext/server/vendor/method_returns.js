@@ -1,4 +1,6 @@
 import { ANY, INT, FLOAT, STRING, BOOL, NONE, TENSOR, listType, moduleType } from './types.js';
+import { isAsyncEffect } from './effects.js';
+import { methodEffect } from './effects.js';
 
 export const MULTI_OUTPUT_MODULES = new Set(['LSTM', 'GRU', 'LSTMCell', 'GRUCell']);
 
@@ -27,9 +29,10 @@ export function buildMethodReturns(languageData) {
   const record = (typeName, methods) => {
     let map = methodReturns.get(typeName);
     for (const method of methods) {
-      if (!method.returns) continue;
+      const effect = method.effect ?? methodEffect(typeName, method.name);
+      if (!method.returns && !isAsyncEffect(effect)) continue;
       if (!map) { map = new Map(); methodReturns.set(typeName, map); }
-      map.set(method.name, resolveReturn(method.returns));
+      map.set(method.name, { type: resolveReturn(method.returns), effect, teraOwned: true });
     }
   };
   for (const [typeName, entry] of Object.entries(languageData.pseudoTypes ?? {})) record(typeName, methodsOf(entry));

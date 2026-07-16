@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { TeraRuntime } from '../../src/cli/runtime.js';
-import { formatValue } from '../../src/cli/format.js';
-import { CsvStreamParser } from '../../src/cli/csv.js';
+import { TeraRuntime } from '../src/runtime.js';
+import { formatValue } from '../src/format.js';
+import { CsvStreamParser } from '../src/csv.js';
 
 describe('Tera', () => {
   it('evaluates tensor expressions including matmul', async () => {
@@ -198,8 +198,8 @@ describe('Tera', () => {
 
   it('reports runtime errors at the source expression', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await expect(runtime.execute('x = tensor([1])\nmissing(x)'))
-      .rejects.toThrow(/Unknown name 'missing' at 2:1/);
+    expect(() => runtime.execute('x = tensor([1])\nmissing(x)'))
+      .toThrow(/Unknown name 'missing' at 2:1/);
   });
 
   it('supports basic autograd builtins', async () => {
@@ -256,7 +256,7 @@ describe('Tera', () => {
 
   it('rejects compound assignment on undefined variable', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await expect(runtime.execute('x += 1')).rejects.toThrow(/Unknown name 'x'/);
+    expect(() => runtime.execute('x += 1')).toThrow(/Unknown name 'x'/);
   });
 
   it('defines and calls user functions', async () => {
@@ -388,8 +388,8 @@ else: 3`)).toBe(3);
 
   it('rejects invalid indexing forms', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await expect(runtime.execute('tensor([1])[]')).rejects.toThrow(/Expected index expression/);
-    await expect(runtime.execute('tensor([1, 2])[::0]')).rejects.toThrow(/Slice step must be a positive integer/);
+    expect(() => runtime.execute('tensor([1])[]')).toThrow(/Expected index expression/);
+    expect(() => runtime.execute('tensor([1, 2])[::0]')).toThrow(/Slice step must be a positive integer/);
   });
 
   it('streams a CSV into row batches', async () => {
@@ -420,11 +420,11 @@ else: 3`)).toBe(3);
     handle.finish();
 
     // Repeated load_csv calls reuse the one registered relation.
-    expect(await runtime.execute('load_csv("sales.csv").count()')).toBe(3);
-    expect(await runtime.execute('load_csv("sales.csv").groupBy("city").agg(sum("amount")).orderBy("city").collect()'))
+    expect(await runtime.executeAsync('load_csv("sales.csv").count()')).toBe(3);
+    expect(await runtime.executeAsync('load_csv("sales.csv").groupBy("city").agg(sum("amount")).orderBy("city").collect()'))
       .toEqual([{ city: 'HN', sum: 180 }, { city: 'SG', sum: 250 }]);
 
     runtime.removeUploadedCsv('sales.csv');
-    await expect(runtime.execute('load_csv("sales.csv")')).rejects.toThrow();
+    expect(() => runtime.execute('load_csv("sales.csv")')).toThrow();
   });
 });

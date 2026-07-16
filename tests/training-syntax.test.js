@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parse } from '../../src/cli/parser.js';
-import { TeraRuntime } from '../../src/cli/runtime.js';
-import { LightningModule } from '../../src/lightning/core/module.js';
-import { Module } from '../../src/nn/module.js';
-import { Tensor } from '../../src/tensor/core/tensor.js';
+import { parse } from '../src/parser.js';
+import { TeraRuntime } from '../src/runtime.js';
+import { LightningModule, Module, Tensor } from '@slexisvn/mlfw';
 
 describe('Parser — training syntax', () => {
   it('parses destructuring assignment', () => {
@@ -87,12 +85,12 @@ describe('Runtime — destructuring', () => {
 
   it('throws on non-array destructure', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await expect(runtime.execute('a, b = 42')).rejects.toThrow(/array/i);
+    expect(() => runtime.execute('a, b = 42')).toThrow(/array/i);
   });
 
   it('throws on too few values', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await expect(runtime.execute('a, b, c = [1, 2]')).rejects.toThrow(/Not enough/);
+    expect(() => runtime.execute('a, b, c = [1, 2]')).toThrow(/Not enough/);
   });
 });
 
@@ -138,26 +136,26 @@ model LitNet():
 describe('Runtime — train/validate/optimizer outside model', () => {
   it('train outside model throws', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await expect(runtime.execute(`
+    expect(() => runtime.execute(`
 train batch:
   return 0
-`)).rejects.toThrow(/model/);
+`)).toThrow(/model/);
   });
 
   it('validate outside model throws', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await expect(runtime.execute(`
+    expect(() => runtime.execute(`
 validate batch:
   return 0
-`)).rejects.toThrow(/model/);
+`)).toThrow(/model/);
   });
 
   it('optimizer outside model throws', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await expect(runtime.execute(`
+    expect(() => runtime.execute(`
 optimizer:
   return 0
-`)).rejects.toThrow(/model/);
+`)).toThrow(/model/);
   });
 });
 
@@ -308,7 +306,7 @@ describe('Builtins — data utilities', () => {
   it('load_csv loads and parses CSV', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
     await runtime.execute(`
-data = load_csv("tests/cli/fixtures/iris_sample.csv")
+data = load_csv("tests/fixtures/iris_sample.csv")
 `);
     const data = runtime.getVariable('data');
     expect(await data.count()).toBe(20);
@@ -320,7 +318,7 @@ data = load_csv("tests/cli/fixtures/iris_sample.csv")
   it('DataFrame.select and drop', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
     await runtime.execute(`
-data = load_csv("tests/cli/fixtures/iris_sample.csv")
+data = load_csv("tests/fixtures/iris_sample.csv")
 subset = data.select("sepal_length", "sepal_width")
 dropped = data.drop("species")
 `);
@@ -333,8 +331,8 @@ dropped = data.drop("species")
 
   it('DataFrame.to_tensor converts numeric columns', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    const result = await runtime.execute(`
-data = load_csv("tests/cli/fixtures/iris_sample.csv")
+    const result = await runtime.executeAsync(`
+data = load_csv("tests/fixtures/iris_sample.csv")
 data.drop("species").to_tensor()
 `);
     expect(result instanceof Tensor).toBe(true);
@@ -343,16 +341,16 @@ data.drop("species").to_tensor()
 
   it('DataFrame.to_tensor rejects string columns', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await expect(runtime.execute(`
-data = load_csv("tests/cli/fixtures/iris_sample.csv")
+    await expect(runtime.executeAsync(`
+data = load_csv("tests/fixtures/iris_sample.csv")
 data.to_tensor()
 `)).rejects.toThrow(/non-numeric/);
   });
 
   it('encode converts string labels to tensor', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await runtime.execute(`
-data = load_csv("tests/cli/fixtures/iris_sample.csv")
+    await runtime.executeAsync(`
+data = load_csv("tests/fixtures/iris_sample.csv")
 y, classes = data.select("species").encode("species")
 `);
     const y = runtime.getVariable('y');
@@ -403,8 +401,8 @@ train_data, test_data = train_test_split(x, test_size=0.3)
 
   it('encodes a subset with fitted classes', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await runtime.execute(`
-data = load_csv("tests/cli/fixtures/iris_sample.csv")
+    await runtime.executeAsync(`
+data = load_csv("tests/fixtures/iris_sample.csv")
 y, classes = data.select("species").encode("species")
 head = data.limit(3).select("species")
 y_split, _ = head.encode("species", classes=classes)
@@ -419,7 +417,7 @@ y_split, _ = head.encode("species", classes=classes)
 describe('End-to-end — DSL training', () => {
   it('trains a model via DSL and Trainer', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await runtime.execute(`
+    await runtime.executeAsync(`
 model Classifier():
   fc = Linear(2, 1)
   loss_fn = MSELoss()
@@ -443,7 +441,7 @@ train_loader = DataLoader(TensorDataset(x, y), batch_size=2)
 
 net = Classifier()
 trainer = Trainer(max_epochs=10, logger=false, enable_checkpointing=false, enable_progress=false)
-trainer.fit(net, train_loader)
+await trainer.fit(net, train_loader)
 `);
     const trainer = runtime.getVariable('trainer');
     expect(trainer.globalStep).toBeGreaterThan(0);
@@ -452,7 +450,7 @@ trainer.fit(net, train_loader)
 
   it('trains with validation and early stopping', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await runtime.execute(`
+    await runtime.executeAsync(`
 model Net():
   fc = Linear(2, 1)
   loss_fn = MSELoss()
@@ -487,7 +485,7 @@ trainer = Trainer(
   enable_progress=false,
   callbacks=[EarlyStopping(monitor="val_loss", patience=5)]
 )
-trainer.fit(net, loader, loader)
+await trainer.fit(net, loader, loader)
 `);
     const trainer = runtime.getVariable('trainer');
     expect(trainer.globalStep).toBeGreaterThan(0);
@@ -495,7 +493,7 @@ trainer.fit(net, loader, loader)
 
   it('trains with optim_config and scheduler', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await runtime.execute(`
+    await runtime.executeAsync(`
 model Net():
   fc = Linear(2, 1)
   loss_fn = MSELoss()
@@ -518,7 +516,7 @@ loader = DataLoader(TensorDataset(x, y), batch_size=4)
 
 net = Net()
 trainer = Trainer(max_epochs=5, logger=false, enable_checkpointing=false, enable_progress=false)
-trainer.fit(net, loader)
+await trainer.fit(net, loader)
 `);
     const trainer = runtime.getVariable('trainer');
     expect(trainer.globalStep).toBe(5);
@@ -526,8 +524,8 @@ trainer.fit(net, loader)
 
   it('load_csv → train classification end-to-end', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
-    await runtime.execute(`
-data = load_csv("tests/cli/fixtures/iris_sample.csv")
+    await runtime.executeAsync(`
+data = load_csv("tests/fixtures/iris_sample.csv")
 x = StandardScaler().fit_transform(data.drop("species").to_tensor())
 y, classes = data.select("species").encode("species")
 loader = DataLoader(TensorDataset(x, y), batch_size=10)
@@ -549,7 +547,7 @@ model Net():
 
 net = Net()
 trainer = Trainer(max_epochs=30, logger=false, enable_checkpointing=false, enable_progress=false)
-trainer.fit(net, loader)
+await trainer.fit(net, loader)
 `);
     const trainer = runtime.getVariable('trainer');
     expect(trainer.globalStep).toBe(60);

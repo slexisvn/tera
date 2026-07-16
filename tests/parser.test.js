@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parse } from '../../src/cli/parser.js';
+import { parse } from '../src/parser.js';
 
 describe('Tera parser', () => {
   it('preserves source locations on AST nodes', () => {

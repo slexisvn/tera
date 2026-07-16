@@ -9,6 +9,7 @@ import { buildGrammar } from './emitters/grammar.js';
 import { buildLanguageData } from './emitters/language_data.js';
 import { buildSnippets } from './emitters/snippets.js';
 import { TYPE_NAMES } from '../../src/typechecker.js';
+import { builtinEffect, methodEffect } from '../../src/effects.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXT_ROOT = resolve(HERE, '..');
@@ -34,7 +35,7 @@ const OUTPUTS = {
   vendorDir: join(EXT_ROOT, 'server/vendor'),
 };
 
-const VENDORED_FILES = ['tokenizer.js', 'parser.js', 'types.js', 'typechecker.js', 'method_returns.js', 'symbol_table.js'];
+const VENDORED_FILES = ['tokenizer.js', 'parser.js', 'types.js', 'typechecker.js', 'method_returns.js', 'effects.js', 'symbol_table.js'];
 
 export function generate(sources = SOURCES, outputs = OUTPUTS) {
   const baseKeywords = extractKeywords(sources.parser);
@@ -180,8 +181,9 @@ function mergeDoc(builtin, doc, kindTemplates) {
       ...builtin,
       signature: null,
       description: null,
-      methods: template ? [...template.methods] : [],
+      methods: withMethodEffects(builtin.name, template ? [...template.methods] : []),
       returns,
+      effect: builtinEffect(builtin.name),
       documented: false,
     };
   }
@@ -194,8 +196,9 @@ function mergeDoc(builtin, doc, kindTemplates) {
     kind,
     description: doc.description,
     signature: doc.params === null ? null : { params: doc.params },
-    methods: [...(doc.methods ?? []), ...inherited],
+    methods: withMethodEffects(builtin.name, [...(doc.methods ?? []), ...inherited]),
     returns,
+    effect: doc.effect ?? builtinEffect(builtin.name),
     documented: true,
   };
 }
@@ -210,16 +213,21 @@ function buildDocOnlyBuiltin(doc, kindTemplates) {
     kind,
     description: doc.description,
     signature: doc.params === null ? null : { params: doc.params },
-    methods: [...(doc.methods ?? []), ...inherited],
+    methods: withMethodEffects(doc.name, [...(doc.methods ?? []), ...inherited]),
     returns: inferReturns({ name: doc.name, kind }),
+    effect: doc.effect ?? builtinEffect(doc.name),
     documented: true,
   };
 }
 
 function serializePseudoTypes(map) {
   const out = {};
-  for (const [name, entry] of map) out[name] = { methods: entry.methods };
+  for (const [name, entry] of map) out[name] = { methods: withMethodEffects(name, entry.methods) };
   return out;
+}
+
+function withMethodEffects(typeName, methods = []) {
+  return methods.map(method => ({ ...method, effect: method.effect ?? methodEffect(typeName, method.name) }));
 }
 
 function vendorSources(srcDir, destDir) {

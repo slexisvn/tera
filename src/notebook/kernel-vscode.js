@@ -2,6 +2,7 @@ import { memfs } from '@slexisvn/mlfw';
 import { formatValue } from '../format.js';
 import { TeraRuntime } from '../runtime.js';
 import { createChartApi, isChartSpec } from './chart/index.js';
+import { moduleType } from '../types.js';
 
 const DF_PREVIEW_ROWS = 50;
 
@@ -29,7 +30,7 @@ export function createKernel() {
   function make() {
     prints = [];
     runtime = new TeraRuntime({ output: (text) => prints.push(String(text)) });
-    runtime.registerGlobal('chart', createChartApi());
+    runtime.registerGlobal('chart', createChartApi(), moduleType('chart'));
   }
 
   make();
@@ -37,7 +38,7 @@ export function createKernel() {
   return {
     async execute(source) {
       prints = [];
-      const value = await runtime.execute(source);
+      const value = await runtime.executeAsync(source);
       return { prints: prints.slice(), value: await serializeValue(value) };
     },
     restart() {

@@ -16,7 +16,7 @@ export function buildBuiltinEnv(languageData) {
   for (const builtin of languageData.builtins ?? []) {
     if (STEP_SCOPED_KINDS.has(builtin.kind)) continue;
     builtinNames.add(builtin.name);
-    builtinTypes.set(builtin.name, SCALAR_KINDS.has(builtin.kind) ? STRING : functionType([], resolveReturn(builtin.returns), true, 0));
+    builtinTypes.set(builtin.name, SCALAR_KINDS.has(builtin.kind) ? STRING : functionType([], resolveReturn(builtin.returns), true, 0, null, builtin.effect ?? 'sync', true));
     if (TENSOR_MODULE_KINDS.has(builtin.kind)) moduleCalls.set(builtin.name, moduleCallReturn(builtin.name));
   }
   for (const name of languageData.keywords ?? []) builtinNames.add(name);

@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkSource } from '../../src/cli/check.js';
-import { buildMethodReturns } from '../../src/cli/method_returns.js';
-import { parse } from '../../src/cli/parser.js';
-import { TeraRuntime } from '../../src/cli/runtime.js';
+import { checkSource } from '../src/check.js';
+import { buildMethodReturns } from '../src/method_returns.js';
+import { parse } from '../src/parser.js';
+import { TeraRuntime } from '../src/runtime.js';
 
 const diagnose = source => checkSource(source).diagnostics;
-const LANGUAGE_DATA = JSON.parse(fs.readFileSync(new URL('../../vscode-ext/language-data.json', import.meta.url), 'utf8'));
+const LANGUAGE_DATA = JSON.parse(fs.readFileSync(new URL('../vscode-ext/language-data.json', import.meta.url), 'utf8'));
 const METHOD_RETURNS = buildMethodReturns(LANGUAGE_DATA);
 const diagnoseWithMethods = source => checkSource(source, { methodReturns: METHOD_RETURNS }).diagnostics;
 const rejected = source => {
@@ -160,7 +160,7 @@ describe('Tera type checker', () => {
 
   describe('inferred type map (powers notebook/editor hover)', () => {
     it('exposes parameter and local types via analyzeSource', async () => {
-      const { analyzeSource } = await import('../../src/cli/check.js');
+      const { analyzeSource } = await import('../src/check.js');
       const { types } = analyzeSource('fn f(values: int[], n: int) -> int:\n  total = n\n  return total');
       const byName = new Map([...types].map(([k, v]) => [k.slice(0, k.lastIndexOf(':')), v]));
       expect(byName.get('values')).toBe('int[]');
@@ -321,7 +321,7 @@ describe('Tera type checker', () => {
 
   describe('backward compatibility', () => {
     it('still parses every bundled example', () => {
-      const dir = new URL('../../examples/', import.meta.url);
+      const dir = new URL('../examples/', import.meta.url);
       const files = fs.readdirSync(dir).filter(name => name.endsWith('.tera'));
       expect(files.length).toBeGreaterThan(0);
       for (const name of files) {

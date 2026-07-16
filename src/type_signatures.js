@@ -3,6 +3,7 @@ import {
 } from './builtins.js';
 import { ANY, NUMBER, STRING, NONE, TENSOR, listType, moduleType, functionType } from './types.js';
 import { moduleCallReturn } from './method_returns.js';
+import { builtinEffect } from './effects.js';
 
 const CONSTANT_NAMES = ['cpu', 'gpu', 'wasm', 'webgpu', 'f16', 'f32', 'f64', 'i32', 'i64', 'bool'];
 
@@ -18,14 +19,14 @@ function returnOverrides() {
   ]);
 }
 
-function builtinFunction(ret) {
-  return functionType([], ret, true, 0);
+function builtinFunction(name, ret) {
+  return functionType([], ret, true, 0, null, builtinEffect(name), true);
 }
 
 export function buildBuiltinTypes() {
   const types = new Map();
   const overrides = returnOverrides();
-  const setFn = (name, ret) => types.set(name, builtinFunction(overrides.get(name) ?? ret));
+  const setFn = (name, ret) => types.set(name, builtinFunction(name, overrides.get(name) ?? ret));
   for (const name of FACTORIES) setFn(name, TENSOR);
   for (const name of FREE_TENSOR_FUNCTIONS) setFn(name, TENSOR);
   for (const name of COLUMN_AGGREGATES) setFn(name, ANY);

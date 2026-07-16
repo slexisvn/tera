@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { completeInput, shutdownTerminal, tokenHook } from '../../src/cli/repl.js';
-import { TeraRuntime } from '../../src/cli/runtime.js';
+import { completeInput, shutdownTerminal, tokenHook } from '../src/repl.js';
+import { TeraRuntime } from '../src/runtime.js';
 
 describe('Tera completion', () => {
   it('completes builtins and preserves the expression prefix', () => {

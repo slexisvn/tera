@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TeraRuntime } from '../../src/cli/runtime.js';
+import { TeraRuntime } from '../src/runtime.js';
 
 function run(source) {
   return new TeraRuntime({ output: () => {} }).execute(source);
@@ -177,7 +177,7 @@ b = xs.pop(-1)
   });
 
   it('pop on an empty list throws', async () => {
-    await expect(run('xs = []\nxs.pop()')).rejects.toThrow();
+    expect(() => run('xs = []\nxs.pop()')).toThrow();
   });
 });
 

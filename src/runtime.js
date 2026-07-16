@@ -8,11 +8,13 @@ import {
   eq, ne, lt, le, gt, ge,
   CPUTarget, CUDATarget, WasmTarget, WebGPUTarget,
 } from '@slexisvn/mlfw';
-import { parse } from './parser.js';
+import { parseAndElaborate } from './elaborate.js';
+import { defaultMethodReturns } from './default_method_returns.js';
 import { CompiledProgramView, formatTrace } from './format.js';
 import { installBuiltins, installSignatures, takeNamed, createDataFrameFromColumns, setUploadedCsv, removeUploadedCsv, beginUploadedCsv, resolveDeviceName, saveModelCheckpoint } from './builtins.js';
 import { lookupCollectionMethod } from './collection_methods.js';
 import { SignatureRegistry } from './signature_registry.js';
+import { ANY, TENSOR, moduleType } from './types.js';
 
 class Environment {
   constructor(parent = null) {
@@ -33,10 +35,12 @@ class Environment {
 }
 
 export class TeraRuntime {
-  constructor({ output = console.log } = {}) {
+  constructor({ output = console.log, methodReturns = null } = {}) {
     this.output = output;
     setDefaultDevice(WASM_DEVICE);
     this.global = new Environment();
+    this.globalTypes = new Map();
+    this.methodReturns = methodReturns ?? defaultMethodReturns();
     this.signatureRegistry = new SignatureRegistry();
     this._installBuiltins();
     installSignatures(this.signatureRegistry);
@@ -45,6 +49,7 @@ export class TeraRuntime {
   registerDataFrame(name, columns) {
     const df = createDataFrameFromColumns(columns);
     this.global.define(name, df);
+    this.globalTypes.set(name, moduleType('DataFrame'));
     return df;
   }
 
@@ -60,9 +65,27 @@ export class TeraRuntime {
     removeUploadedCsv(name);
   }
 
-  async execute(source) {
+  execute(source) {
     try {
-      return await this.evaluateProgram(parse(source), this.global);
+      const { program, diagnostics } = parseAndElaborate(source, { methodReturns: this.methodReturns, globals: this.globalTypes });
+      this.throwBlockingDiagnostics(diagnostics);
+      if (program.async) throw new Error('Program contains async operations; use executeAsync()');
+      const result = this.evaluateProgram(program, this.global);
+      this.rememberGlobalTypes(program);
+      return result;
+    } catch (error) {
+      if (error.line !== undefined) throw error;
+      throw new LangRuntimeError(error.message, this.currentNode?.line ?? 1, this.currentNode?.column ?? 1, error);
+    }
+  }
+
+  async executeAsync(source) {
+    try {
+      const { program, diagnostics } = parseAndElaborate(source, { methodReturns: this.methodReturns, globals: this.globalTypes });
+      this.throwBlockingDiagnostics(diagnostics);
+      const result = await this.evaluateProgramAsync(program, this.global);
+      this.rememberGlobalTypes(program);
+      return result;
     } catch (error) {
       if (error.line !== undefined) throw error;
       throw new LangRuntimeError(error.message, this.currentNode?.line ?? 1, this.currentNode?.column ?? 1, error);
@@ -77,87 +100,114 @@ export class TeraRuntime {
     try { return this.global.get(name); } catch { return undefined; }
   }
 
-  registerGlobal(name, value) {
+  registerGlobal(name, value, type = ANY) {
     if (typeof name !== 'string' || !/^[A-Za-z_]\w*$/.test(name)) {
       throw new Error('Global name must be a valid identifier');
     }
+    this.globalTypes.set(name, type);
     return this.global.define(name, value);
   }
 
-  async evaluateProgram(program, env) {
+  rememberGlobalTypes(program) {
+    for (const statement of program.body) {
+      if (statement.type === 'Assign') this.globalTypes.set(statement.name, this.typeOfValue(this.getVariable(statement.name)));
+      else if (statement.type === 'DestructureAssign') {
+        for (const name of statement.names) this.globalTypes.set(name, this.typeOfValue(this.getVariable(name)));
+      } else if (statement.type === 'FunctionDeclaration') {
+        this.globalTypes.set(statement.name, ANY);
+      } else if (statement.type === 'ModelDeclaration') {
+        this.globalTypes.set(statement.name, ANY);
+      }
+    }
+  }
+
+  typeOfValue(value) {
+    if (isTensorValue(value)) return TENSOR;
+    if (isDataFrameValue(value)) return moduleType('DataFrame');
+    if (value instanceof Module) return moduleType(value._langName ?? value.constructor?.name ?? 'Model');
+    return ANY;
+  }
+
+  throwBlockingDiagnostics(diagnostics) {
+    const diagnostic = diagnostics.find(error => error.message.includes('async call requires await'));
+    if (diagnostic) throw diagnostic;
+  }
+
+  evaluateProgram(program, env) {
     let value;
     for (const statement of program.body) {
-      const result = await this.evaluateStatement(statement, env);
+      const result = this.evaluateStatement(statement, env);
       if (result && (result.__return || result.__break || result.__continue)) return result;
       value = result;
     }
     return value;
   }
 
-  async evaluateStatement(node, env) {
-    return this.withNode(node, async () => {
-      if (node.type === 'Assign') return env.define(node.name, await this.evaluateExpression(node.value, env));
+  evaluateStatement(node, env) {
+    return this.withNode(node, () => {
+      if (node.type === 'Assign') return env.define(node.name, this.evaluateExpression(node.value, env));
       if (node.type === 'CompoundAssign') {
         const current = env.get(node.name);
-        const right = await this.evaluateExpression(node.value, env);
+        const right = this.evaluateExpression(node.value, env);
         return env.set(node.name, this.applyBinary(node.op, current, right));
       }
-      if (node.type === 'If') return await this.evaluateIf(node, env);
-      if (node.type === 'For') return await this.evaluateFor(node, env);
-      if (node.type === 'While') return await this.evaluateWhile(node, env);
+      if (node.type === 'If') return this.evaluateIf(node, env);
+      if (node.type === 'For') return this.evaluateFor(node, env);
+      if (node.type === 'While') return this.evaluateWhile(node, env);
       if (node.type === 'Break') return { __break: true };
       if (node.type === 'Continue') return { __continue: true };
-      if (node.type === 'ExpressionStatement') return await this.evaluateExpression(node.expression, env);
-      if (node.type === 'Return') return { __return: true, value: await this.evaluateExpression(node.value, env) };
+      if (node.type === 'ExpressionStatement') return this.evaluateExpression(node.expression, env);
+      if (node.type === 'Return') return { __return: true, value: this.evaluateExpression(node.value, env) };
       if (node.type === 'FunctionDeclaration') return this.defineFunction(node, env);
       if (node.type === 'ModelDeclaration') return this.defineModel(node, env);
       if (node.type === 'ForwardDeclaration') throw new Error('forward can only appear inside model');
       if (node.type === 'TrainDeclaration') throw new Error('train can only appear inside model');
       if (node.type === 'ValidateDeclaration') throw new Error('validate can only appear inside model');
       if (node.type === 'OptimizerDeclaration') throw new Error('optimizer can only appear inside model');
-      if (node.type === 'DestructureAssign') return await this.evaluateDestructure(node, env);
-      if (node.type === 'IndexAssign') return await this.evaluateIndexAssign(node, env);
+      if (node.type === 'DestructureAssign') return this.evaluateDestructure(node, env);
+      if (node.type === 'IndexAssign') return this.evaluateIndexAssign(node, env);
       throw new Error(`Unsupported statement ${node.type}`);
     });
   }
 
-  async evaluateExpression(node, env) {
-    return this.withNode(node, async () => {
+  evaluateExpression(node, env) {
+    return this.withNode(node, () => {
+      if (node.type === 'Await') throw new Error('await requires executeAsync()');
       if (node.type === 'Literal') return node.value;
       if (node.type === 'Identifier') return env.get(node.name);
       if (node.type === 'Array') {
         const elements = [];
-        for (const x of node.elements) elements.push(await this.evaluateExpression(x, env));
+        for (const x of node.elements) elements.push(this.evaluateExpression(x, env));
         return elements;
       }
       if (node.type === 'Dict') {
         const map = new Map();
         for (const entry of node.entries) {
-          map.set(await this.evaluateExpression(entry.key, env), await this.evaluateExpression(entry.value, env));
+          map.set(this.evaluateExpression(entry.key, env), this.evaluateExpression(entry.value, env));
         }
         return map;
       }
-      if (node.type === 'ListComprehension') return await this.evaluateComprehension(node, env);
+      if (node.type === 'ListComprehension') return this.evaluateComprehension(node, env);
       if (node.type === 'Unary') {
-        const value = await this.evaluateExpression(node.value, env);
+        const value = this.evaluateExpression(node.value, env);
         if (node.op === '-') return this.applyUnaryMinus(value);
         if (node.op === 'not') return this.applyUnaryNot(value);
         return value;
       }
       if (node.type === 'Binary') {
         if (node.op === 'and' || node.op === 'or') {
-          const left = await this.evaluateExpression(node.left, env);
+          const left = this.evaluateExpression(node.left, env);
           if (!isTensorValue(left)) {
-            if (node.op === 'and') return left ? await this.evaluateExpression(node.right, env) : left;
-            return left ? left : await this.evaluateExpression(node.right, env);
+            if (node.op === 'and') return left ? this.evaluateExpression(node.right, env) : left;
+            return left ? left : this.evaluateExpression(node.right, env);
           }
-          const right = await this.evaluateExpression(node.right, env);
+          const right = this.evaluateExpression(node.right, env);
           return this.applyBinary(node.op, left, right);
         }
-        return this.applyBinary(node.op, await this.evaluateExpression(node.left, env), await this.evaluateExpression(node.right, env));
+        return this.applyBinary(node.op, this.evaluateExpression(node.left, env), this.evaluateExpression(node.right, env));
       }
       if (node.type === 'Member') {
-        const object = await this.evaluateExpression(node.object, env);
+        const object = this.evaluateExpression(node.object, env);
         const collMethod = lookupCollectionMethod(object, node.property);
         if (collMethod) return collMethod;
         const value = object[node.property];
@@ -170,18 +220,18 @@ export class TeraRuntime {
         }
         return value.bind(object);
       }
-      if (node.type === 'Index') return await this.evaluateIndex(node, env);
-      if (node.type === 'Call') return await this.evaluateCall(node, env);
+      if (node.type === 'Index') return this.evaluateIndex(node, env);
+      if (node.type === 'Call') return this.evaluateCall(node, env);
       throw new Error(`Unsupported expression ${node.type}`);
     });
   }
 
-  async evaluateCall(node, env) {
-    const callable = await this.evaluateExpression(node.callee, env);
+  evaluateCall(node, env) {
+    const callable = this.evaluateExpression(node.callee, env);
     const positional = [];
     const named = {};
     for (const arg of node.args) {
-      const value = await this.evaluateExpression(arg.value, env);
+      const value = this.evaluateExpression(arg.value, env);
       if (arg.name) named[arg.name] = value;
       else positional.push(value);
     }
@@ -191,8 +241,98 @@ export class TeraRuntime {
     else if (callable && typeof callable.forward === 'function' && typeof callable !== 'function') result = callable.forward(...positional);
     else if (typeof callable !== 'function') throw new Error('Value is not callable');
     else result = callable(...positional);
-    if (result && typeof result.then === 'function') result = await result;
-    return result;
+    return this.requireSync(result);
+  }
+
+  async evaluateProgramAsync(program, env) {
+    if (!program.async) return this.evaluateProgram(program, env);
+    let value;
+    for (const statement of program.body) {
+      const result = !statement.async ? this.evaluateStatement(statement, env) : await this.evaluateStatementAsync(statement, env);
+      if (result && (result.__return || result.__break || result.__continue)) return result;
+      value = result;
+    }
+    return value;
+  }
+
+  async evaluateStatementAsync(node, env) {
+    if (!node.async) return this.evaluateStatement(node, env);
+    return this.withNodeAsync(node, async () => {
+      if (node.type === 'Assign') return env.define(node.name, await this.evaluateExpressionAsync(node.value, env));
+      if (node.type === 'CompoundAssign') {
+        const current = env.get(node.name);
+        const right = await this.evaluateExpressionAsync(node.value, env);
+        return env.set(node.name, this.applyBinary(node.op, current, right));
+      }
+      if (node.type === 'If') return await this.evaluateIfAsync(node, env);
+      if (node.type === 'For') return await this.evaluateForAsync(node, env);
+      if (node.type === 'While') return await this.evaluateWhileAsync(node, env);
+      if (node.type === 'ExpressionStatement') return await this.evaluateExpressionAsync(node.expression, env);
+      if (node.type === 'Return') return { __return: true, value: await this.evaluateExpressionAsync(node.value, env) };
+      if (node.type === 'DestructureAssign') return await this.evaluateDestructureAsync(node, env);
+      if (node.type === 'IndexAssign') return await this.evaluateIndexAssignAsync(node, env);
+      return this.evaluateStatement(node, env);
+    });
+  }
+
+  async evaluateExpressionAsync(node, env) {
+    if (!node.async && node.type !== 'Await') return this.evaluateExpression(node, env);
+    return this.withNodeAsync(node, async () => {
+      if (node.type === 'Await') return await this.evaluateExpressionAsync(node.value, env);
+      if (node.type === 'Array') {
+        const elements = [];
+        for (const x of node.elements) elements.push(!x.async ? this.evaluateExpression(x, env) : await this.evaluateExpressionAsync(x, env));
+        return elements;
+      }
+      if (node.type === 'Dict') {
+        const map = new Map();
+        for (const entry of node.entries) {
+          const key = !entry.key.async ? this.evaluateExpression(entry.key, env) : await this.evaluateExpressionAsync(entry.key, env);
+          const value = !entry.value.async ? this.evaluateExpression(entry.value, env) : await this.evaluateExpressionAsync(entry.value, env);
+          map.set(key, value);
+        }
+        return map;
+      }
+      if (node.type === 'ListComprehension') return await this.evaluateComprehensionAsync(node, env);
+      if (node.type === 'Unary') {
+        const value = await this.evaluateExpressionAsync(node.value, env);
+        if (node.op === '-') return this.applyUnaryMinus(value);
+        if (node.op === 'not') return this.applyUnaryNot(value);
+        return value;
+      }
+      if (node.type === 'Binary') {
+        if (node.op === 'and' || node.op === 'or') {
+          const left = await this.evaluateExpressionAsync(node.left, env);
+          if (!isTensorValue(left)) {
+            if (node.op === 'and') return left ? await this.evaluateExpressionAsync(node.right, env) : left;
+            return left ? left : await this.evaluateExpressionAsync(node.right, env);
+          }
+          const right = await this.evaluateExpressionAsync(node.right, env);
+          return this.applyBinary(node.op, left, right);
+        }
+        return this.applyBinary(node.op, !node.left.async ? this.evaluateExpression(node.left, env) : await this.evaluateExpressionAsync(node.left, env), !node.right.async ? this.evaluateExpression(node.right, env) : await this.evaluateExpressionAsync(node.right, env));
+      }
+      if (node.type === 'Member') return this.evaluateExpression(node, env);
+      if (node.type === 'Index') return await this.evaluateIndexAsync(node, env);
+      if (node.type === 'Call') return await this.evaluateCallAsync(node, env);
+      return this.evaluateExpression(node, env);
+    });
+  }
+
+  async evaluateCallAsync(node, env) {
+    const callable = !node.callee.async ? this.evaluateExpression(node.callee, env) : await this.evaluateExpressionAsync(node.callee, env);
+    const positional = [];
+    const named = {};
+    for (const arg of node.args) {
+      const value = !arg.value.async ? this.evaluateExpression(arg.value, env) : await this.evaluateExpressionAsync(arg.value, env);
+      if (arg.name) named[arg.name] = value;
+      else positional.push(value);
+    }
+    if (Object.keys(named).length > 0) positional.push({ __named: true, ...named });
+    if (callable instanceof Module) return callable.forward(...positional);
+    if (callable && typeof callable.forward === 'function' && typeof callable !== 'function') return callable.forward(...positional);
+    if (typeof callable !== 'function') throw new Error('Value is not callable');
+    return callable(...positional);
   }
 
   applyUnaryMinus(value) {
@@ -250,29 +390,29 @@ export class TeraRuntime {
     return Boolean(value);
   }
 
-  async evaluateIf(node, env) {
-    if (this.isTruthy(await this.evaluateExpression(node.condition, env))) {
-      return await this.evaluateProgram({ type: 'Program', body: node.body }, env);
+  evaluateIf(node, env) {
+    if (this.isTruthy(this.evaluateExpression(node.condition, env))) {
+      return this.evaluateProgram({ type: 'Program', body: node.body }, env);
     }
     for (const elif of node.elifs) {
-      if (this.isTruthy(await this.evaluateExpression(elif.condition, env))) {
-        return await this.evaluateProgram({ type: 'Program', body: elif.body }, env);
+      if (this.isTruthy(this.evaluateExpression(elif.condition, env))) {
+        return this.evaluateProgram({ type: 'Program', body: elif.body }, env);
       }
     }
     if (node.elseBody) {
-      return await this.evaluateProgram({ type: 'Program', body: node.elseBody }, env);
+      return this.evaluateProgram({ type: 'Program', body: node.elseBody }, env);
     }
     return undefined;
   }
 
-  async evaluateFor(node, env) {
-    const iterable = await this.evaluateExpression(node.iterable, env);
+  evaluateFor(node, env) {
+    const iterable = this.evaluateExpression(node.iterable, env);
     const items = Array.isArray(iterable) ? iterable : iterable instanceof Map ? [...iterable.keys()] : null;
     if (!items) throw new Error('for...in expects an array or map');
     let value;
     for (const item of items) {
       env.define(node.variable, item);
-      const result = await this.evaluateProgram({ type: 'Program', body: node.body }, env);
+      const result = this.evaluateProgram({ type: 'Program', body: node.body }, env);
       if (result && result.__return) return result;
       if (result && result.__break) break;
       if (result && result.__continue) continue;
@@ -281,10 +421,10 @@ export class TeraRuntime {
     return value;
   }
 
-  async evaluateWhile(node, env) {
+  evaluateWhile(node, env) {
     let value;
-    while (this.isTruthy(await this.evaluateExpression(node.condition, env))) {
-      const result = await this.evaluateProgram({ type: 'Program', body: node.body }, env);
+    while (this.isTruthy(this.evaluateExpression(node.condition, env))) {
+      const result = this.evaluateProgram({ type: 'Program', body: node.body }, env);
       if (result && result.__return) return result;
       if (result && result.__break) break;
       if (result && result.__continue) continue;
@@ -295,10 +435,17 @@ export class TeraRuntime {
 
   defineFunction(node, declarationEnv) {
     const runtime = this;
-    const func = async (...args) => {
+    const asyncFunction = node.functionEffect === 'async';
+    const run = asyncFunction ? runtime.evaluateProgramAsync.bind(runtime) : runtime.evaluateProgram.bind(runtime);
+    const func = asyncFunction ? async (...args) => {
       const callEnv = new Environment(declarationEnv);
       node.params.forEach((name, i) => callEnv.define(name, args[i]));
-      const result = await runtime.evaluateProgram({ type: 'Program', body: node.body }, callEnv);
+      const result = await run({ type: 'Program', body: node.body, async: true }, callEnv);
+      return result && result.__return ? result.value : result;
+    } : (...args) => {
+      const callEnv = new Environment(declarationEnv);
+      node.params.forEach((name, i) => callEnv.define(name, args[i]));
+      const result = run({ type: 'Program', body: node.body, async: false }, callEnv);
       return result && result.__return ? result.value : result;
     };
     func._langName = node.name;
@@ -307,8 +454,8 @@ export class TeraRuntime {
     return func;
   }
 
-  async evaluateDestructure(node, env) {
-    const value = await this.evaluateExpression(node.value, env);
+  evaluateDestructure(node, env) {
+    const value = this.evaluateExpression(node.value, env);
     if (!Array.isArray(value)) throw new Error('Destructuring requires an array value');
     if (value.length < node.names.length) throw new Error(`Not enough values to unpack (expected ${node.names.length}, got ${value.length})`);
     for (let i = 0; i < node.names.length; i++) {
@@ -330,24 +477,25 @@ export class TeraRuntime {
     const modelName = node.name;
     const BaseClass = isLightning ? LightningModule : Module;
 
-    const factory = async (...args) => {
+    const factory = (...args) => {
       const named = takeNamed(args);
       const modelEnv = new Environment(declarationEnv);
       node.params.forEach((name, i) => modelEnv.define(name, named[name] ?? args[i]));
+      const runForward = forward.async ? runtime.evaluateProgramAsync.bind(runtime) : runtime.evaluateProgram.bind(runtime);
 
       class LangModel extends BaseClass {
         constructor() {
           super();
           this._langName = modelName;
         }
-        async forward(...inputs) {
+        forward(...inputs) {
           const callEnv = new Environment(modelEnv);
           for (const field of fields) {
             if (field.type === 'Assign') callEnv.define(field.name, this[field.name]);
           }
           forward.params.forEach((name, i) => callEnv.define(name, inputs[i]));
-          const result = await runtime.evaluateProgram({ type: 'Program', body: forward.body }, callEnv);
-          return result && result.__return ? result.value : result;
+          const result = runForward({ type: 'Program', body: forward.body, async: forward.async === true }, callEnv);
+          return forward.async ? result.then(value => value && value.__return ? value.value : value) : (result && result.__return ? result.value : result);
         }
         toString() { return `${this._langName}${super.toString().slice(this.constructor.name.length)}`; }
       }
@@ -360,7 +508,7 @@ export class TeraRuntime {
           bindLog(callEnv, this);
           if (trainBlock.params[0]) callEnv.define(trainBlock.params[0], batch);
           if (trainBlock.params[1]) callEnv.define(trainBlock.params[1], batchIdx);
-          const result = await runtime.evaluateProgram({ type: 'Program', body: trainBlock.body }, callEnv);
+          const result = await runtime.evaluateProgramAsync({ type: 'Program', body: trainBlock.body, async: true }, callEnv);
           return result && result.__return ? result.value : result;
         };
       }
@@ -371,7 +519,7 @@ export class TeraRuntime {
           bindLog(callEnv, this);
           if (validateBlock.params[0]) callEnv.define(validateBlock.params[0], batch);
           if (validateBlock.params[1]) callEnv.define(validateBlock.params[1], batchIdx);
-          const result = await runtime.evaluateProgram({ type: 'Program', body: validateBlock.body }, callEnv);
+          const result = await runtime.evaluateProgramAsync({ type: 'Program', body: validateBlock.body, async: true }, callEnv);
           return result && result.__return ? result.value : result;
         };
       }
@@ -379,14 +527,14 @@ export class TeraRuntime {
       if (optimizerBlock) {
         LangModel.prototype.configureOptimizers = async function() {
           const callEnv = buildStepEnv(this, modelEnv, fields, modelName);
-          const result = await runtime.evaluateProgram({ type: 'Program', body: optimizerBlock.body }, callEnv);
+          const result = await runtime.evaluateProgramAsync({ type: 'Program', body: optimizerBlock.body, async: true }, callEnv);
           return result && result.__return ? result.value : result;
         };
       }
 
       const instance = new LangModel();
       for (const field of fields) {
-        const value = await runtime.evaluateStatement(field, modelEnv);
+        const value = runtime.evaluateStatement(field, modelEnv);
         if (field.type === 'Assign') instance[field.name] = value;
       }
       return instance;
@@ -403,8 +551,8 @@ export class TeraRuntime {
     this.global.define('log', () => { throw new Error('log() can only be called inside a train or validate block'); });
   }
 
-  async evaluateIndex(node, env) {
-    let value = await this.evaluateExpression(node.object, env);
+  evaluateIndex(node, env) {
+    let value = this.evaluateExpression(node.object, env);
     if (Array.isArray(value)) return this.indexArray(value, node.items, env);
     if (value instanceof Map) return this.indexMap(value, node.items, env);
     if (typeof value === 'string') return this.indexString(value, node.items, env);
@@ -413,15 +561,15 @@ export class TeraRuntime {
     for (const item of node.items) {
       if (dim >= value.ndim) throw new Error(`Too many indices for tensor with ${value.ndim} dimensions`);
       if (item.type === 'Slice') {
-        const start = item.start ? await this.evaluateExpression(item.start, env) : 0;
-        const end = item.end ? await this.evaluateExpression(item.end, env) : value.shape[dim];
-        const step = item.step ? await this.evaluateExpression(item.step, env) : 1;
+        const start = item.start ? this.evaluateExpression(item.start, env) : 0;
+        const end = item.end ? this.evaluateExpression(item.end, env) : value.shape[dim];
+        const step = item.step ? this.evaluateExpression(item.step, env) : 1;
         if (![start, end, step].every(Number.isInteger)) throw new Error('Slice bounds must be integers');
         if (step <= 0) throw new Error('Slice step must be a positive integer');
         value = value.slice(dim, start, end, step);
         dim++;
       } else {
-        let index = await this.evaluateExpression(item, env);
+        let index = this.evaluateExpression(item, env);
         if (!Number.isInteger(index)) throw new Error('Tensor index must be an integer');
         if (index < 0) index += value.shape[dim];
         if (index < 0 || index >= value.shape[dim]) {
@@ -434,15 +582,15 @@ export class TeraRuntime {
     return value;
   }
 
-  async indexArray(value, items, env) {
+  indexArray(value, items, env) {
     let current = value;
     for (const item of items) {
       if (!Array.isArray(current)) throw new Error('Too many indices for array');
       if (item.type === 'Slice') {
         const len = current.length;
-        let start = item.start ? await this.evaluateExpression(item.start, env) : 0;
-        let end = item.end ? await this.evaluateExpression(item.end, env) : len;
-        const step = item.step ? await this.evaluateExpression(item.step, env) : 1;
+        let start = item.start ? this.evaluateExpression(item.start, env) : 0;
+        let end = item.end ? this.evaluateExpression(item.end, env) : len;
+        const step = item.step ? this.evaluateExpression(item.step, env) : 1;
         if (![start, end, step].every(Number.isInteger)) throw new Error('Slice bounds must be integers');
         if (step <= 0) throw new Error('Slice step must be a positive integer');
         if (start < 0) start += len;
@@ -451,7 +599,7 @@ export class TeraRuntime {
         for (let i = Math.max(0, start); i < Math.min(len, end); i += step) out.push(current[i]);
         current = out;
       } else {
-        let index = await this.evaluateExpression(item, env);
+        let index = this.evaluateExpression(item, env);
         if (!Number.isInteger(index)) throw new Error('Array index must be an integer');
         if (index < 0) index += current.length;
         if (index < 0 || index >= current.length) {
@@ -463,26 +611,26 @@ export class TeraRuntime {
     return current;
   }
 
-  async indexMap(value, items, env) {
+  indexMap(value, items, env) {
     let current = value;
     for (const item of items) {
       if (!(current instanceof Map)) throw new Error('Too many indices for map');
       if (item.type === 'Slice') throw new Error('Cannot slice a map');
-      const key = await this.evaluateExpression(item, env);
+      const key = this.evaluateExpression(item, env);
       current = current.has(key) ? current.get(key) : null;
     }
     return current;
   }
 
-  async indexString(value, items, env) {
+  indexString(value, items, env) {
     let current = value;
     for (const item of items) {
       if (typeof current !== 'string') throw new Error('Too many indices for string');
       if (item.type === 'Slice') {
         const len = current.length;
-        let start = item.start ? await this.evaluateExpression(item.start, env) : 0;
-        let end = item.end ? await this.evaluateExpression(item.end, env) : len;
-        const step = item.step ? await this.evaluateExpression(item.step, env) : 1;
+        let start = item.start ? this.evaluateExpression(item.start, env) : 0;
+        let end = item.end ? this.evaluateExpression(item.end, env) : len;
+        const step = item.step ? this.evaluateExpression(item.step, env) : 1;
         if (![start, end, step].every(Number.isInteger)) throw new Error('Slice bounds must be integers');
         if (step <= 0) throw new Error('Slice step must be a positive integer');
         if (start < 0) start += len;
@@ -491,7 +639,7 @@ export class TeraRuntime {
         for (let i = Math.max(0, start); i < Math.min(len, end); i += step) out += current[i];
         current = out;
       } else {
-        let index = await this.evaluateExpression(item, env);
+        let index = this.evaluateExpression(item, env);
         if (!Number.isInteger(index)) throw new Error('String index must be an integer');
         if (index < 0) index += current.length;
         if (index < 0 || index >= current.length) {
@@ -503,30 +651,30 @@ export class TeraRuntime {
     return current;
   }
 
-  async evaluateComprehension(node, env) {
-    const iterable = await this.evaluateExpression(node.iterable, env);
+  evaluateComprehension(node, env) {
+    const iterable = this.evaluateExpression(node.iterable, env);
     const items = Array.isArray(iterable) ? iterable : iterable instanceof Map ? [...iterable.keys()] : null;
     if (!items) throw new Error('Comprehension expects an array or map');
     const scope = new Environment(env);
     const result = [];
     for (const item of items) {
       scope.define(node.variable, item);
-      if (node.condition && !this.isTruthy(await this.evaluateExpression(node.condition, scope))) continue;
-      result.push(await this.evaluateExpression(node.expr, scope));
+      if (node.condition && !this.isTruthy(this.evaluateExpression(node.condition, scope))) continue;
+      result.push(this.evaluateExpression(node.expr, scope));
     }
     return result;
   }
 
-  async evaluateIndexAssign(node, env) {
-    let container = await this.evaluateExpression(node.object, env);
+  evaluateIndexAssign(node, env) {
+    let container = this.evaluateExpression(node.object, env);
     const keys = [];
     for (const item of node.items) {
       if (item.type === 'Slice') throw new Error('Slice assignment is not supported');
-      keys.push(await this.evaluateExpression(item, env));
+      keys.push(this.evaluateExpression(item, env));
     }
     for (let d = 0; d < keys.length - 1; d++) container = this.readContainer(container, keys[d]);
     const key = keys[keys.length - 1];
-    let value = await this.evaluateExpression(node.value, env);
+    let value = this.evaluateExpression(node.value, env);
     if (node.op) value = this.applyBinary(node.op, this.readContainer(container, key), value);
     this.writeContainer(container, key, value);
     return value;
@@ -556,7 +704,25 @@ export class TeraRuntime {
     throw new Error('Cannot assign into this value');
   }
 
-  async withNode(node, evaluate) {
+  withNode(node, evaluate) {
+    const previous = this.currentNode;
+    this.currentNode = node;
+    try {
+      return evaluate();
+    } catch (error) {
+      if (error.line !== undefined) throw error;
+      throw new LangRuntimeError(error.message, node.line ?? 1, node.column ?? 1, error);
+    } finally {
+      this.currentNode = previous;
+    }
+  }
+
+  requireSync(value) {
+    if (isThenable(value)) throw new Error('Async value used without await');
+    return value;
+  }
+
+  async withNodeAsync(node, evaluate) {
     const previous = this.currentNode;
     this.currentNode = node;
     try {
@@ -567,6 +733,178 @@ export class TeraRuntime {
     } finally {
       this.currentNode = previous;
     }
+  }
+
+  async evaluateIndexAsync(node, env) {
+    let value = !node.object.async ? this.evaluateExpression(node.object, env) : await this.evaluateExpressionAsync(node.object, env);
+    if (Array.isArray(value)) return await this.indexArrayAsync(value, node.items, env);
+    if (value instanceof Map) return await this.indexMapAsync(value, node.items, env);
+    if (typeof value === 'string') return await this.indexStringAsync(value, node.items, env);
+    if (!(value instanceof Tensor)) throw new Error('Indexing currently expects a Tensor, array, map, or string');
+    let dim = 0;
+    for (const item of node.items) {
+      if (dim >= value.ndim) throw new Error(`Too many indices for tensor with ${value.ndim} dimensions`);
+      if (item.type === 'Slice') {
+        const start = item.start ? await this.evaluateExpressionAsync(item.start, env) : 0;
+        const end = item.end ? await this.evaluateExpressionAsync(item.end, env) : value.shape[dim];
+        const step = item.step ? await this.evaluateExpressionAsync(item.step, env) : 1;
+        if (![start, end, step].every(Number.isInteger)) throw new Error('Slice bounds must be integers');
+        if (step <= 0) throw new Error('Slice step must be a positive integer');
+        value = value.slice(dim, start, end, step);
+        dim++;
+      } else {
+        let index = !item.async ? this.evaluateExpression(item, env) : await this.evaluateExpressionAsync(item, env);
+        if (!Number.isInteger(index)) throw new Error('Tensor index must be an integer');
+        if (index < 0) index += value.shape[dim];
+        if (index < 0 || index >= value.shape[dim]) throw new Error(`Index ${index} is out of bounds for dimension ${dim} with size ${value.shape[dim]}`);
+        value = value.select(dim, index);
+        if (value.ndim === 0) return value.item();
+      }
+    }
+    return value;
+  }
+
+  async indexArrayAsync(value, items, env) {
+    let current = value;
+    for (const item of items) {
+      if (!Array.isArray(current)) throw new Error('Too many indices for array');
+      if (item.type === 'Slice') {
+        const len = current.length;
+        let start = item.start ? await this.evaluateExpressionAsync(item.start, env) : 0;
+        let end = item.end ? await this.evaluateExpressionAsync(item.end, env) : len;
+        const step = item.step ? await this.evaluateExpressionAsync(item.step, env) : 1;
+        if (![start, end, step].every(Number.isInteger)) throw new Error('Slice bounds must be integers');
+        if (step <= 0) throw new Error('Slice step must be a positive integer');
+        if (start < 0) start += len;
+        if (end < 0) end += len;
+        const out = [];
+        for (let i = Math.max(0, start); i < Math.min(len, end); i += step) out.push(current[i]);
+        current = out;
+      } else {
+        let index = !item.async ? this.evaluateExpression(item, env) : await this.evaluateExpressionAsync(item, env);
+        if (!Number.isInteger(index)) throw new Error('Array index must be an integer');
+        if (index < 0) index += current.length;
+        if (index < 0 || index >= current.length) throw new Error(`Index ${index} is out of bounds for array of length ${current.length}`);
+        current = current[index];
+      }
+    }
+    return current;
+  }
+
+  async indexMapAsync(value, items, env) {
+    let current = value;
+    for (const item of items) {
+      if (!(current instanceof Map)) throw new Error('Too many indices for map');
+      if (item.type === 'Slice') throw new Error('Cannot slice a map');
+      const key = !item.async ? this.evaluateExpression(item, env) : await this.evaluateExpressionAsync(item, env);
+      current = current.has(key) ? current.get(key) : null;
+    }
+    return current;
+  }
+
+  async indexStringAsync(value, items, env) {
+    let current = value;
+    for (const item of items) {
+      if (typeof current !== 'string') throw new Error('Too many indices for string');
+      if (item.type === 'Slice') {
+        const len = current.length;
+        let start = item.start ? await this.evaluateExpressionAsync(item.start, env) : 0;
+        let end = item.end ? await this.evaluateExpressionAsync(item.end, env) : len;
+        const step = item.step ? await this.evaluateExpressionAsync(item.step, env) : 1;
+        if (![start, end, step].every(Number.isInteger)) throw new Error('Slice bounds must be integers');
+        if (step <= 0) throw new Error('Slice step must be a positive integer');
+        if (start < 0) start += len;
+        if (end < 0) end += len;
+        let out = '';
+        for (let i = Math.max(0, start); i < Math.min(len, end); i += step) out += current[i];
+        current = out;
+      } else {
+        let index = !item.async ? this.evaluateExpression(item, env) : await this.evaluateExpressionAsync(item, env);
+        if (!Number.isInteger(index)) throw new Error('String index must be an integer');
+        if (index < 0) index += current.length;
+        if (index < 0 || index >= current.length) throw new Error(`Index ${index} is out of bounds for string of length ${current.length}`);
+        current = current[index];
+      }
+    }
+    return current;
+  }
+
+  async evaluateComprehensionAsync(node, env) {
+    const iterable = !node.iterable.async ? this.evaluateExpression(node.iterable, env) : await this.evaluateExpressionAsync(node.iterable, env);
+    const items = Array.isArray(iterable) ? iterable : iterable instanceof Map ? [...iterable.keys()] : null;
+    if (!items) throw new Error('Comprehension expects an array or map');
+    const scope = new Environment(env);
+    const result = [];
+    for (const item of items) {
+      scope.define(node.variable, item);
+      if (node.condition && !this.isTruthy(!node.condition.async ? this.evaluateExpression(node.condition, scope) : await this.evaluateExpressionAsync(node.condition, scope))) continue;
+      result.push(!node.expr.async ? this.evaluateExpression(node.expr, scope) : await this.evaluateExpressionAsync(node.expr, scope));
+    }
+    return result;
+  }
+
+  async evaluateDestructureAsync(node, env) {
+    const value = !node.value.async ? this.evaluateExpression(node.value, env) : await this.evaluateExpressionAsync(node.value, env);
+    if (!Array.isArray(value)) throw new Error('Destructuring requires an array value');
+    if (value.length < node.names.length) throw new Error(`Not enough values to unpack (expected ${node.names.length}, got ${value.length})`);
+    for (let i = 0; i < node.names.length; i++) env.define(node.names[i], value[i]);
+    return value;
+  }
+
+  async evaluateIndexAssignAsync(node, env) {
+    let container = !node.object.async ? this.evaluateExpression(node.object, env) : await this.evaluateExpressionAsync(node.object, env);
+    const keys = [];
+    for (const item of node.items) {
+      if (item.type === 'Slice') throw new Error('Slice assignment is not supported');
+      keys.push(!item.async ? this.evaluateExpression(item, env) : await this.evaluateExpressionAsync(item, env));
+    }
+    for (let d = 0; d < keys.length - 1; d++) container = this.readContainer(container, keys[d]);
+    const key = keys[keys.length - 1];
+    let value = !node.value.async ? this.evaluateExpression(node.value, env) : await this.evaluateExpressionAsync(node.value, env);
+    if (node.op) value = this.applyBinary(node.op, this.readContainer(container, key), value);
+    this.writeContainer(container, key, value);
+    return value;
+  }
+
+  async evaluateIfAsync(node, env) {
+    if (this.isTruthy(await this.evaluateExpressionAsync(node.condition, env))) {
+      return await this.evaluateProgramAsync({ type: 'Program', body: node.body, effect: node.effect }, env);
+    }
+    for (const elif of node.elifs) {
+      if (this.isTruthy(await this.evaluateExpressionAsync(elif.condition, env))) {
+        return await this.evaluateProgramAsync({ type: 'Program', body: elif.body, effect: node.effect }, env);
+      }
+    }
+    if (node.elseBody) return await this.evaluateProgramAsync({ type: 'Program', body: node.elseBody, effect: node.effect }, env);
+    return undefined;
+  }
+
+  async evaluateForAsync(node, env) {
+    const iterable = await this.evaluateExpressionAsync(node.iterable, env);
+    const items = Array.isArray(iterable) ? iterable : iterable instanceof Map ? [...iterable.keys()] : null;
+    if (!items) throw new Error('for...in expects an array or map');
+    let value;
+    for (const item of items) {
+      env.define(node.variable, item);
+      const result = await this.evaluateProgramAsync({ type: 'Program', body: node.body, effect: node.effect }, env);
+      if (result && result.__return) return result;
+      if (result && result.__break) break;
+      if (result && result.__continue) continue;
+      value = result;
+    }
+    return value;
+  }
+
+  async evaluateWhileAsync(node, env) {
+    let value;
+    while (this.isTruthy(await this.evaluateExpressionAsync(node.condition, env))) {
+      const result = await this.evaluateProgramAsync({ type: 'Program', body: node.body, effect: node.effect }, env);
+      if (result && result.__return) return result;
+      if (result && result.__break) break;
+      if (result && result.__continue) continue;
+      value = result;
+    }
+    return value;
   }
 
   compile(model, ...args) {
@@ -628,6 +966,14 @@ export class TeraRuntime {
 
 function isTensorValue(value) {
   return value instanceof Tensor || value instanceof SymbolicTensor;
+}
+
+function isThenable(value) {
+  return value && typeof value.then === 'function';
+}
+
+function isDataFrameValue(value) {
+  return value && typeof value.select === 'function' && typeof value.collect === 'function' && typeof value.count === 'function';
 }
 
 const WEBGPU_HOST_READS = new Set(['item', 'toArray', 'tolist']);

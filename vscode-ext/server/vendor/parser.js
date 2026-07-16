@@ -321,6 +321,10 @@ class Parser {
       this.next();
       return this.locate({ type: 'Unary', op: 'not', value: this.parseExpression(7) }, token);
     }
+    if (token.type === 'identifier' && token.value === 'await') {
+      this.next();
+      return this.locate({ type: 'Await', value: this.parseExpression(7), explicit: true }, token);
+    }
     if (token.type === 'number' || token.type === 'string') {
       this.next();
       const literal = { type: 'Literal', value: token.value };

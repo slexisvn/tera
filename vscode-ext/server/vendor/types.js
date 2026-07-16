@@ -17,9 +17,9 @@ export function dictType(key, value) {
   return { kind: 'dict', key: key ?? ANY, value: value ?? ANY };
 }
 
-export function functionType(params, ret, variadic = false, required = null, names = null) {
+export function functionType(params, ret, variadic = false, required = null, names = null, effect = 'sync', teraOwned = false) {
   const list = params ?? [];
-  return { kind: 'function', params: list, ret: ret ?? ANY, variadic, required: required ?? list.length, names };
+  return { kind: 'function', params: list, ret: ret ?? ANY, variadic, required: required ?? list.length, names, effect, teraOwned };
 }
 
 export function moduleType(name = '') {

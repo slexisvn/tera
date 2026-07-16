@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCallContext } from '../../src/cli/call_context.js';
+import { parseCallContext } from '../src/call_context.js';
 
 describe('parseCallContext', () => {
   it('returns null when not inside a call', () => {

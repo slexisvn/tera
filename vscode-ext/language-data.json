@@ -115,6 +115,7 @@
         "name": "shape",
         "description": "Return the shape (size-per-dimension array) of the tensor.",
         "returns": null,
+        "effect": "sync",
         "isGetter": true,
         "signature": {
           "params": [],
@@ -125,6 +126,7 @@
         "name": "dtype",
         "description": "Return the dtype string of the tensor.",
         "returns": null,
+        "effect": "sync",
         "isGetter": true,
         "signature": {
           "params": [],
@@ -135,6 +137,7 @@
         "name": "reshape",
         "description": "Return a view with the given shape; total element count must match.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -153,6 +156,7 @@
         "name": "transpose",
         "description": "Swap two dimensions.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -178,6 +182,7 @@
         "name": "permute",
         "description": "Reorder all dimensions per the permutation list.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -196,6 +201,7 @@
         "name": "expand",
         "description": "Broadcast to a larger shape without copying memory.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -214,6 +220,7 @@
         "name": "slice",
         "description": "View a contiguous slice along the given dimension.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -253,6 +260,7 @@
         "name": "unsqueeze",
         "description": "Insert a size-1 dimension at the given position.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -271,6 +279,7 @@
         "name": "squeeze",
         "description": "Remove a size-1 dimension at the given position.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -289,6 +298,7 @@
         "name": "narrow",
         "description": "Take `length` elements starting at `start` along `dim`.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -321,6 +331,7 @@
         "name": "select",
         "description": "Select a single index along `dim`, removing that dimension.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -346,6 +357,7 @@
         "name": "contiguous",
         "description": "Return a row-major contiguous copy of the tensor.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -356,6 +368,7 @@
         "name": "detach",
         "description": "Return a copy detached from the autograd graph.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -366,6 +379,7 @@
         "name": "backward",
         "description": "Propagate gradients backward from this tensor.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -384,6 +398,7 @@
         "name": "requires_grad",
         "description": "Enable or disable gradient tracking on this tensor.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -402,6 +417,7 @@
         "name": "grad",
         "description": "Read the accumulated gradient of this leaf tensor.",
         "returns": null,
+        "effect": "sync",
         "isGetter": true,
         "signature": {
           "params": [],
@@ -412,6 +428,7 @@
         "name": "length",
         "description": "Total number of elements (numel).",
         "returns": null,
+        "effect": "sync",
         "isGetter": true,
         "signature": {
           "params": [],
@@ -422,6 +439,7 @@
         "name": "neg",
         "description": "Element-wise unary negation.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -432,6 +450,7 @@
         "name": "exp",
         "description": "Element-wise natural exponential `e^x`.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -442,6 +461,7 @@
         "name": "log",
         "description": "Element-wise natural logarithm.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -452,6 +472,7 @@
         "name": "sqrt",
         "description": "Element-wise square root.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -462,6 +483,7 @@
         "name": "rsqrt",
         "description": "Element-wise reciprocal square root `1/√x`.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -472,6 +494,7 @@
         "name": "abs",
         "description": "Element-wise absolute value.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -482,6 +505,7 @@
         "name": "sin",
         "description": "Element-wise sine.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -492,6 +516,7 @@
         "name": "cos",
         "description": "Element-wise cosine.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -502,6 +527,7 @@
         "name": "tanh",
         "description": "Element-wise hyperbolic tangent.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -512,6 +538,7 @@
         "name": "sigmoid",
         "description": "Element-wise logistic sigmoid `1/(1+e^-x)`.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -522,6 +549,7 @@
         "name": "relu",
         "description": "Element-wise ReLU activation.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -532,6 +560,7 @@
         "name": "gelu",
         "description": "Gaussian Error Linear Unit activation.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -542,6 +571,7 @@
         "name": "silu",
         "description": "SiLU/Swish activation: `x * sigmoid(x)`.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -552,6 +582,7 @@
         "name": "sign",
         "description": "Element-wise sign: `-1`, `0`, or `+1`.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -562,6 +593,7 @@
         "name": "floor",
         "description": "Element-wise floor (round toward `-∞`).",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -572,6 +604,7 @@
         "name": "ceil",
         "description": "Element-wise ceiling (round toward `+∞`).",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -582,6 +615,7 @@
         "name": "clone",
         "description": "Return a deep copy of the tensor (separate storage).",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -592,6 +626,7 @@
         "name": "add",
         "description": "Element-wise addition; scalars are auto-promoted.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -610,6 +645,7 @@
         "name": "sub",
         "description": "Element-wise subtraction; scalars are auto-promoted.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -628,6 +664,7 @@
         "name": "mul",
         "description": "Element-wise multiplication; scalars are auto-promoted.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -646,6 +683,7 @@
         "name": "div",
         "description": "Element-wise division; scalars are auto-promoted.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -664,6 +702,7 @@
         "name": "pow",
         "description": "Element-wise power `x ** exponent`.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -682,6 +721,7 @@
         "name": "remainder",
         "description": "Element-wise floored remainder (sign follows divisor).",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -700,6 +740,7 @@
         "name": "maximum",
         "description": "Element-wise maximum of two tensors.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -718,6 +759,7 @@
         "name": "minimum",
         "description": "Element-wise minimum of two tensors.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -736,6 +778,7 @@
         "name": "eq",
         "description": "Element-wise equality comparison. Returns a boolean tensor.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -754,6 +797,7 @@
         "name": "ne",
         "description": "Element-wise inequality comparison.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -772,6 +816,7 @@
         "name": "lt",
         "description": "Element-wise less-than comparison.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -790,6 +835,7 @@
         "name": "le",
         "description": "Element-wise less-than-or-equal comparison.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -808,6 +854,7 @@
         "name": "gt",
         "description": "Element-wise greater-than comparison.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -826,6 +873,7 @@
         "name": "ge",
         "description": "Element-wise greater-than-or-equal comparison.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -844,6 +892,7 @@
         "name": "matmul",
         "description": "Matrix multiplication; broadcasts on leading batch dimensions.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -862,6 +911,7 @@
         "name": "dot",
         "description": "Inner (dot) product of two 1-D tensors.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -880,6 +930,7 @@
         "name": "sum",
         "description": "Sum over `axis` (or the whole tensor); `keep` retains reduced dims.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -905,6 +956,7 @@
         "name": "mean",
         "description": "Arithmetic mean over `axis` (or the whole tensor); `keep` retains reduced dims.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -930,6 +982,7 @@
         "name": "max",
         "description": "Maximum over `axis` (or the whole tensor); `keep` retains reduced dims.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -955,6 +1008,7 @@
         "name": "min",
         "description": "Minimum over `axis` (or the whole tensor); `keep` retains reduced dims.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -980,6 +1034,7 @@
         "name": "argmax",
         "description": "Index of the maximum along `axis`; `keep` retains reduced dims.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1005,6 +1060,7 @@
         "name": "argmin",
         "description": "Index of the minimum along `axis`; `keep` retains reduced dims.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1030,6 +1086,7 @@
         "name": "prod",
         "description": "Product of elements over `axis` (or the whole tensor); `keep` retains reduced dims.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1055,6 +1112,7 @@
         "name": "softmax",
         "description": "Softmax along `axis`, normalizing to a probability distribution.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1073,6 +1131,7 @@
         "name": "log_softmax",
         "description": "Logarithm of softmax along `axis`, numerically stable.",
         "returns": "Tensor",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1093,6 +1152,7 @@
         "name": "parameters",
         "description": "Return the model's learnable parameter tensors.",
         "returns": "Tensor[]",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1103,6 +1163,7 @@
         "name": "forward",
         "description": "Run the model's forward block. Calling the model directly is equivalent.",
         "returns": null,
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1121,6 +1182,7 @@
         "name": "train",
         "description": "Set training mode.",
         "returns": "Model",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1131,6 +1193,7 @@
         "name": "eval",
         "description": "Set evaluation mode.",
         "returns": "Model",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1141,6 +1204,7 @@
         "name": "to",
         "description": "Move the model's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
         "returns": "Model",
+        "effect": "async",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1159,6 +1223,7 @@
         "name": "state_dict",
         "description": "Return a serializable dict of parameter tensors.",
         "returns": null,
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1169,6 +1234,7 @@
         "name": "load_state_dict",
         "description": "Load parameter tensors from a previously saved dict.",
         "returns": null,
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1187,6 +1253,7 @@
         "name": "save",
         "description": "Save the model's weights to `path` (compact binary checkpoint). Reload into a same-architecture model with `load_model(model, path)`.",
         "returns": "none",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1207,6 +1274,7 @@
         "name": "columns",
         "description": "Return the column names as an array of strings.",
         "returns": null,
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1217,6 +1285,7 @@
         "name": "schema",
         "description": "Return the frame's schema (fields with names and data types).",
         "returns": null,
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1227,6 +1296,7 @@
         "name": "explain",
         "description": "Return the logical query plan as a human-readable string.",
         "returns": null,
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1237,6 +1307,7 @@
         "name": "select",
         "description": "Project a new frame from the given columns or `Column` expressions.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1255,6 +1326,7 @@
         "name": "filter",
         "description": "Keep only rows matching a boolean `Column` (or SQL string) condition.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1273,6 +1345,7 @@
         "name": "where",
         "description": "Alias for `filter`.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1291,6 +1364,7 @@
         "name": "withColumn",
         "description": "Return a new frame with an added or replaced column computed from `column`.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1316,6 +1390,7 @@
         "name": "drop",
         "description": "Return a new frame without the named columns.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1334,6 +1409,7 @@
         "name": "groupBy",
         "description": "Group rows by the given columns, returning a `GroupedData` for aggregation.",
         "returns": "GroupedData",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1352,6 +1428,7 @@
         "name": "orderBy",
         "description": "Sort rows. Each spec is a column name/`Column`, or `{ col, desc }` for ordering.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1370,6 +1447,7 @@
         "name": "sort",
         "description": "Alias for `orderBy`.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1388,6 +1466,7 @@
         "name": "limit",
         "description": "Return at most `count` rows, skipping the first `offset` rows.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1413,6 +1492,7 @@
         "name": "head",
         "description": "Return the first `n` rows as a new frame (pandas-style preview).",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1431,6 +1511,7 @@
         "name": "distinct",
         "description": "Return a frame with duplicate rows removed.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1441,6 +1522,7 @@
         "name": "union",
         "description": "Concatenate the rows of another frame with matching column types.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1459,6 +1541,7 @@
         "name": "unionAll",
         "description": "Concatenate rows of another frame, keeping duplicates.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1477,6 +1560,7 @@
         "name": "join",
         "description": "Join with another frame on one or more key columns. `how` is one of\n`INNER`, `LEFT`, `RIGHT`, or `FULL`.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1509,6 +1593,7 @@
         "name": "collect",
         "description": "Execute the plan and return all rows as an array of objects.",
         "returns": null,
+        "effect": "async",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1519,6 +1604,7 @@
         "name": "toArray",
         "description": "Alias for `collect`.",
         "returns": null,
+        "effect": "async",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1529,6 +1615,7 @@
         "name": "count",
         "description": "Execute the plan and return the number of rows.",
         "returns": null,
+        "effect": "async",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1539,6 +1626,7 @@
         "name": "show",
         "description": "Execute and print the first `n` rows as a formatted table; returns the text.",
         "returns": null,
+        "effect": "async",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1557,6 +1645,7 @@
         "name": "chunks",
         "description": "Execute and stream results as an async iterator of data chunks.",
         "returns": null,
+        "effect": "async",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1567,6 +1656,7 @@
         "name": "to_tensor",
         "description": "Materialize the (optionally selected) numeric columns into a 2-D tensor of\nshape `[rows, columns]`. Non-numeric columns raise — encode them first.",
         "returns": null,
+        "effect": "async",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1585,6 +1675,7 @@
         "name": "to_array",
         "description": "Alias for `collect` — execute and return rows as an array of objects.",
         "returns": null,
+        "effect": "async",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1595,6 +1686,7 @@
         "name": "encode",
         "description": "Encode a categorical column to integer ids, returning `[encoded_tensor,\nclasses_array]`. Pass `classes=` to reuse ids fitted on another frame.",
         "returns": null,
+        "effect": "async",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1622,6 +1714,7 @@
         "name": "agg",
         "description": "Apply aggregate `Column` expressions (e.g. `sum`, `avg`, `count`) over each\ngroup, returning a `DataFrame` of group keys and aggregates.",
         "returns": "DataFrame",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1642,6 +1735,7 @@
         "name": "alias",
         "description": "Rename the column's output to `name`.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1660,6 +1754,7 @@
         "name": "as",
         "description": "Alias for `alias`.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1678,6 +1773,7 @@
         "name": "add",
         "description": "Arithmetic addition with another column or value.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1696,6 +1792,7 @@
         "name": "sub",
         "description": "Arithmetic subtraction with another column or value.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1714,6 +1811,7 @@
         "name": "mul",
         "description": "Arithmetic multiplication with another column or value.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1732,6 +1830,7 @@
         "name": "div",
         "description": "Arithmetic division with another column or value.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1750,6 +1849,7 @@
         "name": "eq",
         "description": "Equality comparison, producing a boolean column.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1768,6 +1868,7 @@
         "name": "ne",
         "description": "Inequality comparison, producing a boolean column.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1786,6 +1887,7 @@
         "name": "lt",
         "description": "Less-than comparison, producing a boolean column.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1804,6 +1906,7 @@
         "name": "le",
         "description": "Less-than-or-equal comparison, producing a boolean column.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1822,6 +1925,7 @@
         "name": "gt",
         "description": "Greater-than comparison, producing a boolean column.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1840,6 +1944,7 @@
         "name": "ge",
         "description": "Greater-than-or-equal comparison, producing a boolean column.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1858,6 +1963,7 @@
         "name": "and",
         "description": "Logical AND of two boolean columns.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1876,6 +1982,7 @@
         "name": "or",
         "description": "Logical OR of two boolean columns.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1894,6 +2001,7 @@
         "name": "not",
         "description": "Logical negation of a boolean column.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1904,6 +2012,7 @@
         "name": "isNull",
         "description": "True where the column value is null.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1914,6 +2023,7 @@
         "name": "isNotNull",
         "description": "True where the column value is not null.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -1924,6 +2034,7 @@
         "name": "like",
         "description": "SQL `LIKE` match against a string pattern.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1942,6 +2053,7 @@
         "name": "between",
         "description": "True where the value lies in the inclusive range `[low, high]`.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1967,6 +2079,7 @@
         "name": "isin",
         "description": "True where the value is one of the given values.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -1985,6 +2098,7 @@
         "name": "cast",
         "description": "Cast the column to another data type.",
         "returns": "Column",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2005,6 +2119,7 @@
         "name": "append",
         "description": "Add `x` to the end of the list, growing it in place.",
         "returns": "none",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2023,6 +2138,7 @@
         "name": "extend",
         "description": "Append every element of list `other` to the end of this list, in place.",
         "returns": "none",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2041,6 +2157,7 @@
         "name": "insert",
         "description": "Insert `x` at index `i`, shifting later elements right. Negative `i` counts from\nthe end; out-of-range `i` is clamped to the nearest end.",
         "returns": "none",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2066,6 +2183,7 @@
         "name": "pop",
         "description": "Remove and return the element at index `i` (the last element when `i` is omitted).\nErrors on an empty list.",
         "returns": "any",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2084,6 +2202,7 @@
         "name": "remove",
         "description": "Remove the first element equal to `x`. Does nothing if no element matches.",
         "returns": "none",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2102,6 +2221,7 @@
         "name": "index",
         "description": "Return the position of the first element equal to `x`, or `-1` if absent.",
         "returns": "int",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2120,6 +2240,7 @@
         "name": "count",
         "description": "Return how many elements are equal to `x`.",
         "returns": "int",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2138,6 +2259,7 @@
         "name": "contains",
         "description": "True when the list holds an element equal to `x`.",
         "returns": "boolean",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2156,6 +2278,7 @@
         "name": "reverse",
         "description": "Reverse the order of the elements in place.",
         "returns": "none",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -2166,6 +2289,7 @@
         "name": "clear",
         "description": "Remove all elements, leaving an empty list.",
         "returns": "none",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -2176,6 +2300,7 @@
         "name": "copy",
         "description": "Return a shallow copy of the list.",
         "returns": "list",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -2188,6 +2313,7 @@
         "name": "upper",
         "description": "Return the string with every character upper-cased.",
         "returns": "string",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -2198,6 +2324,7 @@
         "name": "lower",
         "description": "Return the string with every character lower-cased.",
         "returns": "string",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -2208,6 +2335,7 @@
         "name": "strip",
         "description": "Return the string with leading and trailing whitespace removed.",
         "returns": "string",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -2218,6 +2346,7 @@
         "name": "lstrip",
         "description": "Return the string with leading whitespace removed.",
         "returns": "string",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -2228,6 +2357,7 @@
         "name": "rstrip",
         "description": "Return the string with trailing whitespace removed.",
         "returns": "string",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -2238,6 +2368,7 @@
         "name": "split",
         "description": "Split the string on `sep`. With no `sep`, split on runs of whitespace and drop\nempty pieces.",
         "returns": "string[]",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2256,6 +2387,7 @@
         "name": "join",
         "description": "Join `parts` into one string using this string as the separator, e.g.\n`\", \".join(words)`.",
         "returns": "string",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2274,6 +2406,7 @@
         "name": "replace",
         "description": "Return a copy with every occurrence of `old` replaced by `new`.",
         "returns": "string",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2299,6 +2432,7 @@
         "name": "starts_with",
         "description": "True when the string begins with `prefix`.",
         "returns": "boolean",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2317,6 +2451,7 @@
         "name": "ends_with",
         "description": "True when the string ends with `suffix`.",
         "returns": "boolean",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2335,6 +2470,7 @@
         "name": "find",
         "description": "Return the index of the first occurrence of `sub`, or `-1` if absent.",
         "returns": "int",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2353,6 +2489,7 @@
         "name": "contains",
         "description": "True when `sub` occurs anywhere in the string.",
         "returns": "boolean",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2373,6 +2510,7 @@
         "name": "keys",
         "description": "Return a list of the dictionary's keys.",
         "returns": "list",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -2383,6 +2521,7 @@
         "name": "values",
         "description": "Return a list of the dictionary's values.",
         "returns": "list",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -2393,6 +2532,7 @@
         "name": "items",
         "description": "Return a list of `[key, value]` pairs.",
         "returns": "list",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [],
@@ -2403,6 +2543,7 @@
         "name": "get",
         "description": "Return the value for `key`, or `default` (or `null` when omitted) if the key is absent.",
         "returns": "any",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2428,6 +2569,7 @@
         "name": "has",
         "description": "True when `key` is present in the dictionary.",
         "returns": "boolean",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2446,6 +2588,7 @@
         "name": "remove",
         "description": "Remove `key` and its value from the dictionary. Does nothing if absent.",
         "returns": "none",
+        "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
@@ -2468,6 +2611,7 @@
       "kind": "metric",
       "description": "Classification accuracy metric. Configure with `task` (`binary`/`multiclass`/`multilabel`).",
       "returns": "Metric",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -2499,6 +2643,7 @@
           "name": "update",
           "description": "Update internal state with a new batch of predictions and ground-truth labels.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -2523,6 +2668,7 @@
           "name": "compute",
           "description": "Compute the current metric value across all accumulated updates.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "compute()"
@@ -2532,6 +2678,7 @@
           "name": "reset",
           "description": "Clear accumulated state so the next epoch starts fresh.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "reset()"
@@ -2544,6 +2691,7 @@
       "kind": "ml_metric",
       "description": "Classification accuracy.",
       "returns": "float",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -2570,6 +2718,7 @@
       "kind": "numeric_timeseries",
       "description": "Sample autocorrelation function of `x` up to `nlags` (FFT-based). Returns a Tensor of length `nlags + 1` with lag 0 equal to 1.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -2596,6 +2745,7 @@
       "kind": "optimizer",
       "description": "Adaptive moment estimation optimizer. Standard default for deep learning.",
       "returns": "Optimizer",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -2634,6 +2784,7 @@
           "name": "step",
           "description": "Apply one optimizer update step using the current gradients.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "step()"
@@ -2643,6 +2794,7 @@
           "name": "zero_grad",
           "description": "Zero out gradients of all tracked parameters before the next backward pass.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "zero_grad()"
@@ -2652,6 +2804,7 @@
           "name": "param_groups",
           "description": "Return the list of parameter groups (each with its own learning rate, weight decay, etc.).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "param_groups()"
@@ -2664,6 +2817,7 @@
       "kind": "optimizer",
       "description": "Adam variant with decoupled weight decay — preferred for transformer-style models.",
       "returns": "Optimizer",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -2702,6 +2856,7 @@
           "name": "step",
           "description": "Apply one optimizer update step using the current gradients.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "step()"
@@ -2711,6 +2866,7 @@
           "name": "zero_grad",
           "description": "Zero out gradients of all tracked parameters before the next backward pass.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "zero_grad()"
@@ -2720,6 +2876,7 @@
           "name": "param_groups",
           "description": "Return the list of parameter groups (each with its own learning rate, weight decay, etc.).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "param_groups()"
@@ -2732,6 +2889,7 @@
       "kind": "module",
       "description": "2-D adaptive average pooling to a target output spatial shape, independent of input size.",
       "returns": "AdaptiveAvgPool2d",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -2749,6 +2907,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -2766,6 +2925,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -2775,6 +2935,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -2784,6 +2945,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -2793,6 +2955,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -2813,6 +2976,7 @@
       "kind": "quant",
       "description": "Augmented Dickey-Fuller unit-root test. Returns a record with `statistic`, `criticalValues`, and `stationary` (true when the statistic is below the critical value).",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -2846,6 +3010,7 @@
       "kind": "quant",
       "description": "Amihud illiquidity — average of `|return| / dollar_volume`, a price-impact-per-dollar measure.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -2872,6 +3037,7 @@
       "kind": "numeric_stats_test",
       "description": "Anderson-Darling normality test with the small-sample corrected p-value. Returns a record with `statistic`, `pvalue`.",
       "returns": "Record",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -2891,6 +3057,7 @@
       "kind": "factory",
       "description": "Half-open integer range tensor `[start, end)` with optional `step`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -2931,6 +3098,7 @@
       "kind": "function",
       "description": "Aggregate `Column` computing the mean of a column within a `groupBy(...).agg(...)`.",
       "returns": "Column",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -2950,6 +3118,7 @@
       "kind": "module",
       "description": "2-D average pooling. Downsamples spatial dimensions averaging per window.",
       "returns": "AvgPool2d",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -2981,6 +3150,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -2998,6 +3168,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -3007,6 +3178,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -3016,6 +3188,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -3025,6 +3198,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -3045,6 +3219,7 @@
       "kind": "quant",
       "description": "Run a vectorized cross-sectional backtest over a price `DataFrame` shaped time × asset (numeric columns are the assets; a date/index column is dropped automatically). `signal` selects a trading signal (`\"momentum\"`, `\"mean_reversion\"`, `\"zscore\"`) and `portfolio` a position rule (`\"equal_weight\"`, `\"cross_sectional\"`, `\"long_short\"`); either may instead be a handle from `momentum(...)`, `long_short(...)`, etc. Returns a record with `.metrics` (a map of `sharpe`, `sortino`, `maxDrawdown`, `calmar`, `hitRate`, `turnover`), `.equity` and `.port_returns` (DataFrames), and `.weights`.",
       "returns": null,
+      "effect": "async",
       "signature": {
         "params": [
           {
@@ -3099,6 +3274,7 @@
       "kind": "module",
       "description": "Batch normalization for 2-D `(N, C)` or 3-D `(N, C, L)` inputs.",
       "returns": "BatchNorm1d",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3130,6 +3306,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -3147,6 +3324,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -3156,6 +3334,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -3165,6 +3344,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -3174,6 +3354,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -3194,6 +3375,7 @@
       "kind": "module",
       "description": "Batch normalization for 4-D `(N, C, H, W)` image-like inputs.",
       "returns": "BatchNorm2d",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3225,6 +3407,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -3242,6 +3425,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -3251,6 +3435,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -3260,6 +3445,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -3269,6 +3455,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -3289,6 +3476,7 @@
       "kind": "module",
       "description": "Binary cross-entropy loss for sigmoid-activated outputs.",
       "returns": "BCELoss",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "BCELoss() -> BCELoss"
@@ -3298,6 +3486,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -3315,6 +3504,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -3324,6 +3514,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -3333,6 +3524,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -3342,6 +3534,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -3362,6 +3555,7 @@
       "kind": "dtype",
       "description": "Boolean dtype.\n\n---\n\n# Kind templates\n\nThese `## @kind/<kind>` entries define methods auto-injected into every builtin\nof the matching kind. A builtin's own `###` methods take precedence; templates\nadd the rest.",
       "returns": null,
+      "effect": "sync",
       "signature": null,
       "methods": []
     },
@@ -3370,6 +3564,7 @@
       "kind": "quant",
       "description": "Backward-SADF series — the running SADF at each point, for dating the start/end of explosive regimes.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3410,6 +3605,7 @@
       "kind": "other",
       "description": "Concatenate tensors along an existing dimension.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3436,6 +3632,7 @@
       "kind": "numeric_dist",
       "description": "Chi-squared cumulative distribution function with `df` degrees of freedom, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3462,6 +3659,7 @@
       "kind": "numeric_stats_test",
       "description": "Chi-square goodness-of-fit test of `observed` counts against `expected` counts (uniform when omitted). Returns a record with `statistic`, `pvalue`, `df`.",
       "returns": "Record",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3495,6 +3693,7 @@
       "kind": "numeric_stats_test",
       "description": "Chi-square test of independence on a 2-D contingency `table`. Returns a record with `statistic`, `pvalue`, `df`.",
       "returns": "Record",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3514,6 +3713,7 @@
       "kind": "numeric_dist",
       "description": "Chi-squared probability density function with `df` degrees of freedom, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3540,6 +3740,7 @@
       "kind": "numeric_dist",
       "description": "Chi-squared quantile function (inverse CDF) with `df` degrees of freedom, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3566,6 +3767,7 @@
       "kind": "linalg",
       "description": "Cholesky factor `L` (lower-triangular) of a symmetric positive-definite matrix.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3585,6 +3787,7 @@
       "kind": "function",
       "description": "Reference a column by name in a `DataFrame` expression, returning a `Column`\nthat can be transformed and compared. Use a dotted name (`\"t.id\"`) to qualify a\ntable alias.",
       "returns": "Column",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3604,6 +3807,7 @@
       "kind": "utility",
       "description": "Compile a model or function to a backend (`cpu`/`gpu`/`wasm`/`webgpu`). `input` provides an example for shape inference and tuning.",
       "returns": null,
+      "effect": "async",
       "signature": {
         "params": [
           {
@@ -3658,6 +3862,7 @@
       "kind": "ml_metric",
       "description": "Confusion matrix as a nested array.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3684,6 +3889,7 @@
       "kind": "metric",
       "description": "Cumulative confusion matrix over `num_classes`.",
       "returns": "Metric",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3701,6 +3907,7 @@
           "name": "update",
           "description": "Update internal state with a new batch of predictions and ground-truth labels.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -3725,6 +3932,7 @@
           "name": "compute",
           "description": "Compute the current metric value across all accumulated updates.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "compute()"
@@ -3734,6 +3942,7 @@
           "name": "reset",
           "description": "Clear accumulated state so the next epoch starts fresh.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "reset()"
@@ -3746,6 +3955,7 @@
       "kind": "logger",
       "description": "Send log records to stdout.",
       "returns": "Logger",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "ConsoleLogger() -> Logger"
@@ -3755,6 +3965,7 @@
           "name": "log",
           "description": "Record a scalar metric value.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -3786,6 +3997,7 @@
           "name": "flush",
           "description": "Flush buffered records to the underlying sink.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "flush()"
@@ -3798,6 +4010,7 @@
       "kind": "module",
       "description": "1-D convolution over an input with `in` channels, producing `out` channels.",
       "returns": "Conv1d",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3843,6 +4056,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -3860,6 +4074,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -3869,6 +4084,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -3878,6 +4094,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -3887,6 +4104,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -3907,6 +4125,7 @@
       "kind": "module",
       "description": "2-D convolution. Use `padding` to preserve spatial dimensions.",
       "returns": "Conv2d",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -3952,6 +4171,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -3969,6 +4189,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -3978,6 +4199,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -3987,6 +4209,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -3996,6 +4219,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4016,6 +4240,7 @@
       "kind": "numeric_array_op",
       "description": "FFT-based linear convolution of two 1-D signals. `mode` is `\"full\"`, `\"same\"`, or `\"valid\"`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4049,6 +4274,7 @@
       "kind": "numeric_array_op",
       "description": "FFT-based cross-correlation of two 1-D signals. `mode` is `\"full\"`, `\"same\"`, or `\"valid\"`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4082,6 +4308,7 @@
       "kind": "scheduler",
       "description": "Cosine schedule decaying the learning rate to `eta_min` over `t_max` epochs.",
       "returns": "Scheduler",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4113,6 +4340,7 @@
           "name": "step",
           "description": "Advance the scheduler by one step. Some schedulers (`ReduceLROnPlateau`) require a monitored metric.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4130,6 +4358,7 @@
           "name": "get_last_lr",
           "description": "Return the most recently computed learning rate(s).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "get_last_lr()"
@@ -4142,6 +4371,7 @@
       "kind": "function",
       "description": "Aggregate `Column` counting non-null values of a column within `agg(...)`.",
       "returns": "Column",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4161,6 +4391,7 @@
       "kind": "function",
       "description": "Aggregate `Column` counting all rows (`COUNT(*)`) within `agg(...)`.",
       "returns": "Column",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "countStar() -> Column"
@@ -4172,6 +4403,7 @@
       "kind": "linalg",
       "description": "Covariance matrix of the columns of `input`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4191,6 +4423,7 @@
       "kind": "device",
       "description": "CPU execution backend.",
       "returns": null,
+      "effect": "sync",
       "signature": null,
       "methods": []
     },
@@ -4199,6 +4432,7 @@
       "kind": "quant",
       "description": "Portfolio handle that demeans the signal across assets and scales to unit gross exposure, for use as `portfolio=`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "cross_sectional()"
@@ -4210,6 +4444,7 @@
       "kind": "ml_function",
       "description": "Cross-validated scores for an estimator constructor over `cv` folds.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4250,6 +4485,7 @@
       "kind": "module",
       "description": "Combined LogSoftmax + NLL loss — standard for multiclass classification. Pass `ignore_index` (e.g. a padding id) to exclude those target positions from the loss — useful for seq2seq with padded sequences.",
       "returns": "CrossEntropyLoss",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4274,6 +4510,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4291,6 +4528,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -4300,6 +4538,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -4309,6 +4548,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -4318,6 +4558,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4338,6 +4579,7 @@
       "kind": "logger",
       "description": "Append log records to a CSV file under `save_dir/name`.",
       "returns": "Logger",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4362,6 +4604,7 @@
           "name": "log",
           "description": "Record a scalar metric value.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4393,6 +4636,7 @@
           "name": "flush",
           "description": "Flush buffered records to the underlying sink.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "flush()"
@@ -4405,6 +4649,7 @@
       "kind": "numeric_func",
       "description": "Natural cubic spline interpolant through the points `(xs, ys)`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4429,6 +4674,7 @@
           "name": "evaluate",
           "description": "Evaluate the spline at a query point or a list of query points.",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4449,6 +4695,7 @@
       "kind": "quant",
       "description": "Symmetric CUSUM filter — returns the indices where the cumulative deviation exceeds `threshold`, used to sample structural-shift events.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4482,6 +4729,7 @@
       "kind": "numeric_stats_test",
       "description": "D'Agostino K-squared normality test combining skewness and kurtosis z-scores. Returns a record with `statistic`, `pvalue`, `df`.",
       "returns": "Record",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4501,6 +4749,7 @@
       "kind": "data",
       "description": "Build a lazy `DataFrame` from named column arrays, one named argument per\ncolumn: `DataFrame(name=[\"a\", \"b\"], age=[30, 40])`. Column types are inferred\nfrom the values. The frame records a query plan and is only executed when\nmaterialized with `collect`, `toArray`, `count`, `show`, or `chunks`.",
       "returns": "DataFrame",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4520,6 +4769,7 @@
       "kind": "data",
       "description": "Iterate over a dataset in mini-batches with optional shuffling and `drop_last`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4558,6 +4808,7 @@
           "name": "length",
           "description": "Number of batches per epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "length()"
@@ -4570,6 +4821,7 @@
       "kind": "ml_model",
       "description": "CART decision-tree classifier (Gini impurity).",
       "returns": "DecisionTreeClassifier",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4615,6 +4867,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4639,6 +4892,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4656,6 +4910,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4683,6 +4938,7 @@
       "kind": "ml_model",
       "description": "CART decision-tree regressor (variance reduction).",
       "returns": "DecisionTreeRegressor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4728,6 +4984,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4752,6 +5009,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4769,6 +5027,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4796,6 +5055,7 @@
       "kind": "quant",
       "description": "Deflated Sharpe ratio — the probability the strategy's Sharpe is real after accounting for the number and dispersion of `trial_sharpes` searched over (guards against selection bias).",
       "returns": null,
+      "effect": "async",
       "signature": {
         "params": [
           {
@@ -4822,6 +5082,7 @@
       "kind": "linalg",
       "description": "Determinant (scalar).",
       "returns": "float",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4841,6 +5102,7 @@
       "kind": "quant",
       "description": "Bars sampled every fixed traded dollar value — the most sample-stationary bar type. Returns a bar `DataFrame`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4867,6 +5129,7 @@
       "kind": "module",
       "description": "Randomly zero elements with probability `p` during training. Inactive at eval time.",
       "returns": "Dropout",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4884,6 +5147,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4901,6 +5165,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -4910,6 +5175,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -4919,6 +5185,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -4928,6 +5195,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -4948,6 +5216,7 @@
       "kind": "numeric_timeseries",
       "description": "Durbin-Watson statistic of a residual series; values near 2 indicate no first-order autocorrelation.",
       "returns": "float",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -4967,6 +5236,7 @@
       "kind": "quant",
       "description": "Time-varying hedge ratio / beta via a Kalman filter (random-walk coefficients). Returns the per-period `states` (betas) — the workhorse for dynamic pairs trading.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5000,6 +5270,7 @@
       "kind": "callback",
       "description": "Stop training when a monitored metric stops improving for `patience` evaluations.",
       "returns": "Callback",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5031,6 +5302,7 @@
           "name": "on_train_start",
           "description": "Hook fired at the start of training.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5055,6 +5327,7 @@
           "name": "on_train_end",
           "description": "Hook fired at the end of training.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5079,6 +5352,7 @@
           "name": "on_epoch_start",
           "description": "Hook fired at the start of each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5103,6 +5377,7 @@
           "name": "on_epoch_end",
           "description": "Hook fired at the end of each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5130,6 +5405,7 @@
       "kind": "linalg",
       "description": "Symmetric eigendecomposition. Returns `{values, vectors}` (ascending eigenvalues).",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5149,6 +5425,7 @@
       "kind": "ml_model",
       "description": "Combined L1/L2 linear regression via coordinate descent.",
       "returns": "ElasticNet",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5187,6 +5464,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5211,6 +5489,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5228,6 +5507,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5255,6 +5535,7 @@
       "kind": "module",
       "description": "Exponential Linear Unit activation. Smooth alternative to ReLU for negative values.",
       "returns": "ELU",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5272,6 +5553,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5289,6 +5571,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -5298,6 +5581,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -5307,6 +5591,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -5316,6 +5601,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5336,6 +5622,7 @@
       "kind": "module",
       "description": "Lookup table mapping integer ids to dense vectors of size `dim`.",
       "returns": "Embedding",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5367,6 +5654,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5384,6 +5672,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -5393,6 +5682,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -5402,6 +5692,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -5411,6 +5702,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5431,6 +5723,7 @@
       "kind": "factory",
       "description": "Allocate a tensor of the given shape without initializing its contents.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5457,6 +5750,7 @@
       "kind": "factory",
       "description": "Uninitialized tensor with the same shape, dtype, and device as the input.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5476,6 +5770,7 @@
       "kind": "quant",
       "description": "Engle-Granger two-step cointegration test: regress `dependent` on `regressors`, then ADF-test the residual. Returns `statistic`, `criticalValues`, `cointegrated`, `hedgeRatio`, and `spread`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5509,6 +5804,7 @@
       "kind": "quant",
       "description": "Portfolio handle weighting every active asset equally by sign, for use as `portfolio=`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "equal_weight()"
@@ -5520,6 +5816,7 @@
       "kind": "numeric_func",
       "description": "Error function, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5539,6 +5836,7 @@
       "kind": "numeric_func",
       "description": "Complementary error function, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5558,6 +5856,7 @@
       "kind": "function",
       "description": "Parse a scalar SQL string into a `Column`, e.g. `expr(\"price * 1.1\")`. Bound\nagainst the frame's schema at build time.",
       "returns": "Column",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5577,6 +5876,7 @@
       "kind": "factory",
       "description": "Identity matrix of size `n × m` (or `n × n` if `m` omitted).",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5610,6 +5910,7 @@
       "kind": "numeric_dist",
       "description": "F distribution cumulative distribution function with `d1` and `d2` degrees of freedom, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5643,6 +5944,7 @@
       "kind": "numeric_dist",
       "description": "F distribution probability density function with `d1` and `d2` degrees of freedom, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5676,6 +5978,7 @@
       "kind": "numeric_dist",
       "description": "F distribution quantile function (inverse CDF) with `d1` and `d2` degrees of freedom, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5709,6 +6012,7 @@
       "kind": "dtype",
       "description": "Half-precision floating-point dtype (16-bit).",
       "returns": null,
+      "effect": "sync",
       "signature": null,
       "methods": []
     },
@@ -5717,6 +6021,7 @@
       "kind": "metric",
       "description": "Harmonic mean of precision and recall.",
       "returns": "Metric",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5748,6 +6053,7 @@
           "name": "update",
           "description": "Update internal state with a new batch of predictions and ground-truth labels.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5772,6 +6078,7 @@
           "name": "compute",
           "description": "Compute the current metric value across all accumulated updates.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "compute()"
@@ -5781,6 +6088,7 @@
           "name": "reset",
           "description": "Clear accumulated state so the next epoch starts fresh.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "reset()"
@@ -5793,6 +6101,7 @@
       "kind": "dtype",
       "description": "Single-precision floating-point dtype (32-bit). Default for most models.",
       "returns": null,
+      "effect": "sync",
       "signature": null,
       "methods": []
     },
@@ -5801,6 +6110,7 @@
       "kind": "dtype",
       "description": "Double-precision floating-point dtype (64-bit).",
       "returns": null,
+      "effect": "sync",
       "signature": null,
       "methods": []
     },
@@ -5809,6 +6119,7 @@
       "kind": "numeric_transform",
       "description": "Discrete Fourier transform of a 1-D real or `[n, 2]` complex signal. Returns an `[n, 2]` Tensor of real/imaginary pairs.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5828,6 +6139,7 @@
       "kind": "quant",
       "description": "Fit a GARCH(1,1) volatility model by maximum likelihood. Returns a record with `params` (`omega`, `alpha`, `beta`), `log_likelihood`, and fitted `variances`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5854,6 +6166,7 @@
       "kind": "module",
       "description": "Flatten a contiguous range of dimensions into one. Typical use: between conv blocks and a Linear head.",
       "returns": "Flatten",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5878,6 +6191,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5895,6 +6209,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -5904,6 +6219,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -5913,6 +6229,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -5922,6 +6239,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -5942,6 +6260,7 @@
       "kind": "factory",
       "description": "Create a tensor of the given shape filled with the provided scalar `value`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -5975,6 +6294,7 @@
       "kind": "factory",
       "description": "Constant-filled tensor matching the shape, dtype, and device of the input.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6001,6 +6321,7 @@
       "kind": "numeric_func",
       "description": "Gamma function, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6020,6 +6341,7 @@
       "kind": "quant",
       "description": "Forecast conditional variance `horizon` steps ahead from GARCH `params` (as returned by `fit_garch`).",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6060,6 +6382,7 @@
       "kind": "quant",
       "description": "In-sample conditional volatility path (standard deviation per period) for the given GARCH `params`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6093,6 +6416,7 @@
       "kind": "ml_model",
       "description": "Gaussian Naive Bayes classifier.",
       "returns": "GaussianNB",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "GaussianNB() -> GaussianNB"
@@ -6102,6 +6426,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6126,6 +6451,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6143,6 +6469,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6170,6 +6497,7 @@
       "kind": "module",
       "description": "Gaussian Error Linear Unit activation module — commonly used in Transformers.",
       "returns": "GELU",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "GELU() -> GELU"
@@ -6179,6 +6507,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6196,6 +6525,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -6205,6 +6535,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -6214,6 +6545,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -6223,6 +6555,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6243,6 +6576,7 @@
       "kind": "device",
       "description": "Native GPU execution backend (CUDA-like).",
       "returns": null,
+      "effect": "sync",
       "signature": null,
       "methods": []
     },
@@ -6251,6 +6585,7 @@
       "kind": "callback",
       "description": "Accumulate gradients across multiple steps before updating, on a per-epoch schedule.",
       "returns": "Callback",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6268,6 +6603,7 @@
           "name": "on_train_start",
           "description": "Hook fired at the start of training.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6292,6 +6628,7 @@
           "name": "on_train_end",
           "description": "Hook fired at the end of training.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6316,6 +6653,7 @@
           "name": "on_epoch_start",
           "description": "Hook fired at the start of each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6340,6 +6678,7 @@
           "name": "on_epoch_end",
           "description": "Hook fired at the end of each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6367,6 +6706,7 @@
       "kind": "ml_model",
       "description": "Stage-wise gradient boosting for classification (multinomial deviance).",
       "returns": "GradientBoostingClassifier",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6405,6 +6745,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6429,6 +6770,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6446,6 +6788,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6473,6 +6816,7 @@
       "kind": "ml_model",
       "description": "Stage-wise gradient boosting for regression (squared-error residuals).",
       "returns": "GradientBoostingRegressor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6511,6 +6855,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6535,6 +6880,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6552,6 +6898,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6579,6 +6926,7 @@
       "kind": "utility",
       "description": "Print the IR graph of a compiled program or module.",
       "returns": "string",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6598,6 +6946,7 @@
       "kind": "grid_search",
       "description": "Exhaustive hyperparameter search with cross-validation. Pass an estimator constructor and a grid of parameter lists.",
       "returns": "GridSearchCV",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6629,6 +6978,7 @@
           "name": "fit",
           "description": "Search all parameter combinations and refit the best on the full data. Sets `bestParams_`, `bestScore_`, `bestEstimator_`.",
           "returns": "GridSearchCV",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6653,6 +7003,7 @@
           "name": "predict",
           "description": "Predict using the best found estimator.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6673,6 +7024,7 @@
       "kind": "module",
       "description": "Multi-layer Gated Recurrent Unit. Call `out, h_n = gru(x, h0?)` — returns the output sequence and the final hidden state. Set `batch_first=true` for `(N, T, input)` inputs.",
       "returns": "GRU",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6718,6 +7070,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6735,6 +7088,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -6744,6 +7098,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -6753,6 +7108,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -6762,6 +7118,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6782,6 +7139,7 @@
       "kind": "module",
       "description": "Single GRU time-step. `h_next = cell(x, h)` — apply manually to step a sequence one element at a time.",
       "returns": "GRUCell",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6813,6 +7171,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6830,6 +7189,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -6839,6 +7199,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -6848,6 +7209,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -6857,6 +7219,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -6877,6 +7240,7 @@
       "kind": "quant",
       "description": "Ornstein-Uhlenbeck mean-reversion half-life (in periods) estimated by regressing the change on the lagged level.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6896,6 +7260,7 @@
       "kind": "quant",
       "description": "Hierarchical Risk Parity weights — cluster assets by correlation and allocate by recursive bisection. Accepts a covariance matrix or a returns `DataFrame`.",
       "returns": null,
+      "effect": "async",
       "signature": {
         "params": [
           {
@@ -6915,6 +7280,7 @@
       "kind": "quant",
       "description": "Hurst exponent from rescaled-range analysis. `< 0.5` mean-reverting, `~0.5` random walk, `> 0.5` trending.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6955,6 +7321,7 @@
       "kind": "dtype",
       "description": "32-bit signed integer dtype.",
       "returns": null,
+      "effect": "sync",
       "signature": null,
       "methods": []
     },
@@ -6963,6 +7330,7 @@
       "kind": "dtype",
       "description": "64-bit signed integer dtype.",
       "returns": null,
+      "effect": "sync",
       "signature": null,
       "methods": []
     },
@@ -6971,6 +7339,7 @@
       "kind": "numeric_transform",
       "description": "Inverse discrete Fourier transform of a 1-D real or `[n, 2]` complex signal. Returns an `[n, 2]` Tensor of real/imaginary pairs.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -6990,6 +7359,7 @@
       "kind": "linalg",
       "description": "Matrix inverse.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7009,6 +7379,7 @@
       "kind": "numeric_stats_test",
       "description": "Jarque-Bera normality test built from sample skewness and kurtosis. Returns a record with `statistic`, `pvalue`, `df`.",
       "returns": "Record",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7028,6 +7399,7 @@
       "kind": "quant",
       "description": "Johansen cointegration test on a matrix of price levels. Returns `eigenvalues`, `traceStatistics`, `maxEigenStatistics`, and the estimated cointegration `rank`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7054,6 +7426,7 @@
       "kind": "quant",
       "description": "Linear Kalman filter over a state-space `spec` (transition, observation, process/measurement noise). Returns filtered `states`, `covariances`, and one-step innovations.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7087,6 +7460,7 @@
       "kind": "quant",
       "description": "Rauch-Tung-Striebel smoother — the full-sample smoothed state matrix for the same state-space `spec` as `kalman_filter`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7120,6 +7494,7 @@
       "kind": "ml_split",
       "description": "K-fold cross-validation splitter.",
       "returns": "KFold",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7151,6 +7526,7 @@
           "name": "split",
           "description": "Return `n_splits` `{train, test}` index partitions for `n` samples.",
           "returns": "Record[]",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7171,6 +7547,7 @@
       "kind": "ml_cluster",
       "description": "k-means clustering (k-means++ init). Exposes `clusterCenters_`, `labels_`, `inertia_`.",
       "returns": "KMeans",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7209,6 +7586,7 @@
           "name": "fit",
           "description": "Compute cluster centers from `X`.",
           "returns": "KMeans",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7226,6 +7604,7 @@
           "name": "predict",
           "description": "Assign each row of `X` to its nearest cluster.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7243,6 +7622,7 @@
           "name": "fit_predict",
           "description": "Fit then return the training labels.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7263,6 +7643,7 @@
       "kind": "ml_model",
       "description": "k-nearest-neighbors classifier (majority vote over Euclidean neighbors).",
       "returns": "KNeighborsClassifier",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7280,6 +7661,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7304,6 +7686,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7321,6 +7704,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7348,6 +7732,7 @@
       "kind": "ml_model",
       "description": "k-nearest-neighbors regressor (mean of neighbor targets).",
       "returns": "KNeighborsRegressor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7365,6 +7750,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7389,6 +7775,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7406,6 +7793,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7433,6 +7821,7 @@
       "kind": "quant",
       "description": "KPSS stationarity test (null hypothesis: the series is stationary). Returns `statistic`, `criticalValues`, `stationary`. Complements `adf_test`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7466,6 +7855,7 @@
       "kind": "numeric_stats_test",
       "description": "One-sample Kolmogorov-Smirnov test of `x` against a reference CDF (normal with `loc`/`scale` by default). Returns a record with `statistic`, `pvalue`.",
       "returns": "Record",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7506,6 +7896,7 @@
       "kind": "numeric_stats_test",
       "description": "Two-sample Kolmogorov-Smirnov test comparing the empirical distributions of `x` and `y`. Returns a record with `statistic`, `pvalue`.",
       "returns": "Record",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7532,6 +7923,7 @@
       "kind": "quant",
       "description": "Kyle's lambda — price impact per signed volume, estimated by regressing price changes on signed order flow.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7558,6 +7950,7 @@
       "kind": "ml_transform",
       "description": "Encode categorical labels to integer ids. `inverse_transform` returns the original labels.",
       "returns": "LabelEncoder",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "LabelEncoder() -> LabelEncoder"
@@ -7567,6 +7960,7 @@
           "name": "fit",
           "description": "Learn the transform parameters from `X`.",
           "returns": "Transformer",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7584,6 +7978,7 @@
           "name": "transform",
           "description": "Apply the learned transform to `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7601,6 +7996,7 @@
           "name": "fit_transform",
           "description": "Fit then transform `X` in one call.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7618,6 +8014,7 @@
           "name": "inverse_transform",
           "description": "Map transformed data back to the original space (where supported).",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7638,6 +8035,7 @@
       "kind": "ml_model",
       "description": "L1-regularized linear regression via coordinate descent (sparse coefficients).",
       "returns": "Lasso",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7669,6 +8067,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7693,6 +8092,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7710,6 +8110,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7737,6 +8138,7 @@
       "kind": "module",
       "description": "Layer normalization over the given trailing shape. Stabilizes activations independent of batch.",
       "returns": "LayerNorm",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7761,6 +8163,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7778,6 +8181,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -7787,6 +8191,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -7796,6 +8201,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -7805,6 +8211,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7825,6 +8232,7 @@
       "kind": "module",
       "description": "Leaky ReLU activation; negative inputs are scaled by `negative_slope` instead of zeroed.",
       "returns": "LeakyReLU",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -7842,6 +8250,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7859,6 +8268,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -7868,6 +8278,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -7877,6 +8288,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -7886,6 +8298,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7906,6 +8319,7 @@
       "kind": "callback",
       "description": "Log the current learning rate at each step.",
       "returns": "Callback",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "LearningRateMonitor() -> Callback"
@@ -7915,6 +8329,7 @@
           "name": "on_train_start",
           "description": "Hook fired at the start of training.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7939,6 +8354,7 @@
           "name": "on_train_end",
           "description": "Hook fired at the end of training.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7963,6 +8379,7 @@
           "name": "on_epoch_start",
           "description": "Hook fired at the start of each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -7987,6 +8404,7 @@
           "name": "on_epoch_end",
           "description": "Hook fired at the end of each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8014,6 +8432,7 @@
       "kind": "numeric_func",
       "description": "Natural logarithm of the absolute value of the gamma function, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8033,6 +8452,7 @@
       "kind": "module",
       "description": "Fully-connected layer `y = x @ Wᵀ + b`. Set `bias=false` to disable the bias term.",
       "returns": "Linear",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8064,6 +8484,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8081,6 +8502,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -8090,6 +8512,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -8099,6 +8522,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -8108,6 +8532,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8128,6 +8553,7 @@
       "kind": "numeric_func",
       "description": "Piecewise-linear interpolation of the points `(xs, ys)` evaluated at `xq` (a number or a list of numbers).",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8161,6 +8587,7 @@
       "kind": "ml_model",
       "description": "Ordinary least-squares linear regression (solved via `lstsq`).",
       "returns": "LinearRegression",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8178,6 +8605,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8202,6 +8630,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8219,6 +8648,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8246,6 +8676,7 @@
       "kind": "factory",
       "description": "Evenly spaced values between `start` and `end`, inclusive, with `steps` points.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8286,6 +8717,7 @@
       "kind": "function",
       "description": "Wrap a constant value as a `Column` literal so it can be combined with other\ncolumns in expressions.",
       "returns": "Column",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8305,6 +8737,7 @@
       "kind": "numeric_timeseries",
       "description": "Ljung-Box test for autocorrelation up to `lags`. Returns a record with `statistic`, `pvalue`, `df`.",
       "returns": "Record",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8338,6 +8771,7 @@
       "kind": "data",
       "description": "Load a CSV file into a `DataFrame`. Numeric fields are parsed as numbers; use\nthe `DataFrame` API (`select`, `filter`, `groupBy`, `to_tensor`, `encode`, …)\nto analyse it.",
       "returns": "DataFrame",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8371,6 +8805,7 @@
       "kind": "other",
       "description": "Read a JSON file and return it as nested dicts/lists.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8390,6 +8825,7 @@
       "kind": "other",
       "description": "Load weights from a checkpoint `path` into an existing `model` (in place) and return it. Save the model first with `model.save(path)`, rebuild it with the same architecture, then `load_model(model, path)`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8416,6 +8852,7 @@
       "kind": "quant",
       "description": "Like `quill`, but read the Quill product definition from a file `path`. Returns the same product handle with a `.price(...)` method and a `.name` field.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8435,6 +8872,7 @@
       "kind": "other",
       "description": "Load a tokenizer artifact saved with `tok.save(path)`. Returns a `Tokenizer`.",
       "returns": "Tokenizer",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8454,6 +8892,7 @@
       "kind": "ml_model",
       "description": "Multinomial logistic regression (softmax) trained by gradient descent. Also exposes `predict_proba(X) -> Tensor`.",
       "returns": "LogisticRegression",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8485,6 +8924,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8509,6 +8949,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8526,6 +8967,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8553,6 +8995,7 @@
       "kind": "module",
       "description": "LogSoftmax module — numerically stable log of softmax.",
       "returns": "LogSoftmax",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8570,6 +9013,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8587,6 +9031,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -8596,6 +9041,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -8605,6 +9051,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -8614,6 +9061,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8634,6 +9082,7 @@
       "kind": "quant",
       "description": "Portfolio handle going long the top `fraction` and short the bottom `fraction` of ranked assets, for use as `portfolio=`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8653,6 +9102,7 @@
       "kind": "module",
       "description": "Multi-layer Long Short-Term Memory. Call `out, state = lstm(x, [h0, c0]?)` — returns the output sequence and `state = [h_n, c_n]` (final hidden and cell states). Set `batch_first=true` for `(N, T, input)` inputs.",
       "returns": "LSTM",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8698,6 +9148,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8715,6 +9166,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -8724,6 +9176,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -8733,6 +9186,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -8742,6 +9196,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8762,6 +9217,7 @@
       "kind": "module",
       "description": "Single LSTM time-step. `h_next, c_next = cell(x, [h, c])` — carries both hidden and cell state for O(T) autoregressive stepping.",
       "returns": "LSTMCell",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8793,6 +9249,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8810,6 +9267,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -8819,6 +9277,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -8828,6 +9287,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -8837,6 +9297,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8857,6 +9318,7 @@
       "kind": "linalg",
       "description": "Least-squares solution to `a @ x ≈ b` (via pseudo-inverse).",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8883,6 +9345,7 @@
       "kind": "numeric_stats_test",
       "description": "Mann-Whitney U rank-sum test with normal approximation, tie correction, and continuity correction. Returns a record with `statistic`, `pvalue`.",
       "returns": "Record",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8909,6 +9372,7 @@
       "kind": "function",
       "description": "Aggregate `Column` computing the maximum of a column within a `groupBy(...).agg(...)`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8928,6 +9392,7 @@
       "kind": "module",
       "description": "2-D max pooling. Downsamples spatial dimensions taking the per-window max.",
       "returns": "MaxPool2d",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -8959,6 +9424,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -8976,6 +9442,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -8985,6 +9452,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -8994,6 +9462,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -9003,6 +9472,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9023,6 +9493,7 @@
       "kind": "ml_metric",
       "description": "Mean absolute error.",
       "returns": "float",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9049,6 +9520,7 @@
       "kind": "quant",
       "description": "Build a mean-reversion signal handle (the negated `lookback` momentum) for use as `signal=`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9068,6 +9540,7 @@
       "kind": "ml_metric",
       "description": "Mean squared error.",
       "returns": "float",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9094,6 +9567,7 @@
       "kind": "quant",
       "description": "Mean-variance optimal weights for expected returns `mu` and covariance `cov` (a matrix or a returns `DataFrame`), normalized to unit gross exposure.",
       "returns": null,
+      "effect": "async",
       "signature": {
         "params": [
           {
@@ -9120,6 +9594,7 @@
       "kind": "metric",
       "description": "Group multiple metrics into one callable for convenience.",
       "returns": "Metric",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9137,6 +9612,7 @@
           "name": "update",
           "description": "Update internal state with a new batch of predictions and ground-truth labels.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9161,6 +9637,7 @@
           "name": "compute",
           "description": "Compute the current metric value across all accumulated updates.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "compute()"
@@ -9170,6 +9647,7 @@
           "name": "reset",
           "description": "Clear accumulated state so the next epoch starts fresh.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "reset()"
@@ -9182,6 +9660,7 @@
       "kind": "function",
       "description": "Aggregate `Column` computing the minimum of a column within a `groupBy(...).agg(...)`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9201,6 +9680,7 @@
       "kind": "quant",
       "description": "Minimum number of observations needed before the observed Sharpe exceeds `target_sharpe` at the given `confidence`.",
       "returns": null,
+      "effect": "async",
       "signature": {
         "params": [
           {
@@ -9234,6 +9714,7 @@
       "kind": "ml_transform",
       "description": "Scale features to a given range per column.",
       "returns": "MinMaxScaler",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9251,6 +9732,7 @@
           "name": "fit",
           "description": "Learn the transform parameters from `X`.",
           "returns": "Transformer",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9268,6 +9750,7 @@
           "name": "transform",
           "description": "Apply the learned transform to `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9285,6 +9768,7 @@
           "name": "fit_transform",
           "description": "Fit then transform `X` in one call.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9302,6 +9786,7 @@
           "name": "inverse_transform",
           "description": "Map transformed data back to the original space (where supported).",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9322,6 +9807,7 @@
       "kind": "callback",
       "description": "Save the best model(s) according to a monitored metric.",
       "returns": "Callback",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9353,6 +9839,7 @@
           "name": "on_train_start",
           "description": "Hook fired at the start of training.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9377,6 +9864,7 @@
           "name": "on_train_end",
           "description": "Hook fired at the end of training.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9401,6 +9889,7 @@
           "name": "on_epoch_start",
           "description": "Hook fired at the start of each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9425,6 +9914,7 @@
           "name": "on_epoch_end",
           "description": "Hook fired at the end of each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9452,6 +9942,7 @@
       "kind": "quant",
       "description": "Build a momentum signal handle (trailing return over `lookback` periods) to pass to `backtest`/`walk_forward` as `signal=`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9471,6 +9962,7 @@
       "kind": "module",
       "description": "Mean squared error loss — standard for regression.",
       "returns": "MSELoss",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "MSELoss() -> MSELoss"
@@ -9480,6 +9972,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9497,6 +9990,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -9506,6 +10000,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -9515,6 +10010,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -9524,6 +10020,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9544,6 +10041,7 @@
       "kind": "numeric_random",
       "description": "Seeded multivariate normal samples via the Cholesky factor of `cov`. Returns an `[n, d]` Tensor.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9584,6 +10082,7 @@
       "kind": "module",
       "description": "Negative log-likelihood loss. Pair with LogSoftmax outputs.",
       "returns": "NLLLoss",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "NLLLoss() -> NLLLoss"
@@ -9593,6 +10092,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9610,6 +10110,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -9619,6 +10120,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -9628,6 +10130,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -9637,6 +10140,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9657,6 +10161,7 @@
       "kind": "numeric_dist",
       "description": "Normal distribution cumulative distribution function, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9690,6 +10195,7 @@
       "kind": "numeric_dist",
       "description": "Normal distribution probability density function, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9723,6 +10229,7 @@
       "kind": "numeric_dist",
       "description": "Normal distribution quantile function (inverse CDF), applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9756,6 +10263,7 @@
       "kind": "ml_transform",
       "description": "Encode categorical labels to one-hot rows.",
       "returns": "OneHotEncoder",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "OneHotEncoder() -> OneHotEncoder"
@@ -9765,6 +10273,7 @@
           "name": "fit",
           "description": "Learn the transform parameters from `X`.",
           "returns": "Transformer",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9782,6 +10291,7 @@
           "name": "transform",
           "description": "Apply the learned transform to `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9799,6 +10309,7 @@
           "name": "fit_transform",
           "description": "Fit then transform `X` in one call.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9816,6 +10327,7 @@
           "name": "inverse_transform",
           "description": "Map transformed data back to the original space (where supported).",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9836,6 +10348,7 @@
       "kind": "factory",
       "description": "Create a tensor of the given shape filled with `1`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9862,6 +10375,7 @@
       "kind": "factory",
       "description": "Tensor of ones with the same shape, dtype, and device as the input.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9881,6 +10395,7 @@
       "kind": "utility",
       "description": "Wrap an optimizer (and optionally an LR scheduler) for return from an `optimizer:` block.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9907,6 +10422,7 @@
       "kind": "numeric_timeseries",
       "description": "Partial autocorrelation function of `x` via Levinson-Durbin recursion. Returns a Tensor of length `nlags + 1` with lag 0 equal to 1.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9933,6 +10449,7 @@
       "kind": "quant",
       "description": "Probability of Backtest Overfitting via combinatorially symmetric cross-validation over a time × trial matrix (rows of returns, one column per candidate strategy). Accepts a matrix or a `DataFrame`.",
       "returns": null,
+      "effect": "async",
       "signature": {
         "params": [
           {
@@ -9959,6 +10476,7 @@
       "kind": "ml_transform",
       "description": "Principal component analysis (via `svd`). Exposes `components_`, `explainedVariance_`, `explainedVarianceRatio_`.",
       "returns": "PCA",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -9976,6 +10494,7 @@
           "name": "fit",
           "description": "Learn the transform parameters from `X`.",
           "returns": "Transformer",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -9993,6 +10512,7 @@
           "name": "transform",
           "description": "Apply the learned transform to `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10010,6 +10530,7 @@
           "name": "fit_transform",
           "description": "Fit then transform `X` in one call.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10027,6 +10548,7 @@
           "name": "inverse_transform",
           "description": "Map transformed data back to the original space (where supported).",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10047,6 +10569,7 @@
       "kind": "numeric_timeseries",
       "description": "Power spectrum of `x` at frequencies `k / n` for `k = 0..n/2`. Returns a Tensor of length `n/2 + 1`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10073,6 +10596,7 @@
       "kind": "linalg",
       "description": "Moore-Penrose pseudo-inverse.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10092,6 +10616,7 @@
       "kind": "numeric_array_op",
       "description": "Least-squares polynomial fit of degree `deg` to the points `(x, y)`. Returns coefficients ordered from the highest degree down.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10125,6 +10650,7 @@
       "kind": "numeric_array_op",
       "description": "All complex roots of a polynomial via Durand-Kerner iteration. Returns a `[deg, 2]` Tensor of real/imaginary pairs.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10144,6 +10670,7 @@
       "kind": "numeric_array_op",
       "description": "Evaluate a polynomial with coefficients ordered from the highest degree down at `x` (a number, list, or Tensor).",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10170,6 +10697,7 @@
       "kind": "metric",
       "description": "Precision metric — fraction of positive predictions that are correct.",
       "returns": "Metric",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10201,6 +10729,7 @@
           "name": "update",
           "description": "Update internal state with a new batch of predictions and ground-truth labels.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10225,6 +10754,7 @@
           "name": "compute",
           "description": "Compute the current metric value across all accumulated updates.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "compute()"
@@ -10234,6 +10764,7 @@
           "name": "reset",
           "description": "Clear accumulated state so the next epoch starts fresh.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "reset()"
@@ -10246,6 +10777,7 @@
       "kind": "utility",
       "description": "Print one or more values to the runtime output, separated by `sep`.",
       "returns": null,
+      "effect": "async",
       "signature": {
         "params": [
           {
@@ -10272,6 +10804,7 @@
       "kind": "callback",
       "description": "Lightweight progress bar callback for the Trainer.",
       "returns": "Callback",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "ProgressCallback() -> Callback"
@@ -10281,6 +10814,7 @@
           "name": "on_train_start",
           "description": "Hook fired at the start of training.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10305,6 +10839,7 @@
           "name": "on_train_end",
           "description": "Hook fired at the end of training.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10329,6 +10864,7 @@
           "name": "on_epoch_start",
           "description": "Hook fired at the start of each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10353,6 +10889,7 @@
           "name": "on_epoch_end",
           "description": "Hook fired at the end of each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10380,6 +10917,7 @@
       "kind": "numeric_transform",
       "description": "QR decomposition. Returns `{Q, R}` with `input = Q @ R`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10399,6 +10937,7 @@
       "kind": "quant",
       "description": "Parse and type-check a Quill product definition from a source string and return a product handle. Call `.price(rate=..., spot=..., vol=..., paths?=..., seed?=..., greeks?=...)` on it to run the Monte-Carlo pricer; the result has `.price`, `.standard_error`, and a `.greeks` map (`delta`, `vega`, `rho`, …). `greeks` is `\"price-only\"`, `\"first-order\"`, or `\"full\"`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10418,6 +10957,7 @@
       "kind": "ml_metric",
       "description": "Coefficient of determination (R²).",
       "returns": "float",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10444,6 +10984,7 @@
       "kind": "factory",
       "description": "Sample a tensor of the given shape from the standard normal distribution.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10470,6 +11011,7 @@
       "kind": "factory",
       "description": "Standard-normal sample with the same shape, dtype, and device as the input.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10489,6 +11031,7 @@
       "kind": "numeric_random",
       "description": "Seeded chi-square samples with `df` degrees of freedom.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10522,6 +11065,7 @@
       "kind": "numeric_random",
       "description": "Seeded exponential samples with the given `scale` (mean).",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10555,6 +11099,7 @@
       "kind": "numeric_random",
       "description": "Seeded normal samples with mean `loc` and standard deviation `scale`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10595,6 +11140,7 @@
       "kind": "numeric_random",
       "description": "Seeded Student t samples with `df` degrees of freedom.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10628,6 +11174,7 @@
       "kind": "numeric_random",
       "description": "Seeded uniform samples on `[low, high)` with the given shape.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10668,6 +11215,7 @@
       "kind": "ml_model",
       "description": "Bagged ensemble of decision trees (majority vote).",
       "returns": "RandomForestClassifier",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10706,6 +11254,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10730,6 +11279,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10747,6 +11297,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10774,6 +11325,7 @@
       "kind": "ml_model",
       "description": "Bagged ensemble of decision trees (mean prediction).",
       "returns": "RandomForestRegressor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10812,6 +11364,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10836,6 +11389,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10853,6 +11407,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -10880,6 +11435,7 @@
       "kind": "factory",
       "description": "Random permutation of integers `0..n-1`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10906,6 +11462,7 @@
       "kind": "utility",
       "description": "Integer range: returns an array `[start..stop)` with optional `step`.",
       "returns": "int[]",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10939,6 +11496,7 @@
       "kind": "other",
       "description": "Read a text file and return its contents as a string.",
       "returns": "string",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10958,6 +11516,7 @@
       "kind": "metric",
       "description": "Recall metric — fraction of actual positives that are predicted positive.",
       "returns": "Metric",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -10989,6 +11548,7 @@
           "name": "update",
           "description": "Update internal state with a new batch of predictions and ground-truth labels.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11013,6 +11573,7 @@
           "name": "compute",
           "description": "Compute the current metric value across all accumulated updates.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "compute()"
@@ -11022,6 +11583,7 @@
           "name": "reset",
           "description": "Clear accumulated state so the next epoch starts fresh.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "reset()"
@@ -11034,6 +11596,7 @@
       "kind": "scheduler",
       "description": "Reduce learning rate when a monitored metric stops improving.",
       "returns": "Scheduler",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11072,6 +11635,7 @@
           "name": "step",
           "description": "Advance the scheduler by one step. Some schedulers (`ReduceLROnPlateau`) require a monitored metric.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11089,6 +11653,7 @@
           "name": "get_last_lr",
           "description": "Return the most recently computed learning rate(s).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "get_last_lr()"
@@ -11101,6 +11666,7 @@
       "kind": "module",
       "description": "Rectified Linear Unit activation module: `max(0, x)`.",
       "returns": "ReLU",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "ReLU() -> ReLU"
@@ -11110,6 +11676,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11127,6 +11694,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -11136,6 +11704,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -11145,6 +11714,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -11154,6 +11724,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11174,6 +11745,7 @@
       "kind": "ml_model",
       "description": "L2-regularized linear regression, closed-form via `solve`.",
       "returns": "Ridge",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11198,6 +11770,7 @@
           "name": "fit",
           "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model.",
           "returns": "Model",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11222,6 +11795,7 @@
           "name": "predict",
           "description": "Predict targets/labels for the rows of `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11239,6 +11813,7 @@
           "name": "score",
           "description": "Return the model's default score (R² for regressors, accuracy for classifiers).",
           "returns": "float",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11266,6 +11841,7 @@
       "kind": "quant",
       "description": "Equal-risk-contribution portfolio weights for a covariance matrix. Passing a returns `DataFrame` estimates the sample covariance first. Returns a weight array.",
       "returns": null,
+      "effect": "async",
       "signature": {
         "params": [
           {
@@ -11285,6 +11861,7 @@
       "kind": "quant",
       "description": "Roll's implied effective bid-ask spread from the serial covariance of price changes.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11304,6 +11881,7 @@
       "kind": "numeric_array_op",
       "description": "Rolling maximum over each length-`window` slice of `x`. Returns a Tensor of length `n - window + 1`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11330,6 +11908,7 @@
       "kind": "numeric_array_op",
       "description": "Rolling mean over each length-`window` slice of `x`. Returns a Tensor of length `n - window + 1`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11356,6 +11935,7 @@
       "kind": "numeric_array_op",
       "description": "Rolling minimum over each length-`window` slice of `x`. Returns a Tensor of length `n - window + 1`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11382,6 +11962,7 @@
       "kind": "numeric_array_op",
       "description": "Rolling standard deviation over each length-`window` slice of `x`. Returns a Tensor of length `n - window + 1`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11415,6 +11996,7 @@
       "kind": "numeric_array_op",
       "description": "Rolling sum over each length-`window` slice of `x`. Returns a Tensor of length `n - window + 1`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11441,6 +12023,7 @@
       "kind": "quant",
       "description": "Supremum ADF statistic — the max ADF over expanding windows, a test for explosive (bubble) behavior.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11481,6 +12064,7 @@
       "kind": "sequential",
       "description": "Compose modules into a feed-forward pipeline. The output of each module is fed to the next.",
       "returns": "Sequential",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11498,6 +12082,7 @@
           "name": "forward",
           "description": "Run inputs sequentially through each contained module.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11515,6 +12100,7 @@
           "name": "parameters",
           "description": "Return parameters of all contained modules concatenated.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters()"
@@ -11524,6 +12110,7 @@
           "name": "train",
           "description": "Switch all submodules to training mode.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -11533,6 +12120,7 @@
           "name": "eval",
           "description": "Switch all submodules to evaluation mode.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -11545,6 +12133,7 @@
       "kind": "optimizer",
       "description": "Stochastic gradient descent with optional `momentum` and `weight_decay`.",
       "returns": "Optimizer",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11583,6 +12172,7 @@
           "name": "step",
           "description": "Apply one optimizer update step using the current gradients.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "step()"
@@ -11592,6 +12182,7 @@
           "name": "zero_grad",
           "description": "Zero out gradients of all tracked parameters before the next backward pass.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "zero_grad()"
@@ -11601,6 +12192,7 @@
           "name": "param_groups",
           "description": "Return the list of parameter groups (each with its own learning rate, weight decay, etc.).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "param_groups()"
@@ -11613,6 +12205,7 @@
       "kind": "quant",
       "description": "Annualized Sharpe ratio of a returns array or a single-column returns `DataFrame`.",
       "returns": null,
+      "effect": "async",
       "signature": {
         "params": [
           {
@@ -11639,6 +12232,7 @@
       "kind": "module",
       "description": "Logistic sigmoid activation module.",
       "returns": "Sigmoid",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "Sigmoid() -> Sigmoid"
@@ -11648,6 +12242,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11665,6 +12260,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -11674,6 +12270,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -11683,6 +12280,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -11692,6 +12290,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11712,6 +12311,7 @@
       "kind": "module",
       "description": "SiLU/Swish activation module: `x * sigmoid(x)`.",
       "returns": "SiLU",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "SiLU() -> SiLU"
@@ -11721,6 +12321,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11738,6 +12339,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -11747,6 +12349,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -11756,6 +12359,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -11765,6 +12369,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11785,6 +12390,7 @@
       "kind": "module",
       "description": "Softmax module over the specified dimension.",
       "returns": "Softmax",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11802,6 +12408,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11819,6 +12426,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -11828,6 +12436,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -11837,6 +12446,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -11846,6 +12456,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11866,6 +12477,7 @@
       "kind": "linalg",
       "description": "Solve the linear system `a @ x = b` for `x`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11892,6 +12504,7 @@
       "kind": "other",
       "description": "Stack tensors along a new dimension.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11918,6 +12531,7 @@
       "kind": "ml_transform",
       "description": "Standardize features to zero mean and unit variance per column.",
       "returns": "StandardScaler",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -11942,6 +12556,7 @@
           "name": "fit",
           "description": "Learn the transform parameters from `X`.",
           "returns": "Transformer",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11959,6 +12574,7 @@
           "name": "transform",
           "description": "Apply the learned transform to `X`.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11976,6 +12592,7 @@
           "name": "fit_transform",
           "description": "Fit then transform `X` in one call.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -11993,6 +12610,7 @@
           "name": "inverse_transform",
           "description": "Map transformed data back to the original space (where supported).",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12013,6 +12631,7 @@
       "kind": "scheduler",
       "description": "Decay the learning rate by `gamma` every `step_size` epochs.",
       "returns": "Scheduler",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12044,6 +12663,7 @@
           "name": "step",
           "description": "Advance the scheduler by one step. Some schedulers (`ReduceLROnPlateau`) require a monitored metric.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12061,6 +12681,7 @@
           "name": "get_last_lr",
           "description": "Return the most recently computed learning rate(s).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "get_last_lr()"
@@ -12073,6 +12694,7 @@
       "kind": "function",
       "description": "Aggregate `Column` computing the sum of a column within a `groupBy(...).agg(...)`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12092,6 +12714,7 @@
       "kind": "linalg",
       "description": "Reduced singular value decomposition. Returns `{U, S, V}` with `input ≈ U diag(S) Vᵀ`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12111,6 +12734,7 @@
       "kind": "numeric_dist",
       "description": "Student's t cumulative distribution function with `df` degrees of freedom, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12137,6 +12761,7 @@
       "kind": "numeric_dist",
       "description": "Student's t probability density function with `df` degrees of freedom, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12163,6 +12788,7 @@
       "kind": "numeric_dist",
       "description": "Student's t quantile function (inverse CDF) with `df` degrees of freedom, applied elementwise.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12189,6 +12815,7 @@
       "kind": "numeric_stats_test",
       "description": "One-sample t-test of the mean of `x` against `popmean`. Returns a record with `statistic`, `pvalue`, `df`.",
       "returns": "Record",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12215,6 +12842,7 @@
       "kind": "numeric_stats_test",
       "description": "Two-sample independent t-test. `equal_var=true` pools variances; `equal_var=false` uses the Welch unequal-variance form. Returns a record with `statistic`, `pvalue`, `df`.",
       "returns": "Record",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12248,6 +12876,7 @@
       "kind": "numeric_stats_test",
       "description": "Paired t-test on matched samples `x` and `y`. Returns a record with `statistic`, `pvalue`, `df`.",
       "returns": "Record",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12274,6 +12903,7 @@
       "kind": "module",
       "description": "Hyperbolic tangent activation module.",
       "returns": "Tanh",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "Tanh() -> Tanh"
@@ -12283,6 +12913,7 @@
           "name": "forward",
           "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12300,6 +12931,7 @@
           "name": "parameters",
           "description": "Return an array of the module's learnable parameter tensors.",
           "returns": "Tensor[]",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "parameters() -> Tensor[]"
@@ -12309,6 +12941,7 @@
           "name": "train",
           "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "train()"
@@ -12318,6 +12951,7 @@
           "name": "eval",
           "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats).",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eval()"
@@ -12327,6 +12961,7 @@
           "name": "to",
           "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it.",
           "returns": "Module",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12347,6 +12982,7 @@
       "kind": "factory",
       "description": "Construct a tensor from a literal value, array, or nested array. Accepts `dtype`, `device`, `grad` options.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12373,6 +13009,7 @@
       "kind": "data",
       "description": "In-memory dataset zipping one or more tensors along their first dimension.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12392,6 +13029,7 @@
       "kind": "quant",
       "description": "Aggregate a `ticks` DataFrame (`price`, `volume`) into OHLC bars of fixed tick count. Returns a bar `DataFrame`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12418,6 +13056,7 @@
       "kind": "quant",
       "description": "Lee-Ready tick rule — signs each trade `+1`/`-1` by price change to infer aggressor side.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12437,6 +13076,7 @@
       "kind": "callback",
       "description": "Measure and log wall-clock time per epoch and total.",
       "returns": "Callback",
+      "effect": "sync",
       "signature": {
         "params": [],
         "display": "Timer() -> Callback"
@@ -12446,6 +13086,7 @@
           "name": "on_train_start",
           "description": "Hook fired at the start of training.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12470,6 +13111,7 @@
           "name": "on_train_end",
           "description": "Hook fired at the end of training.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12494,6 +13136,7 @@
           "name": "on_epoch_start",
           "description": "Hook fired at the start of each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12518,6 +13161,7 @@
           "name": "on_epoch_end",
           "description": "Hook fired at the end of each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12545,6 +13189,7 @@
       "kind": "ml_split",
       "description": "Expanding-window splitter for time-ordered data.",
       "returns": "TimeSeriesSplit",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12562,6 +13207,7 @@
           "name": "split",
           "description": "Return forward-chaining `{train, test}` index partitions.",
           "returns": "Record[]",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12582,6 +13228,7 @@
       "kind": "other",
       "description": "Build a text tokenizer. `mode` is `\"word\"`, `\"char\"`, or `\"bpe\"` (trainable subword). `fit(texts)` on a corpus first, then `encode`/`decode`/`encodeBatch`. Reserves special tokens (`<pad> <unk> <bos> <eos>`) at low ids exposed as `padId`/`unkId`/`bosId`/`eosId`.",
       "returns": "Tokenizer",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12627,6 +13274,7 @@
           "name": "fit",
           "description": "Learn the vocabulary (and BPE merges) from a list of strings. Returns the tokenizer.",
           "returns": "Tokenizer",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12644,6 +13292,7 @@
           "name": "save",
           "description": "Save the fitted tokenizer as a compact artifact. Reload it with the global `load_tokenizer(path)`.",
           "returns": "none",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12661,6 +13310,7 @@
           "name": "encode",
           "description": "Tokenize `text` to a list of integer ids. Optionally wrap with begin/end-of-sequence tokens.",
           "returns": "int[]",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12692,6 +13342,7 @@
           "name": "decode",
           "description": "Turn a list of ids back into a string (special tokens skipped by default).",
           "returns": "string",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12716,6 +13367,7 @@
           "name": "encodeBatch",
           "description": "Encode a list of strings into a padded `[N, maxLen]` i32 tensor, ready for a model.",
           "returns": "Tensor",
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12761,6 +13413,7 @@
           "name": "vocabSize",
           "description": "Number of tokens in the learned vocabulary (property).",
           "returns": "int",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "vocabSize() -> int"
@@ -12770,6 +13423,7 @@
           "name": "padId",
           "description": "Reserved id of the `<pad>` token.",
           "returns": "int",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "padId() -> int"
@@ -12779,6 +13433,7 @@
           "name": "unkId",
           "description": "Reserved id of the `<unk>` (unknown) token.",
           "returns": "int",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "unkId() -> int"
@@ -12788,6 +13443,7 @@
           "name": "bosId",
           "description": "Reserved id of the `<bos>` (begin-of-sequence) token.",
           "returns": "int",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "bosId() -> int"
@@ -12797,6 +13453,7 @@
           "name": "eosId",
           "description": "Reserved id of the `<eos>` (end-of-sequence) token.",
           "returns": "int",
+          "effect": "sync",
           "signature": {
             "params": [],
             "display": "eosId() -> int"
@@ -12809,6 +13466,7 @@
       "kind": "utility",
       "description": "Print the runtime execution trace of a compiled program.",
       "returns": "string",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12828,6 +13486,7 @@
       "kind": "ml_function",
       "description": "Split data into train/test partitions. With `y`, returns `[X_train, X_test, y_train, y_test]`; with only `X`, returns `[X_train, X_test]`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12868,6 +13527,7 @@
       "kind": "trainer",
       "description": "Drives the training loop: epochs, validation, callbacks, logging, checkpointing.",
       "returns": "Trainer",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -12941,6 +13601,7 @@
           "name": "fit",
           "description": "Run the training loop. Iterates `max_epochs` over `train_loader`, optionally validating on `val_loader` each epoch.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12972,6 +13633,7 @@
           "name": "validate",
           "description": "Run validation only (no gradient updates). Returns logged metrics.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -12996,6 +13658,7 @@
           "name": "test",
           "description": "Run the model in eval mode over `loader`. Returns logged metrics.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -13020,6 +13683,7 @@
           "name": "predict",
           "description": "Run the model in eval mode and collect outputs into an array.",
           "returns": null,
+          "effect": "sync",
           "signature": {
             "params": [
               {
@@ -13047,6 +13711,7 @@
       "kind": "quant",
       "description": "Information-driven bars sampled every fixed traded `volume_per_bar`. Returns a bar `DataFrame`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -13073,6 +13738,7 @@
       "kind": "quant",
       "description": "Volume-synchronized Probability of Informed Trading — order-flow-toxicity series over volume buckets.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -13106,6 +13772,7 @@
       "kind": "quant",
       "description": "Walk-forward (out-of-sample) backtest: split the series into `folds` segments after an initial `min_train_fraction` training window and stitch the per-fold out-of-sample returns. Same arguments and result shape as `backtest`.",
       "returns": null,
+      "effect": "async",
       "signature": {
         "params": [
           {
@@ -13160,6 +13827,7 @@
       "kind": "device",
       "description": "WebAssembly execution backend.",
       "returns": null,
+      "effect": "sync",
       "signature": null,
       "methods": []
     },
@@ -13168,6 +13836,7 @@
       "kind": "device",
       "description": "WebGPU execution backend (browser-friendly).",
       "returns": null,
+      "effect": "sync",
       "signature": null,
       "methods": []
     },
@@ -13176,6 +13845,7 @@
       "kind": "other",
       "description": "Element-wise conditional selection: pick from `a` where `condition` is true, else from `b`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -13209,6 +13879,7 @@
       "kind": "factory",
       "description": "Create a tensor of the given shape filled with `0`.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -13235,6 +13906,7 @@
       "kind": "factory",
       "description": "Zero tensor with the same shape, dtype, and device as the input.",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -13254,6 +13926,7 @@
       "kind": "quant",
       "description": "Build a z-score signal handle (rolling standardized price over `window`) for use as `signal=`.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {
@@ -13273,6 +13946,7 @@
       "kind": "function",
       "description": "Description.\n```\n\n---",
       "returns": "Tensor",
+      "effect": "sync",
       "signature": null,
       "methods": []
     },
@@ -13281,6 +13955,7 @@
       "kind": "step",
       "description": "Log a metric value. Only callable inside a `train`/`validate` block — calling it elsewhere is an error. Calls `.compute()` automatically on Metric instances.",
       "returns": null,
+      "effect": "sync",
       "signature": {
         "params": [
           {

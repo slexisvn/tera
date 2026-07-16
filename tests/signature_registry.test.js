@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SignatureRegistry } from '../../src/cli/signature_registry.js';
+import { SignatureRegistry } from '../src/signature_registry.js';
 
 describe('SignatureRegistry', () => {
   it('returns null for unknown names', () => {

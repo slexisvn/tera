@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CLI_USAGE, runCli } from '../../src/cli/commands.js';
+import { CLI_USAGE, runCli } from '../src/commands.js';
 
 describe('Tera CLI commands', () => {
   it('checks source without executing it', async () => {

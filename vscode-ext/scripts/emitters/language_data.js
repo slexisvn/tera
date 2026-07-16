@@ -12,6 +12,7 @@ export function buildLanguageData({ keywords, keywordGroups, operators, builtins
       kind: b.kind,
       description: b.description ?? null,
       returns: b.returns ?? null,
+      effect: b.effect ?? 'sync',
       signature: b.signature ? {
         params: b.signature.params,
         display: formatDisplay(b.name, b.signature.params, b.kind, b.returns),
@@ -20,6 +21,7 @@ export function buildLanguageData({ keywords, keywordGroups, operators, builtins
         name: m.name,
         description: m.description ?? null,
         returns: m.returns ?? null,
+        effect: m.effect ?? 'sync',
         signature: {
           params: m.params,
           display: formatDisplay(m.name, m.params, b.kind, m.returns),
@@ -36,6 +38,7 @@ function serializePseudoTypeMethods(types) {
       name: m.name,
       description: m.description ?? null,
       returns: m.returns ?? null,
+      effect: m.effect ?? 'sync',
       isGetter: m.isGetter ?? false,
       signature: {
         params: m.params,

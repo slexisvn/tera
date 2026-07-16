@@ -3,6 +3,7 @@ import {
   listType, dictType, functionType, moduleType, unionType,
   isAssignable, isAny, typeToString, join,
 } from './types.js';
+import { ASYNC, SYNC, joinEffect, isAsyncEffect, methodEffect } from './effects.js';
 
 export class LangTypeError extends Error {
   constructor(message, line, column) {
@@ -85,14 +86,17 @@ class TypeEnv {
 class TypeChecker {
   constructor({ builtinNames, builtinTypes, methodReturns, moduleCalls }) {
     this.diagnostics = [];
-    this.reserved = new Set(builtinNames);
+    this.reserved = new Set([...builtinNames, 'await']);
     this.inferred = new Map();
     this.modelReturns = new Map();
+    this.modelEffects = new Map();
     this.modelFields = new Map();
     this.methodReturns = methodReturns ?? new Map();
     this.moduleCalls = moduleCalls ?? new Map();
     this.root = new TypeEnv();
-    for (const name of builtinNames) this.root.define(name, builtinTypes.get(name) ?? ANY);
+    this.awaitDepth = 0;
+    for (const [name, type] of builtinTypes) this.root.define(name, type);
+    for (const name of builtinNames) if (!this.root.lookup(name)) this.root.define(name, ANY);
 
     this.exprHandlers = {
       Literal: node => this.inferLiteral(node),
@@ -105,6 +109,7 @@ class TypeChecker {
       Member: (node, env) => this.inferMember(node, env),
       Index: (node, env) => this.inferIndex(node, env),
       Call: (node, env) => this.inferCall(node, env),
+      Await: (node, env) => this.inferAwait(node, env),
     };
     this.stmtHandlers = {
       Assign: (node, env) => this.checkAssign(node, env),
@@ -115,14 +120,15 @@ class TypeChecker {
       For: (node, env, ctx) => this.checkFor(node, env, ctx),
       While: (node, env, ctx) => this.checkWhile(node, env, ctx),
       Return: (node, env, ctx) => this.checkReturn(node, env, ctx),
-      ExpressionStatement: (node, env) => this.infer(node.expression, env),
+      ExpressionStatement: (node, env) => { this.infer(node.expression, env); node.effect = node.expression.effect; node.async = node.expression.async === true; return node.effect; },
       FunctionDeclaration: (node, env) => this.checkFunction(node, env),
       ModelDeclaration: (node, env) => this.checkModel(node, env),
     };
   }
 
   run(program) {
-    this.checkBlock(program.body, this.root, { returns: [], declaredReturn: ANY });
+    program.effect = this.checkBlock(program.body, this.root, { returns: [], declaredReturn: ANY });
+    program.async = program.body.some(statement => statement.async === true);
     return this.diagnostics;
   }
 
@@ -137,17 +143,26 @@ class TypeChecker {
   }
 
   checkBlock(body, env, ctx) {
-    for (const statement of body) this.checkStatement(statement, env, ctx);
+    let effect = SYNC;
+    for (const statement of body) effect = joinEffect(effect, this.checkStatement(statement, env, ctx));
+    return effect;
   }
 
   checkStatement(node, env, ctx) {
     const handler = this.stmtHandlers[node.type];
-    if (handler) handler(node, env, ctx);
+    if (!handler) return SYNC;
+    const effect = handler(node, env, ctx) ?? node.effect ?? SYNC;
+    node.effect = effect;
+    node.async = node.async ?? false;
+    return effect;
   }
 
   infer(node, env) {
     const handler = this.exprHandlers[node.type];
-    return handler ? handler(node, env) : ANY;
+    const type = handler ? handler(node, env) : ANY;
+    node.effect = node.effect ?? SYNC;
+    node.async = node.async ?? false;
+    return type;
   }
 
   isTensor(type) { return type && type.kind === 'tensor'; }
@@ -177,6 +192,8 @@ class TypeChecker {
 
   inferLiteral(node) {
     const value = node.value;
+    node.effect = SYNC;
+    node.async = false;
     if (typeof value === 'number') return node.isFloat ? FLOAT : INT;
     if (typeof value === 'string') return STRING;
     if (typeof value === 'boolean') return BOOL;
@@ -190,27 +207,37 @@ class TypeChecker {
       this.report(STEP_SCOPED_BUILTINS.get(node.name) ?? `undefined name '${node.name}'`, node);
       return ANY;
     }
+    node.effect = SYNC;
+    node.async = false;
     return type;
   }
 
   inferArray(node, env) {
     let element = null;
+    let effect = SYNC;
     for (const item of node.elements) {
       const type = this.infer(item, env);
+      effect = joinEffect(effect, item.effect);
       element = element === null ? type : join(element, type);
     }
+    node.effect = effect;
+    node.async = node.elements.some(item => item.async === true);
     return listType(element ?? ANY);
   }
 
   inferDict(node, env) {
     let key = null;
     let value = null;
+    let effect = SYNC;
     for (const entry of node.entries) {
       const keyType = this.infer(entry.key, env);
       const valueType = this.infer(entry.value, env);
+      effect = joinEffect(effect, entry.key.effect, entry.value.effect);
       key = key === null ? keyType : join(key, keyType);
       value = value === null ? valueType : join(value, valueType);
     }
+    node.effect = effect;
+    node.async = node.entries.some(entry => entry.key.async === true || entry.value.async === true);
     return dictType(key ?? ANY, value ?? ANY);
   }
 
@@ -219,11 +246,16 @@ class TypeChecker {
     const scope = new TypeEnv(env);
     this.declare(scope, node.variable, this.elementOf(iterable), node);
     if (node.condition) this.infer(node.condition, scope);
-    return listType(this.infer(node.expr, scope));
+    const type = this.infer(node.expr, scope);
+    node.effect = joinEffect(node.iterable.effect, node.condition?.effect, node.expr.effect);
+    node.async = node.iterable.async === true || node.condition?.async === true || node.expr.async === true;
+    return listType(type);
   }
 
   inferUnary(node, env) {
     const type = this.infer(node.value, env);
+    node.effect = node.value.effect;
+    node.async = node.value.async === true;
     if (node.op === 'not') return this.isTensor(type) ? TENSOR : BOOL;
     if (this.isTensor(type)) return TENSOR;
     if (isAny(type)) return ANY;
@@ -235,6 +267,8 @@ class TypeChecker {
   inferBinary(node, env) {
     const left = this.infer(node.left, env);
     const right = this.infer(node.right, env);
+    node.effect = joinEffect(node.left.effect, node.right.effect);
+    node.async = node.left.async === true || node.right.async === true;
     return this.binaryResult(node.op, left, right, node);
   }
 
@@ -263,7 +297,10 @@ class TypeChecker {
   }
 
   inferMember(node, env) {
-    return this.memberType(this.infer(node.object, env), node.property);
+    const type = this.infer(node.object, env);
+    node.effect = node.object.effect;
+    node.async = node.object.async === true;
+    return this.memberType(type, node.property);
   }
 
   memberType(object, property) {
@@ -273,10 +310,10 @@ class TypeChecker {
       const fields = this.modelFields.get(object.name);
       if (fields && fields.has(property)) return fields.get(property);
       const own = this.methodReturns.get(object.name)?.get(property);
-      if (own) return own;
+      if (own) return own.type ?? own;
       if (this.modelFields.has(object.name)) {
         const inherited = this.methodReturns.get('Model')?.get(property);
-        if (inherited) return inherited;
+        if (inherited) return inherited.type ?? inherited;
       }
     }
     if ((object.kind === 'list' || object.kind === 'string') && property === 'length') return NUMBER;
@@ -292,16 +329,23 @@ class TypeChecker {
   }
 
   methodResult(objectType, property) {
+    const info = this.methodInfo(objectType, property);
+    return info ? info.type : null;
+  }
+
+  methodInfo(objectType, property) {
     const name = this.typeNameOf(objectType);
     let known = name && this.methodReturns.get(name)?.get(property);
     if (!known && objectType.kind === 'module' && this.modelFields.has(name)) {
       known = this.methodReturns.get('Model')?.get(property);
     }
-    if (known) return known;
-    if (objectType.kind === 'list') { const t = listMethodResult(property, objectType); if (t) return t; }
-    if (objectType.kind === 'string') { const t = stringMethodResult(property); if (t) return t; }
-    if (objectType.kind === 'dict') { const t = dictMethodResult(property, objectType); if (t) return t; }
-    if (this.isTensor(objectType)) return this.tensorMethodResult(property);
+    if (known) return { type: known.type ?? known, effect: known.effect ?? methodEffect(name, property), teraOwned: known.teraOwned ?? true };
+    const effect = methodEffect(name, property);
+    if (objectType.kind === 'list') { const t = listMethodResult(property, objectType); if (t) return { type: t, effect, teraOwned: true }; }
+    if (objectType.kind === 'string') { const t = stringMethodResult(property); if (t) return { type: t, effect, teraOwned: true }; }
+    if (objectType.kind === 'dict') { const t = dictMethodResult(property, objectType); if (t) return { type: t, effect, teraOwned: true }; }
+    if (this.isTensor(objectType)) return { type: this.tensorMethodResult(property), effect, teraOwned: true };
+    if (isAsyncEffect(effect)) return { type: ANY, effect, teraOwned: true };
     return null;
   }
 
@@ -337,6 +381,8 @@ class TypeChecker {
   inferIndex(node, env) {
     const object = this.infer(node.object, env);
     this.checkIndexItems(node.items, object, env);
+    node.effect = joinEffect(node.object.effect, ...node.items.map(item => item.effect));
+    node.async = node.object.async === true || node.items.some(item => item.async === true);
     if (isAny(object)) return ANY;
     if (object.kind === 'list') return object.element;
     if (object.kind === 'dict') return object.value;
@@ -347,32 +393,73 @@ class TypeChecker {
   inferCall(node, env) {
     const positional = [];
     const named = [];
+    let argsEffect = SYNC;
     for (const arg of node.args) {
       const type = this.infer(arg.value, env);
+      argsEffect = joinEffect(argsEffect, arg.value.effect);
       if (arg.name) named.push({ name: arg.name, type, node: arg.value });
       else positional.push({ type, node: arg.value });
     }
     if (node.callee.type === 'Member') {
       const objectType = this.infer(node.callee.object, env);
-      const method = this.methodResult(objectType, node.callee.property);
-      if (method !== null) return method;
-      return this.finishCall(this.memberType(objectType, node.callee.property), positional, named, node);
+      const method = this.methodInfo(objectType, node.callee.property);
+      if (method !== null) return this.finishCallResult(method.type, joinEffect(argsEffect, node.callee.object.effect, method.effect), method.teraOwned, node);
+      const calleeType = this.memberType(objectType, node.callee.property);
+      return this.finishCall(this.withEffect(calleeType, node.callee.object.effect), positional, named, argsEffect, node);
     }
-    return this.finishCall(this.infer(node.callee, env), positional, named, node);
+    const calleeType = this.infer(node.callee, env);
+    return this.finishCall(calleeType, positional, named, joinEffect(argsEffect, node.callee.effect), node);
   }
 
-  finishCall(calleeType, positional, named, node) {
+  finishCall(calleeType, positional, named, argsEffect, node) {
     if (calleeType.kind === 'module') {
-      if (this.modelReturns.has(calleeType.name)) return this.modelReturns.get(calleeType.name);
-      if (this.moduleCalls.has(calleeType.name)) return this.moduleCalls.get(calleeType.name);
+      if (this.modelReturns.has(calleeType.name)) return this.finishCallResult(this.modelReturns.get(calleeType.name), joinEffect(argsEffect, this.modelEffects.get(calleeType.name)), false, node);
+      if (this.moduleCalls.has(calleeType.name)) return this.finishCallResult(this.moduleCalls.get(calleeType.name), argsEffect, true, node);
     }
     if (calleeType.kind !== 'function') {
       if (NON_CALLABLE.has(calleeType.kind)) this.report(`${typeToString(calleeType)} is not callable`, node.callee);
+      node.effect = argsEffect;
+      node.async = isAsyncEffect(argsEffect) || node.callee?.async === true || node.args?.some(arg => arg.value.async === true) || false;
       return ANY;
     }
     if (named.length === 0) this.checkPositionalCall(calleeType, positional, node);
     else if (calleeType.names) this.checkNamedCall(calleeType, positional, named, node);
-    return calleeType.ret;
+    return this.finishCallResult(calleeType.ret, joinEffect(argsEffect, calleeType.effect), calleeType.teraOwned, node);
+  }
+
+  finishCallResult(type, effect, teraOwned, node) {
+    if (isAsyncEffect(effect) && teraOwned && this.awaitDepth === 0) {
+      const call = { type: 'Call', callee: node.callee, args: node.args, line: node.line, column: node.column, effect, async: true };
+      node.type = 'Await';
+      delete node.callee;
+      delete node.args;
+      node.value = call;
+      node.explicit = false;
+      node.effect = SYNC;
+      node.async = true;
+      return type;
+    }
+    if (isAsyncEffect(effect) && !teraOwned && this.awaitDepth === 0) {
+      this.report('async call requires await', node);
+    }
+    node.effect = effect;
+    node.async = isAsyncEffect(effect) || node.callee?.async === true || node.args?.some(arg => arg.value.async === true) || false;
+    return type;
+  }
+
+  withEffect(type, effect) {
+    if (type?.kind !== 'function' || !isAsyncEffect(effect)) return type;
+    return { ...type, effect: joinEffect(type.effect, effect) };
+  }
+
+  inferAwait(node, env) {
+    this.awaitDepth++;
+    const type = this.infer(node.value, env);
+    this.awaitDepth--;
+    node.value.async = true;
+    node.effect = SYNC;
+    node.async = true;
+    return type;
   }
 
   checkPositionalCall(calleeType, positional, node) {
@@ -417,6 +504,8 @@ class TypeChecker {
 
   checkAssign(node, env) {
     const valueType = this.infer(node.value, env);
+    node.effect = node.value.effect;
+    node.async = node.value.async === true;
     if (node.annotation) {
       const declared = this.resolveTypeNode(node.annotation);
       if (!isAssignable(valueType, declared)) {
@@ -426,59 +515,79 @@ class TypeChecker {
     } else {
       this.declare(env, node.name, valueType, node);
     }
+    return node.effect;
   }
 
   checkCompoundAssign(node, env) {
     const current = env.lookup(node.name);
     if (current === undefined) this.report(`undefined name '${node.name}'`, node);
     const value = this.infer(node.value, env);
+    node.effect = node.value.effect;
+    node.async = node.value.async === true;
     this.declare(env, node.name, this.binaryResult(node.op, current ?? ANY, value, node), node);
+    return node.effect;
   }
 
   checkDestructure(node, env) {
     const valueType = this.infer(node.value, env);
+    node.effect = node.value.effect;
+    node.async = node.value.async === true;
     if (!isAny(valueType) && valueType.kind !== 'list' && !this.isTensor(valueType)) {
       this.report(`cannot destructure ${typeToString(valueType)}`, node);
     }
     const element = valueType.kind === 'list' ? valueType.element : ANY;
     for (const name of node.names) this.declare(env, name, element, node);
+    return node.effect;
   }
 
   checkIndexAssign(node, env) {
     const object = this.infer(node.object, env);
     this.checkIndexItems(node.items, object, env);
     const valueType = this.infer(node.value, env);
-    if (isAny(object)) return;
+    node.effect = joinEffect(node.object.effect, node.value.effect, ...node.items.map(item => item.effect));
+    node.async = node.object.async === true || node.value.async === true || node.items.some(item => item.async === true);
+    if (isAny(object)) return node.effect;
     if (object.kind === 'list' && !isAssignable(valueType, object.element)) {
       this.report(`cannot assign ${typeToString(valueType)} to element of ${typeToString(object)}`, node);
     } else if (object.kind === 'dict' && !isAssignable(valueType, object.value)) {
       this.report(`cannot assign ${typeToString(valueType)} to value of ${typeToString(object)}`, node);
     }
+    return node.effect;
   }
 
   checkIf(node, env, ctx) {
     this.infer(node.condition, env);
-    this.checkBlock(node.body, env, ctx);
+    let effect = joinEffect(node.condition.effect, this.checkBlock(node.body, env, ctx));
     for (const elif of node.elifs) {
       this.infer(elif.condition, env);
-      this.checkBlock(elif.body, env, ctx);
+      effect = joinEffect(effect, elif.condition.effect, this.checkBlock(elif.body, env, ctx));
     }
-    if (node.elseBody) this.checkBlock(node.elseBody, env, ctx);
+    if (node.elseBody) effect = joinEffect(effect, this.checkBlock(node.elseBody, env, ctx));
+    node.effect = effect;
+    node.async = node.condition.async === true || node.body.some(statement => statement.async === true) || node.elifs.some(elif => elif.condition.async === true || elif.body.some(statement => statement.async === true)) || node.elseBody?.some(statement => statement.async === true) === true;
+    return effect;
   }
 
   checkFor(node, env, ctx) {
     const iterable = this.infer(node.iterable, env);
     this.declare(env, node.variable, this.elementOf(iterable), node);
-    this.checkBlock(node.body, env, ctx);
+    node.effect = joinEffect(node.iterable.effect, this.checkBlock(node.body, env, ctx));
+    node.async = node.iterable.async === true || node.body.some(statement => statement.async === true);
+    return node.effect;
   }
 
   checkWhile(node, env, ctx) {
     this.infer(node.condition, env);
-    this.checkBlock(node.body, env, ctx);
+    node.effect = joinEffect(node.condition.effect, this.checkBlock(node.body, env, ctx));
+    node.async = node.condition.async === true || node.body.some(statement => statement.async === true);
+    return node.effect;
   }
 
   checkReturn(node, env, ctx) {
     ctx.returns.push({ type: this.infer(node.value, env), node });
+    node.effect = node.value.effect;
+    node.async = node.value.async === true;
+    return node.effect;
   }
 
   resolveParams(names, annotations, owner, node, env) {
@@ -538,11 +647,17 @@ class TypeChecker {
     const paramTypes = this.resolveParams(node.params, node.paramTypes, `'${node.name}'`, node, env);
     if (!node.returnType) this.report(`function '${node.name}' needs a return type annotation`, node);
     const declaredReturn = node.returnType ? this.resolveTypeNode(node.returnType) : ANY;
-    this.declare(env, node.name, functionType(paramTypes, declaredReturn, false, node.params.length, node.params), node);
+    const placeholder = functionType(paramTypes, declaredReturn, false, node.params.length, node.params, SYNC, false);
+    this.declare(env, node.name, placeholder, node);
     const fnEnv = new TypeEnv(env);
     node.params.forEach((name, index) => fnEnv.define(name, paramTypes[index]));
     const ctx = { returns: [], declaredReturn };
-    this.checkBlock(node.body, fnEnv, ctx);
+    const bodyEffect = this.checkBlock(node.body, fnEnv, ctx);
+    const effect = node.body.some(statement => statement.async === true) ? ASYNC : bodyEffect;
+    env.define(node.name, functionType(paramTypes, declaredReturn, false, node.params.length, node.params, effect, false));
+    node.functionEffect = effect;
+    node.effect = SYNC;
+    node.async = false;
     if (node.returnType) {
       this.checkReturnTypes(ctx.returns, declaredReturn);
       this.checkAllPathsReturn(node.body, declaredReturn, node, `function '${node.name}'`);
@@ -551,7 +666,7 @@ class TypeChecker {
 
   checkModel(node, env) {
     const paramTypes = this.resolveParams(node.params, node.paramTypes, `model '${node.name}'`, node, env);
-    this.declare(env, node.name, functionType(paramTypes, moduleType(node.name), false, node.params.length, node.params), node);
+    this.declare(env, node.name, functionType(paramTypes, moduleType(node.name), false, node.params.length, node.params, SYNC, false), node);
     const forward = node.body.find(block => block.type === 'ForwardDeclaration');
     if (forward) this.modelReturns.set(node.name, forward.returnType ? this.resolveTypeNode(forward.returnType) : ANY);
     const modelEnv = new TypeEnv(env);
@@ -571,6 +686,9 @@ class TypeChecker {
       else if (block.type === 'TrainDeclaration' || block.type === 'ValidateDeclaration') this.checkModelBlock(block, modelEnv, node.name, true);
       else if (block.type === 'OptimizerDeclaration') this.checkBlock(block.body, this.stepEnv(modelEnv, node.name), { returns: [], declaredReturn: ANY });
     }
+    if (forward) this.modelEffects.set(node.name, forward.async ? ASYNC : SYNC);
+    node.effect = SYNC;
+    node.async = false;
   }
 
   stepEnv(modelEnv, modelName) {
@@ -583,10 +701,11 @@ class TypeChecker {
     const paramTypes = this.resolveParams(block.params, block.paramTypes, `'${modelName}'`, block, modelEnv);
     const env = this.stepEnv(modelEnv, modelName);
     block.params.forEach((name, index) => env.define(name, paramTypes[index]));
-    if (isStep) env.define('log', functionType([STRING, ANY], NONE, true, 1));
+    if (isStep) env.define('log', functionType([STRING, ANY], NONE, true, 1, null, SYNC, true));
     const declaredReturn = block.returnType ? this.resolveTypeNode(block.returnType) : ANY;
     const ctx = { returns: [], declaredReturn };
-    this.checkBlock(block.body, env, ctx);
+    block.effect = this.checkBlock(block.body, env, ctx);
+    block.async = block.body.some(statement => statement.async === true);
     if (block.returnType) {
       this.checkReturnTypes(ctx.returns, declaredReturn);
       this.checkAllPathsReturn(block.body, declaredReturn, block, `'${modelName}'`);
