@@ -255,6 +255,10 @@ export class TeraRuntime {
     return value;
   }
 
+  programBlock(body, effect) {
+    return { type: 'Program', body, effect, async: body.some(statement => statement.async === true) };
+  }
+
   async evaluateStatementAsync(node, env) {
     if (!node.async) return this.evaluateStatement(node, env);
     return this.withNodeAsync(node, async () => {
@@ -868,14 +872,14 @@ export class TeraRuntime {
 
   async evaluateIfAsync(node, env) {
     if (this.isTruthy(await this.evaluateExpressionAsync(node.condition, env))) {
-      return await this.evaluateProgramAsync({ type: 'Program', body: node.body, effect: node.effect }, env);
+      return await this.evaluateProgramAsync(this.programBlock(node.body, node.effect), env);
     }
     for (const elif of node.elifs) {
       if (this.isTruthy(await this.evaluateExpressionAsync(elif.condition, env))) {
-        return await this.evaluateProgramAsync({ type: 'Program', body: elif.body, effect: node.effect }, env);
+        return await this.evaluateProgramAsync(this.programBlock(elif.body, node.effect), env);
       }
     }
-    if (node.elseBody) return await this.evaluateProgramAsync({ type: 'Program', body: node.elseBody, effect: node.effect }, env);
+    if (node.elseBody) return await this.evaluateProgramAsync(this.programBlock(node.elseBody, node.effect), env);
     return undefined;
   }
 
@@ -886,7 +890,7 @@ export class TeraRuntime {
     let value;
     for (const item of items) {
       env.define(node.variable, item);
-      const result = await this.evaluateProgramAsync({ type: 'Program', body: node.body, effect: node.effect }, env);
+      const result = await this.evaluateProgramAsync(this.programBlock(node.body, node.effect), env);
       if (result && result.__return) return result;
       if (result && result.__break) break;
       if (result && result.__continue) continue;
@@ -898,7 +902,7 @@ export class TeraRuntime {
   async evaluateWhileAsync(node, env) {
     let value;
     while (this.isTruthy(await this.evaluateExpressionAsync(node.condition, env))) {
-      const result = await this.evaluateProgramAsync({ type: 'Program', body: node.body, effect: node.effect }, env);
+      const result = await this.evaluateProgramAsync(this.programBlock(node.body, node.effect), env);
       if (result && result.__return) return result;
       if (result && result.__break) break;
       if (result && result.__continue) continue;

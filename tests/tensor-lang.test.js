@@ -386,6 +386,21 @@ else: 3`)).toBe(3);
     `)).toBe(6);
   });
 
+  it('sequences auto-awaited DataFrame materializers inside control flow', async () => {
+    const runtime = new TeraRuntime({ output: () => {} });
+    expect(await runtime.executeAsync(`
+      data = load_csv("tests/fixtures/iris_sample.csv")
+      total = 0
+      for i in range(3):
+        total += data.limit(i + 1).count()
+      if total == 6:
+        total += data.limit(1).count()
+      while total < 9:
+        total += data.limit(1).count()
+      total
+    `)).toBe(9);
+  });
+
   it('rejects invalid indexing forms', async () => {
     const runtime = new TeraRuntime({ output: () => {} });
     expect(() => runtime.execute('tensor([1])[]')).toThrow(/Expected index expression/);
