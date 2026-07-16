@@ -10,6 +10,21 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '../..');
 
+function canonicalSources() {
+  return {
+    parser: join(REPO_ROOT, 'src/parser.js'),
+    tokenizer: join(REPO_ROOT, 'src/tokenizer.js'),
+    builtins: [
+      join(REPO_ROOT, 'src/builtins.js'),
+      join(REPO_ROOT, 'src/builtins-dataframe.js'),
+      join(REPO_ROOT, 'src/builtins-quant.js'),
+      join(REPO_ROOT, 'src/builtins-ml.js'),
+      join(REPO_ROOT, 'src/builtins-numeric.js'),
+    ],
+    builtinDocs: join(REPO_ROOT, 'vscode-ext/data/builtin-docs.md'),
+  };
+}
+
 describe('generate()', () => {
   it('produces deterministic outputs from canonical sources', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'tera-gen-'));
@@ -18,12 +33,7 @@ describe('generate()', () => {
       languageData: join(tmp, 'language-data.json'),
       snippets: join(tmp, 'snippets.json'),
     };
-    const sources = {
-      parser: join(REPO_ROOT, 'src/cli/parser.js'),
-      tokenizer: join(REPO_ROOT, 'src/cli/tokenizer.js'),
-      builtins: join(REPO_ROOT, 'src/cli/builtins.js'),
-      builtinDocs: join(REPO_ROOT, 'vscode-ext/data/builtin-docs.md'),
-    };
+    const sources = canonicalSources();
     const first = generate(sources, outputs);
     const second = generate(sources, outputs);
     expect(second.builtins.length).toBe(first.builtins.length);
@@ -44,12 +54,7 @@ describe('generate()', () => {
       languageData: join(tmp, 'language-data.json'),
       snippets: join(tmp, 'snippets.json'),
     };
-    const sources = {
-      parser: join(REPO_ROOT, 'src/cli/parser.js'),
-      tokenizer: join(REPO_ROOT, 'src/cli/tokenizer.js'),
-      builtins: join(REPO_ROOT, 'src/cli/builtins.js'),
-      builtinDocs: join(REPO_ROOT, 'vscode-ext/data/builtin-docs.md'),
-    };
+    const sources = canonicalSources();
     const result = generate(sources, outputs);
     expect(result.keywords).toContain('int');
     expect(result.keywords).toContain('Tensor');
@@ -70,12 +75,7 @@ describe('generate()', () => {
       languageData: join(tmp, 'language-data.json'),
       snippets: join(tmp, 'snippets.json'),
     };
-    const sources = {
-      parser: join(REPO_ROOT, 'src/cli/parser.js'),
-      tokenizer: join(REPO_ROOT, 'src/cli/tokenizer.js'),
-      builtins: join(REPO_ROOT, 'src/cli/builtins.js'),
-      builtinDocs: join(REPO_ROOT, 'vscode-ext/data/builtin-docs.md'),
-    };
+    const sources = canonicalSources();
     generate(sources, outputs);
     const data = JSON.parse(readFileSync(outputs.languageData, 'utf8'));
     const linear = data.builtins.find(b => b.name === 'Linear');

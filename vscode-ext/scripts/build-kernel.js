@@ -9,7 +9,7 @@ const root = resolve(extRoot, '..');
 const outdir = resolve(extRoot, 'media');
 const stub = resolve(here, 'native-stub.js');
 
-const nodeBundle = resolve(root, 'dist/index.node.js');
+const nodeBundle = resolve(root, 'dist/index.js');
 if (!existsSync(nodeBundle)) {
   throw new Error(`Missing ${nodeBundle}. Run "npm run build" at repo root first.`);
 }

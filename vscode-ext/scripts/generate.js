@@ -8,21 +8,21 @@ import { extractBuiltinDocs } from './extractors/builtin_docs.js';
 import { buildGrammar } from './emitters/grammar.js';
 import { buildLanguageData } from './emitters/language_data.js';
 import { buildSnippets } from './emitters/snippets.js';
-import { TYPE_NAMES } from '../../src/cli/typechecker.js';
+import { TYPE_NAMES } from '../../src/typechecker.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXT_ROOT = resolve(HERE, '..');
 const REPO_ROOT = resolve(EXT_ROOT, '..');
 
 const SOURCES = {
-  parser: join(REPO_ROOT, 'src/cli/parser.js'),
-  tokenizer: join(REPO_ROOT, 'src/cli/tokenizer.js'),
+  parser: join(REPO_ROOT, 'src/parser.js'),
+  tokenizer: join(REPO_ROOT, 'src/tokenizer.js'),
   builtins: [
-    join(REPO_ROOT, 'src/cli/builtins.js'),
-    join(REPO_ROOT, 'src/cli/builtins-dataframe.js'),
-    join(REPO_ROOT, 'src/cli/builtins-quant.js'),
-    join(REPO_ROOT, 'src/cli/builtins-ml.js'),
-    join(REPO_ROOT, 'src/cli/builtins-numeric.js'),
+    join(REPO_ROOT, 'src/builtins.js'),
+    join(REPO_ROOT, 'src/builtins-dataframe.js'),
+    join(REPO_ROOT, 'src/builtins-quant.js'),
+    join(REPO_ROOT, 'src/builtins-ml.js'),
+    join(REPO_ROOT, 'src/builtins-numeric.js'),
   ],
   builtinDocs: join(EXT_ROOT, 'data/builtin-docs.md'),
 };
@@ -68,7 +68,7 @@ export function generate(sources = SOURCES, outputs = OUTPUTS) {
   writeJson(outputs.grammar, grammar);
   writeJson(outputs.languageData, languageData);
   writeJson(outputs.snippets, snippets);
-  if (outputs.vendorDir) vendorSources(join(REPO_ROOT, 'src/cli'), outputs.vendorDir);
+  if (outputs.vendorDir) vendorSources(join(REPO_ROOT, 'src'), outputs.vendorDir);
 
   return { keywords, operators, builtins: enriched, undocumented };
 }
