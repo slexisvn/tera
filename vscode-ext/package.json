@@ -124,6 +124,7 @@
   },
   "scripts": {
     "generate": "node scripts/generate.js",
+    "build": "npm run generate && npm run build:kernel",
     "build:icon": "node scripts/build_icon.js",
     "build:kernel": "node scripts/build-kernel.js",
     "test": "vitest run --passWithNoTests"

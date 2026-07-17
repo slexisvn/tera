@@ -1,12 +1,12 @@
 import { join } from 'node:path';
 import { window, workspace } from 'vscode';
 import { LanguageClient, TransportKind } from 'vscode-languageclient/node.js';
-import { registerTeraNotebook } from './notebook.js';
+import { registerNotebook } from './notebook.js';
 
 let client;
 
 export async function activate(context) {
-  registerTeraNotebook(context);
+  registerNotebook(context);
 
   const serverModule = context.asAbsolutePath(join('server', 'index.js'));
   const serverOptions = {

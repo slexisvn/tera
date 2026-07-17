@@ -54,7 +54,7 @@ function visibleSymbols(symbols, position) {
   return out;
 }
 
-function collectCompletions(doc, position, languageData) {
+export function collectCompletions(doc, position, languageData) {
   const member = readMemberContext(doc.text, position);
   if (member) {
     return { isIncomplete: false, items: collectMemberCompletions(doc, member, position, languageData) };

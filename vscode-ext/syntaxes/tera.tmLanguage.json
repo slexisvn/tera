@@ -90,19 +90,19 @@
         },
         {
           "name": "keyword.control.tera",
-          "match": "\\b(?:break|continue|else|for|if|in|return|while)\\b"
+          "match": "\\b(?:if|else|for|while|try|catch|finally|return|throw|break|continue|async|await|yield)\\b"
         },
         {
           "name": "keyword.operator.logical.tera",
-          "match": "\\b(?:and|not|or)\\b"
+          "match": "\\b(?:and|or|not|is|in|instanceof|typeof)\\b"
         },
         {
           "name": "constant.language.tera",
-          "match": "\\b(?:false|null|true)\\b"
+          "match": "\\b(?:true|false|null|undefined)\\b"
         },
         {
           "name": "storage.type.tera",
-          "match": "\\b(?:Record|Tensor|boolean|float|int|none|string)\\b"
+          "match": "\\b(?:any|unknown|number|int|float|string|bool|boolean|Tensor|DataFrame|Map|Set|Array|Object)\\b"
         }
       ]
     },
@@ -110,11 +110,11 @@
       "patterns": [
         {
           "name": "keyword.operator.compound.tera",
-          "match": "\\*\\*=|\\*\\*|==|!=|<=|>=|\\+=|-=|\\*=|/=|%=|@=|->"
+          "match": "===|!==|>>>|\\*\\*=|&&=|\\|\\|=|\\?\\?=|=>|->|==|!=|<=|>=|&&|\\|\\||\\?\\?|\\?\\.|\\+\\+|--|\\+=|-=|\\*=|/=|%=|\\*\\*|<<|>>"
         },
         {
           "name": "keyword.operator.tera",
-          "match": "=|:|\\+|-|\\*|/|%|@|<|>|\\{|\\}|\\|"
+          "match": "\\+|-|\\*|/|%|@|<|>|=|!|&|\\||\\^|~|\\?|:"
         },
         {
           "name": "punctuation.separator.tera",

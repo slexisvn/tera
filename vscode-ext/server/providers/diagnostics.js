@@ -63,10 +63,10 @@ export function toDiagnostic(err, doc) {
   const character = Math.max(0, (err.column ?? 1) - 1);
   const end = spanEnd(doc, err.line ?? 1, err.column ?? 1) ?? { line, character: character + 1 };
   return {
-    severity: DiagnosticSeverity.Error,
+    severity: err.severity === 'warning' ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
     range: { start: { line, character }, end },
     message: err.message,
-    source: `tera:${err.source ?? 'parser'}`,
+    source: `tera:${err.source ?? 'checker'}`,
   };
 }
 

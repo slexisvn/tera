@@ -1,4 +1,5 @@
 import { buildBuiltinEnv } from './builtin_types.js';
+import { checkSource, parse, tokenize as tokenizeSource } from '../../../dist/index.node.js';
 
 const KEYWORDS = new Set([
   'fn', 'model', 'class', 'extends', 'constructor', 'return', 'if', 'else', 'for', 'while',
@@ -39,38 +40,73 @@ export class DocumentAnalyzer {
 
 function analyze(text, builtinEnv) {
   const tokens = tokenize(text);
+  const ast = parseAst(text);
   const symbols = buildSymbolTable(text, builtinEnv);
-  const errors = syntaxDiagnostics(text);
-  return { tokens, ast: null, symbols, errors };
+  const errors = diagnostics(text);
+  return { tokens, ast, symbols, errors };
 }
 
 function tokenize(text) {
-  const out = [];
-  const re = /[A-Za-z_$][\w$]*|\d+(?:\.\d+)?|"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|=>|\?\?|\.{3}|[(){}\[\].,;:=+\-*/%@<>!&|?]/g;
-  const lines = text.replace(/\r\n?/g, '\n').split('\n');
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const line = lines[lineIndex];
-    for (const match of line.matchAll(re)) {
-      const value = match[0];
-      const type = /^[A-Za-z_$]/.test(value) && !KEYWORDS.has(value) ? 'identifier' : tokenType(value);
-      out.push({
-        type,
-        value,
-        line: lineIndex + 1,
-        column: match.index + 1,
-        endLine: lineIndex + 1,
-        endColumn: match.index + value.length + 1,
+  try {
+    return tokenizeSource(text)
+      .filter(token => token.type !== 'EOF')
+      .map(token => {
+        const value = String(token.value);
+        return {
+          type: tokenType(token.type, value),
+          value,
+          line: token.line,
+          column: token.column,
+          endLine: token.line,
+          endColumn: token.column + value.length,
+        };
       });
-    }
+  } catch {
+    return [];
   }
-  return out;
 }
 
-function tokenType(value) {
-  if (KEYWORDS.has(value)) return 'keyword';
-  if (/^\d/.test(value)) return 'number';
-  if (/^["']/.test(value)) return 'string';
+function tokenType(type, value) {
+  if (type === 'Identifier') return KEYWORDS.has(value) ? 'keyword' : 'identifier';
+  if (type === 'Keyword') return 'keyword';
+  if (type === 'Number') return 'number';
+  if (type === 'String' || type === 'TemplateLiteral') return 'string';
   return 'operator';
+}
+
+function parseAst(text) {
+  try {
+    return parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function diagnostics(text) {
+  try {
+    return checkSource(text, 'strict').map(diagnostic => ({
+      ...diagnostic,
+      source: 'checker',
+    }));
+  } catch (error) {
+    return [{
+      message: error instanceof Error ? error.message : String(error),
+      line: syntaxLine(error),
+      column: syntaxColumn(error),
+      severity: 'error',
+      source: 'checker',
+    }];
+  }
+}
+
+function syntaxLine(error) {
+  const match = String(error?.message ?? '').match(/ at (\d+):(\d+)/);
+  return match ? Number(match[1]) : 1;
+}
+
+function syntaxColumn(error) {
+  const match = String(error?.message ?? '').match(/ at (\d+):(\d+)/);
+  return match ? Number(match[2]) : 1;
 }
 
 function buildSymbolTable(text, builtinEnv) {
@@ -204,33 +240,4 @@ function resolveName(root, name, line) {
     scope = scope.parent;
   }
   return null;
-}
-
-function syntaxDiagnostics(text) {
-  const errors = [];
-  const stack = [];
-  let quote = '';
-  const pairs = { ')': '(', ']': '[', '}': '{' };
-  for (let i = 0, line = 1, column = 1; i < text.length; i++, column++) {
-    const ch = text[i];
-    if (ch === '\n') {
-      line++;
-      column = 0;
-      continue;
-    }
-    if (quote) {
-      if (ch === '\\') i++;
-      else if (ch === quote) quote = '';
-      continue;
-    }
-    if (ch === '"' || ch === "'") quote = ch;
-    else if (ch === '(' || ch === '[' || ch === '{') stack.push({ ch, line, column });
-    else if (ch === ')' || ch === ']' || ch === '}') {
-      const open = stack.pop();
-      if (!open || open.ch !== pairs[ch]) errors.push({ message: `unmatched '${ch}'`, line, column, source: 'syntax' });
-    }
-  }
-  if (quote) errors.push({ message: 'unterminated string literal', line: 1, column: 1, source: 'syntax' });
-  for (const open of stack) errors.push({ message: `unclosed '${open.ch}'`, line: open.line, column: open.column, source: 'syntax' });
-  return errors;
 }

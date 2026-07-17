@@ -28,7 +28,9 @@ function hasCustomToString(value: unknown): value is { toString(): string } {
   return typeof value === "object" && value !== null && typeof value.toString === "function" && value.toString !== Object.prototype.toString;
 }
 
-function isTensor(value: unknown): value is { shape: unknown; toArray(): unknown; toString(): string } {
+type TensorLike = { shape: number[]; toArray(): unknown };
+
+function isTensor(value: unknown): value is TensorLike {
   return typeof value === "object" && value !== null
     && Array.isArray((value as { shape?: unknown }).shape)
     && typeof (value as { toArray?: unknown }).toArray === "function";
@@ -47,11 +49,12 @@ async function serializeValue(value: unknown): Promise<VscodeKernelValue> {
   if (isFigureBuilder(value)) value = await value.build();
   if (isChartSpec(value)) return { kind: 'chart', spec: value as ChartSpec };
   if (isTensor(value)) {
+    const { shape } = value;
     return {
       kind: 'tensor',
-      shape: value.shape as number[],
+      shape,
       data: value.toArray(),
-      summary: hasCustomToString(value) ? value.toString() : `Tensor(shape=${JSON.stringify(value.shape)})`,
+      summary: hasCustomToString(value) ? value.toString() : `Tensor(shape=${JSON.stringify(shape)})`,
     };
   }
   if (isDataFrame(value)) {

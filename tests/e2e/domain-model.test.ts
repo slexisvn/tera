@@ -55,8 +55,22 @@ describe("Tera domain builtins and model", () => {
     expect(run(`${model}\nopt = net.optimizer(kind=\"sgd\", lr=0.01)\nopt.step()`)).toBeUndefined();
   });
 
+  it("compiles models through the global compile builtin", () => {
+    const model = [
+      "model Tiny(input: int, output: int):",
+      "  fc = Linear(input, output)",
+      "  forward(x: Tensor) -> Tensor:",
+      "    return fc(x)",
+      "net = Tiny(2, 1)",
+    ].join("\n");
+    expect(run(`${model}\ncompile(net, input=randn([3, 2])).parameters().length`)).toBe(2);
+    expect(String(run(`${model}\ncompile(net, input=randn([3, 2])).validate(randn([3, 2])).toString()`))).toContain("Tensor(shape=[3, 1]");
+  });
+
   it("uses domain metadata in type checking", () => {
     expect(checkSource("df = DataFrame(a=[1], b=[2])\ndf", "strict")).toEqual([]);
+    expect(checkSource("model Tiny:\n  forward(x):\n    return x\nnet = Tiny()\ncompile(net, input=1)", "strict")).toEqual([]);
+    expect(checkSource("compile(input=1)", "strict").map((d) => d.message).join("\n")).toContain("Missing required argument 'model'");
     expect(checkSource("zscore(window=\"bad\")", "strict").map((d) => d.message).join("\n")).toContain("window: number");
     expect(createDomainBuiltins().zscore.metadata?.params?.[0]?.name).toBe("window");
   });

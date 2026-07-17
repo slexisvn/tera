@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildGrammar } from './emitters/grammar.js';
 import { buildLanguageData } from './emitters/language_data.js';
 import { buildSnippets } from './emitters/snippets.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXT_ROOT = resolve(HERE, '..');
+const ROOT = resolve(EXT_ROOT, '..');
 
 const KEYWORD_GROUPS = {
   declaration: ['fn', 'model', 'class', 'type', 'interface', 'extends', 'constructor'],
@@ -28,9 +29,9 @@ const OUTPUTS = {
   snippets: join(EXT_ROOT, 'snippets/tera.json'),
 };
 
-export function generate(outputs = OUTPUTS) {
+export async function generate(outputs = OUTPUTS) {
   const seed = readJson(outputs.languageData, { builtins: [], pseudoTypes: {} });
-  const builtins = normalizeBuiltins(seed.builtins ?? []);
+  const builtins = normalizeBuiltins(await loadRuntimeBuiltins());
   const pseudoTypes = normalizePseudoTypes(seed.pseudoTypes ?? {});
   const keywords = [...new Set(Object.values(KEYWORD_GROUPS).flat())].sort();
   const grammar = buildGrammar({ keywordGroups: KEYWORD_GROUPS, operators: OPERATORS, builtins });
@@ -45,6 +46,37 @@ export function generate(outputs = OUTPUTS) {
   writeJson(outputs.snippets, snippets);
 
   return { keywords, operators: OPERATORS, builtins, undocumented: [] };
+}
+
+async function loadRuntimeBuiltins() {
+  const bundle = resolve(ROOT, 'dist/index.node.js');
+  if (!existsSync(bundle)) {
+    throw new Error(`Missing ${bundle}. Run "npm run build" at repo root first.`);
+  }
+  const { DOMAIN_BUILTIN_METADATA, CHART_METADATA } = await import(pathToFileURL(bundle).href);
+  return [
+    ...metadataBuiltins(DOMAIN_BUILTIN_METADATA, 'function'),
+    {
+      name: 'chart',
+      kind: 'module',
+      description: 'Chart namespace for notebook visual outputs.',
+      returns: 'chart',
+      signature: null,
+      methods: metadataBuiltins(CHART_METADATA, 'function'),
+    },
+  ];
+}
+
+function metadataBuiltins(metadata, kind) {
+  return Object.values(metadata ?? {}).map(entry => ({
+    name: entry.name,
+    kind,
+    description: null,
+    returns: entry.returns ?? null,
+    effect: entry.effect ?? 'sync',
+    signature: { params: entry.params ?? [] },
+    methods: [],
+  }));
 }
 
 function normalizeBuiltins(builtins) {
@@ -85,7 +117,7 @@ function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`) {
-  const result = generate();
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const result = await generate();
   console.log(`Generated ${result.keywords.length} keywords and ${result.builtins.length} builtins.`);
 }

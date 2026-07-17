@@ -17,6 +17,7 @@ import {
 import { createJSArray } from "../../objects/heap/factory.js";
 import { runtimeGetProperty } from "../../objects/exotic/proxy-ops.js";
 import { nativeToTagged, optionsArg, taggedToNative } from "./host.js";
+import { DOMAIN_BUILTIN_METADATA } from "./metadata.js";
 
 type InterpreterLike = {
   callFunctionValue(fn: TaggedValue, args: TaggedValue[], thisValue: TaggedValue): TaggedValue;
@@ -116,8 +117,35 @@ function optionRecord(args: TaggedValue[]): Record<string, unknown> {
   return last === undefined ? {} : optionsArg(taggedToNative(last));
 }
 
+function compileInput(args: TaggedValue[]): TaggedValue | undefined {
+  const options = optionRecord(args);
+  if ("input" in options) return nativeToTagged(options.input);
+  return args.length > 1 ? args[1] : undefined;
+}
+
+function callModelForward(model: TaggedValue, input: TaggedValue, interpreter: InterpreterLike): void {
+  if (isObject(model)) {
+    const forward = runtimeGetProperty(model, "forward", interpreter);
+    if (isFunction(forward)) {
+      interpreter.callFunctionValue(forward, [input], model);
+      return;
+    }
+  }
+  if (isObject(model) || isFunction(model)) interpreter.callFunctionValue(model, [input], mkUndefined());
+}
+
 export function createModelBuiltins(): BuiltinMap {
   return {
+    compile: {
+      name: "compile",
+      metadata: DOMAIN_BUILTIN_METADATA.compile,
+      call(args: TaggedValue[], _this: TaggedValue, interpreter: InterpreterLike) {
+        const model = args[0] ?? mkUndefined();
+        const input = compileInput(args);
+        if (input !== undefined) callModelForward(model, input, interpreter);
+        return model;
+      },
+    },
     model_parameters: {
       name: "model_parameters",
       call(args: TaggedValue[]) {

@@ -1,4 +1,8 @@
 import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
+import { LINALG_FUNCS, ML_CLUSTERS, ML_METRICS, ML_MODELS, ML_SPLITTERS, ML_TRANSFORMS } from "./ml-builtins.js";
+import { NUMERIC_ARRAY_OPS, NUMERIC_DIST_FUNCS, NUMERIC_INTERP_FUNCS, NUMERIC_RANDOM, NUMERIC_SPECIAL_FUNCS, NUMERIC_STATS_TESTS, NUMERIC_TIMESERIES, NUMERIC_TRANSFORM_FUNCS } from "./numeric-builtins.js";
+import { QUANT_ADVANCED } from "./quant-builtins.js";
+import { FREE_TENSOR_FUNCTIONS, TENSOR_FACTORIES, TENSOR_MODULES } from "./tensor-builtins.js";
 
 function meta(name: string, returns: string, params: RuntimeFunctionMetadata["params"] = [], callConvention: RuntimeFunctionMetadata["callConvention"] = "positional_named", effect: RuntimeFunctionMetadata["effect"] = "sync"): RuntimeFunctionMetadata {
   return { name, params, returns, effect, callConvention };
@@ -6,8 +10,41 @@ function meta(name: string, returns: string, params: RuntimeFunctionMetadata["pa
 
 const any = "any";
 const number = "number";
+const object = "Object";
+const array = "Array";
+const tensorType = "Tensor";
+
+function generatedMetadata(names: readonly string[], returns: string, params: RuntimeFunctionMetadata["params"] = []): Record<string, RuntimeFunctionMetadata> {
+  return Object.fromEntries(names.map((name) => [name, meta(name, returns, params)]));
+}
 
 export const DOMAIN_BUILTIN_METADATA: Record<string, RuntimeFunctionMetadata> = {
+  compile: meta("compile", "Object", [{ name: "model", type: any }, { name: "input", type: any, optional: true, named: true }]),
+  ...generatedMetadata(TENSOR_FACTORIES, tensorType),
+  ...generatedMetadata(FREE_TENSOR_FUNCTIONS, tensorType),
+  ...generatedMetadata(TENSOR_MODULES, object),
+  ...generatedMetadata([...ML_MODELS, ...ML_TRANSFORMS, ...ML_CLUSTERS, ...ML_SPLITTERS], object),
+  ...generatedMetadata(LINALG_FUNCS, any, [{ name: "input", type: any }]),
+  ...Object.fromEntries(ML_METRICS.map((name) => [name, meta(name, any, [{ name: "y_true", type: any }, { name: "y_pred", type: any }])])),
+  train_test_split: meta("train_test_split", array, [{ name: "X", type: any }, { name: "y", type: any, optional: true }, { name: "test_size", type: number, optional: true, named: true }, { name: "random_state", type: number, optional: true, named: true }]),
+  cross_val_score: meta("cross_val_score", array, [{ name: "estimator", type: any }, { name: "X", type: any }, { name: "y", type: any }, { name: "cv", type: number, optional: true, named: true }]),
+  GridSearchCV: meta("GridSearchCV", object, [{ name: "estimator", type: any }, { name: "param_grid", type: any }, { name: "cv", type: number, optional: true, named: true }]),
+  ...generatedMetadata(NUMERIC_DIST_FUNCS, number),
+  ...generatedMetadata(NUMERIC_SPECIAL_FUNCS, any, [{ name: "input", type: any }]),
+  ...generatedMetadata(NUMERIC_TRANSFORM_FUNCS, any, [{ name: "input", type: any }]),
+  ...generatedMetadata(NUMERIC_INTERP_FUNCS, any),
+  ...generatedMetadata(NUMERIC_STATS_TESTS, object),
+  ...generatedMetadata(NUMERIC_TIMESERIES, object),
+  ...generatedMetadata(NUMERIC_ARRAY_OPS, any),
+  ...generatedMetadata(NUMERIC_RANDOM, any),
+  ...generatedMetadata(QUANT_ADVANCED, any),
+  Tokenizer: meta("Tokenizer", object),
+  load_tokenizer: meta("load_tokenizer", object, [{ name: "path", type: "string" }], "positional_named", "io"),
+  optim_config: meta("optim_config", object, [{ name: "optimizer", type: object }, { name: "lr_scheduler", type: object, optional: true, named: true }]),
+  load_model: meta("load_model", object, [{ name: "model", type: object }, { name: "path", type: "string" }], "positional_named", "io"),
+  read_text: meta("read_text", "string", [{ name: "path", type: "string" }], "positional_named", "io"),
+  load_json: meta("load_json", any, [{ name: "path", type: "string" }], "positional_named", "io"),
+  ...generatedMetadata(["cpu", "gpu", "wasm", "webgpu", "f16", "f32", "f64", "i32", "i64", "bool"], "string"),
   tensor: meta("tensor", "Tensor", [{ name: "data", type: any }]),
   zeros: meta("zeros", "Tensor", [{ name: "shape", type: any }]),
   ones: meta("ones", "Tensor", [{ name: "shape", type: any }]),

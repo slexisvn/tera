@@ -123,7 +123,8 @@ function typeOf(node, doc, languageData) {
       const symbol = doc.symbols.resolve(node.name, { line: node.line - 1, character: node.column - 1 });
       return symbol?.typeName ?? node.name;
     }
-    case 'Call': {
+    case 'CallExpression':
+    case 'OptionalCallExpression': {
       const callee = node.callee;
       if (callee?.type === 'Identifier') {
         const builtin = languageData.builtins.find(b => b.name === callee.name);
@@ -131,25 +132,26 @@ function typeOf(node, doc, languageData) {
         if (builtin.returns) return builtin.returns;
         return builtin.methods?.length ? builtin.name : null;
       }
-      if (callee?.type === 'Member') {
+      if (callee?.type === 'MemberExpression' || callee?.type === 'OptionalMemberExpression') {
         const lookup = lookupMethod(typeOf(callee.object, doc, languageData), callee.property, languageData);
         return lookup?.method.returns ?? null;
       }
       return null;
     }
-    case 'Member': {
+    case 'MemberExpression':
+    case 'OptionalMemberExpression': {
       const lookup = lookupMethod(typeOf(node.object, doc, languageData), node.property, languageData);
       return lookup?.method.returns ?? null;
     }
-    case 'Binary': {
+    case 'BinaryExpression': {
       if (node.op === '@') return 'Tensor';
       const left = typeOf(node.left, doc, languageData);
       const right = typeOf(node.right, doc, languageData);
       if (left === 'Tensor' || right === 'Tensor') return 'Tensor';
       return null;
     }
-    case 'Unary':
-      return typeOf(node.value, doc, languageData);
+    case 'UnaryExpression':
+      return typeOf(node.argument, doc, languageData);
     default:
       return null;
   }

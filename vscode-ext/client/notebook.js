@@ -144,7 +144,7 @@ class KernelProcess {
   }
 }
 
-export function registerTeraNotebook(context) {
+export function registerNotebook(context) {
   const serverPath = context.asAbsolutePath(join('media', 'kernel-server.mjs'));
   const kernels = new Map();
 
