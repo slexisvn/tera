@@ -9,14 +9,14 @@ const root = resolve(extRoot, '..');
 const outdir = resolve(extRoot, 'media');
 const stub = resolve(here, 'native-stub.js');
 
-const nodeBundle = resolve(root, 'dist/index.js');
+const nodeBundle = resolve(root, 'dist/index.node.js');
 if (!existsSync(nodeBundle)) {
   throw new Error(`Missing ${nodeBundle}. Run "npm run build" at repo root first.`);
 }
 
 await Promise.all([
   build({
-    entryPoints: [resolve(root, 'src/notebook/kernel-server.js')],
+    entryPoints: [resolve(root, 'notebook/src/workers/kernel-server.ts')],
     outfile: resolve(outdir, 'kernel-server.mjs'),
     bundle: true,
     platform: 'node',
@@ -28,7 +28,7 @@ await Promise.all([
     external: ['koffi'],
   }),
   build({
-    entryPoints: [resolve(root, 'src/notebook/chart-renderer.js')],
+    entryPoints: [resolve(root, 'notebook/src/vscode/chart-renderer.ts')],
     outfile: resolve(outdir, 'chart-renderer.mjs'),
     bundle: true,
     platform: 'browser',

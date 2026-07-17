@@ -126,7 +126,7 @@
     "generate": "node scripts/generate.js",
     "build:icon": "node scripts/build_icon.js",
     "build:kernel": "node scripts/build-kernel.js",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "koffi": "^3.0.2",
@@ -137,6 +137,7 @@
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
     "@types/vscode": "^1.85.0",
-    "vitest": "^4.1.8"
+    "esbuild": "^0.28.1",
+    "vitest": "^4.1.10"
   }
 }

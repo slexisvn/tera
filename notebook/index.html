@@ -4,57 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Tera notebook</title>
-  <link rel="stylesheet" href="notebook.css" />
-  <link rel="stylesheet" href="chart/chart.css" />
 </head>
 <body>
-  <header class="toolbar">
-    <div class="brand">
-      <span class="logo">Tera</span>
-      <span class="sub">notebook</span>
-    </div>
-    <div class="actions">
-      <button id="docs-toggle" class="docs-toggle" type="button" title="Open Tera docs" aria-controls="docs-panel" aria-expanded="false">☰ Docs</button>
-      <button id="upload-csv" title="Upload file(s) — click an uploaded file to insert its load command">⭱ File</button>
-      <input id="csv-file" type="file" multiple hidden />
-      <button id="export-tenb" title="Export notebook (.tenb)">⭳ Export</button>
-      <button id="theme-toggle" title="Toggle dark mode">🌙 Dark</button>
-      <span class="kernel" id="kernel-status">kernel: ready</span>
-    </div>
-  </header>
-
-  <div class="layout">
-    <aside class="sidebar">
-      <div class="sidebar-head">Files</div>
-      <ul id="files-list" class="files-list"></ul>
-      <div id="files-empty" class="files-empty">No files yet. Click <b>⭱ File</b> or drag &amp; drop any file here, then click it to insert its load command (<code>load_csv</code>, <code>load_json</code>, <code>read_text</code>, <code>load</code>).</div>
-    </aside>
-    <div class="content">
-      <main id="cells" class="cells"></main>
-      <div id="docs-backdrop" class="docs-backdrop" hidden></div>
-      <aside id="docs-panel" class="docs-panel" aria-label="Tera documentation">
-        <div class="docs-top">
-          <div>
-            <div class="docs-kicker">Tera docs</div>
-            <h2>Reference</h2>
-          </div>
-          <div class="docs-head-actions">
-            <span class="docs-badge">live</span>
-            <button id="docs-close" class="docs-close" type="button" title="Close docs" aria-label="Close docs">×</button>
-          </div>
-        </div>
-        <input id="docs-search" class="docs-search" type="search" placeholder="Search tensor, model, DataFrame..." autocomplete="off" />
-        <div id="docs-list" class="docs-list"></div>
-      </aside>
-    </div>
-  </div>
-
-  <footer class="hint">
-    <kbd>Shift</kbd>+<kbd>Enter</kbd> run &amp; next ·
-    <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> run ·
-    <kbd>Tab</kbd> indent · cells share one kernel
-  </footer>
-
-  <script type="module" src="dist/index.js"></script>
+  <div id="root"></div>
+  <script type="module" src="/src/index.tsx"></script>
 </body>
 </html>
