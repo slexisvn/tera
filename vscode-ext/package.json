@@ -2,7 +2,7 @@
   "name": "tera-language",
   "displayName": "Tera Language",
   "description": "Syntax highlighting, diagnostics and IntelliSense for Tera (.tera) — tensor algebra & neural network DSL.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "icon": "icons/icon.png",
   "publisher": "slexisvn",
   "license": "MIT",
@@ -22,7 +22,7 @@
   "categories": [
     "Programming Languages"
   ],
-  "main": "./client/extension.js",
+  "main": "./dist/extension.cjs",
   "activationEvents": [
     "onLanguage:tera",
     "onNotebook:tera-notebook"
@@ -73,7 +73,7 @@
       {
         "id": "tera-chart-renderer",
         "displayName": "Tera Chart",
-        "entrypoint": "./media/chart-renderer.mjs",
+        "entrypoint": "./dist/chart-renderer.mjs",
         "mimeTypes": [
           "application/x-tera-chart+json"
         ]
@@ -123,22 +123,29 @@
     }
   },
   "scripts": {
-    "generate": "node scripts/generate.js",
-    "build": "npm run generate && npm run build:kernel",
-    "build:icon": "node scripts/build_icon.js",
-    "build:kernel": "node scripts/build-kernel.js",
+    "generate": "node scripts/generate.ts",
+    "build": "node scripts/build.ts",
+    "watch": "node scripts/build.ts --watch",
+    "build:icon": "node scripts/build-icon.ts",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "koffi": "^3.0.2",
-    "vscode-languageclient": "^9.0.1",
-    "vscode-languageserver": "^9.0.1",
-    "vscode-languageserver-textdocument": "^1.0.11"
+    "koffi": "^3.0.2"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
+    "@slexisvn/tera": "file:..",
+    "@types/node": "^26.1.1",
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.28.1",
-    "vitest": "^4.1.10"
+    "jsdom": "^29.1.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10",
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

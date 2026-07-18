@@ -1,8 +1,11 @@
-import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
+import type { RuntimeBuiltinKind, RuntimeFunctionMetadata } from "../../core/value/index.js";
 import { LINALG_FUNCS, ML_CLUSTERS, ML_METRICS, ML_MODELS, ML_SPLITTERS, ML_TRANSFORMS } from "./ml-builtins.js";
 import { NUMERIC_ARRAY_OPS, NUMERIC_DIST_FUNCS, NUMERIC_INTERP_FUNCS, NUMERIC_RANDOM, NUMERIC_SPECIAL_FUNCS, NUMERIC_STATS_TESTS, NUMERIC_TIMESERIES, NUMERIC_TRANSFORM_FUNCS } from "./numeric-builtins.js";
 import { QUANT_ADVANCED } from "./quant-builtins.js";
-import { FREE_TENSOR_FUNCTIONS, TENSOR_FACTORIES, TENSOR_MODULES } from "./tensor-builtins.js";
+import {
+  CALLBACKS, DATA_MODULES, FREE_TENSOR_FUNCTIONS, LOGGERS, METRICS, NN_MODULES,
+  OPTIMIZERS, SCHEDULERS, SEQUENTIAL_MODULES, TENSOR_FACTORIES, TENSOR_MODULES, TRAINERS,
+} from "./tensor-builtins.js";
 
 function meta(name: string, returns: string, params: RuntimeFunctionMetadata["params"] = [], callConvention: RuntimeFunctionMetadata["callConvention"] = "positional_named", effect: RuntimeFunctionMetadata["effect"] = "sync"): RuntimeFunctionMetadata {
   return { name, params, returns, effect, callConvention };
@@ -18,7 +21,7 @@ function generatedMetadata(names: readonly string[], returns: string, params: Ru
   return Object.fromEntries(names.map((name) => [name, meta(name, returns, params)]));
 }
 
-export const DOMAIN_BUILTIN_METADATA: Record<string, RuntimeFunctionMetadata> = {
+const RAW_DOMAIN_METADATA: Record<string, RuntimeFunctionMetadata> = {
   compile: meta("compile", "Object", [{ name: "model", type: any }, { name: "input", type: any, optional: true, named: true }]),
   ...generatedMetadata(TENSOR_FACTORIES, tensorType),
   ...generatedMetadata(FREE_TENSOR_FUNCTIONS, tensorType),
@@ -85,18 +88,88 @@ export const DOMAIN_BUILTIN_METADATA: Record<string, RuntimeFunctionMetadata> = 
   range: meta("range", "Array", [{ name: "start", type: number, optional: true }, { name: "stop", type: number, optional: true }, { name: "step", type: number, optional: true, defaultValue: 1 }]),
 };
 
+const DEVICES = ["cpu", "gpu", "wasm", "webgpu"] as const;
+const DTYPES = ["f16", "f32", "f64", "i32", "i64", "bool"] as const;
+const COLUMN_FUNCS = ["col", "lit", "expr", "sum", "avg", "min", "max", "count", "countStar"] as const;
+const DATAFRAME_FUNCS = ["DataFrame", "load_csv", "register_columns_table"] as const;
+const IO_FUNCS = ["read_text", "load_json", "load_model", "load_tokenizer", "Tokenizer"] as const;
+const QUANT_FUNCS = [
+  "momentum", "mean_reversion", "zscore", "equal_weight", "cross_sectional", "long_short",
+  "backtest", "walk_forward", "sharpe", "risk_parity", "hrp", "mean_variance",
+] as const;
+const PLAIN_FUNCS = ["compile", "range", "optim_config"] as const;
+
+const KIND_BY_GROUP: Array<readonly [readonly string[], RuntimeBuiltinKind]> = [
+  [TENSOR_FACTORIES, "factory"],
+  [FREE_TENSOR_FUNCTIONS, "function"],
+  [NN_MODULES, "module"],
+  [SEQUENTIAL_MODULES, "sequential"],
+  [DATA_MODULES, "data"],
+  [OPTIMIZERS, "optimizer"],
+  [SCHEDULERS, "scheduler"],
+  [TRAINERS, "trainer"],
+  [CALLBACKS, "callback"],
+  [LOGGERS, "logger"],
+  [METRICS, "metric"],
+  [ML_MODELS, "ml_model"],
+  [ML_TRANSFORMS, "ml_transform"],
+  [ML_CLUSTERS, "ml_cluster"],
+  [ML_SPLITTERS, "ml_split"],
+  [ML_METRICS, "ml_metric"],
+  [["train_test_split", "cross_val_score"], "ml_function"],
+  [["GridSearchCV"], "grid_search"],
+  [LINALG_FUNCS, "linalg"],
+  [NUMERIC_DIST_FUNCS, "numeric_dist"],
+  [NUMERIC_SPECIAL_FUNCS, "numeric_func"],
+  [NUMERIC_INTERP_FUNCS, "numeric_func"],
+  [NUMERIC_TRANSFORM_FUNCS, "numeric_transform"],
+  [NUMERIC_STATS_TESTS, "numeric_stats_test"],
+  [NUMERIC_TIMESERIES, "numeric_timeseries"],
+  [NUMERIC_ARRAY_OPS, "numeric_array_op"],
+  [NUMERIC_RANDOM, "numeric_random"],
+  [QUANT_ADVANCED, "quant"],
+  [QUANT_FUNCS, "quant"],
+  [DEVICES, "device"],
+  [DTYPES, "dtype"],
+  [COLUMN_FUNCS, "function"],
+  [DATAFRAME_FUNCS, "data"],
+  [IO_FUNCS, "data"],
+  [PLAIN_FUNCS, "function"],
+];
+
+function assignKinds(metadata: Record<string, RuntimeFunctionMetadata>): Record<string, RuntimeFunctionMetadata> {
+  const kinds = new Map<string, RuntimeBuiltinKind>();
+  for (const [names, kind] of KIND_BY_GROUP) {
+    for (const name of names) kinds.set(name, kind);
+  }
+
+  const unclassified = Object.keys(metadata).filter((name) => !kinds.has(name));
+  if (unclassified.length) {
+    throw new Error(`DOMAIN_BUILTIN_METADATA entries have no kind in KIND_BY_GROUP: ${unclassified.join(", ")}`);
+  }
+
+  return Object.fromEntries(
+    Object.entries(metadata).map(([name, entry]) => [name, { ...entry, kind: kinds.get(name) }]),
+  );
+}
+
+export const DOMAIN_BUILTIN_METADATA: Record<string, RuntimeFunctionMetadata> = assignKinds(RAW_DOMAIN_METADATA);
+
 export const CHART_METADATA: Record<string, RuntimeFunctionMetadata> = Object.fromEntries(
   ["line", "bar", "scatter", "histogram", "area", "box", "violin", "density", "correlation", "hexbin", "heatmap", "regression", "ecdf", "bubble", "funnel", "waterfall"].map((name) => [
     name,
-    meta(name, "ChartSpec", [
-      { name: "data", type: any },
-      { name: "x", type: number, optional: true, named: true },
-      { name: "y", type: number, optional: true, named: true },
-      { name: "bins", type: number, optional: true, named: true },
-      { name: "title", type: "string", optional: true, named: true },
-      { name: "x_label", type: "string", optional: true, named: true },
-      { name: "y_label", type: "string", optional: true, named: true },
-      { name: "options", type: any, optional: true, rest: true, named: true },
-    ]),
+    {
+      ...meta(name, "ChartSpec", [
+        { name: "data", type: any },
+        { name: "x", type: number, optional: true, named: true },
+        { name: "y", type: number, optional: true, named: true },
+        { name: "bins", type: number, optional: true, named: true },
+        { name: "title", type: "string", optional: true, named: true },
+        { name: "x_label", type: "string", optional: true, named: true },
+        { name: "y_label", type: "string", optional: true, named: true },
+        { name: "options", type: any, optional: true, rest: true, named: true },
+      ]),
+      kind: "chart" as RuntimeBuiltinKind,
+    },
   ]),
 );

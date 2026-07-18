@@ -4,7 +4,7 @@ fn square(n: int) -> int:
 
 fn factorial(n: int) -> int:
   acc = 1
-  for i in range(1, n + 1):
+  for i of range(1, n + 1):
     acc *= i
   return acc
 
@@ -41,13 +41,13 @@ fn grade(score: int) -> string:
   else:
     return "F"
 
-for s in [95, 80, 65, 40]:
+for s of [95, 80, 65, 40]:
   print("score", s, "->", grade(s))
 
 a, b, c = [10, 20, 30]
 print("destructured:", a, b, c)
 
 total = 0
-for x in nums:
+for x of nums:
   total += x
 print("sum(nums) =", total, "| mean =", total / nums.length)

@@ -1535,10 +1535,9 @@ function compileInstruction(
     }
 
     default: {
-      tracer.jitCompile(
-        functionName(compiledFn),
-        `Warning: unhandled opcode ${bytecode.rOpcodeName(op)} (0x${op.toString(16)}) at bc:${bytecodeIdx}`,
-      );
+      const reason = `unhandled opcode ${bytecode.rOpcodeName(op)} (0x${op.toString(16)}) at bc:${bytecodeIdx}`;
+      graph.bailout ??= reason;
+      tracer.jitCompile(functionName(compiledFn), `Bailout: ${reason}`);
       break;
     }
   }

@@ -140,10 +140,20 @@ export type RuntimeFunctionParameterMetadata = {
   named?: boolean;
 };
 
+export type RuntimeBuiltinKind =
+  | "factory" | "function" | "module" | "sequential" | "data"
+  | "optimizer" | "scheduler" | "trainer" | "callback" | "logger" | "metric"
+  | "ml_model" | "ml_transform" | "ml_cluster" | "ml_split" | "ml_metric"
+  | "ml_function" | "grid_search" | "linalg"
+  | "numeric_dist" | "numeric_func" | "numeric_transform" | "numeric_stats_test"
+  | "numeric_timeseries" | "numeric_array_op" | "numeric_random"
+  | "quant" | "device" | "dtype" | "chart";
+
 export type RuntimeFunctionMetadata = {
   name: string;
   params?: RuntimeFunctionParameterMetadata[];
   returns?: string;
+  kind?: RuntimeBuiltinKind;
   effect?: "sync" | "async" | "io";
   callConvention?: "positional" | "named" | "positional_named" | "namespace";
 };

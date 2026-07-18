@@ -150,6 +150,41 @@ describe("JSObject delete", () => {
   });
 });
 
+describe("JSObject storedProperty", () => {
+  const withDataProps = (count: number) => {
+    const obj = new JSObject();
+    for (let i = 0; i < count; i++) obj.setProperty(`p${i}`, mkSmi(i));
+    return obj;
+  };
+
+  it.each([0, 5, 9, 10, 15, 20])("returns an accessor pair defined after %i data properties", (count) => {
+    const obj = withDataProps(count);
+    const pair = new AccessorPair(mkSmi(1));
+    obj.defineProperty("late", { kind: "accessor", value: pair });
+
+    expect(obj.storedProperty("late")).toBe(pair);
+  });
+
+  it.each([0, 15])("returns a data value defined after %i data properties", (count) => {
+    const obj = withDataProps(count);
+    const value = mkString("v");
+    obj.setProperty("late", value);
+
+    expect(obj.storedProperty("late")).toBe(value);
+  });
+
+  it("returns undefined for an unknown property", () => {
+    expect(new JSObject().storedProperty("nope")).toBeUndefined();
+  });
+
+  it("hides accessor pairs from getProperty, which reads data only", () => {
+    const obj = withDataProps(15);
+    obj.defineProperty("late", { kind: "accessor", value: new AccessorPair(mkSmi(1)) });
+
+    expect(obj.getProperty("late")).toBeUndefined();
+  });
+});
+
 describe("JSObject defineProperty", () => {
   it("defines property with custom attributes", () => {
     const obj = new JSObject();

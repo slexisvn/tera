@@ -68,6 +68,7 @@ export class SpeculativeOptimizer {
 
     const entryBlock = graph.addBlock();
     buildIR(graph, entryBlock, compiledFn, feedback, this.frameStates);
+    if (graph.bailout) return { graph, frameStates: this.frameStates };
     graph.rebuildUses();
 
     const findLoopsFn = (g: Parameters<typeof findLoops>[0]) => findLoops(g);

@@ -1,6 +1,8 @@
 import * as bytecode from "../../bytecode/register/ops/bytecode.js";
 import { isInsideWasmExecution } from "../wasm/codegen.js";
 import { constantString } from "../builder/feedback-utils.js";
+import { applyBinaryOverload, applyUnaryOverload } from "../../runtime/operators.js";
+import { forInKeys } from "../../runtime/enumerate.js";
 
 import {
   mkSmi,
@@ -135,6 +137,20 @@ function constantRegExp(
   return { pattern, flags };
 }
 
+function isConstructorLike(fn: {
+  compiled?: { isClassConstructor?: boolean; simpleConstructorInfo?: unknown } | null;
+  prototypeObj?: unknown;
+  constructorOf?: unknown;
+}): boolean {
+  return Boolean(
+    fn.compiled &&
+      (fn.compiled.isClassConstructor ||
+        fn.prototypeObj ||
+        fn.compiled.simpleConstructorInfo ||
+        fn.constructorOf),
+  );
+}
+
 export class BaselineRuntime {
   cf: bytecode.RegisterCompiledFunction;
   interp: BaselineInterpreter;
@@ -265,7 +281,7 @@ export class BaselineRuntime {
         const slot = this.fv.getSlot(fbSlot);
         if (slot) {
           const info = jsObj.hiddenClass.lookupProperty(propName);
-          if (info) {
+          if (info && info.kind !== "accessor") {
             slot.recordPropertyAccess(
               jsObj.hiddenClass.id,
               info.offset,
@@ -277,9 +293,9 @@ export class BaselineRuntime {
               version: jsObj.hiddenClass.version,
               offset: info.offset,
             };
-          } else if (jsObj.prototype) {
+          } else if (!info && jsObj.prototype) {
             const protoResult = jsObj.lookupPrototypeChain(propName);
-            if (protoResult.found && protoResult.descriptor) {
+            if (protoResult.found && protoResult.descriptor && protoResult.descriptor.kind !== "accessor") {
               slot.recordPropertyAccess(
                 jsObj.hiddenClass.id,
                 protoResult.descriptor.offset,
@@ -291,15 +307,8 @@ export class BaselineRuntime {
         }
       }
 
-      if (result.hit) return typeof result.value === "number" ? result.value : this.u;
-      let val = jsObj.getProperty(propName);
-      if (val === undefined && jsObj.prototype) {
-        const protoResult = jsObj.lookupPrototypeChain(propName);
-        if (protoResult.found && typeof protoResult.value === "number") {
-          val = protoResult.value;
-        }
-      }
-      return val !== undefined ? val : this.u;
+      if (result.hit && typeof result.value === "number") return result.value;
+      return runtimeGetProperty(obj, propName, this.interp);
     }
     if (isArray(obj)) {
       const arr = getPayload(obj);
@@ -498,6 +507,8 @@ export class BaselineRuntime {
       return res === (res | 0) ? mkSmi(res) : mkDouble(res);
     }
     if (isNumber(l) && isNumber(r)) return mkDouble(toNumber(l) + toNumber(r));
+    const overloaded = applyBinaryOverload("add", l, r, this.interp);
+    if (overloaded !== null) return overloaded;
     const lp = toPrimitive(l);
     const rp = toPrimitive(r);
     if (isString(lp) || isString(rp))
@@ -511,7 +522,8 @@ export class BaselineRuntime {
       const res = getPayload(l) - getPayload(r);
       return res === (res | 0) ? mkSmi(res) : mkDouble(res);
     }
-    return mkDouble(toNumber(l) - toNumber(r));
+    return applyBinaryOverload("sub", l, r, this.interp)
+      ?? mkDouble(toNumber(l) - toNumber(r));
   }
 
   mul(l: TaggedValue, r: TaggedValue, fbSlot: number) {
@@ -520,11 +532,14 @@ export class BaselineRuntime {
       const res = getPayload(l) * getPayload(r);
       return res === (res | 0) ? mkSmi(res) : mkDouble(res);
     }
-    return mkDouble(toNumber(l) * toNumber(r));
+    return applyBinaryOverload("mul", l, r, this.interp)
+      ?? mkDouble(toNumber(l) * toNumber(r));
   }
 
   div(l: TaggedValue, r: TaggedValue, fbSlot: number) {
     this.rfb(fbSlot, l, r);
+    const overloaded = applyBinaryOverload("div", l, r, this.interp);
+    if (overloaded !== null) return overloaded;
     const res = toNumber(l) / toNumber(r);
     return Number.isInteger(res) && res === (res | 0)
       ? mkSmi(res)
@@ -632,7 +647,7 @@ export class BaselineRuntime {
       const slot = this.fv.getSlot(fbSlot);
       if (slot) slot.recordUnaryOp(getTag(val));
     }
-    return mkNumber(-toNumber(val));
+    return applyUnaryOverload("neg", val, this.interp) ?? mkNumber(-toNumber(val));
   }
 
   typeofOp(val: TaggedValue) {
@@ -666,6 +681,8 @@ export class BaselineRuntime {
   }
   pow(left: TaggedValue, right: TaggedValue, fbSlot: number) {
     this._recordBinaryFb(left, right, fbSlot);
+    const overloaded = applyBinaryOverload("pow", left, right, this.interp);
+    if (overloaded !== null) return overloaded;
     const result = toNumber(left) ** toNumber(right);
     return Number.isInteger(result) && result === (result | 0)
       ? mkSmi(result)
@@ -734,9 +751,10 @@ export class BaselineRuntime {
 
   invokeCall(callee: TaggedValue, args: TaggedValue[], receiver: TaggedValue, fbSlot: number, receiverInfo: ReceiverInfo) {
     if (!isFunction(callee)) {
-      throw new Error(
-        `TypeError: ${toDisplayString(callee)} is not a function`,
-      );
+      return this.interp.callFunctionValue(callee, args, receiver);
+    }
+    if (isConstructorLike(getPayload(callee)) && isUndefined(receiver)) {
+      return this.interp.callFunctionValue(callee, args, receiver);
     }
     if (++globalCallDepth > MAX_CALL_DEPTH) {
       globalCallDepth--;
@@ -809,6 +827,7 @@ export class BaselineRuntime {
   fastOptimizedCall(callee: TaggedValue, args: TaggedValue[]) {
     if (!isFunction(callee)) return null;
     const fn = getPayload(callee);
+    if (isConstructorLike(fn)) return null;
     if (
       !fn.compiled ||
       fn.closure ||
@@ -861,6 +880,7 @@ export class BaselineRuntime {
   ): BaselineCall0 | BaselineCall1 | BaselineCall2 | BaselineCall3 | null {
     if (!isFunction(callee)) return null;
     const fn = getPayload(callee);
+    if (isConstructorLike(fn)) return null;
     if (
       !fn.compiled ||
       fn.closure ||
@@ -982,12 +1002,8 @@ export class BaselineRuntime {
   }
 
   getKeys(obj: TaggedValue) {
-    if (isObject(obj)) {
-      const keys = getPayload(obj).hiddenClass.getEnumerablePropertyNames();
-      const elements = keys.map((k) => mkString(k));
-      return mkArray(createJSArray(elements));
-    }
-    return mkArray(createJSArray([]));
+    const keys = forInKeys(obj, this.interp);
+    return mkArray(createJSArray(keys.map((key) => mkString(key))));
   }
 
   restArgs(registers: TaggedValue[], startReg: number, argCount: number) {

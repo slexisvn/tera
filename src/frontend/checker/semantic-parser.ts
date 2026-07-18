@@ -244,7 +244,10 @@ class SemanticParser {
   parseControlBlock(line: Line, exprStart: number): BlockNode {
     this.index++;
     const colon = findTopLevel(line.tokens, ":");
-    const exprTokens = colon >= 0 ? line.tokens.slice(exprStart, colon) : [];
+    const start = line.tokens[0]?.value === "else" && line.tokens[exprStart]?.value === "if"
+      ? exprStart + 1
+      : exprStart;
+    const exprTokens = colon >= 0 ? line.tokens.slice(start, colon) : [];
     const test = exprTokens.length ? parseExpr(exprTokens) : undefined;
     return { kind: "Block", test, body: this.parseBlock(line.indent), span: { line: line.line, column: line.indent + 1 } };
   }

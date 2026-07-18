@@ -1,9 +1,18 @@
 # Tera Built-in Reference
 
-Canonical signatures + descriptions for every Tera built-in. Sole source of truth for the language server. Each entry:
+Prose source of truth for the language server: `scripts/generate.ts` merges this file
+with the runtime metadata in `src/runtime/domain` to produce `language-data.json`.
+
+The runtime owns which built-ins exist, their `kind`, and their return type. This file
+owns descriptions, parameter lists, and methods. `npm run generate` fails if the two
+disagree, so every built-in below must exist in the runtime, and every runtime built-in
+must appear here. The one exception is the `chart` namespace, whose methods are
+documented in `notebook/src/chart/docs.ts` and pulled in by the generator.
+
+Each entry is a signature followed by a description:
 
 ```
-## name(param1, param2=default, ...)
+## name(param1, param2=default, opt?, ...rest)
 Description.
 ```
 
@@ -13,6 +22,25 @@ Constants (devices/dtypes) omit the parameter list:
 ## name
 Description.
 ```
+
+Methods hang off their built-in with `###`, and may declare a return type. A `###`
+heading with no parameter list is a property rather than a method:
+
+```
+## Trainer(max_epochs: int = 20)
+Description.
+
+### fit(model, data) -> Object
+Description.
+```
+
+`{kind}` overrides the kind the runtime reports and is only required for entries the
+runtime does not define — `{global}` for interpreter globals, `{step}` for names that
+only resolve inside a model step. Where both are present they must agree.
+
+`## @kind/<kind>` blocks define methods injected into every built-in of that kind; an
+entry's own `###` methods win. `## $Type` blocks document the methods of a value type
+(`Tensor`, `DataFrame`, …) that is never constructed by name.
 
 ---
 
@@ -82,14 +110,8 @@ Aggregate `Column` computing the minimum of a column within a `groupBy(...).agg(
 ## range(start: int, stop?: int, step?: int)
 Integer range: returns an array `[start..stop)` with optional `step`.
 
-## print(...values, sep=" ")
-Print one or more values to the runtime output, separated by `sep`.
-
-## trace(compiled)
-Print the runtime execution trace of a compiled program.
-
-## graph(compiled)
-Print the IR graph of a compiled program or module.
+## print(...values) {global}
+Print one or more values to the runtime output, separated by a space.
 
 ## compile(model, input?, target=cpu, fusion?, scheduling?, debug?)
 Compile a model or function to a backend (`cpu`/`gpu`/`wasm`/`webgpu`). `input` provides an example for shape inference and tuning.
@@ -309,6 +331,11 @@ Aggregate `Column` counting non-null values of a column within `agg(...)`.
 
 ## countStar() {function}
 Aggregate `Column` counting all rows (`COUNT(*)`) within `agg(...)`.
+
+## register_columns_table(columns)
+Register named column arrays as a SQL-addressable table and return its generated
+table name, one named argument per column: `register_columns_table(name=["a"], age=[30])`.
+Use the returned name inside `expr("... FROM <name>")`.
 
 ## backtest(prices: DataFrame, signal: string = "momentum", portfolio: string = "long_short", lookback?: int, fraction?: float, cost?: float) {quant}
 Run a vectorized cross-sectional backtest over a price `DataFrame` shaped time × asset (numeric columns are the assets; a date/index column is dropped automatically). `signal` selects a trading signal (`"momentum"`, `"mean_reversion"`, `"zscore"`) and `portfolio` a position rule (`"equal_weight"`, `"cross_sectional"`, `"long_short"`); either may instead be a handle from `momentum(...)`, `long_short(...)`, etc. Returns a record with `.metrics` (a map of `sharpe`, `sortino`, `maxDrawdown`, `calmar`, `hitRate`, `turnover`), `.equity` and `.port_returns` (DataFrames), and `.weights`.

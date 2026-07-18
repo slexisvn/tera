@@ -26,6 +26,7 @@ import type { RuntimeFunctionPayload, TaggedValue } from "../../core/value/index
 import { VMTypeError } from "../../core/errors/index.js";
 import { AccessorPair } from "../heap/js-object.js";
 import type { PropertyDescriptor } from "../maps/hidden-class.js";
+import { INSTANCE_TYPE_MAP, INSTANCE_TYPE_SET } from "../maps/hidden-class.js";
 import {
   createJSArray,
   createJSObject,
@@ -54,7 +55,7 @@ function targetOwnDataInvariant(target: TaggedValue, propName: string) {
   return { tobj, desc };
 }
 
-type InterpreterLike = {
+export type InterpreterLike = {
   callFunctionValue(
     fn: TaggedValue,
     args: TaggedValue[],
@@ -68,6 +69,7 @@ type StoredValue = TaggedValue | AccessorPair | undefined;
 type RuntimeHiddenClass = {
   lookupProperty(name: string): PropertyDescriptor | null;
   hasProperty(name: string): boolean;
+  instanceType?: string;
 };
 
 type PrototypeLookupResult = {
@@ -100,6 +102,8 @@ type RuntimeObject = {
   setSymbolProperty(symbol: TaggedValue, value: TaggedValue): void;
   deleteSymbolProperty(symbol: TaggedValue): boolean;
   hasSymbolProperty(symbol: TaggedValue): boolean;
+  _mapData?: { size: number };
+  _setData?: { size: number };
 };
 
 type RuntimeArray = {
@@ -423,12 +427,13 @@ export function runtimeGetProperty(
     );
   }
   if (isObject(receiver)) {
-    return ordinaryGetObject(
-      receiver,
-      objectPayload(receiver),
-      propName,
-      interpreter,
-    );
+    const obj = objectPayload(receiver);
+    if (propName === "size") {
+      const instanceType = obj.hiddenClass.instanceType;
+      if (instanceType === INSTANCE_TYPE_MAP && obj._mapData) return mkSmi(obj._mapData.size);
+      if (instanceType === INSTANCE_TYPE_SET && obj._setData) return mkSmi(obj._setData.size);
+    }
+    return ordinaryGetObject(receiver, obj, propName, interpreter);
   }
   if (isArray(receiver)) {
     const arr = arrayPayload(receiver);

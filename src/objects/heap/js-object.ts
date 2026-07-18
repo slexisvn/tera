@@ -64,7 +64,7 @@ type ConstructorShape = {
   slackTrackingComplete?: boolean;
 };
 
-type StoredPropertyValue = TaggedValue | AccessorPair | undefined;
+export type StoredPropertyValue = TaggedValue | AccessorPair | undefined;
 
 function isAccessorPair(value: StoredPropertyValue): value is AccessorPair {
   return value instanceof AccessorPair;
@@ -283,17 +283,16 @@ export class JSObject {
     return this.hiddenClass.hasProperty(name);
   }
 
-  getProperty(name: string): TaggedValue | undefined {
+  storedProperty(name: string): StoredPropertyValue {
     this.ensureMigrated();
     const desc = this.hiddenClass.lookupProperty(name);
-    if (desc) {
-      if (desc.offset < MAX_IN_OBJECT_PROPERTIES) {
-        return dataValue(this.slots[desc.offset]);
-      }
-      const val = this.overflowProperties ? this.overflowProperties.get(name) : undefined;
-      return dataValue(val);
-    }
-    return undefined;
+    if (!desc) return undefined;
+    if (desc.offset < MAX_IN_OBJECT_PROPERTIES) return this.slots[desc.offset];
+    return this.overflowProperties ? this.overflowProperties.get(name) : undefined;
+  }
+
+  getProperty(name: string): TaggedValue | undefined {
+    return dataValue(this.storedProperty(name));
   }
 
   setProperty(name: string, value: TaggedValue): boolean {

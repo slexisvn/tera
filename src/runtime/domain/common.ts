@@ -5,13 +5,20 @@ export type BuiltinMap = Record<string, RuntimeFunctionPayload>;
 export type NativeFn = (...args: unknown[]) => unknown;
 export type NativeCtor = new (...args: unknown[]) => unknown;
 
+const OPTION_ALIASES: Record<string, string> = {
+  grad: "requiresGrad",
+};
+
 export function snakeToCamel(name: string): string {
   return name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
 export function camelOptions(options: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(options)) out[snakeToCamel(key)] = value;
+  for (const [key, value] of Object.entries(options)) {
+    const name = snakeToCamel(key);
+    out[OPTION_ALIASES[name] ?? name] = value;
+  }
   return out;
 }
 

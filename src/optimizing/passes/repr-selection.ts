@@ -75,17 +75,25 @@ export function representationSelection(graph: ReprGraph): number {
     ir.IR_FLOAT64_COMPARE,
   ]);
 
-  const TAGGED_NUMBER_PRODUCERS = new Set([
+  const NUMERIC_UNLESS_OVERLOADED = new Set([
     ir.IR_GENERIC_SUB,
     ir.IR_GENERIC_MUL,
     ir.IR_GENERIC_DIV,
-    ir.IR_GENERIC_MOD,
-    ir.IR_GENERIC_USHR,
     ir.IR_GENERIC_POW,
   ]);
 
-  const HANDLE_PRODUCERS = new Set([
+  const OVERLOADABLE_ARITHMETIC = new Set([
     ir.IR_GENERIC_ADD,
+    ...NUMERIC_UNLESS_OVERLOADED,
+  ]);
+
+  const TAGGED_NUMBER_PRODUCERS = new Set([
+    ir.IR_GENERIC_MOD,
+    ir.IR_GENERIC_USHR,
+  ]);
+
+  const HANDLE_PRODUCERS = new Set([
+    ...OVERLOADABLE_ARITHMETIC,
     ir.IR_GENERIC_GET_PROP,
     ir.IR_GENERIC_SET_PROP,
     ir.IR_GENERIC_GET_INDEX,
@@ -240,9 +248,6 @@ export function representationSelection(graph: ReprGraph): number {
             if (
               use.type !== ir.IR_CHECK_SMI &&
               use.type !== ir.IR_CHECK_NUMBER &&
-              use.type !== ir.IR_GENERIC_SUB &&
-              use.type !== ir.IR_GENERIC_MUL &&
-              use.type !== ir.IR_GENERIC_DIV &&
               use.type !== ir.IR_GENERIC_MOD &&
               use.type !== ir.IR_GENERIC_COMPARE
             ) {
@@ -269,7 +274,11 @@ export function representationSelection(graph: ReprGraph): number {
             ? REP_INT32
             : REP_FLOAT64,
         );
-      } else if (TAGGED_NUMBER_PRODUCERS.has(node.type)) {
+      } else if (
+        TAGGED_NUMBER_PRODUCERS.has(node.type) ||
+        (NUMERIC_UNLESS_OVERLOADED.has(node.type) &&
+          node.inputs.every(isProvablyNumericOperand))
+      ) {
         nodeRep.set(node.id, REP_TAGGED_NUMBER);
       } else if (node.type === ir.IR_GENERIC_CALL) {
         let callRep: Representation = REP_HANDLE;
@@ -288,7 +297,7 @@ export function representationSelection(graph: ReprGraph): number {
       } else if (HANDLE_PRODUCERS.has(node.type)) {
         let hRep: Representation = REP_HANDLE;
         const operandsNumeric =
-          node.type !== ir.IR_GENERIC_ADD ||
+          !OVERLOADABLE_ARITHMETIC.has(node.type) ||
           node.inputs.every(isProvablyNumericOperand);
         if (operandsNumeric && node.uses && node.uses.length > 0) {
           let allSmi = true;
@@ -381,16 +390,14 @@ export function representationSelection(graph: ReprGraph): number {
       return REP_FLOAT64;
     }
     if (
-      consumer.type === ir.IR_GENERIC_SUB ||
-      consumer.type === ir.IR_GENERIC_MUL ||
-      consumer.type === ir.IR_GENERIC_DIV ||
       consumer.type === ir.IR_GENERIC_MOD ||
-      consumer.type === ir.IR_GENERIC_POW
+      (NUMERIC_UNLESS_OVERLOADED.has(consumer.type) &&
+        consumer.inputs.every(isProvablyNumericOperand))
     ) {
       return REP_TAGGED_NUMBER;
     }
     if (
-      consumer.type === ir.IR_GENERIC_ADD ||
+      OVERLOADABLE_ARITHMETIC.has(consumer.type) ||
       consumer.type === ir.IR_GENERIC_CALL ||
       consumer.type === ir.IR_GENERIC_GET_PROP ||
       consumer.type === ir.IR_GENERIC_SET_PROP ||

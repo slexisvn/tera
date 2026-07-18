@@ -41,6 +41,7 @@ import { JSArray } from "../../objects/heap/js-array.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 import type { FrameState } from "../../deopt/frame-state.js";
 import type { RuntimeStubEntry } from "./graph-support.js";
+import { applyBinaryOverload, type BinaryOverload } from "../../runtime/operators.js";
 import {
   DeoptSignal,
   DEOPT_MAP_CHECK_FAILED,
@@ -373,14 +374,10 @@ function executeRuntimeCall(
   frameStates: FrameState[],
 ): TaggedValue {
   if (!isFunction(callee)) {
-    const fs = frameStates ? frameStates[frameStateId] : null;
-    throw new DeoptSignal(
-      DEOPT_WRONG_CALL_TARGET,
-      fs ? fs.bytecodeOffset : 0,
-      [],
-      [],
-      frameStateId,
-      new Map(),
+    return runtime.interpreter.callFunctionValue(
+      callee,
+      args,
+      receiver === undefined ? mkUndefined() : receiver,
     );
   }
   const fn = getPayload(callee);
@@ -426,6 +423,14 @@ function executeRuntimeCall(
   return result !== undefined ? result : mkUndefined();
 }
 
+const OVERLOAD_BY_NODE_TYPE: Record<string, BinaryOverload | undefined> = {
+  [ir.IR_GENERIC_ADD]: "add",
+  [ir.IR_GENERIC_SUB]: "sub",
+  [ir.IR_GENERIC_MUL]: "mul",
+  [ir.IR_GENERIC_DIV]: "div",
+  [ir.IR_GENERIC_POW]: "pow",
+};
+
 export function executeRuntimeStub(
   stub: AnyStub,
   node: AnyNode,
@@ -439,6 +444,13 @@ export function executeRuntimeStub(
   const args = node.inputs.map((input, i: number) =>
     runtimeArg(rawArgs[i], input, analysis, runtime),
   );
+
+  const overload = OVERLOAD_BY_NODE_TYPE[node.type];
+  if (overload) {
+    const result = applyBinaryOverload(overload, args[0], args[1], runtime.interpreter);
+    if (result !== null) return runtimeReturn(result, runtime, stub.outputRep);
+  }
+
   switch (node.type) {
     case ir.IR_GENERIC_ADD: {
       const lp = toPrimitiveOperand(args[0], runtime);

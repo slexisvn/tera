@@ -1,11 +1,14 @@
 .vscode/**
-test/**
+src/**
 scripts/**
+tests/**
 assets/**
 data/**
 **/*.map
-**/*.test.js
+**/*.ts
+!node_modules/**/*.ts
 **/tsconfig.json
+vitest.config.*
 .gitignore
 .eslintrc*
 vsc-extension-quickstart.md

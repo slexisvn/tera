@@ -16,6 +16,5 @@
     "src/**/*",
     "vite.config.ts",
     "../types/**/*.d.ts"
-  ],
-  "exclude": ["src/vscode/**"]
+  ]
 }

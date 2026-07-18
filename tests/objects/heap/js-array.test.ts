@@ -3,6 +3,32 @@ import { JSArray } from "../../../src/objects/heap/js-array.js";
 import { mkSmi, mkString, mkDouble, mkUndefined, getPayload, strictEqual } from "../../../src/core/value/index.js";
 
 describe("JSArray", () => {
+  describe("keys", () => {
+    it("lists an index per element", () => {
+      expect(new JSArray([mkSmi(10), mkSmi(20)]).keys()).toEqual(["0", "1"]);
+    });
+
+    it("is empty for an empty array", () => {
+      expect(new JSArray().keys()).toEqual([]);
+    });
+
+    it("skips holes but keeps explicit undefined elements", () => {
+      const arr = new JSArray([mkSmi(1)]);
+      arr.setIndex(3, mkUndefined());
+      expect(arr.keys()).toEqual(["0", "3"]);
+    });
+
+    it("lists named properties after the indices", () => {
+      const arr = new JSArray([mkSmi(1)]);
+      arr.setProperty("tag", mkString("t"));
+      expect(arr.keys()).toEqual(["0", "tag"]);
+    });
+
+    it("does not list length as a key", () => {
+      expect(new JSArray([mkSmi(1)]).keys()).not.toContain("length");
+    });
+  });
+
   describe("basic indexing", () => {
     it("getIndex/setIndex round-trip, fills holes with undefined", () => {
       const arr = new JSArray([mkSmi(1), mkSmi(2)]);

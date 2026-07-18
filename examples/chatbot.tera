@@ -18,13 +18,13 @@ questions = tok.encodeBatch(train_q_text)
 
 ans_ids = [tok.encode(a) for a in train_a_text]
 ans_len = 0
-for ids in ans_ids:
+for ids of ans_ids:
   if ids.length + 1 > ans_len:
     ans_len = ids.length + 1
 
 din_rows = []
 dout_rows = []
-for ids in ans_ids:
+for ids of ans_ids:
   din = [tok.bosId]
   din.extend(ids)
   dout = ids.copy()
@@ -69,7 +69,7 @@ model ChatBotLarge(vocab_size: int, embed_size: int, hidden_size: int, layers: i
     logits3d = logits.reshape([bsz, out_len, vocab])
     total = null
     started = false
-    for t in range(out_len):
+    for t of range(out_len):
       step_logits = logits3d.select(1, t)
       step_loss = loss_fn(step_logits, dout.select(1, t))
       if started:
@@ -97,7 +97,7 @@ fn reply(m: ChatBotLarge, tok: Tokenizer, prompt: string, max_len: int) -> strin
   enc, state = m.encoder(m.embed(query))
   last = tok.bosId
   out_ids = []
-  for step in range(max_len):
+  for step of range(max_len):
     emb = m.embed(tensor([last], dtype=i32))
     emb_t = emb.reshape([1, 1, emb.shape[1]])
     dec, state = m.decoder(emb_t, state)

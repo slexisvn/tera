@@ -119,6 +119,7 @@ type FunctionCompilerThis = {
   scope: Scope;
   temps: TempAllocator;
   _currentSuperClassName?: string | null;
+  _nextFunctionIsClassConstructor?: boolean;
   _breakJumps: number[];
   _continueJumps: number[];
   _compileParams(
@@ -254,6 +255,10 @@ export const functionMethods: FunctionMethodMap = {
     );
     innerFunc.isAsync = !!node.async;
     innerFunc.isGenerator = !!node.generator;
+    if (this._nextFunctionIsClassConstructor) {
+      innerFunc.isClassConstructor = true;
+      this._nextFunctionIsClassConstructor = false;
+    }
     const innerScope = new Scope(outerScope);
     innerScope.isFunctionBoundary = true;
 
@@ -477,6 +482,7 @@ export const functionMethods: FunctionMethodMap = {
     });
     ctorNode.name = node.name;
     ctorNode._superClassName = node.superClass ? node.name : null;
+    this._nextFunctionIsClassConstructor = true;
     this.compileFunctionDeclaration(ctorNode);
 
     const classResolvedForPrototype = this.scope.resolve(node.name);

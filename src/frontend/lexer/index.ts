@@ -23,7 +23,7 @@ export type Token = {
   column: number;
 };
 
-const KEYWORDS = new Set([
+export const KEYWORDS = new Set([
   "let",
   "const",
   "var",
@@ -216,6 +216,13 @@ export class Lexer {
       if (ch === "/" && this.peekAhead() === "/") {
         this.advance();
         this.advance();
+        while (!this.isAtEnd() && this.peek() !== "\n") {
+          this.advance();
+        }
+        continue;
+      }
+
+      if (ch === "#") {
         while (!this.isAtEnd() && this.peek() !== "\n") {
           this.advance();
         }

@@ -11,17 +11,38 @@ export const TENSOR_FACTORIES = [
 
 export const FREE_TENSOR_FUNCTIONS = ["where", "cat", "stack"] as const;
 
-export const TENSOR_MODULES = [
+export const NN_MODULES = [
   "Linear", "ReLU", "GELU", "SiLU", "Sigmoid", "Tanh", "LeakyReLU", "ELU",
   "Softmax", "LogSoftmax", "Flatten", "Dropout", "LayerNorm", "BatchNorm1d",
   "BatchNorm2d", "Conv1d", "Conv2d", "MaxPool2d", "AvgPool2d",
   "AdaptiveAvgPool2d", "Embedding", "GRU", "GRUCell", "LSTM", "LSTMCell",
-  "CrossEntropyLoss", "MSELoss", "NLLLoss", "BCELoss", "Sequential",
-  "DataLoader", "TensorDataset", "SGD", "Adam", "AdamW",
-  "StepLR", "CosineAnnealingLR", "ReduceLROnPlateau", "Trainer",
-  "EarlyStopping", "ModelCheckpoint", "ProgressCallback", "LearningRateMonitor", "Timer",
-  "GradientAccumulationScheduler", "ConsoleLogger", "CSVLogger",
+  "CrossEntropyLoss", "MSELoss", "NLLLoss", "BCELoss",
+] as const;
+
+export const SEQUENTIAL_MODULES = ["Sequential"] as const;
+
+export const DATA_MODULES = ["DataLoader", "TensorDataset"] as const;
+
+export const OPTIMIZERS = ["SGD", "Adam", "AdamW"] as const;
+
+export const SCHEDULERS = ["StepLR", "CosineAnnealingLR", "ReduceLROnPlateau"] as const;
+
+export const TRAINERS = ["Trainer"] as const;
+
+export const CALLBACKS = [
+  "EarlyStopping", "ModelCheckpoint", "ProgressCallback", "LearningRateMonitor",
+  "Timer", "GradientAccumulationScheduler",
+] as const;
+
+export const LOGGERS = ["ConsoleLogger", "CSVLogger"] as const;
+
+export const METRICS = [
   "Accuracy", "Precision", "Recall", "F1Score", "ConfusionMatrix", "MetricCollection",
+] as const;
+
+export const TENSOR_MODULES = [
+  ...NN_MODULES, ...SEQUENTIAL_MODULES, ...DATA_MODULES, ...OPTIMIZERS,
+  ...SCHEDULERS, ...TRAINERS, ...CALLBACKS, ...LOGGERS, ...METRICS,
 ] as const;
 
 const SPECIAL_MODULES = new Set<string>(["Softmax", "LogSoftmax", "DataLoader", "SGD", "Adam", "AdamW", "StepLR", "CosineAnnealingLR", "ReduceLROnPlateau", "Trainer"]);

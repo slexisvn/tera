@@ -337,6 +337,10 @@ export class Parser {
       return this.parseDestructuringAssignment();
     }
 
+    if (this.isBareTupleDestructuringStart()) {
+      return this.parseBareTupleDestructuring();
+    }
+
     if (
       tok.type === TokenType.Identifier &&
       this.peek().type === TokenType.Punctuator &&
@@ -470,6 +474,33 @@ export class Parser {
       if (depth === 0 && tok.value === "=") return true;
     }
     return false;
+  }
+
+  isBareTupleDestructuringStart(): boolean {
+    if (!this.check(TokenType.Identifier)) return false;
+    if (!(this.peek().type === TokenType.Punctuator && this.peek().value === ",")) return false;
+    for (let i = this.pos; i < this.tokens.length; i++) {
+      const tok = this.tokens[i];
+      if (tok.type === TokenType.Identifier) continue;
+      if (tok.type !== TokenType.Punctuator) return false;
+      if (tok.value === ",") continue;
+      if (tok.value === "=") return true;
+      return false;
+    }
+    return false;
+  }
+
+  parseBareTupleDestructuring(): ASTNode {
+    const elements: Array<BindingPattern | null> = [];
+    do {
+      if (this.check(TokenType.Punctuator, "{")) elements.push(this._parseObjectPattern());
+      else if (this.check(TokenType.Punctuator, "[")) elements.push(this._parseArrayPattern());
+      else elements.push({ kind: "id" as const, name: this.expectString(TokenType.Identifier) });
+    } while (this.match(TokenType.Punctuator, ","));
+    this.expect(TokenType.Punctuator, "=");
+    const init = this.parseExpression();
+    this.consumeSemicolon();
+    return ArrayDestructuring({ kind: "array", elements, rest: null }, init, "let");
   }
 
   parseDestructuringAssignment(): ASTNode {
@@ -1006,9 +1037,7 @@ export class Parser {
 
         if (tok.value === "[" && minPrec <= 12) {
           this.advance();
-          const index = this.parseExpression();
-          this.expect(TokenType.Punctuator, "]");
-          left = MemberExpression(left, index, true);
+          left = this.parseIndexAccess(left);
           continue;
         }
 
@@ -1277,9 +1306,7 @@ export class Parser {
 
   parseSwitchStatement(): ASTNode {
     this.expect(TokenType.Keyword, "switch");
-    this.expect(TokenType.Punctuator, "(");
-    const discriminant = this.parseExpression();
-    this.expect(TokenType.Punctuator, ")");
+    const discriminant = this.parseControlCondition();
     this.expect(TokenType.Punctuator, "{");
 
     const cases = [];
@@ -1287,24 +1314,25 @@ export class Parser {
       let test = null;
       if (this.match(TokenType.Keyword, "case")) {
         test = this.parseExpression();
-        this.expect(TokenType.Punctuator, ":");
-      } else if (this.match(TokenType.Keyword, "default")) {
-        this.expect(TokenType.Punctuator, ":");
-      } else {
+      } else if (!this.match(TokenType.Keyword, "default")) {
         this.error("Expected case or default", this.current());
       }
 
+      const braced = this.match(TokenType.Punctuator, "{");
+      if (!braced) this.expect(TokenType.Punctuator, ":");
       const consequent = [];
       while (
+        !(braced && this.check(TokenType.Punctuator, "}")) &&
         !this.check(TokenType.Keyword, "case") &&
         !this.check(TokenType.Keyword, "default") &&
         !this.check(TokenType.Punctuator, "}") &&
         !this.isAtEnd()
       ) {
-          const stmt = this.parseStatement();
-          if (Array.isArray(stmt)) consequent.push(...stmt);
-          else consequent.push(stmt);
+        const stmt = this.parseStatement();
+        if (Array.isArray(stmt)) consequent.push(...stmt);
+        else consequent.push(stmt);
       }
+      if (braced) this.expect(TokenType.Punctuator, "}");
       cases.push(SwitchCase(test, consequent));
     }
 
@@ -1452,7 +1480,12 @@ export class Parser {
         const methodParams = this._parseParams();
         this.skipReturnType();
         const body = this.parseBlock();
-        const funcNode = FunctionDeclaration(name, methodParams, this.rewriteModelFieldRefs(body, () => new Set(fields.map((field) => field.name))));
+        const funcNode = FunctionDeclaration(name, methodParams, this.rewriteModelFieldRefs(body, () => new Set(fields.map((field) => field.name)), className));
+        methods.push({ name, func: funcNode, kind: null });
+        methodNames.add(name);
+      } else if (this.check(TokenType.Punctuator, "{")) {
+        const body = this.parseBlock();
+        const funcNode = FunctionDeclaration(name, [], this.rewriteModelFieldRefs(body, () => new Set(fields.map((field) => field.name)), className));
         methods.push({ name, func: funcNode, kind: null });
         methodNames.add(name);
       } else {
@@ -1497,14 +1530,15 @@ export class Parser {
     return ClassDeclaration(className, null, constructorNode, methods);
   }
 
-  rewriteModelFieldRefs(node: ASTNode, fieldNames: () => Set<string>): ASTNode {
+  rewriteModelFieldRefs(node: ASTNode, fieldNames: () => Set<string>, modelName?: string): ASTNode {
     const fields = fieldNames();
     const visit = (value: unknown): unknown => {
       if (Array.isArray(value)) return value.map(visit);
       if (!value || typeof value !== "object" || !("type" in value)) return value;
       const current = value as ASTNode;
-      if (current.type === NodeType.Identifier && typeof current.name === "string" && fields.has(current.name)) {
-        return MemberExpression(ThisExpression(), current.name, false);
+      if (current.type === NodeType.Identifier && typeof current.name === "string") {
+        if (modelName && current.name === modelName) return ThisExpression();
+        if (fields.has(current.name)) return MemberExpression(ThisExpression(), current.name, false);
       }
       const next: ASTNode = { ...current };
       for (const key of Object.keys(next)) {
@@ -1644,6 +1678,48 @@ export class Parser {
     return FunctionExpression(name, params, body);
   }
 
+  parseIndexAccess(obj: ASTNode): ASTNode {
+    type Dim = { kind: "index"; value: ASTNode } | { kind: "slice"; start: ASTNode | null; stop: ASTNode | null };
+    const dims: Dim[] = [];
+
+    do {
+      let start: ASTNode | null = null;
+      if (!this.check(TokenType.Punctuator, ":")) start = this.parseExpression();
+      if (this.match(TokenType.Punctuator, ":")) {
+        let stop: ASTNode | null = null;
+        if (!this.check(TokenType.Punctuator, "]") && !this.check(TokenType.Punctuator, ",")) {
+          stop = this.parseExpression();
+        }
+        dims.push({ kind: "slice", start, stop });
+      } else {
+        dims.push({ kind: "index", value: start ?? Literal(0, "number") });
+      }
+    } while (this.match(TokenType.Punctuator, ","));
+    this.expect(TokenType.Punctuator, "]");
+
+    if (dims.length === 1 && dims[0].kind === "index") {
+      return MemberExpression(obj, dims[0].value, true);
+    }
+
+    const narrow = (target: ASTNode, method: string, args: ASTNode[]) =>
+      CallExpression(MemberExpression(target, method, false), args);
+
+    let result = obj;
+    dims.forEach((dim, axis) => {
+      const dimLit = Literal(axis, "number");
+      if (dim.kind === "index") {
+        result = narrow(result, "select", [dimLit, dim.value]);
+        return;
+      }
+      const start = dim.start ?? Literal(0, "number");
+      const size = MemberExpression(MemberExpression(result, "shape", false), dimLit, true);
+      const stop = dim.stop ?? size;
+      const length = BinaryExpression("-", stop, start);
+      result = narrow(result, "narrow", [dimLit, start, length]);
+    });
+    return result;
+  }
+
   parseArrayExpression(): ASTNode {
     this.expect(TokenType.Punctuator, "[");
     const elements: Array<ASTNode | null> = [];
@@ -1657,7 +1733,11 @@ export class Parser {
       if (this.match(TokenType.Punctuator, "...")) {
         elements.push(SpreadElement(this.parseExpression()));
       } else {
-        elements.push(this.parseExpression());
+        const element = this.parseExpression();
+        if (elements.length === 0 && this.check(TokenType.Keyword, "for")) {
+          return this.parseArrayComprehension(element);
+        }
+        elements.push(element);
       }
       if (!this.check(TokenType.Punctuator, "]")) {
         this.expect(TokenType.Punctuator, ",");
@@ -1666,6 +1746,37 @@ export class Parser {
 
     this.expect(TokenType.Punctuator, "]");
     return ArrayExpression(elements);
+  }
+
+  parseArrayComprehension(projection: ASTNode): ASTNode {
+    this.expect(TokenType.Keyword, "for");
+    const variable = this._parseBindingTarget();
+    if (!this.match(TokenType.Keyword, "of") && !this.match(TokenType.Keyword, "in")) {
+      this.error("Expected 'of' or 'in' in comprehension", this.current());
+    }
+    const iterable = this.parseExpression();
+
+    let condition: ASTNode | null = null;
+    if (this.match(TokenType.Keyword, "if")) {
+      condition = this.parseExpression();
+    }
+    this.expect(TokenType.Punctuator, "]");
+
+    const acc = "__comp$";
+    const push = ExpressionStatement(
+      CallExpression(MemberExpression(Identifier(acc), "push", false), [projection]),
+    );
+    const loopBody = condition
+      ? IfStatement(condition, BlockStatement([push]), null)
+      : BlockStatement([push]);
+
+    const body = BlockStatement([
+      LetDeclaration(acc, ArrayExpression([])),
+      ForOfStatement(variable, iterable, loopBody, "let"),
+      ReturnStatement(Identifier(acc)),
+    ]);
+
+    return CallExpression(ArrowFunctionExpression([], body, false), []);
   }
 }
 

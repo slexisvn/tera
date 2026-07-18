@@ -19,7 +19,7 @@ bp = zeros([1], grad=true)
 lr = 0.1
 
 next_log = 0
-for step in range(200):
+for step of range(200):
   pred = xs @ wp + bp
   loss = ((pred - ys) ** 2.0).mean()
   loss.backward()

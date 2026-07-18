@@ -131,6 +131,8 @@ export function materializeFrameValue(
 ): TaggedValue {
   if (value === null || value === undefined) return mkUndefined();
   if (isDeoptIRNode(value)) {
+    const captured = runtimeValues ? runtimeValues.get(value.id) : undefined;
+    if (captured !== undefined) return captured;
     if (value.type === ir.IR_LOAD_FIELD) {
       const obj = materializeFrameValue(
         value.inputs[0],
@@ -240,10 +242,6 @@ export function materializeFrameValue(
       if (constant === null) return mkNull();
       if (constant === undefined) return mkUndefined();
     }
-    const runtimeValue = runtimeValues
-      ? runtimeValues.get(value.id)
-      : undefined;
-    if (runtimeValue !== undefined) return runtimeValue;
     switch (value.type) {
       case ir.IR_INT32_ADD:
       case ir.IR_FLOAT64_ADD:

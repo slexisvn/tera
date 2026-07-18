@@ -99,7 +99,13 @@ function wrapHostObject(value: object): TaggedValue {
     if (typeof property === "function") {
       object.setProperty(name, mkFunction(hostMethod(value, name)));
     } else if (descriptor?.get) {
-      object.setProperty(name, nativeToTagged(property));
+      object.defineProperty(name, {
+        kind: "accessor",
+        writable: false,
+        enumerable: true,
+        configurable: true,
+        value: new AccessorPair(mkFunction(hostMethod(value, name))),
+      });
     }
   }
   return mkObject(object);

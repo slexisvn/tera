@@ -147,6 +147,12 @@ const threadLocal: ThreadLocalState = {
 const MAX_WASM_CALL_DEPTH = 1000;
 let wasmCallDepth = 0;
 
+function resolveNodeLocal(nodeId: number, analysis: AnyAnalysis): WasmLocalId | undefined {
+  const alias = analysis.localAlias.get(nodeId);
+  if (alias !== undefined) return resolveNodeLocal(alias, analysis);
+  return analysis.nodeLocal.get(nodeId);
+}
+
 const GENERIC_NUMERIC_PRODUCERS = new Set([
   ir.IR_GENERIC_ADD,
   ir.IR_GENERIC_SUB,
@@ -1329,11 +1335,7 @@ export class WasmCodegen {
   }
 
   resolveLocal(nodeId: number, analysis: AnyAnalysis): WasmLocalId {
-    const alias = analysis.localAlias.get(nodeId);
-    if (alias !== undefined) {
-      return this.resolveLocal(alias, analysis);
-    }
-    return analysis.nodeLocal.get(nodeId) ?? 0;
+    return resolveNodeLocal(nodeId, analysis) ?? 0;
   }
 
   generateBody(
@@ -1966,7 +1968,7 @@ export class WasmCodegen {
     const writeValue = (val: FrameValue | null | undefined) => {
       const node = frameNode(val);
       if (node) {
-        const loc = this.resolveLocal(node.id, analysis);
+        const loc = resolveNodeLocal(node.id, analysis);
         if (loc !== undefined) {
           const type = analysis.nodeWasmType.get(node.id);
           bytes.push(wasmFormat.OP_I32_CONST, ...wasmFormat.encodeS32(offset));
@@ -3494,6 +3496,11 @@ export class WasmCodegen {
   ): OptimizedCode | null {
     const { graph, frameStates } = optimizerResult;
 
+    if (graph.bailout) {
+      this.lastAnalysisFailure = graph.bailout;
+      return null;
+    }
+
     try {
       validateOptimizedGraph(graph, frameStates || []);
     } catch (e) {
@@ -3641,7 +3648,7 @@ export class WasmCodegen {
           const readValue = (val: FrameValue | null | undefined) => {
             const node = frameNode(val);
             if (node) {
-              const loc = analysis.nodeLocal.get(node.id);
+              const loc = resolveNodeLocal(node.id, analysis);
               if (loc !== undefined) {
                 const type = analysis.nodeWasmType.get(node.id);
                 const rawF64 = buffer[offsetIndex];

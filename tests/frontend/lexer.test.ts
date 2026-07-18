@@ -29,6 +29,11 @@ describe("Lexer", () => {
       expect(tokenValues("// c\n10 / 2")).toEqual(["10", "/", "2"]);
       expect(tokenTypes("/* c */ /re/g")).toEqual([TokenType.RegExp]);
     });
+    it("skips hash line comments, whole-line and trailing", () => {
+      expect(tokenValues("# comment\nx")).toEqual(["x"]);
+      expect(tokenValues("x = 1  # trailing")).toEqual(["x", "=", "1"]);
+      expect(tokenValues("a\n# between\nb")).toEqual(["a", "b"]);
+    });
   });
 
   describe("numbers", () => {

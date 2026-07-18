@@ -312,6 +312,7 @@ export class RegisterCompiledFunction {
   upvalues: UpvalueDescriptor[];
   isAsync: boolean;
   isGenerator: boolean;
+  isClassConstructor: boolean;
   isStrict: boolean;
   callMode?: number;
   selfBindingSlot?: number;
@@ -357,6 +358,7 @@ export class RegisterCompiledFunction {
     this.upvalues = [];
     this.isAsync = false;
     this.isGenerator = false;
+    this.isClassConstructor = false;
     this.isStrict = false;
     this.isLazy = false;
     this.lazySource = null;

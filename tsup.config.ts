@@ -41,6 +41,14 @@ export default defineConfig([
   },
   {
     ...shared,
+    platform: "neutral",
+    entry: { "index.frontend": "src/frontend/index.ts" },
+    outDir: dist,
+    outExtension: () => ({ js: ".js" }),
+    external: [...dependencyNames, "*.node"],
+  },
+  {
+    ...shared,
     platform: "browser",
     entry: { "index.browser": "src/index.ts" },
     outDir: dist,
@@ -50,7 +58,7 @@ export default defineConfig([
     external: ["*.node"],
   },
   {
-    entry: ["src/index.ts"],
+    entry: { index: "src/index.ts", frontend: "src/frontend/index.ts" },
     outDir: resolve(dist, "types"),
     format: ["esm"],
     target: ["es2022"],

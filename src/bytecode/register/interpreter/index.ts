@@ -103,6 +103,8 @@ import {
   GEN_SUSPENDED,
 } from "../../../runtime/iteration/generator.js";
 import { createBuiltinPrototypes } from "../../../runtime/intrinsics/prototypes.js";
+import { applyBinaryOverload, applyUnaryOverload } from "../../../runtime/operators.js";
+import { forInKeys } from "../../../runtime/enumerate.js";
 import { analyzeSimpleConstructor } from "../compiler/helpers.js";
 import { dependencyRegistry } from "../../../deopt/dependencies.js";
 import {
@@ -1356,6 +1358,11 @@ export class RegisterInterpreter {
               } else if (areBothNumber(left, right)) {
                 frame.acc = mkDouble(this.toNumberValue(left) + this.toNumberValue(right));
               } else {
+                const overloaded = applyBinaryOverload("add", left, right, this);
+                if (overloaded !== null) {
+                  frame.acc = overloaded;
+                  break;
+                }
                 const lp = this.toPrimitiveValue(left);
                 const rp = this.toPrimitiveValue(right);
                 if (isString(lp) || isString(rp)) {
@@ -1380,7 +1387,9 @@ export class RegisterInterpreter {
                     ? mkSmi(result)
                     : mkDouble(result);
               } else {
-                frame.acc = mkDouble(this.toNumberValue(left) - this.toNumberValue(right));
+                const overloaded = applyBinaryOverload("sub", left, right, this);
+                frame.acc = overloaded
+                  ?? mkDouble(this.toNumberValue(left) - this.toNumberValue(right));
               }
               break;
             }
@@ -1398,7 +1407,9 @@ export class RegisterInterpreter {
                     ? mkSmi(result)
                     : mkDouble(result);
               } else {
-                frame.acc = mkDouble(this.toNumberValue(left) * this.toNumberValue(right));
+                const overloaded = applyBinaryOverload("mul", left, right, this);
+                frame.acc = overloaded
+                  ?? mkDouble(this.toNumberValue(left) * this.toNumberValue(right));
               }
               break;
             }
@@ -1409,9 +1420,7 @@ export class RegisterInterpreter {
                 operands,
                 compiledFn,
               );
-              const method = runtimeGetProperty(left, "matmul", this);
-              if (!isFunction(method)) throw new VMTypeError("operator '@' requires a left operand with matmul()");
-              frame.acc = this.callFunctionValue(method, [right], left);
+              frame.acc = applyBinaryOverload("matmul", left, right, this);
               break;
             }
 
@@ -1421,6 +1430,11 @@ export class RegisterInterpreter {
                 operands,
                 compiledFn,
               );
+              const overloaded = applyBinaryOverload("div", left, right, this);
+              if (overloaded !== null) {
+                frame.acc = overloaded;
+                break;
+              }
               const result = this.toNumberValue(left) / this.toNumberValue(right);
               frame.acc =
                 Number.isInteger(result) &&
@@ -1601,7 +1615,8 @@ export class RegisterInterpreter {
                 const slot = compiledFn.feedbackVector.getSlot(fbSlotIdx);
                 if (slot) slot.recordUnaryOp(getTag(frame.acc));
               }
-              frame.acc = mkNumber(-toNumber(frame.acc));
+              frame.acc = applyUnaryOverload("neg", frame.acc, this)
+                ?? mkNumber(-toNumber(frame.acc));
               break;
             }
 
@@ -1987,14 +2002,8 @@ export class RegisterInterpreter {
 
             case bytecode.ROP_GET_KEYS: {
               const objReg = operands[0];
-              const obj = frame.getReg(objReg);
-              if (isObject(obj)) {
-                const keys = runtimeOwnKeys(obj, this);
-                const keyValues = keys.map((k) => mkString(k));
-                frame.acc = mkArray(createJSArray(keyValues));
-              } else {
-                frame.acc = mkArray(createJSArray([]));
-              }
+              const keys = forInKeys(frame.getReg(objReg), this);
+              frame.acc = mkArray(createJSArray(keys.map((key) => mkString(key))));
               break;
             }
 
@@ -2171,6 +2180,11 @@ export class RegisterInterpreter {
                 operands,
                 compiledFn,
               );
+              const overloaded = applyBinaryOverload("pow", left, right, this);
+              if (overloaded !== null) {
+                frame.acc = overloaded;
+                break;
+              }
               const result = this.toNumberValue(left) ** this.toNumberValue(right);
               frame.acc =
                 Number.isInteger(result) && result === (result | 0)

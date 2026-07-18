@@ -185,6 +185,7 @@ function recordPropertyFeedback(
 ): void {
   const info = jsObj.hiddenClass.lookupProperty(propName);
   if (info) {
+    if (info.kind === "accessor") return;
     slot.recordPropertyAccess(
       jsObj.hiddenClass.id,
       info.offset,
@@ -194,6 +195,7 @@ function recordPropertyFeedback(
   } else if (jsObj.prototype) {
     const protoResult_ = jsObj.lookupPrototypeChain(propName);
     if (protoResult_.found && protoResult_.descriptor) {
+      if (protoResult_.descriptor.kind === "accessor") return;
       slot.recordPropertyAccess(
         jsObj.hiddenClass.id,
         protoResult_.descriptor.offset,
@@ -256,7 +258,7 @@ export function handleLdaProp(
 
     const accDesc = jsObj.hiddenClass.lookupProperty(propName);
     if (accDesc && accDesc.kind === "accessor") {
-      const pair = jsObj.slots[accDesc.offset];
+      const pair = jsObj.storedProperty(propName);
       if (pair instanceof AccessorPair && pair.get) {
         return interp.callFunctionValue(pair.get, [], obj);
       } else {
@@ -583,7 +585,7 @@ export function handleStaProp(
 
     const setAccDesc = jsObj.hiddenClass.lookupProperty(propName);
     if (setAccDesc && setAccDesc.kind === "accessor") {
-      const pair = jsObj.slots[setAccDesc.offset];
+      const pair = jsObj.storedProperty(propName);
       if (pair instanceof AccessorPair && pair.set) {
         interp.callFunctionValue(pair.set, [value], obj);
       }
@@ -834,10 +836,7 @@ export function handleDefineAccessor(
     const setter = daSetterReg >= 0 ? frame.getReg(daSetterReg) : null;
     const existingDesc = jsObj.hiddenClass.lookupProperty(propName);
     if (existingDesc && existingDesc.kind === "accessor") {
-      const existingPair =
-        existingDesc.offset < jsObj.slots.length
-          ? jsObj.slots[existingDesc.offset]
-          : jsObj.overflowProperties?.get(propName);
+      const existingPair = jsObj.storedProperty(propName);
       if (existingPair instanceof AccessorPair) {
         if (getter) existingPair.get = getter;
         if (setter) existingPair.set = setter;

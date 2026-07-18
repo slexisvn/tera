@@ -128,6 +128,15 @@ export class JSArray {
     return this.elements.length;
   }
 
+  keys(): string[] {
+    const keys: string[] = [];
+    for (let index = 0; index < this.elements.length; index++) {
+      if (this.elements[index] !== undefined) keys.push(String(index));
+    }
+    for (const name of this.hiddenClass.getEnumerablePropertyNames()) keys.push(name);
+    return keys;
+  }
+
   setLength(len: number): void {
     if (len < this.elements.length) {
       this.elements.length = len;

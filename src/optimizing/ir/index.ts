@@ -371,6 +371,7 @@ export class CFGFunction {
   parameters: CFGInstruction[];
   dependencies: CFGDependency[];
   inlineBudgetRemaining: number;
+  bailout: string | null;
   _frameStateIndex?: Map<FrameValue, { replace(next: FrameValue): void }[]> | null;
 
   constructor(name: string) {
@@ -380,6 +381,7 @@ export class CFGFunction {
     this.parameterCount = 0;
     this.parameters = [];
     this.dependencies = [];
+    this.bailout = null;
     this.inlineBudgetRemaining = 0;
   }
 

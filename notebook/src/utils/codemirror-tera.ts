@@ -1,34 +1,11 @@
 import { RangeSetBuilder, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, hoverTooltip, ViewPlugin, type DecorationSet, type Tooltip, type ViewUpdate } from "@codemirror/view";
-import languageData from "../../../vscode-ext/language-data.json";
+import type { LanguageData } from "../../../vscode-ext/src/shared/language-data";
+import rawLanguageData from "../../../vscode-ext/language-data.json";
 import { CHART_METHOD_DOCS } from "../chart/docs";
 import { BUILTIN_SET, KEYWORD_SET, tokenClass, TOKEN_RE } from "./highlight";
 
-type SignatureParam = {
-  name?: string;
-  type?: string;
-  optional?: boolean;
-  rest?: boolean;
-};
-
-type SignatureInfo = {
-  display?: string;
-  params?: SignatureParam[];
-};
-
-type BuiltinDoc = {
-  name: string;
-  kind?: string;
-  description?: string;
-  signature?: SignatureInfo;
-};
-
-type PseudoMethodDoc = {
-  name: string;
-  description?: string;
-  isGetter?: boolean;
-  signature?: SignatureInfo;
-};
+const languageData = rawLanguageData as unknown as LanguageData;
 
 type HoverDoc = {
   title: string;
@@ -41,7 +18,7 @@ const builtinDocs = new Map<string, HoverDoc>();
 const memberDocs = new Map<string, HoverDoc>();
 const chartDocs = new Map<string, HoverDoc>();
 
-for (const item of languageData.builtins as BuiltinDoc[]) {
+for (const item of languageData.builtins) {
   builtinDocs.set(item.name, {
     title: item.name,
     kind: item.kind || "builtin",
@@ -50,7 +27,7 @@ for (const item of languageData.builtins as BuiltinDoc[]) {
   });
 }
 
-for (const [typeName, methods] of Object.entries(languageData.pseudoTypes || {}) as Array<[string, PseudoMethodDoc[]]>) {
+for (const [typeName, methods] of Object.entries(languageData.pseudoTypes)) {
   for (const method of methods) {
     memberDocs.set(method.name, {
       title: `${typeName}.${method.name}`,
