@@ -38,6 +38,7 @@ import {
   toNumber,
   toBool,
   toString,
+  stringCharAt,
   typeOf,
   strictEqual,
   abstractLooseEqual,
@@ -283,6 +284,28 @@ describe("toBool", () => {
   it("object/array => true", () => {
     expect(toBool(mkObject({}))).toBe(true);
     expect(toBool(mkArray([]))).toBe(true);
+  });
+});
+
+describe("stringCharAt", () => {
+  it("reads a character by a non-negative index", () => {
+    expect(stringCharAt("hello", 0)).toBe("h");
+    expect(stringCharAt("hello", 4)).toBe("o");
+  });
+
+  it("counts a negative index back from the end", () => {
+    expect(stringCharAt("hello", -1)).toBe("o");
+    expect(stringCharAt("hello", -5)).toBe("h");
+  });
+
+  it("returns undefined outside the bounds in either direction", () => {
+    expect(stringCharAt("hello", 5)).toBeUndefined();
+    expect(stringCharAt("hello", -6)).toBeUndefined();
+  });
+
+  it("returns undefined for an empty string", () => {
+    expect(stringCharAt("", 0)).toBeUndefined();
+    expect(stringCharAt("", -1)).toBeUndefined();
   });
 });
 

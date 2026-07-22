@@ -6,8 +6,8 @@ orders = DataFrame(
   revenue=[100.0, 60.0, 160.0, 40.0, 80.0, 120.0, 140.0, 20.0],
 )
 
-by_region = orders.groupBy("region").agg(
-  countStar().alias("orders"),
+by_region = orders.group_by("region").agg(
+  count_star().alias("orders"),
   sum("qty").alias("total_qty"),
   sum("revenue").alias("total_rev"),
   avg("revenue").alias("avg_rev"),
@@ -15,9 +15,9 @@ by_region = orders.groupBy("region").agg(
   max("revenue").alias("max_rev"),
   count("product").alias("n_product"),
 )
-by_region.orderBy("region").show()
+by_region.order_by("region").show()
 
-orders.groupBy("region", "product").agg(sum("revenue").alias("rev")).orderBy("region").show()
+orders.group_by("region", "product").agg(sum("revenue").alias("rev")).order_by("region").show()
 
 regions = DataFrame(
   region=["N", "S", "E"],
@@ -25,18 +25,18 @@ regions = DataFrame(
   quota=[300.0, 250.0, 150.0],
 )
 report = by_region.join(regions, "region")
-report = report.withColumn("over_quota", col("total_rev").sub(col("quota")))
-report.select("region", "manager", "total_rev", "quota", "over_quota").orderBy("region").show()
+report = report.with_column("over_quota", col("total_rev").sub(col("quota")))
+report.select("region", "manager", "total_rev", "quota", "over_quota").order_by("region").show()
 
 extra = DataFrame(region=["N", "S", "E", "W"], note=["hq", "branch", "branch", "new"])
-by_region.join(extra, "region", "LEFT").select("region", "note").orderBy("region").show()
+by_region.join(extra, "region", "LEFT").select("region", "note").order_by("region").show()
 
 n_products = orders.filter(col("region").eq("N")).select("product")
 s_products = orders.filter(col("region").eq("S")).select("product")
 print("union (deduplicated):")
-n_products.union(s_products).distinct().orderBy("product").show()
-print("unionAll row count (keeps duplicates):", n_products.unionAll(s_products).count())
+n_products.union(s_products).distinct().order_by("product").show()
+print("unionAll row count (keeps duplicates):", n_products.union_all(s_products).count())
 
-feats = by_region.orderBy("region").select("total_qty", "total_rev", "avg_rev").to_tensor()
+feats = by_region.order_by("region").select("total_qty", "total_rev", "avg_rev").to_tensor()
 print("feature tensor shape:", feats.shape)
 print(feats)

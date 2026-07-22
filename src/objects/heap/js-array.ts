@@ -97,10 +97,18 @@ export class JSArray {
     if (index >= 0 && index < this.elements.length) {
       return this.elements[index];
     }
+    if (index < 0) {
+      const wrapped = this.elements.length + index;
+      if (wrapped >= 0) return this.elements[wrapped];
+    }
     return undefined;
   }
 
   setIndex(index: number, value: TaggedValue): void {
+    if (index < 0) {
+      index += this.elements.length;
+      if (index < 0) return;
+    }
     const oldLength = this.elements.length;
     const makesHole = index > oldLength;
     const oldKind = this.elementsKind;

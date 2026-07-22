@@ -10,11 +10,11 @@ train_q_text = [r.question for r in train_rows]
 train_a_text = [r.answer for r in train_rows]
 
 tok = Tokenizer(mode="bpe", lowercase=true, num_merges=800)
-tok.fit(train_q_text + train_a_text)
+tok.fit(train_q_text.concat(train_a_text))
 
 tok.save("examples/chatbot.tok")
 
-questions = tok.encodeBatch(train_q_text)
+questions = tok.encode_batch(train_q_text)
 
 ans_ids = [tok.encode(a) for a in train_a_text]
 ans_len = 0
@@ -25,16 +25,15 @@ for ids of ans_ids:
 din_rows = []
 dout_rows = []
 for ids of ans_ids:
-  din = [tok.bosId]
-  din.extend(ids)
-  dout = ids.copy()
-  dout.append(tok.eosId)
+  din = [tok.bos_id].concat(ids)
+  dout = ids.slice()
+  dout.push(tok.eos_id)
   while din.length < ans_len:
-    din.append(tok.padId)
+    din.push(tok.pad_id)
   while dout.length < ans_len:
-    dout.append(tok.padId)
-  din_rows.append(din)
-  dout_rows.append(dout)
+    dout.push(tok.pad_id)
+  din_rows.push(din)
+  dout_rows.push(dout)
 
 decoder_in = tensor(din_rows, dtype=i32)
 decoder_out = tensor(dout_rows, dtype=i32)
@@ -84,7 +83,7 @@ model ChatBotLarge(vocab_size: int, embed_size: int, hidden_size: int, layers: i
   optimizer:
     return optim_config(Adam(ChatBotLarge.parameters(), lr=0.003))
 
-net = ChatBotLarge(tok.vocabSize, embed_dim, hidden, num_layers, tok.padId)
+net = ChatBotLarge(tok.vocab_size, embed_dim, hidden, num_layers, tok.pad_id)
 
 # trainer = Trainer(max_epochs=max_epochs, accelerator="gpu", gradient_clip_val=1.0, logger=false, enable_progress=true)
 # trainer.fit(net, loader)
@@ -95,7 +94,7 @@ fn reply(m: ChatBotLarge, tok: Tokenizer, prompt: string, max_len: int) -> strin
   ids = tok.encode(prompt)
   query = tensor([ids], dtype=i32)
   enc, state = m.encoder(m.embed(query))
-  last = tok.bosId
+  last = tok.bos_id
   out_ids = []
   for step of range(max_len):
     emb = m.embed(tensor([last], dtype=i32))
@@ -105,15 +104,15 @@ fn reply(m: ChatBotLarge, tok: Tokenizer, prompt: string, max_len: int) -> strin
     weights = scores.softmax(2)
     context = weights @ enc
     combined = cat([dec, context], 2)
-    logits = m.head(combined).reshape([tok.vocabSize])
+    logits = m.head(combined).reshape([tok.vocab_size])
     last = logits.argmax().item()
-    if last == tok.eosId:
+    if last == tok.eos_id:
       return tok.decode(out_ids)
-    out_ids.append(last)
+    out_ids.push(last)
   return tok.decode(out_ids)
 
 load_model(net, "examples/chatbot.ckpt")
-net.to(device="gpu")
+net.to(cpu)
 net.eval()
 
-reply(net, tok, "how are you", 20)
+print("reply:", reply(net, tok, "how are you", 20))

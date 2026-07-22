@@ -53,6 +53,8 @@ export const NodeType = {
   SuperExpression: "SuperExpression",
   SuperCallExpression: "SuperCallExpression",
   SequenceExpression: "SequenceExpression",
+  IndexExpression: "IndexExpression",
+  IndexElement: "IndexElement",
 } as const;
 
 export type NodeTypeName = (typeof NodeType)[keyof typeof NodeType];
@@ -255,6 +257,17 @@ export function MemberExpression(object: ASTNode, property: string | ASTNode, co
     property,
     computed: !!computed,
   };
+}
+
+export function IndexElementNode(
+  kind: "index" | "slice",
+  bounds: { value?: ASTNode; start?: ASTNode | null; stop?: ASTNode | null; step?: ASTNode | null },
+): ASTNode {
+  return { type: NodeType.IndexElement, kind, ...bounds };
+}
+
+export function IndexExpression(object: ASTNode, dims: ASTNode[]): ASTNode {
+  return { type: NodeType.IndexExpression, object, dims };
 }
 
 export function ObjectExpression(properties: ObjectPropertyNode[]): ASTNode {

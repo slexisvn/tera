@@ -6,6 +6,12 @@ import path from "path";
 const args = process.argv.slice(2);
 const file = args[0];
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  const message = (error as { message?: unknown })?.message;
+  return typeof message === "string" ? message : String(error);
+}
+
 function printHelp(): void {
   console.log("Usage: tera [file]");
   console.log("       tera -e <source>");
@@ -18,11 +24,9 @@ if (file === "--help" || file === "-h") {
   const source = args.slice(1).join(" ");
   const engine = new Engine();
   try {
-    const result = engine.run(source);
-    const { toDisplayString } = await import("../core/value/index.js");
-    console.log(toDisplayString(result));
+    await engine.runNative(source);
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(errorMessage(error));
     process.exit(1);
   }
 } else if (!file) {
@@ -37,11 +41,9 @@ if (file === "--help" || file === "-h") {
   const source = fs.readFileSync(resolved, "utf8");
   const engine = new Engine();
   try {
-    const result = engine.run(source);
-    const { toDisplayString } = await import("../core/value/index.js");
-    console.log(toDisplayString(result));
+    await engine.runNative(source);
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(errorMessage(error));
     process.exit(1);
   }
 }

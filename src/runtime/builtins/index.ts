@@ -146,7 +146,7 @@ export const builtins = {
   print: {
     name: "print",
     call(args: BuiltinArg[], _this: TaggedValue, interpreter: BuiltinInterpreter) {
-      const output = args.map((a) => toDisplayString(a)).join(" ");
+      const output = args.map((a) => toDisplayString(a, undefined, args.length > 1)).join(" ");
       const target = interpreter?.jitEngine?.output;
       if (target) target(output);
       else console.log(output);
@@ -158,7 +158,7 @@ export const builtins = {
     log: {
       name: "console.log",
       call(args: BuiltinArg[], _this: TaggedValue, interpreter: BuiltinInterpreter) {
-        const output = args.map((a) => toDisplayString(a)).join(" ");
+        const output = args.map((a) => toDisplayString(a, undefined, args.length > 1)).join(" ");
         const target = interpreter?.jitEngine?.output;
         if (target) target(output);
         else console.log(output);

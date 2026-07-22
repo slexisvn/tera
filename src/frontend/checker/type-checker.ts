@@ -151,8 +151,9 @@ export class TypeChecker {
     if (callee.type === NodeType.Identifier) return String(callee.name);
     if (callee.type === NodeType.MemberExpression) {
       const object = this.callName(callee.object as ASTNode);
+      if (!object) return null;
       const property = typeof callee.property === "string" ? callee.property : String((callee.property as ASTNode).name ?? "");
-      return object ? `${object}.${property}` : property;
+      return `${object}.${property}`;
     }
     return null;
   }

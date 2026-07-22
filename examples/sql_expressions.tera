@@ -12,12 +12,12 @@ sales.filter("price > 20").select("sku", "price").show()
 print("stock > 0 AND price >= 20:")
 sales.where("stock > 0 AND price >= 20").select("sku", "price", "stock").show()
 
-priced = sales.withColumn("price_tax", expr("price * 1.1"))
-priced = priced.withColumn("inventory_value", expr("price * stock"))
+priced = sales.with_column("price_tax", expr("price * 1.1"))
+priced = priced.with_column("inventory_value", expr("price * stock"))
 priced.select("sku", "price", "price_tax", "inventory_value").show()
 
-labeled = sales.withColumn("cat_upper", expr("UPPER(category)"))
-labeled = labeled.withColumn("tier", expr("CASE WHEN price >= 50 THEN 'premium' WHEN price >= 20 THEN 'mid' ELSE 'budget' END"))
+labeled = sales.with_column("cat_upper", expr("UPPER(category)"))
+labeled = labeled.with_column("tier", expr("CASE WHEN price >= 50 THEN 'premium' WHEN price >= 20 THEN 'mid' ELSE 'budget' END"))
 labeled.select("sku", "cat_upper", "tier").show()
 
 print("SKUs starting with A-:")
@@ -28,4 +28,4 @@ sales.filter(expr("price > 30")).select("sku", "price").show()
 
 sales.select("sku", expr("price * 2").alias("double_price")).show()
 
-sales.filter("category != 'beta'").withColumn("net", expr("price - price * 0.1")).select("sku", "net").show()
+sales.filter("category != 'beta'").with_column("net", expr("price - price * 0.1")).select("sku", "net").show()

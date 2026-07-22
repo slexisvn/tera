@@ -22,6 +22,8 @@ import {
   NamedArgument,
   NewExpression,
   MemberExpression,
+  IndexExpression,
+  IndexElementNode,
   ObjectExpression,
   ArrayExpression,
   ConditionalExpression,
@@ -104,6 +106,10 @@ const PRECEDENCE: Record<string, number> = {
   "@": 10,
   "**": 11,
 };
+
+export const MODEL_MARKER = "__model";
+
+const MODULE_METHODS = ["parameters", "eval", "train", "training", "to", "save", "state_dict", "load_state_dict", "zero_grad"];
 
 const LOGICAL_OPS = new Set(["&&", "||"]);
 
@@ -1498,34 +1504,38 @@ export class Parser {
     }
     this.expect(TokenType.Punctuator, "}");
 
-    const ctorBody = fields.map((field) =>
+    const ctorBody = [
       ExpressionStatement(
         AssignmentExpression(
-          MemberExpression(ThisExpression(), field.name, false),
-          field.init,
+          MemberExpression(ThisExpression(), MODEL_MARKER, false),
+          Literal(className, "string"),
         ),
       ),
-    );
-    const constructorNode = params.length || ctorBody.length
-      ? FunctionDeclaration("constructor", params, BlockStatement(ctorBody.length ? ctorBody : [ExpressionStatement(Literal(null, "null"))]))
-      : null;
+      ...fields.map((field) =>
+        ExpressionStatement(
+          AssignmentExpression(
+            MemberExpression(ThisExpression(), field.name, false),
+            field.init,
+          ),
+        ),
+      ),
+    ];
+    const constructorNode = FunctionDeclaration("constructor", params, BlockStatement(ctorBody));
 
-    const helperMethod = (name: string, params: ParamNode[], callName: string, args: ASTNode[]) => {
-      if (methodNames.has(name)) return;
+    for (const name of MODULE_METHODS) {
+      if (methodNames.has(name)) continue;
       methods.push({
         name,
         kind: null,
-        func: FunctionDeclaration(name, params, BlockStatement([
-          ReturnStatement(CallExpression(Identifier(callName), args)),
+        func: FunctionDeclaration(name, ["args"], BlockStatement([
+          ReturnStatement(CallExpression(Identifier("model_native"), [
+            ThisExpression(),
+            Literal(name, "string"),
+            Identifier("args"),
+          ])),
         ])),
       });
-    };
-
-    helperMethod("parameters", [], "model_parameters", [ThisExpression()]);
-    helperMethod("train", ["mode"], "model_train", [ThisExpression(), Identifier("mode")]);
-    helperMethod("validate", ["data", "target", "loss_fn"], "model_validate", [ThisExpression(), Identifier("data"), Identifier("target"), Identifier("loss_fn")]);
-    helperMethod("optimizer", ["kind", "lr"], "model_optimizer", [ThisExpression(), Identifier("kind"), NamedArgument("lr", Identifier("lr"))]);
-    helperMethod("is_training", [], "is_model_training", [ThisExpression()]);
+    }
 
     return ClassDeclaration(className, null, constructorNode, methods);
   }
@@ -1679,21 +1689,25 @@ export class Parser {
   }
 
   parseIndexAccess(obj: ASTNode): ASTNode {
-    type Dim = { kind: "index"; value: ASTNode } | { kind: "slice"; start: ASTNode | null; stop: ASTNode | null };
+    type Dim =
+      | { kind: "index"; value: ASTNode }
+      | { kind: "slice"; start: ASTNode | null; stop: ASTNode | null; step: ASTNode | null };
     const dims: Dim[] = [];
 
+    const bound = (): ASTNode | null => {
+      if (this.check(TokenType.Punctuator, "]") || this.check(TokenType.Punctuator, ",") || this.check(TokenType.Punctuator, ":")) return null;
+      return this.parseExpression();
+    };
+
     do {
-      let start: ASTNode | null = null;
-      if (!this.check(TokenType.Punctuator, ":")) start = this.parseExpression();
-      if (this.match(TokenType.Punctuator, ":")) {
-        let stop: ASTNode | null = null;
-        if (!this.check(TokenType.Punctuator, "]") && !this.check(TokenType.Punctuator, ",")) {
-          stop = this.parseExpression();
-        }
-        dims.push({ kind: "slice", start, stop });
-      } else {
+      const start = bound();
+      if (!this.match(TokenType.Punctuator, ":")) {
         dims.push({ kind: "index", value: start ?? Literal(0, "number") });
+        continue;
       }
+      const stop = bound();
+      const step = this.match(TokenType.Punctuator, ":") ? bound() : null;
+      dims.push({ kind: "slice", start, stop, step });
     } while (this.match(TokenType.Punctuator, ","));
     this.expect(TokenType.Punctuator, "]");
 
@@ -1701,23 +1715,12 @@ export class Parser {
       return MemberExpression(obj, dims[0].value, true);
     }
 
-    const narrow = (target: ASTNode, method: string, args: ASTNode[]) =>
-      CallExpression(MemberExpression(target, method, false), args);
-
-    let result = obj;
-    dims.forEach((dim, axis) => {
-      const dimLit = Literal(axis, "number");
-      if (dim.kind === "index") {
-        result = narrow(result, "select", [dimLit, dim.value]);
-        return;
-      }
-      const start = dim.start ?? Literal(0, "number");
-      const size = MemberExpression(MemberExpression(result, "shape", false), dimLit, true);
-      const stop = dim.stop ?? size;
-      const length = BinaryExpression("-", stop, start);
-      result = narrow(result, "narrow", [dimLit, start, length]);
-    });
-    return result;
+    const elements = dims.map((dim) =>
+      dim.kind === "index"
+        ? IndexElementNode("index", { value: dim.value })
+        : IndexElementNode("slice", { start: dim.start, stop: dim.stop, step: dim.step }),
+    );
+    return IndexExpression(obj, elements);
   }
 
   parseArrayExpression(): ASTNode {

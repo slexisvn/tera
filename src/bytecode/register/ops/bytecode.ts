@@ -104,6 +104,8 @@ export const ROP_MATMUL = 0x8d;
 export const ROP_CALL_SPREAD_NAMED = 0x8e;
 export const ROP_CALL_METHOD_SPREAD_NAMED = 0x8f;
 
+export const ROP_LDA_KEYED_SLICE = 0x90;
+
 export type RegisterOpcode = number;
 export type RegisterOperand = number;
 export type RegisterConstant = RuntimeValue | RegisterCompiledFunction | string[];
@@ -257,6 +259,7 @@ const ROPCODE_NAMES: Record<number, string> = {
   [ROP_MATMUL]: "MatMul",
   [ROP_CALL_SPREAD_NAMED]: "CallSpreadNamed",
   [ROP_CALL_METHOD_SPREAD_NAMED]: "CallMethodSpreadNamed",
+  [ROP_LDA_KEYED_SLICE]: "LdaKeyedSlice",
 };
 
 export function rOpcodeName(opcode: RegisterOpcode): string {

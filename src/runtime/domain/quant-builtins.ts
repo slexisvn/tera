@@ -2,6 +2,7 @@ import * as mlfw from "@slexisvn/mlfw";
 import * as quantc from "@slexisvn/quantc";
 import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
 import { camelOptions, nativeRecord, recordValue, register, splitOptions, type BuiltinMap, type NativeFn } from "./common.js";
+import { dataframeFromColumns, framePanel, isDataFrame } from "./dataframe-builtins.js";
 
 const quant = quantc as Record<string, unknown>;
 
@@ -120,7 +121,7 @@ function quantFunction(name: unknown, fallback: string, ...args: unknown[]): unk
   return (candidate as NativeFn)(...args);
 }
 
-function backtestConfig(options: Record<string, unknown>): Record<string, unknown> {
+export function backtestConfig(options: Record<string, unknown>): Record<string, unknown> {
   const config: Record<string, unknown> = {};
   if (options.cost !== undefined) config.cost = options.cost;
   if (options.max_leverage !== undefined) config.maxLeverage = options.max_leverage;
@@ -131,12 +132,38 @@ function backtestConfig(options: Record<string, unknown>): Record<string, unknow
   return config;
 }
 
+function withPanel<T>(value: unknown, use: (panel: number[][]) => T, columns?: string[]): T | Promise<T> {
+  if (isDataFrame(value)) return framePanel(value, columns).then(use);
+  return use(matrix(value));
+}
+
+function withCovariance<T>(value: unknown, use: (cov: number[][]) => T): T | Promise<T> {
+  const sample = (quant.sampleCovariance as NativeFn);
+  return withPanel(value, isDataFrame(value) ? (panel) => use(sample(panel) as number[][]) : use);
+}
+
+export function resultToTera(result: unknown): unknown {
+  const run = result as { metrics: unknown; equity: number[]; weights: unknown; portReturns: number[] };
+  return {
+    metrics: run.metrics,
+    equity: dataframeFromColumns({ equity: run.equity }),
+    weights: run.weights,
+    port_returns: dataframeFromColumns({ port_return: run.portReturns }),
+  };
+}
+
 function runBacktest(walkForward: boolean, prices: unknown, ...args: unknown[]): unknown {
   const { options } = splitOptions(args);
   const signal = quantFunction(options.signal, "momentum", Number(options.lookback ?? 20));
   const portfolio = quantFunction(options.portfolio, "longShortRank", Number(options.fraction ?? 0.5));
-  if (walkForward) return (quant.walkForward as NativeFn)(priceMatrix(prices), () => (quant.compose as NativeFn)(signal, portfolio), backtestConfig(options));
-  return (quant.backtest as NativeFn)(priceMatrix(prices), { signal, portfolio }, camelOptions(options));
+  const strategy = (quant.compose as NativeFn)(signal, portfolio);
+  const config = backtestConfig(options);
+  const columns = Array.isArray(options.asset_columns) ? options.asset_columns.map(String) : undefined;
+  return withPanel(prices, (panel) => resultToTera(
+    walkForward
+      ? (quant.walkForward as NativeFn)(panel, () => strategy, config)
+      : (quant.backtest as NativeFn)(panel, strategy, config),
+  ), columns);
 }
 
 function parseAndCheck(source: unknown): unknown {
@@ -191,9 +218,9 @@ export function installQuantBuiltins(map: BuiltinMap, metadata: Record<string, R
     const { values, options } = splitOptions(args);
     return fn("minTrackRecordLength")(series(returns), options.target_sharpe ?? values[0], options.confidence ?? values[1]);
   }, metadata.min_track_record_length);
-  register(map, "risk_parity", (cov) => fn("riskParity")(matrix(cov)), metadata.risk_parity);
-  register(map, "hrp", (cov) => fn("hierarchicalRiskParity")(matrix(cov)), metadata.hrp);
-  register(map, "mean_variance", (mu, cov) => fn("meanVariance")(mu, matrix(cov)), metadata.mean_variance);
+  register(map, "risk_parity", (cov) => withCovariance(cov, (c) => fn("riskParity")(c)), metadata.risk_parity);
+  register(map, "hrp", (cov) => withCovariance(cov, (c) => fn("hierarchicalRiskParity")(c)), metadata.hrp);
+  register(map, "mean_variance", (mu, cov) => withCovariance(cov, (c) => fn("meanVariance")(mu, c)), metadata.mean_variance);
   register(map, "quill", (source) => productHandle(parseAndCheck(source)), metadata.quill);
   register(map, "load_quill", loadQuill, metadata.load_quill);
   for (const name of QUANT_ADVANCED) if (ALPHA[name]) register(map, name, alpha(name), metadata[name]);

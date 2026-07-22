@@ -154,6 +154,7 @@ type ExpressionCompilerThis = {
   compileCallExpression(node: CompilerNode): number | void;
   compileNewExpression(node: CompilerNode): number | void;
   compileMemberExpression(node: CompilerNode): number | void;
+  compileIndexExpression(node: CompilerNode): number | void;
   compileObjectExpression(node: CompilerNode): number | void;
   compileArrayExpression(node: CompilerNode): number | void;
   compileConditionalExpression(node: CompilerNode): number | void;
@@ -223,12 +224,17 @@ export const expressionMethods: ExpressionMethodMap = {
         return this.compileLogicalExpression(node);
       case NodeType.AssignmentExpression:
         return this.compileAssignment(node);
-      case NodeType.CallExpression:
-        return this.compileCallExpression(node);
+      case NodeType.CallExpression: {
+        const emitted = this.compileCallExpression(node);
+        if (node.implicitAwait) this.func.emit(bytecode.ROP_AWAIT);
+        return emitted;
+      }
       case NodeType.NewExpression:
         return this.compileNewExpression(node);
       case NodeType.MemberExpression:
         return this.compileMemberExpression(node);
+      case NodeType.IndexExpression:
+        return this.compileIndexExpression(node);
       case NodeType.ObjectExpression:
         return this.compileObjectExpression(node);
       case NodeType.ArrayExpression:
@@ -740,6 +746,41 @@ export const expressionMethods: ExpressionMethodMap = {
       this.func.emit(bytecode.ROP_LDA_INDEX, objReg, idxReg, fbSlot);
       this.temps.free(idxReg);
     }
+    this.temps.free(objReg);
+  },
+
+  compileIndexExpression(node: CompilerNode) {
+    const objReg = this.temps.alloc();
+    this.compileExpression(node.object);
+    this.func.emit(bytecode.ROP_STAR, objReg);
+
+    const tokens: string[] = [];
+    const boundRegs: number[] = [];
+    const compileInto = (expr: CompilerNode) => {
+      const reg = this.temps.alloc();
+      this.compileExpression(expr);
+      this.func.emit(bytecode.ROP_STAR, reg);
+      boundRegs.push(reg);
+    };
+
+    for (const dim of node.dims as CompilerNode[]) {
+      if (dim.kind === "index") {
+        compileInto(dim.value as CompilerNode);
+        tokens.push("i");
+        continue;
+      }
+      const hasStart = dim.start ? 1 : 0;
+      const hasStop = dim.stop ? 1 : 0;
+      const hasStep = dim.step ? 1 : 0;
+      if (dim.start) compileInto(dim.start as CompilerNode);
+      if (dim.stop) compileInto(dim.stop as CompilerNode);
+      if (dim.step) compileInto(dim.step as CompilerNode);
+      tokens.push(`s${hasStart}${hasStop}${hasStep}`);
+    }
+
+    const descIdx = this.func.addConstant(tokens);
+    this.func.emit(bytecode.ROP_LDA_KEYED_SLICE, objReg, descIdx, ...boundRegs);
+    for (let i = boundRegs.length - 1; i >= 0; i--) this.temps.free(boundRegs[i]!);
     this.temps.free(objReg);
   },
 

@@ -72,6 +72,40 @@ describe("Tera domain builtins and model", () => {
     });
   });
 
+  describe("named arguments", () => {
+    const printed = (source: string) => {
+      const out: string[] = [];
+      new Engine({ output: (text: unknown) => out.push(String(text)) }).runNative(source);
+      return out.join("|");
+    };
+
+    it("routes a named argument into its positional slot", () => {
+      const source = [
+        "m = tensor([[1.0, 2.0]])",
+        "print(stack([m, m], axis=0).shape)",
+        "print(stack([m, m], axis=1).shape)",
+        "print(cat([m, m], axis=1).shape)",
+      ].join("\n");
+      expect(printed(source)).toBe("[2, 1, 2]|[1, 2, 2]|[1, 4]");
+    });
+
+    it("accepts the native spelling of a positional slot", () => {
+      expect(printed("m = tensor([[1.0, 2.0]])\nprint(cat([m, m], dim=1).shape)")).toBe("[1, 4]");
+    });
+
+    it("resolves device and dtype constants", () => {
+      expect(printed("x = tensor([[1.0]], device=cpu, dtype=f32)\nprint(x.device, x.dtype)")).toBe("cpu f32");
+    });
+
+    it("keeps options-object parameters out of the positional slots", () => {
+      const source = [
+        "loader = DataLoader(TensorDataset(randn([4, 2])), batch_size=2, shuffle=false)",
+        "print(loader.length)",
+      ].join("\n");
+      expect(printed(source)).toBe("2");
+    });
+  });
+
   describe("autograd", () => {
     const printed = (source: string) => {
       const out: string[] = [];
@@ -149,7 +183,7 @@ describe("Tera domain builtins and model", () => {
     expect(run(source)).toBe(6);
   });
 
-  it("adds model lifecycle helpers", () => {
+  it("delegates the module API to mlfw", () => {
     const model = [
       "model Tiny(input: int, output: int):",
       "  fc = Linear(input, output)",
@@ -158,10 +192,10 @@ describe("Tera domain builtins and model", () => {
       "net = Tiny(2, 1)",
     ].join("\n");
     expect(run(`${model}\nnet.parameters().length`)).toBe(2);
-    expect(run(`${model}\nnet.train(false)\nnet.is_training()`)).toBe(false);
-    expect(String(run(`${model}\nnet.validate(randn([3, 2])).toString()`))).toContain("Tensor(shape=[3, 1]");
-    expect(run(`${model}\nopt = net.optimizer(kind=\"sgd\", lr=0.01)\ntypeof opt.step`)).toBe("function");
-    expect(run(`${model}\nopt = net.optimizer(kind=\"sgd\", lr=0.01)\nopt.step()`)).toBeUndefined();
+    expect(run(`${model}\nnet.train(false)\nnet.training()`)).toBe(false);
+    expect(run(`${model}\nnet.eval()\nnet.training()`)).toBe(false);
+    expect(String(run(`${model}\nnet(randn([3, 2])).toString()`))).toContain("Tensor(shape=[3, 1]");
+    expect(run(`${model}\nopt = SGD(net.parameters(), lr=0.01)\ntypeof opt.step`)).toBe("function");
   });
 
   it("compiles models through the global compile builtin", () => {
@@ -173,7 +207,7 @@ describe("Tera domain builtins and model", () => {
       "net = Tiny(2, 1)",
     ].join("\n");
     expect(run(`${model}\ncompile(net, input=randn([3, 2])).parameters().length`)).toBe(2);
-    expect(String(run(`${model}\ncompile(net, input=randn([3, 2])).validate(randn([3, 2])).toString()`))).toContain("Tensor(shape=[3, 1]");
+    expect(String(run(`${model}\ncompile(net, input=randn([3, 2]))(randn([3, 2])).toString()`))).toContain("Tensor(shape=[3, 1]");
   });
 
   describe("tensor slicing", () => {

@@ -41,6 +41,7 @@ export class RegisterFrame {
   originalArgs: TaggedValue[];
   exceptionHandlers: ExceptionHandlerRecord[] | null;
   locals: RegisterValue[];
+  suspendable: boolean;
 
   constructor(
     compiledFn: RegisterCompiledFunction,
@@ -51,6 +52,7 @@ export class RegisterFrame {
     this.compiledFn = compiledFn;
     this.pc = 0;
     this.acc = CODE_UNDEFINED;
+    this.suspendable = compiledFn.isAsync || compiledFn.isGenerator;
     const regCount = compiledFn.registerCount;
     this.registers = new Array<RegisterValue>(regCount).fill(CODE_UNDEFINED);
     this.hasTDZ = compiledFn.uninitializedLocalSlots?.size > 0;

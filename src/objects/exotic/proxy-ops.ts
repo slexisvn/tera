@@ -21,6 +21,7 @@ import {
   isUndefined,
   strictEqual,
   getTag,
+  stringCharAt,
 } from "../../core/value/index.js";
 import type { RuntimeFunctionPayload, TaggedValue } from "../../core/value/index.js";
 import { VMTypeError } from "../../core/errors/index.js";
@@ -104,6 +105,7 @@ type RuntimeObject = {
   hasSymbolProperty(symbol: TaggedValue): boolean;
   _mapData?: { size: number };
   _setData?: { size: number };
+  _index?: (index: number) => TaggedValue | undefined;
 };
 
 type RuntimeArray = {
@@ -433,6 +435,13 @@ export function runtimeGetProperty(
       if (instanceType === INSTANCE_TYPE_MAP && obj._mapData) return mkSmi(obj._mapData.size);
       if (instanceType === INSTANCE_TYPE_SET && obj._setData) return mkSmi(obj._setData.size);
     }
+    if (obj._index !== undefined) {
+      const idx = Number(propName);
+      if (Number.isInteger(idx)) {
+        const element = obj._index(idx);
+        if (element !== undefined) return element;
+      }
+    }
     return ordinaryGetObject(receiver, obj, propName, interpreter);
   }
   if (isArray(receiver)) {
@@ -447,10 +456,11 @@ export function runtimeGetProperty(
     return val !== undefined ? val : mkUndefined();
   }
   if (isString(receiver)) {
-    if (propName === "length") return mkSmi((getPayload(receiver) as string).length);
+    const text = getPayload(receiver) as string;
+    if (propName === "length") return mkSmi(text.length);
     const idx = Number(propName);
     if (Number.isInteger(idx)) {
-      const ch = (getPayload(receiver) as string)[idx];
+      const ch = stringCharAt(text, idx);
       return ch !== undefined ? mkString(ch) : mkUndefined();
     }
   }

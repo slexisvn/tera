@@ -1,4 +1,186 @@
 {
+  "LinearRegression": {
+    "prefix": "LinearRegression",
+    "body": [
+      "LinearRegression($0)"
+    ],
+    "description": "ml_model: LinearRegression"
+  },
+  "Ridge": {
+    "prefix": "Ridge",
+    "body": [
+      "Ridge($0)"
+    ],
+    "description": "ml_model: Ridge"
+  },
+  "Lasso": {
+    "prefix": "Lasso",
+    "body": [
+      "Lasso($0)"
+    ],
+    "description": "ml_model: Lasso"
+  },
+  "ElasticNet": {
+    "prefix": "ElasticNet",
+    "body": [
+      "ElasticNet($0)"
+    ],
+    "description": "ml_model: ElasticNet"
+  },
+  "LogisticRegression": {
+    "prefix": "LogisticRegression",
+    "body": [
+      "LogisticRegression($0)"
+    ],
+    "description": "ml_model: LogisticRegression"
+  },
+  "KNeighborsClassifier": {
+    "prefix": "KNeighborsClassifier",
+    "body": [
+      "KNeighborsClassifier($0)"
+    ],
+    "description": "ml_model: KNeighborsClassifier"
+  },
+  "KNeighborsRegressor": {
+    "prefix": "KNeighborsRegressor",
+    "body": [
+      "KNeighborsRegressor($0)"
+    ],
+    "description": "ml_model: KNeighborsRegressor"
+  },
+  "GaussianNB": {
+    "prefix": "GaussianNB",
+    "body": [
+      "GaussianNB()"
+    ],
+    "description": "ml_model: GaussianNB"
+  },
+  "DecisionTreeClassifier": {
+    "prefix": "DecisionTreeClassifier",
+    "body": [
+      "DecisionTreeClassifier($0)"
+    ],
+    "description": "ml_model: DecisionTreeClassifier"
+  },
+  "DecisionTreeRegressor": {
+    "prefix": "DecisionTreeRegressor",
+    "body": [
+      "DecisionTreeRegressor($0)"
+    ],
+    "description": "ml_model: DecisionTreeRegressor"
+  },
+  "RandomForestClassifier": {
+    "prefix": "RandomForestClassifier",
+    "body": [
+      "RandomForestClassifier($0)"
+    ],
+    "description": "ml_model: RandomForestClassifier"
+  },
+  "RandomForestRegressor": {
+    "prefix": "RandomForestRegressor",
+    "body": [
+      "RandomForestRegressor($0)"
+    ],
+    "description": "ml_model: RandomForestRegressor"
+  },
+  "GradientBoostingClassifier": {
+    "prefix": "GradientBoostingClassifier",
+    "body": [
+      "GradientBoostingClassifier($0)"
+    ],
+    "description": "ml_model: GradientBoostingClassifier"
+  },
+  "GradientBoostingRegressor": {
+    "prefix": "GradientBoostingRegressor",
+    "body": [
+      "GradientBoostingRegressor($0)"
+    ],
+    "description": "ml_model: GradientBoostingRegressor"
+  },
+  "StandardScaler": {
+    "prefix": "StandardScaler",
+    "body": [
+      "StandardScaler($0)"
+    ],
+    "description": "ml_transform: StandardScaler"
+  },
+  "MinMaxScaler": {
+    "prefix": "MinMaxScaler",
+    "body": [
+      "MinMaxScaler($0)"
+    ],
+    "description": "ml_transform: MinMaxScaler"
+  },
+  "LabelEncoder": {
+    "prefix": "LabelEncoder",
+    "body": [
+      "LabelEncoder()"
+    ],
+    "description": "ml_transform: LabelEncoder"
+  },
+  "OneHotEncoder": {
+    "prefix": "OneHotEncoder",
+    "body": [
+      "OneHotEncoder()"
+    ],
+    "description": "ml_transform: OneHotEncoder"
+  },
+  "PCA": {
+    "prefix": "PCA",
+    "body": [
+      "PCA($0)"
+    ],
+    "description": "ml_transform: PCA"
+  },
+  "KMeans": {
+    "prefix": "KMeans",
+    "body": [
+      "KMeans($0)"
+    ],
+    "description": "ml_cluster: KMeans"
+  },
+  "KFold": {
+    "prefix": "KFold",
+    "body": [
+      "KFold($0)"
+    ],
+    "description": "ml_split: KFold"
+  },
+  "TimeSeriesSplit": {
+    "prefix": "TimeSeriesSplit",
+    "body": [
+      "TimeSeriesSplit($0)"
+    ],
+    "description": "ml_split: TimeSeriesSplit"
+  },
+  "load_tokenizer": {
+    "prefix": "load_tokenizer",
+    "body": [
+      "load_tokenizer(${1:path})$0"
+    ],
+    "description": "data: load_tokenizer"
+  },
+  "load_model": {
+    "prefix": "load_model",
+    "body": [
+      "load_model(${1:model}, ${2:path})$0"
+    ],
+    "description": "data: load_model"
+  },
+  "read_text": {
+    "prefix": "read_text",
+    "body": [
+      "read_text(${1:path})$0"
+    ],
+    "description": "data: read_text"
+  },
+  "load_json": {
+    "prefix": "load_json",
+    "body": [
+      "load_json(${1:path})$0"
+    ],
+    "description": "data: load_json"
+  },
   "tensor": {
     "prefix": "tensor",
     "body": [
@@ -69,40 +251,47 @@
     ],
     "description": "factory: randperm"
   },
-  "zerosLike": {
-    "prefix": "zerosLike",
+  "zeros_like": {
+    "prefix": "zeros_like",
     "body": [
-      "zerosLike(${1:tensor})$0"
+      "zeros_like(${1:tensor})$0"
     ],
-    "description": "factory: zerosLike"
+    "description": "factory: zeros_like"
   },
-  "onesLike": {
-    "prefix": "onesLike",
+  "ones_like": {
+    "prefix": "ones_like",
     "body": [
-      "onesLike(${1:tensor})$0"
+      "ones_like(${1:tensor})$0"
     ],
-    "description": "factory: onesLike"
+    "description": "factory: ones_like"
   },
-  "emptyLike": {
-    "prefix": "emptyLike",
+  "empty_like": {
+    "prefix": "empty_like",
     "body": [
-      "emptyLike(${1:tensor})$0"
+      "empty_like(${1:tensor})$0"
     ],
-    "description": "factory: emptyLike"
+    "description": "factory: empty_like"
   },
-  "fullLike": {
-    "prefix": "fullLike",
+  "full_like": {
+    "prefix": "full_like",
     "body": [
-      "fullLike(${1:tensor}, ${2:value})$0"
+      "full_like(${1:tensor}, ${2:value})$0"
     ],
-    "description": "factory: fullLike"
+    "description": "factory: full_like"
   },
-  "randnLike": {
-    "prefix": "randnLike",
+  "randn_like": {
+    "prefix": "randn_like",
     "body": [
-      "randnLike(${1:tensor})$0"
+      "randn_like(${1:tensor})$0"
     ],
-    "description": "factory: randnLike"
+    "description": "factory: randn_like"
+  },
+  "Sequential": {
+    "prefix": "Sequential",
+    "body": [
+      "Sequential($0)"
+    ],
+    "description": "sequential: Sequential"
   },
   "Linear": {
     "prefix": "Linear",
@@ -307,12 +496,12 @@
     ],
     "description": "module: BCELoss"
   },
-  "Sequential": {
-    "prefix": "Sequential",
+  "TensorDataset": {
+    "prefix": "TensorDataset",
     "body": [
-      "Sequential($0)"
+      "TensorDataset($0)"
     ],
-    "description": "sequential: Sequential"
+    "description": "data: TensorDataset"
   },
   "DataLoader": {
     "prefix": "DataLoader",
@@ -320,13 +509,6 @@
       "DataLoader(${1:dataset})$0"
     ],
     "description": "data: DataLoader"
-  },
-  "TensorDataset": {
-    "prefix": "TensorDataset",
-    "body": [
-      "TensorDataset($0)"
-    ],
-    "description": "data: TensorDataset"
   },
   "SGD": {
     "prefix": "SGD",
@@ -475,194 +657,12 @@
     ],
     "description": "metric: MetricCollection"
   },
-  "LinearRegression": {
-    "prefix": "LinearRegression",
-    "body": [
-      "LinearRegression($0)"
-    ],
-    "description": "ml_model: LinearRegression"
-  },
-  "Ridge": {
-    "prefix": "Ridge",
-    "body": [
-      "Ridge($0)"
-    ],
-    "description": "ml_model: Ridge"
-  },
-  "Lasso": {
-    "prefix": "Lasso",
-    "body": [
-      "Lasso($0)"
-    ],
-    "description": "ml_model: Lasso"
-  },
-  "ElasticNet": {
-    "prefix": "ElasticNet",
-    "body": [
-      "ElasticNet($0)"
-    ],
-    "description": "ml_model: ElasticNet"
-  },
-  "LogisticRegression": {
-    "prefix": "LogisticRegression",
-    "body": [
-      "LogisticRegression($0)"
-    ],
-    "description": "ml_model: LogisticRegression"
-  },
-  "KNeighborsClassifier": {
-    "prefix": "KNeighborsClassifier",
-    "body": [
-      "KNeighborsClassifier($0)"
-    ],
-    "description": "ml_model: KNeighborsClassifier"
-  },
-  "KNeighborsRegressor": {
-    "prefix": "KNeighborsRegressor",
-    "body": [
-      "KNeighborsRegressor($0)"
-    ],
-    "description": "ml_model: KNeighborsRegressor"
-  },
-  "GaussianNB": {
-    "prefix": "GaussianNB",
-    "body": [
-      "GaussianNB()"
-    ],
-    "description": "ml_model: GaussianNB"
-  },
-  "DecisionTreeClassifier": {
-    "prefix": "DecisionTreeClassifier",
-    "body": [
-      "DecisionTreeClassifier($0)"
-    ],
-    "description": "ml_model: DecisionTreeClassifier"
-  },
-  "DecisionTreeRegressor": {
-    "prefix": "DecisionTreeRegressor",
-    "body": [
-      "DecisionTreeRegressor($0)"
-    ],
-    "description": "ml_model: DecisionTreeRegressor"
-  },
-  "RandomForestClassifier": {
-    "prefix": "RandomForestClassifier",
-    "body": [
-      "RandomForestClassifier($0)"
-    ],
-    "description": "ml_model: RandomForestClassifier"
-  },
-  "RandomForestRegressor": {
-    "prefix": "RandomForestRegressor",
-    "body": [
-      "RandomForestRegressor($0)"
-    ],
-    "description": "ml_model: RandomForestRegressor"
-  },
-  "GradientBoostingClassifier": {
-    "prefix": "GradientBoostingClassifier",
-    "body": [
-      "GradientBoostingClassifier($0)"
-    ],
-    "description": "ml_model: GradientBoostingClassifier"
-  },
-  "GradientBoostingRegressor": {
-    "prefix": "GradientBoostingRegressor",
-    "body": [
-      "GradientBoostingRegressor($0)"
-    ],
-    "description": "ml_model: GradientBoostingRegressor"
-  },
-  "StandardScaler": {
-    "prefix": "StandardScaler",
-    "body": [
-      "StandardScaler($0)"
-    ],
-    "description": "ml_transform: StandardScaler"
-  },
-  "MinMaxScaler": {
-    "prefix": "MinMaxScaler",
-    "body": [
-      "MinMaxScaler($0)"
-    ],
-    "description": "ml_transform: MinMaxScaler"
-  },
-  "LabelEncoder": {
-    "prefix": "LabelEncoder",
-    "body": [
-      "LabelEncoder()"
-    ],
-    "description": "ml_transform: LabelEncoder"
-  },
-  "OneHotEncoder": {
-    "prefix": "OneHotEncoder",
-    "body": [
-      "OneHotEncoder()"
-    ],
-    "description": "ml_transform: OneHotEncoder"
-  },
-  "PCA": {
-    "prefix": "PCA",
-    "body": [
-      "PCA($0)"
-    ],
-    "description": "ml_transform: PCA"
-  },
-  "KMeans": {
-    "prefix": "KMeans",
-    "body": [
-      "KMeans($0)"
-    ],
-    "description": "ml_cluster: KMeans"
-  },
-  "KFold": {
-    "prefix": "KFold",
-    "body": [
-      "KFold($0)"
-    ],
-    "description": "ml_split: KFold"
-  },
-  "TimeSeriesSplit": {
-    "prefix": "TimeSeriesSplit",
-    "body": [
-      "TimeSeriesSplit($0)"
-    ],
-    "description": "ml_split: TimeSeriesSplit"
-  },
   "Tokenizer": {
     "prefix": "Tokenizer",
     "body": [
       "Tokenizer($0)"
     ],
     "description": "data: Tokenizer"
-  },
-  "load_tokenizer": {
-    "prefix": "load_tokenizer",
-    "body": [
-      "load_tokenizer(${1:path})$0"
-    ],
-    "description": "data: load_tokenizer"
-  },
-  "load_model": {
-    "prefix": "load_model",
-    "body": [
-      "load_model(${1:model}, ${2:path})$0"
-    ],
-    "description": "data: load_model"
-  },
-  "read_text": {
-    "prefix": "read_text",
-    "body": [
-      "read_text(${1:path})$0"
-    ],
-    "description": "data: read_text"
-  },
-  "load_json": {
-    "prefix": "load_json",
-    "body": [
-      "load_json(${1:path})$0"
-    ],
-    "description": "data: load_json"
   },
   "DataFrame": {
     "prefix": "DataFrame",

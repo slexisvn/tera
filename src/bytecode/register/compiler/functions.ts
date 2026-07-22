@@ -318,6 +318,8 @@ export const functionMethods: FunctionMethodMap = {
       (p) => isPositionalParam(p),
     ).length;
     const innerFunc: FunctionCompiledFunction = new bytecode.RegisterCompiledFunction(name, paramCount);
+    innerFunc.isAsync = !!node.async;
+    innerFunc.isGenerator = !!node.generator;
     const innerScope = new Scope(outerScope);
     innerScope.isFunctionBoundary = true;
 
@@ -373,6 +375,7 @@ export const functionMethods: FunctionMethodMap = {
       paramCount,
     );
     innerFunc.isArrow = true;
+    innerFunc.isAsync = !!node.async;
     const innerScope = new Scope(outerScope);
     innerScope.isFunctionBoundary = true;
 
@@ -421,6 +424,7 @@ export const functionMethods: FunctionMethodMap = {
       node.params.length,
     );
     innerFunc.isLazy = true;
+    innerFunc.isAsync = !!node.async;
     innerFunc.lazySource = node.source ?? null;
     innerFunc.lazyBodyStart = node.bodyStart ?? 0;
     innerFunc.lazyBodyEnd = node.bodyEnd ?? 0;
@@ -572,7 +576,9 @@ export const functionMethods: FunctionMethodMap = {
       this._compileParams(method.func.params, methodFunc, this.scope);
 
       if (method.func.body.type === NodeType.BlockStatement) {
-        this.compileStatements(blockBodyStatements(method.func.body));
+        const statements = blockBodyStatements(method.func.body);
+        this._prepareFunctionBody(statements);
+        this.compileStatements(statements);
       } else {
         this.compileStatement(method.func.body);
       }

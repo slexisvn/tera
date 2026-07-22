@@ -24,6 +24,7 @@ import {
   toNumber,
   toDisplayString,
   getPayload,
+  stringCharAt,
   type GeneratorValue,
   type RuntimeFunctionPayload,
   type PromiseValue,
@@ -60,6 +61,8 @@ import {
 } from "../../../runtime/iteration/generator.js";
 import { getRegexProperty } from "../../../runtime/intrinsics/regex-methods.js";
 import { VMTypeError } from "../../../core/errors/index.js";
+import { indexValue } from "../../../runtime/indexing.js";
+import type { IndexDim } from "../../../core/indexing.js";
 import {
   isJSProxyValue,
   runtimeDeleteProperty,
@@ -297,7 +300,7 @@ export function handleLdaProp(
       if (propName === "length") return mkSmi(primitiveString.length);
       const idx = Number(propName);
       if (Number.isInteger(idx)) {
-        const ch = primitiveString[idx];
+        const ch = stringCharAt(primitiveString, idx);
         return ch !== undefined ? mkString(ch) : mkUndefined();
       }
     }
@@ -365,7 +368,7 @@ export function handleLdaProp(
     } else {
       const idx = Number(propName);
       if (Number.isInteger(idx)) {
-        const ch = getPayload(obj)[idx];
+        const ch = stringCharAt(getPayload(obj), idx);
         return ch !== undefined ? mkString(ch) : mkUndefined();
       } else {
         return interp._lookupBuiltinPrototype(
@@ -691,8 +694,7 @@ export function handleLdaIndex(
       ? resultValue
       : mkUndefined();
   } else if (isString(obj) && isNumber(index)) {
-    const idx = toNumber(index);
-    const ch = getPayload(obj)[idx];
+    const ch = stringCharAt(getPayload(obj), toNumber(index));
     return ch !== undefined ? mkString(ch) : mkUndefined();
   } else if (isObject(obj)) {
     const key = isString(index) ? getPayload(index) : toDisplayString(index);
@@ -700,6 +702,30 @@ export function handleLdaIndex(
   } else {
     return mkUndefined();
   }
+}
+
+export function handleLdaKeyedSlice(
+  interp: InterpreterLike,
+  frame: RegisterFrame,
+  operands: OperandList,
+  compiledFn: CompiledFunctionLike,
+): TaggedValue {
+  const obj = frame.getReg(operands[0]!);
+  const tokens = compiledFn.constants[operands[1]!] as string[];
+  let cursor = 2;
+  const next = () => toNumber(frame.getReg(operands[cursor++]!));
+  const dims: IndexDim[] = [];
+  for (const token of tokens) {
+    if (token === "i") {
+      dims.push({ kind: "index", value: next() });
+    } else {
+      const start = token[1] === "1" ? next() : null;
+      const stop = token[2] === "1" ? next() : null;
+      const step = token[3] === "1" ? next() : 1;
+      dims.push({ kind: "slice", start, stop, step });
+    }
+  }
+  return indexValue(obj, dims);
 }
 
 export function handleStaIndex(

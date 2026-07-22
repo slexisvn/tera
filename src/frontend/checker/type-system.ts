@@ -261,6 +261,8 @@ export function instantiateShapeForType(type: TypeName, env: TypeEnv): ObjectSha
   return { fields };
 }
 
+const NUMERIC_TYPES = new Set<TypeName>(["number", "int", "float"]);
+
 export function compatible(actual: TypeName, expected: TypeName, env: TypeEnv): boolean {
   actual = resolveType(actual, env);
   expected = resolveType(expected, env);
@@ -278,6 +280,11 @@ export function compatible(actual: TypeName, expected: TypeName, env: TypeEnv): 
     }
     return compatible(actualFn.returns, expectedFn.returns, env);
   }
+  const expectedUnion = splitTopLevel(expected, "|");
+  if (expectedUnion.length > 1) return expectedUnion.some((part) => compatible(actual, part.trim(), env));
+  const actualUnion = splitTopLevel(actual, "|");
+  if (actualUnion.length > 1) return actualUnion.every((part) => compatible(part.trim(), expected, env));
+
   if (expected.startsWith("[") && expected.endsWith("]")) {
     const expectedItems = tupleTypes(expected);
     const actualItems = tupleTypes(actual);
@@ -290,10 +297,8 @@ export function compatible(actual: TypeName, expected: TypeName, env: TypeEnv): 
     if (actualElement) return compatible(actualElement, expectedElement, env);
     if (actual.startsWith("[") && actual.endsWith("]")) return tupleTypes(actual).every((item) => compatible(item, expectedElement, env));
   }
-  if (expected === "number" && (actual === "int" || actual === "float")) return true;
+  if (NUMERIC_TYPES.has(expected) && NUMERIC_TYPES.has(actual)) return true;
   if ((expected === "bool" || expected === "boolean") && (actual === "bool" || actual === "boolean")) return true;
-  if (expected.includes("|")) return splitTopLevel(expected, "|").some((part) => compatible(actual, part.trim(), env));
-  if (actual.includes("|")) return splitTopLevel(actual, "|").every((part) => compatible(part.trim(), expected, env));
   if (expected.includes("&")) return splitTopLevel(expected, "&").every((part) => compatible(actual, part.trim(), env));
   if ((actual.endsWith("[]") || actual.startsWith("[")) && (expected === "Array" || expected === "unknown[]")) return true;
   if (actual === "Array" && expected.endsWith("[]")) return true;

@@ -76,6 +76,7 @@ export const INTERPRETER_ONLY_OPS: Set<number> = new Set([
   bytecode.ROP_TRY_START,
   bytecode.ROP_TRY_END,
   bytecode.ROP_THROW,
+  bytecode.ROP_LDA_KEYED_SLICE,
 ]);
 
 export function requiresInterpreterOnly(compiledFn: RegisterCompiledFunction): boolean {
@@ -154,6 +155,37 @@ export class AsyncSuspend {
   }
 }
 
+export function resumeAfterSuspend(
+  interpreter: AsyncInterpreterLike,
+  suspend: AsyncSuspend,
+  capability: AsyncCapability,
+): void {
+  const pendingPromise = getPayload(suspend.pendingPromise) as PromiseLikeRecord;
+  const suspendedFrame = suspend.frame;
+  pendingPromise.addReaction((state, result) => {
+    if (state === PROMISE_FULFILLED) {
+      suspendedFrame.acc = result;
+      runAsyncWithSuspension(interpreter, suspendedFrame, capability);
+      return;
+    }
+    if (!suspendedFrame.exceptionHandlers || suspendedFrame.exceptionHandlers.length === 0) {
+      capability.reject(result);
+      return;
+    }
+    const handler = suspendedFrame.exceptionHandlers.pop()!;
+    suspendedFrame.acc = result;
+    if (handler.catchPC === undefined) {
+      capability.reject(result);
+      return;
+    }
+    suspendedFrame.pc = handler.catchPC;
+    runAsyncWithSuspension(interpreter, suspendedFrame, capability);
+  });
+  if (interpreter.microtaskQueue) {
+    interpreter.microtaskQueue.drain();
+  }
+}
+
 export function runAsyncWithSuspension(
   interpreter: AsyncInterpreterLike,
   asyncFrame: AsyncFrameLike,
@@ -164,30 +196,7 @@ export function runAsyncWithSuspension(
     capability.resolve(result);
   } catch (e) {
     if (e instanceof AsyncSuspend) {
-      const pendingPromise = getPayload(e.pendingPromise) as PromiseLikeRecord;
-      const suspendedFrame = e.frame;
-      pendingPromise.addReaction((state, result) => {
-        if (state === PROMISE_FULFILLED) {
-          suspendedFrame.acc = result;
-          runAsyncWithSuspension(interpreter, suspendedFrame, capability);
-        } else {
-          if (suspendedFrame.exceptionHandlers && suspendedFrame.exceptionHandlers.length > 0) {
-            const handler = suspendedFrame.exceptionHandlers.pop()!;
-            suspendedFrame.acc = result;
-            if (handler.catchPC === undefined) {
-              capability.reject(result);
-              return;
-            }
-            suspendedFrame.pc = handler.catchPC;
-            runAsyncWithSuspension(interpreter, suspendedFrame, capability);
-          } else {
-            capability.reject(result);
-          }
-        }
-      });
-      if (interpreter.microtaskQueue) {
-        interpreter.microtaskQueue.drain();
-      }
+      resumeAfterSuspend(interpreter, e, capability);
     } else {
       const thrown =
         e === null ||

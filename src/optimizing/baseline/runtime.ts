@@ -1,7 +1,9 @@
 import * as bytecode from "../../bytecode/register/ops/bytecode.js";
 import { isInsideWasmExecution } from "../wasm/codegen.js";
 import { constantString } from "../builder/feedback-utils.js";
-import { applyBinaryOverload, applyUnaryOverload } from "../../runtime/operators.js";
+import { applyBinaryOverload, applyRelational, applyUnaryOverload, type RelationalOverload } from "../../runtime/operators.js";
+
+const CMP_METHOD: readonly RelationalOverload[] = ["lt", "gt", "le", "ge"];
 import { forInKeys } from "../../runtime/enumerate.js";
 
 import {
@@ -38,6 +40,7 @@ import {
   pinHeapSlot,
   abstractLooseEqual,
   type TaggedValue,
+  stringCharAt,
 } from "../../core/value/index.js";
 
 import { createJSObject, createJSArray } from "../../objects/heap/factory.js";
@@ -329,7 +332,7 @@ export class BaselineRuntime {
       if (propName === "length") return mkSmi(getPayload(obj).length);
       const idx = Number(propName);
       if (Number.isInteger(idx)) {
-        const ch = getPayload(obj)[idx];
+        const ch = stringCharAt(getPayload(obj), idx);
         return ch !== undefined ? mkString(ch) : this.u;
       }
       return this.interp._lookupBuiltinPrototype(
@@ -615,21 +618,7 @@ export class BaselineRuntime {
           break;
       }
     } else {
-      const c = abstractRelational(l, r);
-      switch (op) {
-        case 0:
-          result = c < 0;
-          break;
-        case 1:
-          result = c > 0;
-          break;
-        case 2:
-          result = c <= 0;
-          break;
-        case 3:
-          result = c >= 0;
-          break;
-      }
+      return applyRelational(CMP_METHOD[op as unknown as number]!, l, r, this.interp);
     }
     return mkBool(result === true);
   }
@@ -925,9 +914,7 @@ export class BaselineRuntime {
 
   callMethod(callee: TaggedValue, receiver: TaggedValue, args: TaggedValue[], fbSlot: number) {
     if (!isFunction(callee)) {
-      throw new Error(
-        `TypeError: ${toDisplayString(callee)} is not a function`,
-      );
+      return this.interp.callFunctionValue(callee, args, receiver);
     }
 
     const receiverMapId = isObject(receiver)

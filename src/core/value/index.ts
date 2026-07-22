@@ -540,6 +540,10 @@ export function toBool(v: TaggedValue): boolean {
   return true;
 }
 
+export function stringCharAt(text: string, index: number): string | undefined {
+  return text[index < 0 ? index + text.length : index];
+}
+
 export function toString(v: TaggedValue, seen?: Set<HeapPayload>): string {
   switch (codeOf(v)) {
     case CODE_SMI:
@@ -605,7 +609,11 @@ export function toString(v: TaggedValue, seen?: Set<HeapPayload>): string {
   }
 }
 
-export function toDisplayString(v: TaggedValue, seen?: Set<HeapPayload>): string {
+export function toDisplayString(
+  v: TaggedValue,
+  seen?: Set<HeapPayload>,
+  compact = false,
+): string {
   if (isArray(v)) {
     const arr = getPayload(v);
     const visited = seen || new Set();
@@ -613,7 +621,7 @@ export function toDisplayString(v: TaggedValue, seen?: Set<HeapPayload>): string
     visited.add(arr);
     const items = arr.elements
       ? arr.elements.map((el: TaggedValue | undefined) =>
-          el !== undefined ? toDisplayString(el, visited) : "undefined",
+          el !== undefined ? toDisplayString(el, visited, compact) : "undefined",
         )
       : [];
     for (const [name, desc] of arr.hiddenClass.properties) {
@@ -621,7 +629,9 @@ export function toDisplayString(v: TaggedValue, seen?: Set<HeapPayload>): string
         desc.offset < 10
           ? arr.slots[desc.offset]
           : arr.overflowProperties.get(name);
-      items.push(`${name}: ${toDisplayString(val ?? mkUndefined(), visited)}`);
+      items.push(
+        `${name}: ${toDisplayString(val ?? mkUndefined(), visited, compact)}`,
+      );
     }
     visited.delete(arr);
     return `[${items.join(", ")}]`;
@@ -634,6 +644,7 @@ export function toDisplayString(v: TaggedValue, seen?: Set<HeapPayload>): string
     if (obj._mapData) return `Map(${obj._mapData.size})`;
     if (obj._setData) return `Set(${obj._setData.size})`;
     if (obj._weakMapData) return `WeakMap`;
+    if (typeof obj._display === "function") return obj._display(compact);
     if (typeof obj.toString === "function") return obj.toString();
   }
   return toString(v);

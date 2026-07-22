@@ -35,16 +35,18 @@ import {
   strictEqual,
   isTaggedValue,
   type TaggedValue,
+  stringCharAt,
 } from "../../core/value/index.js";
 import type { JSObject } from "../../objects/heap/js-object.js";
 import { JSArray } from "../../objects/heap/js-array.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 import type { FrameState } from "../../deopt/frame-state.js";
 import type { RuntimeStubEntry } from "./graph-support.js";
-import { applyBinaryOverload, type BinaryOverload } from "../../runtime/operators.js";
+import { applyBinaryOverload, hasRelationalOverload, RELATIONAL_BY_SYMBOL, type BinaryOverload } from "../../runtime/operators.js";
 import {
   DeoptSignal,
   DEOPT_MAP_CHECK_FAILED,
+  DEOPT_NUMBER_CHECK_FAILED,
   DEOPT_RUNTIME_STUB_FAILURE,
   DEOPT_WRONG_CALL_TARGET,
 } from "../../deopt/deoptimizer.js";
@@ -295,7 +297,7 @@ function getRuntimeProperty(
     if (propName === "length") return mkSmi(getPayload(obj).length);
     const idx = Number(propName);
     if (Number.isInteger(idx)) {
-      const ch = getPayload(obj)[idx];
+      const ch = stringCharAt(getPayload(obj), idx);
       return ch !== undefined ? mkString(ch) : mkUndefined();
     }
     if (interpreter && interpreter.builtinPrototypes) {
@@ -491,12 +493,22 @@ export function executeRuntimeStub(
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_COMPARE:
-      return runtimeReturn(
-        compareValues(propNameFromMetadata(node.props.op), args[0], args[1]),
-        runtime,
-        stub.outputRep,
-      );
+    case ir.IR_GENERIC_COMPARE: {
+      const symbol = propNameFromMetadata(node.props.op);
+      const relational = RELATIONAL_BY_SYMBOL[symbol];
+      if (relational && hasRelationalOverload(relational, args[0], args[1], runtime.interpreter)) {
+        const fs = frameStates ? frameStates[frameStateId] : null;
+        throw new DeoptSignal(
+          DEOPT_NUMBER_CHECK_FAILED,
+          fs ? fs.bytecodeOffset : 0,
+          [],
+          [],
+          frameStateId,
+          new Map(),
+        );
+      }
+      return runtimeReturn(compareValues(symbol, args[0], args[1]), runtime, stub.outputRep);
+    }
     case ir.IR_LOAD_GLOBAL: {
       const cell = runtime.interpreter.globalCells.get(propNameFromMetadata(node.props.name));
       const val = cell ? cell.read() : mkUndefined();

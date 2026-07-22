@@ -44,6 +44,50 @@ describe("JSArray", () => {
     });
   });
 
+  describe("negative indexing", () => {
+    it("getIndex counts back from the end", () => {
+      const arr = new JSArray([mkSmi(10), mkSmi(20), mkSmi(30)]);
+      expect(getPayload(arr.getIndex(-1))).toBe(30);
+      expect(getPayload(arr.getIndex(-2))).toBe(20);
+      expect(getPayload(arr.getIndex(-3))).toBe(10);
+    });
+
+    it("getIndex returns undefined once the offset underflows", () => {
+      const arr = new JSArray([mkSmi(10), mkSmi(20)]);
+      expect(arr.getIndex(-3)).toBeUndefined();
+      expect(arr.getIndex(-99)).toBeUndefined();
+    });
+
+    it("getIndex on an empty array stays undefined", () => {
+      expect(new JSArray().getIndex(-1)).toBeUndefined();
+    });
+
+    it("setIndex writes back from the end without growing the array", () => {
+      const arr = new JSArray([mkSmi(1), mkSmi(2), mkSmi(3)]);
+      arr.setIndex(-1, mkSmi(77));
+      arr.setIndex(-3, mkSmi(55));
+      expect(arr.getLength()).toBe(3);
+      expect(getPayload(arr.getIndex(0))).toBe(55);
+      expect(getPayload(arr.getIndex(2))).toBe(77);
+    });
+
+    it("setIndex ignores a write that underflows the array", () => {
+      const arr = new JSArray([mkSmi(1), mkSmi(2)]);
+      arr.setIndex(-5, mkSmi(99));
+      expect(arr.getLength()).toBe(2);
+      expect(getPayload(arr.getIndex(0))).toBe(1);
+      expect(getPayload(arr.getIndex(1))).toBe(2);
+    });
+
+    it("leaves non-negative indexing behaviour unchanged", () => {
+      const arr = new JSArray([mkSmi(1)]);
+      arr.setIndex(2, mkSmi(3));
+      expect(arr.getLength()).toBe(3);
+      expect(arr.getIndex(1)).toBeUndefined();
+      expect(getPayload(arr.getIndex(2))).toBe(3);
+    });
+  });
+
   describe("push/pop/shift/unshift", () => {
     it("push appends and returns new length", () => {
       const arr = new JSArray([]);

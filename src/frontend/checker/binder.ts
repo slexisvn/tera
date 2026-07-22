@@ -70,7 +70,8 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
     const child = createScope(scope, sig);
     bound.scopes.set(node, child);
     for (const [name, binding] of sig.params) child.locals.set(name, binding);
-    for (const stmt of node.body) bindNode(stmt, bound, child);
+    const section = createScope(child, signatureFromParams(node.name, [], [], "any"));
+    for (const stmt of node.body) bindNode(stmt, bound, isModelSection(stmt) ? section : child);
     return;
   }
   if (node.kind === "Block") {
@@ -85,6 +86,10 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
     const callable = parseFunctionType(type);
     if (callable) bound.signatures.set(node.name, { ...callable, name: node.name });
   }
+}
+
+function isModelSection(node: SemanticNode): boolean {
+  return node.kind === "Block" && node.test === undefined;
 }
 
 function createScope(parent: Scope | null, signature?: Signature): Scope {

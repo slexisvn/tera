@@ -31,6 +31,7 @@ import {
   DEOPT_WRONG_CALL_TARGET,
 } from "../../deopt/deoptimizer.js";
 import { compareValues } from "./runtime-support.js";
+import { applyRelational, RELATIONAL_BY_SYMBOL } from "../../runtime/operators.js";
 import {
   metadataString as metadataStringOrNull,
   metadataNumber as metadataNumberOrNull,
@@ -75,6 +76,15 @@ interface InterpreterLike {
 const DEOPT_REASON_IDS = new Map<DeoptReason, number>(
   DEOPT_REASON_LIST.map((reason, id) => [reason, id]),
 );
+
+type RelationalInterpreter = Parameters<typeof applyRelational>[3];
+
+function relationalInterpreter(
+  interpreter: InterpreterLike | null | undefined,
+): RelationalInterpreter | null {
+  const candidate = interpreter as RelationalInterpreter | null | undefined;
+  return candidate && typeof candidate.callFunctionValue === "function" ? candidate : null;
+}
 
 function isDeoptIRNode(value: FrameValue): value is DeoptIRNode {
   return (
@@ -357,7 +367,11 @@ export function materializeFrameValue(
           interpreter,
           thisValue,
         );
-        return mkBool(compareValues(metadataString(value.props.op), left, right));
+        const symbol = metadataString(value.props.op);
+        const relational = RELATIONAL_BY_SYMBOL[symbol];
+        const caller = relationalInterpreter(interpreter);
+        if (relational && caller) return applyRelational(relational, left, right, caller);
+        return mkBool(compareValues(symbol, left, right));
       }
       case ir.IR_NEG: {
         const input = materializeFrameValue(

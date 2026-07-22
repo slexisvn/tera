@@ -96,6 +96,9 @@ export class JSObject {
   _setData?: OrderedHashSet;
   _weakMapData?: EphemeronHashTable;
   _primitiveValue?: TaggedValue;
+  _display?: (compact: boolean) => string;
+  _index?: (index: number) => TaggedValue | undefined;
+  _indexND?: (dims: readonly import("../../core/indexing.js").IndexDim[]) => TaggedValue;
   _frozen?: boolean;
   _sealed?: boolean;
   _nonExtensible?: boolean;

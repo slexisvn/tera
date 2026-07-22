@@ -1,4 +1,5 @@
 import { parse } from "../frontend/parser/language.js";
+import { analyzeEffects } from "../frontend/effects/index.js";
 import { Lexer } from "../frontend/lexer/index.js";
 import { Parser } from "../frontend/parser/index.js";
 import { RegisterBytecodeCompiler } from "../bytecode/register/compiler/index.js";
@@ -37,7 +38,7 @@ import {
 import type { MicrotaskPolicyValue } from "../runtime/microtasks/microtask.js";
 import { GenerationalGC } from "../gc/gc.js";
 import { bindGC } from "../objects/heap/factory.js";
-import { taggedToNative } from "../runtime/domain/host.js";
+import { bindHostAsync, taggedToNative } from "../runtime/domain/host.js";
 import {
   checkSource,
   TypecheckError,
@@ -159,6 +160,11 @@ export class Engine {
       this.interpreter.globalCells,
       this.microtaskQueue,
     );
+    bindHostAsync({
+      queue: this.microtaskQueue,
+      drain: () => this.drainMicrotasks(),
+      interpreter: this.interpreter,
+    });
     this.baselineCompiler = new BaselineCompiler();
     this.optimizer = new SpeculativeOptimizer();
     this.wasmCodegen = new WasmCodegen();
@@ -182,7 +188,7 @@ export class Engine {
     if (this.typecheckMode === "strict" && this.diagnostics.length > 0) {
       throw new TypecheckError(this.diagnostics);
     }
-    const ast = parse(source);
+    const ast = analyzeEffects(parse(source));
     const compiler = new RegisterBytecodeCompiler();
     return compiler.compile(ast);
   }

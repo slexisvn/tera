@@ -834,4 +834,78 @@ describe("Parser", () => {
       expect(() => parse("1 = 2")).toThrow(/Invalid assignment/);
     });
   });
+
+  describe("index access", () => {
+    it("lowers a single index to a computed member expression", () => {
+      const expr = parseExpr("a[0]");
+      expect(expr.type).toBe(NodeType.MemberExpression);
+      expect(expr.computed).toBe(true);
+      expect(expr.property.type).toBe(NodeType.Literal);
+      expect(expr.property.value).toBe(0);
+    });
+
+    it("keeps a negative and a dynamic single index on the member path", () => {
+      expect(parseExpr("a[-1]").type).toBe(NodeType.MemberExpression);
+      expect(parseExpr("a[i]").type).toBe(NodeType.MemberExpression);
+      expect(parseExpr("a[f(1)]").type).toBe(NodeType.MemberExpression);
+    });
+
+    it("lowers a slice to an index expression with one slice dimension", () => {
+      const expr = parseExpr("a[1:3]");
+      expect(expr.type).toBe(NodeType.IndexExpression);
+      expect(expr.dims).toHaveLength(1);
+      expect(expr.dims[0].type).toBe(NodeType.IndexElement);
+      expect(expr.dims[0].kind).toBe("slice");
+      expect(expr.dims[0].start.value).toBe(1);
+      expect(expr.dims[0].stop.value).toBe(3);
+      expect(expr.dims[0].step).toBeNull();
+    });
+
+    it("records absent slice bounds as null", () => {
+      const open = parseExpr("a[:]").dims[0];
+      expect(open.start).toBeNull();
+      expect(open.stop).toBeNull();
+      expect(open.step).toBeNull();
+
+      const stepped = parseExpr("a[::2]").dims[0];
+      expect(stepped.start).toBeNull();
+      expect(stepped.stop).toBeNull();
+      expect(stepped.step.value).toBe(2);
+    });
+
+    it("lowers a multi-dimensional index to one dimension per subscript", () => {
+      const expr = parseExpr("a[i, j]");
+      expect(expr.type).toBe(NodeType.IndexExpression);
+      expect(expr.dims).toHaveLength(2);
+      expect(expr.dims.map((d) => d.kind)).toEqual(["index", "index"]);
+      expect(expr.dims[0].value.name).toBe("i");
+      expect(expr.dims[1].value.name).toBe("j");
+    });
+
+    it("mixes index and slice dimensions in order", () => {
+      const expr = parseExpr("a[1, 1:3]");
+      expect(expr.dims.map((d) => d.kind)).toEqual(["index", "slice"]);
+      expect(expr.dims[0].value.value).toBe(1);
+      expect(expr.dims[1].start.value).toBe(1);
+      expect(expr.dims[1].stop.value).toBe(3);
+    });
+
+    it("keeps the object on the index expression", () => {
+      const expr = parseExpr("matrix[:, 0]");
+      expect(expr.object.type).toBe(NodeType.Identifier);
+      expect(expr.object.name).toBe("matrix");
+      expect(expr.dims.map((d) => d.kind)).toEqual(["slice", "index"]);
+    });
+
+    it("chains an index expression with a following call", () => {
+      const expr = parseExpr("a[0:2].to_array()");
+      expect(expr.type).toBe(NodeType.CallExpression);
+      expect(expr.callee.type).toBe(NodeType.MemberExpression);
+      expect(expr.callee.object.type).toBe(NodeType.IndexExpression);
+    });
+
+    it("rejects assignment to a slice", () => {
+      expect(() => parse("a[0:2] = [1, 2]")).toThrow(/Invalid assignment/);
+    });
+  });
 });

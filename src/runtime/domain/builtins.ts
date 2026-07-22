@@ -1,5 +1,7 @@
+import { mkString } from "../../core/value/index.js";
 import { installChartBuiltins } from "./chart-builtins.js";
 import { register, type BuiltinMap } from "./common.js";
+import { DEVICE_NAMES, DTYPE_NAMES } from "./metadata.js";
 import { installDataFrameBuiltins } from "./dataframe-builtins.js";
 import { installMlBuiltins } from "./ml-builtins.js";
 import { createModelBuiltins } from "./model-builtins.js";
@@ -8,9 +10,11 @@ import { installQuantBuiltins } from "./quant-builtins.js";
 import { installTensorBuiltins } from "./tensor-builtins.js";
 import { CHART_METADATA, DOMAIN_BUILTIN_METADATA } from "./metadata.js";
 
+const DOMAIN_CONSTANTS = [...DEVICE_NAMES, ...DTYPE_NAMES];
+
 function installCoreBuiltins(map: BuiltinMap): void {
-  for (const name of ["cpu", "gpu", "wasm", "webgpu", "f16", "f32", "f64", "i32", "i64", "bool"]) {
-    register(map, name, () => name, DOMAIN_BUILTIN_METADATA[name]);
+  for (const name of DOMAIN_CONSTANTS) {
+    map[name] = { name, metadata: DOMAIN_BUILTIN_METADATA[name], globalConst: () => mkString(name) };
   }
   register(map, "range", (...args) => {
     const start = args.length === 1 ? 0 : Number(args[0] ?? 0);

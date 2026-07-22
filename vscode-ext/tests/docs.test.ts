@@ -102,7 +102,7 @@ describe("generated language-data", () => {
 
   it("keeps pseudo-type methods sourced from the docs", () => {
     expect(Object.keys(data.pseudoTypes).sort()).toEqual(
-      ["Column", "DataFrame", "Dict", "GroupedData", "List", "Model", "String", "Tensor"],
+      ["Column", "DataFrame", "GroupedData", "List", "Map", "Model", "String", "Tensor"],
     );
     expect(data.pseudoTypes.Tensor.find((m) => m.name === "relu")?.returns).toBe("Tensor");
   });

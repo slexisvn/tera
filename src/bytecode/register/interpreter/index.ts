@@ -103,7 +103,7 @@ import {
   GEN_SUSPENDED,
 } from "../../../runtime/iteration/generator.js";
 import { createBuiltinPrototypes } from "../../../runtime/intrinsics/prototypes.js";
-import { applyBinaryOverload, applyUnaryOverload } from "../../../runtime/operators.js";
+import { applyBinaryOverload, applyRelational, applyUnaryOverload } from "../../../runtime/operators.js";
 import { forInKeys } from "../../../runtime/enumerate.js";
 import { analyzeSimpleConstructor } from "../compiler/helpers.js";
 import { dependencyRegistry } from "../../../deopt/dependencies.js";
@@ -129,6 +129,7 @@ import {
   RegisterException,
   AsyncSuspend,
   runAsyncWithSuspension,
+  resumeAfterSuspend,
   runGeneratorFrame,
 } from "./helpers.js";
 import {
@@ -141,6 +142,7 @@ import {
   handleLdaProp,
   handleStaProp,
   handleLdaIndex,
+  handleLdaKeyedSlice,
   handleStaIndex,
   handleNew,
   handleDefineAccessor,
@@ -978,7 +980,15 @@ export class RegisterInterpreter {
       (thisValue === undefined ? mkUndefined() : thisValue),
       null,
     );
-    return finishExecution(this.runFrame(frame));
+    frame.suspendable = true;
+    try {
+      return finishExecution(this.runFrame(frame));
+    } catch (e) {
+      if (!(e instanceof AsyncSuspend)) throw e;
+      const { capability, value } = mkPromiseCapability(this.microtaskQueue);
+      resumeAfterSuspend(this, e, capability);
+      return finishExecution(value);
+    }
   }
 
   consumePendingLazyDeopt(
@@ -1343,6 +1353,11 @@ export class RegisterInterpreter {
               break;
             }
 
+            case bytecode.ROP_LDA_KEYED_SLICE: {
+              frame.acc = handleLdaKeyedSlice(this, frame, operands, compiledFn);
+              break;
+            }
+
             case bytecode.ROP_ADD: {
               const { left, right } = getBinaryOperands(
                 frame,
@@ -1547,7 +1562,7 @@ export class RegisterInterpreter {
                 frame.acc = mkBool(this.toNumberValue(left) < this.toNumberValue(right));
               else if (isString(left) && isString(right))
                 frame.acc = mkBool(getPayload(left) < getPayload(right));
-              else frame.acc = mkBool(abstractRelational(left, right) < 0);
+              else frame.acc = applyRelational("lt", left, right, this);
               break;
             }
 
@@ -1563,7 +1578,7 @@ export class RegisterInterpreter {
                 frame.acc = mkBool(this.toNumberValue(left) > this.toNumberValue(right));
               else if (isString(left) && isString(right))
                 frame.acc = mkBool(getPayload(left) > getPayload(right));
-              else frame.acc = mkBool(abstractRelational(left, right) > 0);
+              else frame.acc = applyRelational("gt", left, right, this);
               break;
             }
 
@@ -1579,7 +1594,7 @@ export class RegisterInterpreter {
                 frame.acc = mkBool(this.toNumberValue(left) <= this.toNumberValue(right));
               else if (isString(left) && isString(right))
                 frame.acc = mkBool(getPayload(left) <= getPayload(right));
-              else frame.acc = mkBool(abstractRelational(left, right) <= 0);
+              else frame.acc = applyRelational("le", left, right, this);
               break;
             }
 
@@ -1595,7 +1610,7 @@ export class RegisterInterpreter {
                 frame.acc = mkBool(this.toNumberValue(left) >= this.toNumberValue(right));
               else if (isString(left) && isString(right))
                 frame.acc = mkBool(getPayload(left) >= getPayload(right));
-              else frame.acc = mkBool(abstractRelational(left, right) >= 0);
+              else frame.acc = applyRelational("ge", left, right, this);
               break;
             }
 
@@ -2095,8 +2110,14 @@ export class RegisterInterpreter {
                   frame.acc = p.result;
                 } else if (p.state === PROMISE_REJECTED) {
                   throw new RegisterException(p.result);
-                } else {
+                } else if (frame.suspendable) {
                   throw new AsyncSuspend(frame, promiseVal);
+                } else {
+                  throw new VMTypeError(
+                    `'${compiledFn.name || "<anonymous>"}' awaited a pending value but was not inferred as async. ` +
+                      `This is an effect-inference gap: the call site could not be resolved to a known callee. ` +
+                      `Mark the function 'async' explicitly, or await the value in the caller.`,
+                  );
                 }
               } else {
                 frame.acc = promiseVal;

@@ -74,19 +74,19 @@ Evenly spaced values between `start` and `end`, inclusive, with `steps` points.
 ## randperm(n: int, opts?: Record)
 Random permutation of integers `0..n-1`.
 
-## zerosLike(tensor)
+## zeros_like(tensor)
 Zero tensor with the same shape, dtype, and device as the input.
 
-## onesLike(tensor)
+## ones_like(tensor)
 Tensor of ones with the same shape, dtype, and device as the input.
 
-## emptyLike(tensor)
+## empty_like(tensor)
 Uninitialized tensor with the same shape, dtype, and device as the input.
 
-## fullLike(tensor: Tensor, value: float)
+## full_like(tensor: Tensor, value: float)
 Constant-filled tensor matching the shape, dtype, and device of the input.
 
-## randnLike(tensor)
+## randn_like(tensor)
 Standard-normal sample with the same shape, dtype, and device as the input.
 
 ## where(condition: Tensor, a: Tensor, b: Tensor)
@@ -99,13 +99,13 @@ Concatenate tensors along an existing dimension.
 Stack tensors along a new dimension.
 
 ## sum(column) {function}
-Aggregate `Column` computing the sum of a column within a `groupBy(...).agg(...)`.
+Aggregate `Column` computing the sum of a column within a `group_by(...).agg(...)`.
 
 ## max(column) {function}
-Aggregate `Column` computing the maximum of a column within a `groupBy(...).agg(...)`.
+Aggregate `Column` computing the maximum of a column within a `group_by(...).agg(...)`.
 
 ## min(column) {function}
-Aggregate `Column` computing the minimum of a column within a `groupBy(...).agg(...)`.
+Aggregate `Column` computing the minimum of a column within a `group_by(...).agg(...)`.
 
 ## range(start: int, stop?: int, step?: int)
 Integer range: returns an array `[start..stop)` with optional `step`.
@@ -256,7 +256,7 @@ Number of batches per epoch.
 
 ## load_csv(path: string, separator: string = ",")
 Load a CSV file into a `DataFrame`. Numeric fields are parsed as numbers; use
-the `DataFrame` API (`select`, `filter`, `groupBy`, `to_tensor`, `encode`, …)
+the `DataFrame` API (`select`, `filter`, `group_by`, `to_tensor`, `encode`, …)
 to analyse it.
 
 ## read_text(path: string)
@@ -308,7 +308,7 @@ Reserved id of the `<eos>` (end-of-sequence) token.
 Build a lazy `DataFrame` from named column arrays, one named argument per
 column: `DataFrame(name=["a", "b"], age=[30, 40])`. Column types are inferred
 from the values. The frame records a query plan and is only executed when
-materialized with `collect`, `toArray`, `count`, `show`, or `chunks`.
+materialized with `collect`, `to_array`, `count`, `show`, or `chunks`.
 
 ## col(column) {function}
 Reference a column by name in a `DataFrame` expression, returning a `Column`
@@ -324,12 +324,12 @@ Parse a scalar SQL string into a `Column`, e.g. `expr("price * 1.1")`. Bound
 against the frame's schema at build time.
 
 ## avg(column) {function}
-Aggregate `Column` computing the mean of a column within a `groupBy(...).agg(...)`.
+Aggregate `Column` computing the mean of a column within a `group_by(...).agg(...)`.
 
 ## count(column) {function}
 Aggregate `Column` counting non-null values of a column within `agg(...)`.
 
-## countStar() {function}
+## count_star() {function}
 Aggregate `Column` counting all rows (`COUNT(*)`) within `agg(...)`.
 
 ## register_columns_table(columns)
@@ -863,20 +863,20 @@ Keep only rows matching a boolean `Column` (or SQL string) condition.
 ### where(condition) -> DataFrame
 Alias for `filter`.
 
-### withColumn(name, column) -> DataFrame
+### with_column(name, column) -> DataFrame
 Return a new frame with an added or replaced column computed from `column`.
 
 ### drop(...columns) -> DataFrame
 Return a new frame without the named columns.
 
-### groupBy(...columns) -> GroupedData
+### group_by(...columns) -> GroupedData
 Group rows by the given columns, returning a `GroupedData` for aggregation.
 
-### orderBy(...specs) -> DataFrame
+### order_by(...specs) -> DataFrame
 Sort rows. Each spec is a column name/`Column`, or `{ col, desc }` for ordering.
 
 ### sort(...specs) -> DataFrame
-Alias for `orderBy`.
+Alias for `order_by`.
 
 ### limit(count, offset=0) -> DataFrame
 Return at most `count` rows, skipping the first `offset` rows.
@@ -890,7 +890,7 @@ Return a frame with duplicate rows removed.
 ### union(other) -> DataFrame
 Concatenate the rows of another frame with matching column types.
 
-### unionAll(other) -> DataFrame
+### union_all(other) -> DataFrame
 Concatenate rows of another frame, keeping duplicates.
 
 ### join(other, on, how="INNER") -> DataFrame
@@ -900,7 +900,7 @@ Join with another frame on one or more key columns. `how` is one of
 ### collect()
 Execute the plan and return all rows as an array of objects.
 
-### toArray()
+### to_array()
 Alias for `collect`.
 
 ### count()
@@ -976,10 +976,10 @@ Logical OR of two boolean columns.
 ### not() -> Column
 Logical negation of a boolean column.
 
-### isNull() -> Column
+### is_null() -> Column
 True where the column value is null.
 
-### isNotNull() -> Column
+### is_not_null() -> Column
 True where the column value is not null.
 
 ### like(pattern) -> Column
@@ -996,67 +996,94 @@ Cast the column to another data type.
 
 ## $List
 
-### append(x) -> none
-Add `x` to the end of the list, growing it in place.
+### push(x) -> int
+Add `x` to the end of the list and return the new length.
 
-### extend(other) -> none
-Append every element of list `other` to the end of this list, in place.
+### pop() -> any
+Remove and return the last element.
 
-### insert(i, x) -> none
-Insert `x` at index `i`, shifting later elements right. Negative `i` counts from
-the end; out-of-range `i` is clamped to the nearest end.
+### shift() -> any
+Remove and return the first element.
 
-### pop(i?) -> any
-Remove and return the element at index `i` (the last element when `i` is omitted).
-Errors on an empty list.
+### unshift(x) -> int
+Insert `x` at the front and return the new length.
 
-### remove(x) -> none
-Remove the first element equal to `x`. Does nothing if no element matches.
+### splice(start, count?, ...items) -> list
+Remove `count` elements starting at `start`, inserting `items` in their place, and
+return the removed elements.
 
-### index(x) -> int
-Return the position of the first element equal to `x`, or `-1` if absent.
+### slice(start?, end?) -> list
+Return a shallow copy of the range `[start, end)`. Negative indices count from the end.
 
-### count(x) -> int
-Return how many elements are equal to `x`.
+### concat(...lists) -> list
+Return a new list with `lists` appended to this one.
 
-### contains(x) -> boolean
-True when the list holds an element equal to `x`.
+### index_of(x) -> int
+Return the index of the first occurrence of `x`, or `-1` if absent.
 
-### reverse() -> none
-Reverse the order of the elements in place.
+### last_index_of(x) -> int
+Return the index of the last occurrence of `x`, or `-1` if absent.
 
-### clear() -> none
-Remove all elements, leaving an empty list.
+### includes(x) -> boolean
+True when `x` is present.
 
-### copy() -> list
-Return a shallow copy of the list.
+### reverse() -> list
+Reverse the list in place and return it.
+
+### sort(compare?) -> list
+Sort the list in place and return it.
+
+### join(sep?) -> string
+Join the elements into a string separated by `sep` (default `","`).
+
+### map(fn) -> list
+Return a new list with `fn` applied to every element.
+
+### filter(fn) -> list
+Return a new list of the elements for which `fn` returns true.
+
+### reduce(fn, initial?) -> any
+Fold the list left-to-right with `fn`.
+
+### for_each(fn) -> none
+Call `fn` for every element.
+
+### find(fn) -> any
+Return the first element for which `fn` returns true, or `null`.
+
+### find_index(fn) -> int
+Return the index of the first element for which `fn` returns true, or `-1`.
+
+### flat_map(fn) -> list
+Map every element with `fn` and flatten the result one level.
+
+### length -> int
+Number of elements.
 
 ## $String
 
-### upper() -> string
+### to_upper_case() -> string
 Return the string with every character upper-cased.
 
-### lower() -> string
+### to_lower_case() -> string
 Return the string with every character lower-cased.
 
-### strip() -> string
+### trim() -> string
 Return the string with leading and trailing whitespace removed.
 
-### lstrip() -> string
+### trim_start() -> string
 Return the string with leading whitespace removed.
 
-### rstrip() -> string
+### trim_end() -> string
 Return the string with trailing whitespace removed.
 
-### split(sep?) -> string[]
-Split the string on `sep`. With no `sep`, split on runs of whitespace and drop
-empty pieces.
-
-### join(parts) -> string
-Join `parts` into one string using this string as the separator, e.g.
-`", ".join(words)`.
+### split(sep) -> string[]
+Split the string on `sep`.
 
 ### replace(old, new) -> string
+Return a copy with the first occurrence of `old` replaced by `new`.
+
+### replace_all(old, new) -> string
 Return a copy with every occurrence of `old` replaced by `new`.
 
 ### starts_with(prefix) -> boolean
@@ -1065,31 +1092,55 @@ True when the string begins with `prefix`.
 ### ends_with(suffix) -> boolean
 True when the string ends with `suffix`.
 
-### find(sub) -> int
+### index_of(sub) -> int
 Return the index of the first occurrence of `sub`, or `-1` if absent.
 
-### contains(sub) -> boolean
+### includes(sub) -> boolean
 True when `sub` occurs anywhere in the string.
 
-## $Dict
+### slice(start?, end?) -> string
+Return the substring `[start, end)`. Negative indices count from the end.
 
-### keys() -> list
-Return a list of the dictionary's keys.
+### repeat(n) -> string
+Return the string repeated `n` times.
 
-### values() -> list
-Return a list of the dictionary's values.
+### pad_start(len, fill?) -> string
+Pad the front with `fill` until the string reaches `len`.
 
-### items() -> list
-Return a list of `[key, value]` pairs.
+### pad_end(len, fill?) -> string
+Pad the end with `fill` until the string reaches `len`.
 
-### get(key, default?) -> any
-Return the value for `key`, or `default` (or `null` when omitted) if the key is absent.
+### length -> int
+Number of characters.
+
+## $Map
+
+### get(key) -> any
+Return the value stored under `key`, or `undefined`.
+
+### set(key, value) -> Map
+Store `value` under `key` and return the map.
 
 ### has(key) -> boolean
-True when `key` is present in the dictionary.
+True when `key` is present.
 
-### remove(key) -> none
-Remove `key` and its value from the dictionary. Does nothing if absent.
+### delete(key) -> boolean
+Remove `key`, returning whether it was present.
+
+### keys() -> iterator
+Iterate the keys.
+
+### values() -> iterator
+Iterate the values.
+
+### entries() -> iterator
+Iterate `[key, value]` pairs.
+
+### clear() -> none
+Remove every entry.
+
+### size -> int
+Number of entries.
 
 ## @kind/ml_model
 

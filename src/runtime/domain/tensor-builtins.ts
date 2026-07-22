@@ -1,12 +1,13 @@
 import * as mlfw from "@slexisvn/mlfw";
 import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
+import { snakeToCamel } from "../../core/naming.js";
 import { callWithOptions, camelOptions, constructWithOptions, register, splitOptions, type BuiltinMap, type NativeCtor, type NativeFn } from "./common.js";
 
 const ml = mlfw as Record<string, unknown>;
 
 export const TENSOR_FACTORIES = [
   "tensor", "zeros", "ones", "empty", "full", "randn", "arange", "eye", "linspace", "randperm",
-  "zerosLike", "onesLike", "emptyLike", "fullLike", "randnLike",
+  "zeros_like", "ones_like", "empty_like", "full_like", "randn_like",
 ] as const;
 
 export const FREE_TENSOR_FUNCTIONS = ["where", "cat", "stack"] as const;
@@ -45,24 +46,10 @@ export const TENSOR_MODULES = [
   ...SCHEDULERS, ...TRAINERS, ...CALLBACKS, ...LOGGERS, ...METRICS,
 ] as const;
 
-const SPECIAL_MODULES = new Set<string>(["Softmax", "LogSoftmax", "DataLoader", "SGD", "Adam", "AdamW", "StepLR", "CosineAnnealingLR", "ReduceLROnPlateau", "Trainer"]);
-
-function constructModule(name: string, Cls: NativeCtor): NativeFn {
+function requireFirst(name: string, subject: string, fn: NativeFn): NativeFn {
   return (...args) => {
-    const { values, options } = splitOptions(args);
-    const opts = camelOptions(options);
-    if (name === "Softmax" || name === "LogSoftmax") return new Cls(opts.axis ?? opts.dim ?? values[0] ?? -1);
-    if (name === "DataLoader") return new Cls(values[0], opts);
-    if (name === "SGD" || name === "Adam" || name === "AdamW") {
-      if (values[0] === undefined) throw new Error(`${name}() requires params as first argument`);
-      return new Cls(values[0], opts);
-    }
-    if (name === "StepLR") return new Cls(values[0], values[1] ?? opts.stepSize, values[2] ?? opts.gamma);
-    if (name === "CosineAnnealingLR") return new Cls(values[0], values[1] ?? opts.tMax, values[2] ?? opts.etaMin);
-    if (name === "ReduceLROnPlateau") return new Cls(values[0], opts);
-    if (name === "Trainer") return new Cls(opts);
-    if (Object.keys(opts).length > 0) return new Cls(...values, opts);
-    return new Cls(...values);
+    if (args[0] === undefined) throw new Error(`${name}() requires ${subject} as first argument`);
+    return fn(...args);
   };
 }
 
@@ -95,14 +82,17 @@ function loadJson(path: unknown): unknown {
 }
 
 export function installTensorBuiltins(map: BuiltinMap, metadata: Record<string, RuntimeFunctionMetadata>): void {
-  for (const name of TENSOR_FACTORIES) register(map, name, callWithOptions(ml[name] as NativeFn), metadata[name]);
-  for (const name of FREE_TENSOR_FUNCTIONS) register(map, name, callWithOptions(ml[name] as NativeFn), metadata[name]);
+  for (const name of [...TENSOR_FACTORIES, ...FREE_TENSOR_FUNCTIONS]) {
+    register(map, name, callWithOptions(ml[snakeToCamel(name)] as NativeFn, metadata[name]), metadata[name]);
+  }
   for (const name of TENSOR_MODULES) {
     const ctor = ml[name] as NativeCtor | undefined;
-    if (typeof ctor === "function") register(map, name, SPECIAL_MODULES.has(name) ? constructModule(name, ctor) : constructWithOptions(ctor), metadata[name]);
+    if (typeof ctor !== "function") continue;
+    const construct = constructWithOptions(ctor, metadata[name]);
+    register(map, name, OPTIMIZERS.includes(name as never) ? requireFirst(name, "params", construct) : construct, metadata[name]);
   }
   if (typeof ml.Tokenizer === "function") {
-    register(map, "Tokenizer", constructWithOptions(ml.Tokenizer as NativeCtor), metadata.Tokenizer);
+    register(map, "Tokenizer", constructWithOptions(ml.Tokenizer as NativeCtor, metadata.Tokenizer), metadata.Tokenizer);
     register(map, "load_tokenizer", (path) => (ml.Tokenizer as { load(path: unknown): unknown }).load(path), metadata.load_tokenizer);
   }
   register(map, "optim_config", optimConfig, metadata.optim_config);
