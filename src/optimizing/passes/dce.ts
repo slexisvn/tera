@@ -1,5 +1,6 @@
 import * as ir from "../ir/index.js";
 import { markFrameStateValues, visitFrameStateValues } from "./frame-state-values.js";
+import { replaceValueUses } from "./graph-edit.js";
 
 type DceNode = ir.CFGInstruction;
 type DceBlock = ir.CFGBlock;
@@ -63,6 +64,86 @@ export function deadCodeElimination(graph: DceGraph): number {
 
 function isRequiredEffect(node: DceNode): boolean {
   return node.effectKind !== ir.EFFECT_NONE && node.effectKind !== ir.EFFECT_READ;
+}
+
+export function eliminateTrivialPhis(graph: DceGraph): number {
+  const folds = new Map<DceNode, DceNode>();
+  const worklist: DceNode[] = [];
+  const queued = new Set<DceNode>();
+
+  const enqueue = (phi: DceNode): void => {
+    if (queued.has(phi)) return;
+    queued.add(phi);
+    worklist.push(phi);
+  };
+
+  for (const block of graph.blocks) {
+    for (const phi of block.params) enqueue(phi);
+  }
+
+  while (worklist.length > 0) {
+    const phi = worklist.pop()!;
+    queued.delete(phi);
+    if (folds.has(phi)) continue;
+
+    let unique: DceNode | null = null;
+    let trivial = true;
+    for (const input of phi.inputs) {
+      if (!input || input === phi) continue;
+      if (unique === null) unique = input;
+      else if (unique !== input) {
+        trivial = false;
+        break;
+      }
+    }
+    if (!trivial || unique === null) continue;
+
+    const phiUses = phi.uses.filter((use) => use.type === ir.IR_PHI && use !== phi);
+    replaceValueUses(graph, phi, unique);
+    folds.set(phi, unique);
+    for (const use of phiUses) enqueue(use);
+  }
+
+  if (folds.size === 0) return 0;
+
+  const resolve = (node: DceNode): DceNode => {
+    const target = folds.get(node);
+    if (!target) return node;
+    const final = resolve(target);
+    folds.set(node, final);
+    return final;
+  };
+
+  for (const block of graph.blocks) {
+    for (const args of block.edgeArgs.values()) {
+      for (let i = 0; i < args.length; i++) args[i] = resolve(args[i]);
+    }
+  }
+
+  for (const block of graph.blocks) {
+    const removedIndices = new Set<number>();
+    for (let index = 0; index < block.params.length; index++) {
+      if (folds.has(block.params[index])) removedIndices.add(index);
+    }
+    if (removedIndices.size === 0) continue;
+
+    block.params = block.params.filter((_, index) => !removedIndices.has(index));
+    block.nodes = block.nodes.filter((node) => !folds.has(node));
+    for (const pred of block.predecessors) {
+      const args = pred.edgeArgs.get(block.id);
+      if (!args) continue;
+      pred.edgeArgs.set(
+        block.id,
+        args.filter((_, index) => !removedIndices.has(index)),
+      );
+    }
+    for (let index = 0; index < block.params.length; index++) {
+      block.params[index].props.index = index;
+    }
+  }
+
+  graph.rebuildUses?.();
+  return folds.size;
 }
 
 export function eliminateDeadPhis(graph: DceGraph): number {

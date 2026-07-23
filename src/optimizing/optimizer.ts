@@ -26,6 +26,7 @@ import { representationSelection } from "./passes/repr-selection.js";
 import {
   deadCodeElimination,
   eliminateDeadPhis,
+  eliminateTrivialPhis,
   eliminateUnreachableBlocks,
 } from "./passes/dce.js";
 import { loadElimination } from "./passes/load-elimination.js";
@@ -34,6 +35,7 @@ import { typeNarrowing } from "./passes/type-narrowing.js";
 import { validateOptimizedGraph } from "./validation/graph-validator.js";
 import { buildFrameStateIndex, clearFrameStateIndex } from "./passes/frame-state-values.js";
 import { applyOsrTransform, repairFrameStateDominance } from "./passes/osr.js";
+import { specializeAllocationShapes } from "./passes/allocation-shape.js";
 
 type CompiledFunctionLike = RegisterCompiledFunction;
 type OptimizedGraph = CFGFunction;
@@ -93,6 +95,9 @@ export class SpeculativeOptimizer {
 
     buildFrameStateIndex(graph);
 
+    const allocShapeCount = specializeAllocationShapes(graph);
+    rebuildAll();
+
     const icLowered = inlineCacheLowering(graph, feedback);
     rebuildAll();
     hoistLoopInvariants(graph, findLoopsFn);
@@ -130,6 +135,8 @@ export class SpeculativeOptimizer {
     rebuildAll();
     const unrollCount = loopUnrolling(graph, findLoopsFn);
     rebuildAll();
+    eliminateTrivialPhis(graph);
+    rebuildAll();
     eliminateDeadPhis(graph);
     rebuildAll();
     const repSelCount = representationSelection(graph);
@@ -158,12 +165,13 @@ export class SpeculativeOptimizer {
         unrollCount +
         loadElimCount +
         deadStoreCount +
-        typeNarrowCount >
+        typeNarrowCount +
+        allocShapeCount >
       0
     ) {
       tracer.jitCompile(
         functionName,
-        `Optimizer: ${foldCount} folded, ${propCount} propagated, ${strengthCount} strength-reduced, ${loadElimCount} loads-eliminated, ${deadStoreCount} dead-stores, ${scalarReplCount} scalar-replaced, ${sunkCount} alloc-sunk, ${gvnCount} GVN-eliminated, ${boundsElimCount} bounds-eliminated, ${unrollCount} loops-unrolled, ${repSelCount} repr-selected, ${typeNarrowCount} type-narrowed, ${dceCount} dead eliminated, ${unreachCount} blocks pruned`,
+        `Optimizer: ${foldCount} folded, ${propCount} propagated, ${strengthCount} strength-reduced, ${loadElimCount} loads-eliminated, ${deadStoreCount} dead-stores, ${scalarReplCount} scalar-replaced, ${sunkCount} alloc-sunk, ${allocShapeCount} alloc-shaped, ${gvnCount} GVN-eliminated, ${boundsElimCount} bounds-eliminated, ${unrollCount} loops-unrolled, ${repSelCount} repr-selected, ${typeNarrowCount} type-narrowed, ${dceCount} dead eliminated, ${unreachCount} blocks pruned`,
       );
     }
 

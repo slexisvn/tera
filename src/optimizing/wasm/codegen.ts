@@ -96,6 +96,7 @@ import {
 } from "../ir/metadata.js";
 import {
   RUNTIME_STUB_NODES,
+  HEAP_MEMORY_STORE_NODES,
   VALUE_PRODUCING,
   INT32_ARITH,
   FLOAT64_ARITH,
@@ -268,6 +269,7 @@ type WasmAnalysis = {
   hasOverflowChecks: boolean;
   _allocTempLocal: number;
   hasInlineAlloc: boolean;
+  mutatesHeapObjects: boolean;
   _localSlotMap: Map<ir.IRMetadataValue, WasmLocalId>;
   _nonPrimitiveConstants: SyntheticConstantNode[];
   _syntheticConstants: SyntheticConstantNode[];
@@ -1187,6 +1189,17 @@ export class WasmCodegen {
       nextLocal++;
     }
 
+    let mutatesHeapObjects = false;
+    for (const block of graph.blocks) {
+      for (const node of block.nodes) {
+        if (HEAP_MEMORY_STORE_NODES.has(node.type)) {
+          mutatesHeapObjects = true;
+          break;
+        }
+      }
+      if (mutatesHeapObjects) break;
+    }
+
     const phiUpdateTempLocal = new Map<number, WasmLocalId>();
     let phiUpdateTempI32Count = 0;
     let phiUpdateTempF64Count = 0;
@@ -1311,6 +1324,7 @@ export class WasmCodegen {
       hasOverflowChecks,
       _allocTempLocal,
       hasInlineAlloc,
+      mutatesHeapObjects,
       _localSlotMap,
       _nonPrimitiveConstants,
       _syntheticConstants,
@@ -2476,6 +2490,19 @@ export class WasmCodegen {
         ...wasmFormat.encodeU32(2),
         ...wasmFormat.encodeU32(4),
       );
+
+      for (let slot = 0; slot < slotCount; slot++) {
+        bytes.push(
+          wasmFormat.OP_LOCAL_GET,
+          ...wasmFormat.encodeU32(analysis._allocTempLocal),
+        );
+        bytes.push(wasmFormat.OP_F64_CONST, ...wasmFormat.encodeF64(0));
+        bytes.push(
+          wasmFormat.OP_F64_STORE,
+          ...wasmFormat.encodeU32(3),
+          ...wasmFormat.encodeU32(8 + slot * 8),
+        );
+      }
 
       bytes.push(wasmFormat.OP_I32_CONST, ...wasmFormat.encodeS32(0));
       bytes.push(
@@ -3932,10 +3959,24 @@ export class WasmCodegen {
       const objPtrs: Map<number, ObjectPointerInfo> = new Map();
       const ptrByIdentity: Map<HeapPayload, number> = new Map();
       let nextObjPtr = 1024;
-      if (analysis.hasInlineAlloc && memory) {
-        const dv = new DataView(memory.buffer);
-        dv.setInt32(0, nextObjPtr, true);
-      }
+
+      const takeObjPtr = () => {
+        if (analysis.hasInlineAlloc && memory) {
+          const inlinePtr = new DataView(memory.buffer).getInt32(0, true);
+          if (inlinePtr > nextObjPtr) nextObjPtr = inlinePtr;
+        }
+        return nextObjPtr;
+      };
+
+      const releaseObjPtr = (end: number) => {
+        nextObjPtr = end;
+        if (analysis.hasInlineAlloc && memory) {
+          new DataView(memory.buffer).setInt32(0, end, true);
+        }
+      };
+
+      releaseObjPtr(nextObjPtr);
+
       const ensureMemory = (needed: number) => {
         if (!memory) return;
         const currentSize = memory.buffer.byteLength;
@@ -3972,14 +4013,14 @@ export class WasmCodegen {
           }
         }
 
-        const ptr = nextObjPtr;
+        const ptr = takeObjPtr();
         if (array) {
           const raw = getPayload(tagged);
           const slots = raw.elements.length;
           const capacity = skipSlotSerialization ? slots : Math.max(slots * 2, 4);
           const newEnd = ptr + Math.max(16 + capacity * 8, 8);
           ensureMemory(newEnd);
-          nextObjPtr = newEnd;
+          releaseObjPtr(newEnd);
           objPtrs.set(ptr, {
             ptr, obj: raw, value: tagged, serializedSlots: -1, capacity,
             serializedCount: skipSlotSerialization ? 0 : slots,
@@ -3999,7 +4040,7 @@ export class WasmCodegen {
           const slots = raw.slots.length;
           const newEnd = ptr + Math.max(8 + slots * 8, 8);
           ensureMemory(newEnd);
-          nextObjPtr = newEnd;
+          releaseObjPtr(newEnd);
           const serializedSlots = maxSlots >= 0 ? Math.min(slots, maxSlots) : -1;
           objPtrs.set(ptr, { ptr, obj: raw, value: tagged, serializedSlots, capacity: slots });
           if (!skipSlotSerialization) ptrByIdentity.set(raw, ptr);
@@ -4015,7 +4056,7 @@ export class WasmCodegen {
         const raw = getPayload(tagged);
         const newEnd = ptr + 8;
         ensureMemory(newEnd);
-        nextObjPtr = newEnd;
+        releaseObjPtr(newEnd);
         objPtrs.set(ptr, { ptr, obj: raw, value: tagged });
         return ptr;
       };
@@ -4092,6 +4133,17 @@ export class WasmCodegen {
         }
       }
 
+      const commitTrackedObject = (info: ObjectPointerInfo) => {
+        const payload = serializablePayload(info.value);
+        if (!payload || !memory) return;
+        deserializeObject(payload, memory, info.ptr, info.serializedSlots ?? -1);
+      };
+
+      const commitTrackedObjects = () => {
+        if (!needsMemory || !memory) return;
+        for (const info of objPtrs.values()) commitTrackedObject(info);
+      };
+
       let rawResult = 0;
       const prevObjPtrs = threadLocal.currentObjPtrs;
       const prevRuntime = threadLocal.currentRuntime;
@@ -4106,13 +4158,12 @@ export class WasmCodegen {
         getTagged(ptr: number) {
           const p = Math.trunc(ptr);
           const info = objPtrs.get(p);
-          if (info) return info.value;
-          if (analysis.hasInlineAlloc) {
-            if (!memory) return mkNumber(ptr);
-            const curPtr = new DataView(memory.buffer).getInt32(0, true);
-            if (curPtr > nextObjPtr) nextObjPtr = curPtr;
+          if (info) {
+            if (analysis.mutatesHeapObjects) commitTrackedObject(info);
+            return info.value;
           }
-          if (analysis.hasInlineAlloc && p >= 1024 && p < nextObjPtr) {
+          if (analysis.hasInlineAlloc && !memory) return mkNumber(ptr);
+          if (analysis.hasInlineAlloc && p >= 1024 && p < takeObjPtr()) {
             if (!memory) return mkNumber(ptr);
             const dv = new DataView(memory.buffer);
             const hcId = dv.getInt32(p, true);
@@ -4153,12 +4204,9 @@ export class WasmCodegen {
         },
       };
 
-      if (analysis.hasInlineAlloc && memory) {
-        const dv = new DataView(memory.buffer);
-        dv.setInt32(0, nextObjPtr, true);
-      }
+      releaseObjPtr(nextObjPtr);
 
-      
+
       compiledFn.invocationCount = (compiledFn.invocationCount || 0) + 1;
       compiledFn.lastExecutionTime = Date.now();
 
@@ -4189,19 +4237,7 @@ export class WasmCodegen {
         threadLocal.currentObjPtrs = prevObjPtrs;
         threadLocal.currentRuntime = prevRuntime;
         if (e instanceof DeoptSignal) {
-          if (needsMemory && memory) {
-            for (const info of objPtrs.values()) {
-              const payload = serializablePayload(info.value);
-              if (payload) {
-                deserializeObject(
-                  payload,
-                  memory,
-                  info.ptr,
-                  info.serializedSlots ?? -1,
-                );
-              }
-            }
-          }
+          commitTrackedObjects();
 
           if (analysis.globalCellOffsets && memory) {
             const dv = new DataView(memory.buffer);
@@ -4260,22 +4296,13 @@ export class WasmCodegen {
         }
       }
 
-      if (analysis.hasInlineAlloc && memory) {
-        const dv = new DataView(memory.buffer);
-        nextObjPtr = dv.getInt32(0, true);
-      }
+      takeObjPtr();
 
-      if (needsMemory) {
+      if (analysis.mutatesHeapObjects) {
+        commitTrackedObjects();
+      } else if (needsMemory && memory) {
         const retInfo = objPtrs.get(Math.trunc(rawResult));
-        const retPayload = retInfo ? serializablePayload(retInfo.value) : null;
-        if (retInfo && memory && retPayload) {
-          deserializeObject(
-            retPayload,
-            memory,
-            retInfo.ptr,
-            retInfo.serializedSlots ?? -1,
-          );
-        }
+        if (retInfo) commitTrackedObject(retInfo);
       }
 
       const returnedHandle = objPtrs.get(Math.trunc(rawResult));

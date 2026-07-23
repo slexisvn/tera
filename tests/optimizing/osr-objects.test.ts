@@ -15,9 +15,29 @@ type OsrEngine = Engine & {
   compileOsr(fn: { name?: string | null }, offset: number): unknown;
 };
 
-// Whether an on-stack replacement entry was successfully produced for `name`
-// during the run. Tracked via a hook because a loop that later deoptimizes
-// (e.g. an accumulator overflowing the smi range) clears its osrCache entry.
+const tierUp = (body: string, name = "run") => {
+  const source = src(
+    body,
+    "fn driver(m):",
+    "  k = 0",
+    "  t = 0",
+    "  while k < m:",
+    "    t = run(5)",
+    "    k = k + 1",
+    "  return t",
+    "driver(300)",
+  );
+  const engine = new Engine({
+    typecheck: "off",
+    osr: false,
+    tieringPolicy: { jitThreshold: 30, baselineThreshold: 3 },
+  });
+  const optimized = engine.runNative(source);
+  const interpreted = withoutJit().runNative(source);
+  expect(optimized).toEqual(interpreted);
+  return engine.collectFunctions().find((fn) => fn.name === name);
+};
+
 const differential = (source: string, name = "run") => {
   const engine = withJit() as OsrEngine;
   let osrCompiled = false;
@@ -98,8 +118,8 @@ describe("on-stack replacement for object and array loops", () => {
     expect(osrCompiled).toBe(true);
   });
 
-  it("keeps array element read loops correct", () => {
-    expect(differential(src(
+  it("compiles a prefilled array element read loop through OSR", () => {
+    const { optimized, osrCompiled } = differential(src(
       "fn run(n):",
       "  a = [10, 20, 30, 40]",
       "  i = 0",
@@ -109,11 +129,13 @@ describe("on-stack replacement for object and array loops", () => {
       "    i = i + 1",
       "  return s",
       "run(50000)",
-    )).optimized).toBe(1250000);
+    ));
+    expect(optimized).toBe(1250000);
+    expect(osrCompiled).toBe(true);
   });
 
-  it("keeps in-place array update loops correct", () => {
-    expect(differential(src(
+  it("compiles an in-place array update loop through OSR", () => {
+    const { optimized, osrCompiled } = differential(src(
       "fn run(n):",
       "  a = [0, 0, 0, 0]",
       "  i = 0",
@@ -122,7 +144,9 @@ describe("on-stack replacement for object and array loops", () => {
       "    i = i + 1",
       "  return a[0] + a[1] + a[2] + a[3]",
       "run(50000)",
-    )).optimized).toBe(1249975000);
+    ));
+    expect(optimized).toBe(1249975000);
+    expect(osrCompiled).toBe(true);
   });
 
   it("stays correct when a guarded field value grows into a double", () => {
@@ -137,6 +161,47 @@ describe("on-stack replacement for object and array loops", () => {
       "  return s",
       "run(60000)",
     ));
+  });
+
+  it("tiers up an object field mutation loop without OSR", () => {
+    const fn = tierUp(src(
+      "q = {c: 0}",
+      "fn run(n):",
+      "  i = 0",
+      "  while i < n:",
+      "    q.c = q.c + i",
+      "    i = i + 1",
+      "  return q.c",
+    ));
+    expect(fn?.optimizedCode).toBeTruthy();
+  });
+
+  it("tiers up an object field read loop without OSR", () => {
+    const fn = tierUp(src(
+      "q = {c: 7}",
+      "fn run(n):",
+      "  i = 0",
+      "  s = 0",
+      "  while i < n:",
+      "    s = s + q.c",
+      "    i = i + 1",
+      "  return s",
+    ));
+    expect(fn?.optimizedCode).toBeTruthy();
+  });
+
+  it("tiers up an array element read loop without OSR", () => {
+    const fn = tierUp(src(
+      "b = [10, 20, 30, 40]",
+      "fn run(n):",
+      "  i = 0",
+      "  s = 0",
+      "  while i < n:",
+      "    s = s + b[i % 4]",
+      "    i = i + 1",
+      "  return s",
+    ));
+    expect(fn?.optimizedCode).toBeTruthy();
   });
 
   it("stays correct when a field value becomes a non-number mid-loop", () => {

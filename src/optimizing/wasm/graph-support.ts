@@ -102,6 +102,12 @@ export const RUNTIME_STUB_NODES = new Set([
   ir.IR_FLOAT64_POW,
 ]);
 
+export const HEAP_MEMORY_STORE_NODES = new Set([
+  ir.IR_STORE_FIELD,
+  ir.IR_STORE_ELEMENT,
+  ir.IR_POLYMORPHIC_STORE,
+]);
+
 export const VALUE_PRODUCING = new Set([
   ir.IR_PARAMETER,
   ir.IR_CONSTANT,

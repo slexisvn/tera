@@ -113,6 +113,78 @@ export function representationSelection(graph: ReprGraph): number {
     nodeRep.set(param.id, REP_HANDLE);
   }
 
+  type Demand =
+    | typeof REP_INT32
+    | typeof REP_FLOAT64
+    | typeof REP_TAGGED_NUMBER
+    | typeof REP_HANDLE
+    | null;
+
+  const joinDemand = (a: Demand, b: Demand): Demand => {
+    if (a === null) return b;
+    if (b === null) return a;
+    if (a === b) return a;
+    if (a === REP_HANDLE || b === REP_HANDLE) return REP_HANDLE;
+    if (a === REP_TAGGED_NUMBER || b === REP_TAGGED_NUMBER)
+      return REP_TAGGED_NUMBER;
+    return REP_FLOAT64;
+  };
+
+  const demandOfUse = (use: ReprNode): Demand => {
+    if (use.type === ir.IR_CHECK_SMI) return REP_INT32;
+    if (use.type === ir.IR_CHECK_NUMBER) return REP_FLOAT64;
+    if (use.type === ir.IR_GENERIC_MOD || use.type === ir.IR_GENERIC_COMPARE)
+      return REP_TAGGED_NUMBER;
+    return REP_HANDLE;
+  };
+
+  const nodeDemand = new Map<number, Demand>();
+  const demandWorklist: ReprNode[] = [];
+  const demandQueued = new Set<number>();
+
+  const enqueueDemand = (node: ReprNode): void => {
+    if (demandQueued.has(node.id)) return;
+    demandQueued.add(node.id);
+    demandWorklist.push(node);
+  };
+
+  for (const param of graph.parameters) enqueueDemand(param);
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) enqueueDemand(node);
+  }
+
+  while (demandWorklist.length > 0) {
+    const node = demandWorklist.pop()!;
+    demandQueued.delete(node.id);
+
+    let demand: Demand = null;
+    for (const use of node.uses) {
+      demand = joinDemand(
+        demand,
+        use.type === ir.IR_PHI
+          ? (nodeDemand.get(use.id) ?? null)
+          : demandOfUse(use),
+      );
+      if (demand === REP_HANDLE) break;
+    }
+
+    if (demand === (nodeDemand.get(node.id) ?? null)) continue;
+    nodeDemand.set(node.id, demand);
+    if (node.type === ir.IR_PHI) {
+      for (const input of node.inputs) enqueueDemand(input);
+    }
+  }
+
+  const acceptsUnboxedNumber = (node: ReprNode): boolean =>
+    (nodeDemand.get(node.id) ?? null) !== REP_HANDLE;
+
+  const unboxedRepForDemand = (node: ReprNode): Representation => {
+    const demand = nodeDemand.get(node.id) ?? null;
+    if (demand === REP_INT32) return REP_INT32;
+    if (demand === REP_FLOAT64) return REP_FLOAT64;
+    return REP_HANDLE;
+  };
+
   const isProvablyNumericOperand = (inp: ReprNode): boolean => {
     const rep = nodeRep.get(inp.id);
     if (
@@ -241,23 +313,10 @@ export function representationSelection(graph: ReprGraph): number {
         node.type === ir.IR_LOAD_FIELD ||
         node.type === ir.IR_POLYMORPHIC_LOAD
       ) {
-        let fieldRep: Representation = REP_TAGGED_NUMBER;
-        if (node.uses && node.uses.length > 0) {
-          let allNumeric = true;
-          for (const use of node.uses) {
-            if (
-              use.type !== ir.IR_CHECK_SMI &&
-              use.type !== ir.IR_CHECK_NUMBER &&
-              use.type !== ir.IR_GENERIC_MOD &&
-              use.type !== ir.IR_GENERIC_COMPARE
-            ) {
-              allNumeric = false;
-              break;
-            }
-          }
-          if (!allNumeric) fieldRep = REP_HANDLE;
-        }
-        nodeRep.set(node.id, fieldRep);
+        nodeRep.set(
+          node.id,
+          acceptsUnboxedNumber(node) ? REP_TAGGED_NUMBER : REP_HANDLE,
+        );
       } else if (
         node.type === ir.IR_CHECK_MAP ||
         node.type === ir.IR_CHECK_ARRAY ||
@@ -281,36 +340,15 @@ export function representationSelection(graph: ReprGraph): number {
       ) {
         nodeRep.set(node.id, REP_TAGGED_NUMBER);
       } else if (node.type === ir.IR_GENERIC_CALL) {
-        let callRep: Representation = REP_HANDLE;
-        if (node.uses && node.uses.length > 0) {
-          let allSmi = true;
-          let allNum = true;
-          for (const use of node.uses) {
-            if (use.type !== ir.IR_CHECK_SMI) allSmi = false;
-            if (use.type !== ir.IR_CHECK_SMI && use.type !== ir.IR_CHECK_NUMBER)
-              allNum = false;
-          }
-          if (allSmi) callRep = REP_INT32;
-          else if (allNum) callRep = REP_FLOAT64;
-        }
-        nodeRep.set(node.id, callRep);
+        nodeRep.set(node.id, unboxedRepForDemand(node));
       } else if (HANDLE_PRODUCERS.has(node.type)) {
-        let hRep: Representation = REP_HANDLE;
         const operandsNumeric =
           !OVERLOADABLE_ARITHMETIC.has(node.type) ||
           node.inputs.every(isProvablyNumericOperand);
-        if (operandsNumeric && node.uses && node.uses.length > 0) {
-          let allSmi = true;
-          let allNum = true;
-          for (const use of node.uses) {
-            if (use.type !== ir.IR_CHECK_SMI) allSmi = false;
-            if (use.type !== ir.IR_CHECK_SMI && use.type !== ir.IR_CHECK_NUMBER)
-              allNum = false;
-          }
-          if (allSmi) hRep = REP_INT32;
-          else if (allNum) hRep = REP_FLOAT64;
-        }
-        nodeRep.set(node.id, hRep);
+        nodeRep.set(
+          node.id,
+          operandsNumeric ? unboxedRepForDemand(node) : REP_HANDLE,
+        );
       } else {
         nodeRep.set(node.id, REP_HANDLE);
       }
