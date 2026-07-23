@@ -2,7 +2,7 @@
   "name": "tera-language",
   "displayName": "Tera Language",
   "description": "Syntax highlighting, diagnostics and IntelliSense for Tera (.tera) — tensor algebra & neural network DSL.",
-  "version": "0.4.0",
+  "version": "0.4.16",
   "icon": "icons/icon.png",
   "publisher": "slexisvn",
   "license": "MIT",

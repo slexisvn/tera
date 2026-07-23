@@ -13,8 +13,6 @@ const SCOPE_BY_KEYWORD_GROUP: Record<KeywordGroup, string> = {
 };
 
 const SCOPE_BY_BUILTIN_KIND: Record<string, string> = {
-  device: "constant.language.device.tera",
-  dtype: "constant.language.dtype.tera",
   constant: "constant.language.tera",
   namespace: "support.class.namespace.tera",
   global: "support.function.tera",
@@ -154,7 +152,7 @@ function declarationPatterns(groups: Record<KeywordGroup, string[]>): Pattern[] 
   const declarations = new Set(groups.declaration);
   const patterns: Pattern[] = [];
 
-  const callable = ["fn", "function"].filter((k) => declarations.has(k));
+  const callable = ["fn"].filter((k) => declarations.has(k));
   if (callable.length) {
     patterns.push({
       match: `\\b(${callable.join("|")})\\s+(${IDENT})`,

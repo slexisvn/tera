@@ -1,186 +1,4 @@
 {
-  "LinearRegression": {
-    "prefix": "LinearRegression",
-    "body": [
-      "LinearRegression($0)"
-    ],
-    "description": "ml_model: LinearRegression"
-  },
-  "Ridge": {
-    "prefix": "Ridge",
-    "body": [
-      "Ridge($0)"
-    ],
-    "description": "ml_model: Ridge"
-  },
-  "Lasso": {
-    "prefix": "Lasso",
-    "body": [
-      "Lasso($0)"
-    ],
-    "description": "ml_model: Lasso"
-  },
-  "ElasticNet": {
-    "prefix": "ElasticNet",
-    "body": [
-      "ElasticNet($0)"
-    ],
-    "description": "ml_model: ElasticNet"
-  },
-  "LogisticRegression": {
-    "prefix": "LogisticRegression",
-    "body": [
-      "LogisticRegression($0)"
-    ],
-    "description": "ml_model: LogisticRegression"
-  },
-  "KNeighborsClassifier": {
-    "prefix": "KNeighborsClassifier",
-    "body": [
-      "KNeighborsClassifier($0)"
-    ],
-    "description": "ml_model: KNeighborsClassifier"
-  },
-  "KNeighborsRegressor": {
-    "prefix": "KNeighborsRegressor",
-    "body": [
-      "KNeighborsRegressor($0)"
-    ],
-    "description": "ml_model: KNeighborsRegressor"
-  },
-  "GaussianNB": {
-    "prefix": "GaussianNB",
-    "body": [
-      "GaussianNB()"
-    ],
-    "description": "ml_model: GaussianNB"
-  },
-  "DecisionTreeClassifier": {
-    "prefix": "DecisionTreeClassifier",
-    "body": [
-      "DecisionTreeClassifier($0)"
-    ],
-    "description": "ml_model: DecisionTreeClassifier"
-  },
-  "DecisionTreeRegressor": {
-    "prefix": "DecisionTreeRegressor",
-    "body": [
-      "DecisionTreeRegressor($0)"
-    ],
-    "description": "ml_model: DecisionTreeRegressor"
-  },
-  "RandomForestClassifier": {
-    "prefix": "RandomForestClassifier",
-    "body": [
-      "RandomForestClassifier($0)"
-    ],
-    "description": "ml_model: RandomForestClassifier"
-  },
-  "RandomForestRegressor": {
-    "prefix": "RandomForestRegressor",
-    "body": [
-      "RandomForestRegressor($0)"
-    ],
-    "description": "ml_model: RandomForestRegressor"
-  },
-  "GradientBoostingClassifier": {
-    "prefix": "GradientBoostingClassifier",
-    "body": [
-      "GradientBoostingClassifier($0)"
-    ],
-    "description": "ml_model: GradientBoostingClassifier"
-  },
-  "GradientBoostingRegressor": {
-    "prefix": "GradientBoostingRegressor",
-    "body": [
-      "GradientBoostingRegressor($0)"
-    ],
-    "description": "ml_model: GradientBoostingRegressor"
-  },
-  "StandardScaler": {
-    "prefix": "StandardScaler",
-    "body": [
-      "StandardScaler($0)"
-    ],
-    "description": "ml_transform: StandardScaler"
-  },
-  "MinMaxScaler": {
-    "prefix": "MinMaxScaler",
-    "body": [
-      "MinMaxScaler($0)"
-    ],
-    "description": "ml_transform: MinMaxScaler"
-  },
-  "LabelEncoder": {
-    "prefix": "LabelEncoder",
-    "body": [
-      "LabelEncoder()"
-    ],
-    "description": "ml_transform: LabelEncoder"
-  },
-  "OneHotEncoder": {
-    "prefix": "OneHotEncoder",
-    "body": [
-      "OneHotEncoder()"
-    ],
-    "description": "ml_transform: OneHotEncoder"
-  },
-  "PCA": {
-    "prefix": "PCA",
-    "body": [
-      "PCA($0)"
-    ],
-    "description": "ml_transform: PCA"
-  },
-  "KMeans": {
-    "prefix": "KMeans",
-    "body": [
-      "KMeans($0)"
-    ],
-    "description": "ml_cluster: KMeans"
-  },
-  "KFold": {
-    "prefix": "KFold",
-    "body": [
-      "KFold($0)"
-    ],
-    "description": "ml_split: KFold"
-  },
-  "TimeSeriesSplit": {
-    "prefix": "TimeSeriesSplit",
-    "body": [
-      "TimeSeriesSplit($0)"
-    ],
-    "description": "ml_split: TimeSeriesSplit"
-  },
-  "load_tokenizer": {
-    "prefix": "load_tokenizer",
-    "body": [
-      "load_tokenizer(${1:path})$0"
-    ],
-    "description": "data: load_tokenizer"
-  },
-  "load_model": {
-    "prefix": "load_model",
-    "body": [
-      "load_model(${1:model}, ${2:path})$0"
-    ],
-    "description": "data: load_model"
-  },
-  "read_text": {
-    "prefix": "read_text",
-    "body": [
-      "read_text(${1:path})$0"
-    ],
-    "description": "data: read_text"
-  },
-  "load_json": {
-    "prefix": "load_json",
-    "body": [
-      "load_json(${1:path})$0"
-    ],
-    "description": "data: load_json"
-  },
   "tensor": {
     "prefix": "tensor",
     "body": [
@@ -496,20 +314,6 @@
     ],
     "description": "module: BCELoss"
   },
-  "TensorDataset": {
-    "prefix": "TensorDataset",
-    "body": [
-      "TensorDataset($0)"
-    ],
-    "description": "data: TensorDataset"
-  },
-  "DataLoader": {
-    "prefix": "DataLoader",
-    "body": [
-      "DataLoader(${1:dataset})$0"
-    ],
-    "description": "data: DataLoader"
-  },
   "SGD": {
     "prefix": "SGD",
     "body": [
@@ -558,6 +362,76 @@
       "Trainer($0)"
     ],
     "description": "trainer: Trainer"
+  },
+  "TensorDataset": {
+    "prefix": "TensorDataset",
+    "body": [
+      "TensorDataset($0)"
+    ],
+    "description": "data: TensorDataset"
+  },
+  "DataLoader": {
+    "prefix": "DataLoader",
+    "body": [
+      "DataLoader(${1:dataset})$0"
+    ],
+    "description": "data: DataLoader"
+  },
+  "load_csv": {
+    "prefix": "load_csv",
+    "body": [
+      "load_csv(${1:path})$0"
+    ],
+    "description": "data: load_csv"
+  },
+  "read_text": {
+    "prefix": "read_text",
+    "body": [
+      "read_text(${1:path})$0"
+    ],
+    "description": "data: read_text"
+  },
+  "load_json": {
+    "prefix": "load_json",
+    "body": [
+      "load_json(${1:path})$0"
+    ],
+    "description": "data: load_json"
+  },
+  "load_model": {
+    "prefix": "load_model",
+    "body": [
+      "load_model(${1:model}, ${2:path})$0"
+    ],
+    "description": "data: load_model"
+  },
+  "load_tokenizer": {
+    "prefix": "load_tokenizer",
+    "body": [
+      "load_tokenizer(${1:path})$0"
+    ],
+    "description": "data: load_tokenizer"
+  },
+  "Tokenizer": {
+    "prefix": "Tokenizer",
+    "body": [
+      "Tokenizer($0)"
+    ],
+    "description": "data: Tokenizer"
+  },
+  "DataFrame": {
+    "prefix": "DataFrame",
+    "body": [
+      "DataFrame($0)"
+    ],
+    "description": "data: DataFrame"
+  },
+  "register_columns_table": {
+    "prefix": "register_columns_table",
+    "body": [
+      "register_columns_table($0)"
+    ],
+    "description": "data: register_columns_table"
   },
   "EarlyStopping": {
     "prefix": "EarlyStopping",
@@ -657,32 +531,158 @@
     ],
     "description": "metric: MetricCollection"
   },
-  "Tokenizer": {
-    "prefix": "Tokenizer",
+  "LinearRegression": {
+    "prefix": "LinearRegression",
     "body": [
-      "Tokenizer($0)"
+      "LinearRegression($0)"
     ],
-    "description": "data: Tokenizer"
+    "description": "ml_model: LinearRegression"
   },
-  "DataFrame": {
-    "prefix": "DataFrame",
+  "Ridge": {
+    "prefix": "Ridge",
     "body": [
-      "DataFrame(${1:columns})$0"
+      "Ridge($0)"
     ],
-    "description": "data: DataFrame"
+    "description": "ml_model: Ridge"
   },
-  "load_csv": {
-    "prefix": "load_csv",
+  "Lasso": {
+    "prefix": "Lasso",
     "body": [
-      "load_csv(${1:path}, ${2:\"})$0"
+      "Lasso($0)"
     ],
-    "description": "data: load_csv"
+    "description": "ml_model: Lasso"
   },
-  "register_columns_table": {
-    "prefix": "register_columns_table",
+  "ElasticNet": {
+    "prefix": "ElasticNet",
     "body": [
-      "register_columns_table(${1:columns})$0"
+      "ElasticNet($0)"
     ],
-    "description": "data: register_columns_table"
+    "description": "ml_model: ElasticNet"
+  },
+  "LogisticRegression": {
+    "prefix": "LogisticRegression",
+    "body": [
+      "LogisticRegression($0)"
+    ],
+    "description": "ml_model: LogisticRegression"
+  },
+  "KNeighborsClassifier": {
+    "prefix": "KNeighborsClassifier",
+    "body": [
+      "KNeighborsClassifier($0)"
+    ],
+    "description": "ml_model: KNeighborsClassifier"
+  },
+  "KNeighborsRegressor": {
+    "prefix": "KNeighborsRegressor",
+    "body": [
+      "KNeighborsRegressor($0)"
+    ],
+    "description": "ml_model: KNeighborsRegressor"
+  },
+  "GaussianNB": {
+    "prefix": "GaussianNB",
+    "body": [
+      "GaussianNB($0)"
+    ],
+    "description": "ml_model: GaussianNB"
+  },
+  "DecisionTreeClassifier": {
+    "prefix": "DecisionTreeClassifier",
+    "body": [
+      "DecisionTreeClassifier($0)"
+    ],
+    "description": "ml_model: DecisionTreeClassifier"
+  },
+  "DecisionTreeRegressor": {
+    "prefix": "DecisionTreeRegressor",
+    "body": [
+      "DecisionTreeRegressor($0)"
+    ],
+    "description": "ml_model: DecisionTreeRegressor"
+  },
+  "RandomForestClassifier": {
+    "prefix": "RandomForestClassifier",
+    "body": [
+      "RandomForestClassifier($0)"
+    ],
+    "description": "ml_model: RandomForestClassifier"
+  },
+  "RandomForestRegressor": {
+    "prefix": "RandomForestRegressor",
+    "body": [
+      "RandomForestRegressor($0)"
+    ],
+    "description": "ml_model: RandomForestRegressor"
+  },
+  "GradientBoostingClassifier": {
+    "prefix": "GradientBoostingClassifier",
+    "body": [
+      "GradientBoostingClassifier($0)"
+    ],
+    "description": "ml_model: GradientBoostingClassifier"
+  },
+  "GradientBoostingRegressor": {
+    "prefix": "GradientBoostingRegressor",
+    "body": [
+      "GradientBoostingRegressor($0)"
+    ],
+    "description": "ml_model: GradientBoostingRegressor"
+  },
+  "StandardScaler": {
+    "prefix": "StandardScaler",
+    "body": [
+      "StandardScaler($0)"
+    ],
+    "description": "ml_transform: StandardScaler"
+  },
+  "MinMaxScaler": {
+    "prefix": "MinMaxScaler",
+    "body": [
+      "MinMaxScaler($0)"
+    ],
+    "description": "ml_transform: MinMaxScaler"
+  },
+  "LabelEncoder": {
+    "prefix": "LabelEncoder",
+    "body": [
+      "LabelEncoder($0)"
+    ],
+    "description": "ml_transform: LabelEncoder"
+  },
+  "OneHotEncoder": {
+    "prefix": "OneHotEncoder",
+    "body": [
+      "OneHotEncoder($0)"
+    ],
+    "description": "ml_transform: OneHotEncoder"
+  },
+  "PCA": {
+    "prefix": "PCA",
+    "body": [
+      "PCA($0)"
+    ],
+    "description": "ml_transform: PCA"
+  },
+  "KMeans": {
+    "prefix": "KMeans",
+    "body": [
+      "KMeans($0)"
+    ],
+    "description": "ml_cluster: KMeans"
+  },
+  "KFold": {
+    "prefix": "KFold",
+    "body": [
+      "KFold($0)"
+    ],
+    "description": "ml_split: KFold"
+  },
+  "TimeSeriesSplit": {
+    "prefix": "TimeSeriesSplit",
+    "body": [
+      "TimeSeriesSplit($0)"
+    ],
+    "description": "ml_split: TimeSeriesSplit"
   }
 }

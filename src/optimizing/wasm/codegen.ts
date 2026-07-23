@@ -36,6 +36,8 @@ import {
   typeOf,
   TAG_SMI,
   TAG_DOUBLE,
+  SMI_MIN,
+  SMI_MAX,
   getPayload,
   getTag,
   strictEqual,
@@ -153,16 +155,6 @@ function resolveNodeLocal(nodeId: number, analysis: AnyAnalysis): WasmLocalId | 
   return analysis.nodeLocal.get(nodeId);
 }
 
-const GENERIC_NUMERIC_PRODUCERS = new Set([
-  ir.IR_GENERIC_ADD,
-  ir.IR_GENERIC_SUB,
-  ir.IR_GENERIC_MUL,
-  ir.IR_GENERIC_DIV,
-  ir.IR_GENERIC_MOD,
-  ir.IR_GENERIC_POW,
-  ir.IR_GENERIC_USHR,
-]);
-
 const NUMERIC_PARAM_USES = new Set([
   ir.IR_CHECK_SMI,
   ir.IR_CHECK_NUMBER,
@@ -248,6 +240,8 @@ type ObjectPointerInfo = {
   obj: HeapPayload;
   value: TaggedValue;
   serializedSlots?: number;
+  capacity?: number;
+  serializedCount?: number;
 };
 type WasmAnalysis = {
   paramTypes: WasmType[];
@@ -438,14 +432,9 @@ export class WasmCodegen {
           (node.type === ir.IR_CHECK_NUMBER || node.type === ir.IR_CHECK_SMI) &&
           node.inputs[0] &&
           node.inputs[0].type !== ir.IR_PARAMETER &&
-          (repForNode(node.inputs[0]) === REP_HANDLE ||
-            (node.type === ir.IR_CHECK_SMI &&
-              (repForNode(node.inputs[0]) === REP_TAGGED_NUMBER ||
-                GENERIC_NUMERIC_PRODUCERS.has(node.inputs[0].type) ||
-                node.inputs[0].type === ir.IR_GENERIC_CALL ||
-                node.inputs[0].type === ir.IR_CALL_KNOWN_FUNCTION)))
+          repForNode(node.inputs[0]) === REP_HANDLE
         ) {
-          return "number guard on non-parameter tagged value";
+          return "number guard on non-parameter handle value";
         }
         if (
           (node.type === ir.IR_GENERIC_GET_PROP ||
@@ -1995,6 +1984,59 @@ export class WasmCodegen {
     }
   }
 
+  emitConditionalDeopt(
+    node: AnyNode,
+    analysis: AnyAnalysis,
+    bytes: number[],
+    deoptImportIdx: number,
+    reason: string,
+  ): void {
+    bytes.push(wasmFormat.OP_IF, wasmFormat.TYPE_VOID);
+    this.emitDeoptSnapshot(node.frameState, analysis, bytes);
+    bytes.push(
+      wasmFormat.OP_I32_CONST,
+      ...wasmFormat.encodeS32(deoptReasonId(reason)),
+    );
+    bytes.push(
+      wasmFormat.OP_I32_CONST,
+      ...wasmFormat.encodeS32(node.frameState?.id ?? 0),
+    );
+    bytes.push(wasmFormat.OP_CALL, ...wasmFormat.encodeU32(deoptImportIdx));
+    bytes.push(wasmFormat.OP_UNREACHABLE);
+    bytes.push(wasmFormat.OP_END);
+  }
+
+  emitNumberGuard(
+    node: AnyNode,
+    analysis: AnyAnalysis,
+    bytes: number[],
+    deoptImportIdx: number,
+    requireSmi: boolean,
+  ): void {
+    const inputLocal = this.resolveLocal(node.inputs[0].id, analysis);
+    if (inputLocal === undefined) return;
+    if (!requireSmi) return;
+    bytes.push(wasmFormat.OP_LOCAL_GET, ...wasmFormat.encodeU32(inputLocal));
+    bytes.push(wasmFormat.OP_F64_TRUNC);
+    bytes.push(wasmFormat.OP_LOCAL_GET, ...wasmFormat.encodeU32(inputLocal));
+    bytes.push(wasmFormat.OP_F64_NE);
+    bytes.push(wasmFormat.OP_LOCAL_GET, ...wasmFormat.encodeU32(inputLocal));
+    bytes.push(wasmFormat.OP_F64_CONST, ...wasmFormat.encodeF64(SMI_MIN));
+    bytes.push(wasmFormat.OP_F64_LT);
+    bytes.push(wasmFormat.OP_I32_OR);
+    bytes.push(wasmFormat.OP_LOCAL_GET, ...wasmFormat.encodeU32(inputLocal));
+    bytes.push(wasmFormat.OP_F64_CONST, ...wasmFormat.encodeF64(SMI_MAX));
+    bytes.push(wasmFormat.OP_F64_GT);
+    bytes.push(wasmFormat.OP_I32_OR);
+    this.emitConditionalDeopt(
+      node,
+      analysis,
+      bytes,
+      deoptImportIdx,
+      deoptReasonForNode(node),
+    );
+  }
+
   emitRuntimeStubCall(node: AnyNode, analysis: AnyAnalysis, bytes: number[], runtimeStubImportIdx: number): void {
     if (runtimeStubImportIdx < 0) {
       bytes.push(wasmFormat.OP_UNREACHABLE);
@@ -2674,34 +2716,21 @@ export class WasmCodegen {
         break;
       }
 
-      case ir.IR_CHECK_SMI: {
-        const fsId = node.frameState?.id ?? 0;
-        if (deoptImportIdx >= 0) {
-          const inputLocal = local(node.inputs[0].id);
-          if (inputLocal !== undefined) {
-            bytes.push(
-              wasmFormat.OP_LOCAL_GET,
-              ...wasmFormat.encodeU32(inputLocal),
-            );
-            bytes.push(wasmFormat.OP_DROP);
-          }
-          this.emitDeoptSnapshot(node.frameState, analysis, bytes);
-        }
-        break;
-      }
-
+      case ir.IR_CHECK_SMI:
       case ir.IR_CHECK_NUMBER: {
-        const fsId = node.frameState?.id ?? 0;
-        if (deoptImportIdx >= 0) {
-          const inputLocal = local(node.inputs[0].id);
-          if (inputLocal !== undefined) {
-            bytes.push(
-              wasmFormat.OP_LOCAL_GET,
-              ...wasmFormat.encodeU32(inputLocal),
-            );
-            bytes.push(wasmFormat.OP_DROP);
-          }
-          this.emitDeoptSnapshot(node.frameState, analysis, bytes);
+        const input = node.inputs[0];
+        if (
+          deoptImportIdx >= 0 &&
+          input.type !== ir.IR_PARAMETER &&
+          analysis.nodeWasmType.get(input.id) === wasmFormat.TYPE_F64
+        ) {
+          this.emitNumberGuard(
+            node,
+            analysis,
+            bytes,
+            deoptImportIdx,
+            node.type === ir.IR_CHECK_SMI,
+          );
         }
         break;
       }
@@ -3901,6 +3930,7 @@ export class WasmCodegen {
       }
 
       const objPtrs: Map<number, ObjectPointerInfo> = new Map();
+      const ptrByIdentity: Map<HeapPayload, number> = new Map();
       let nextObjPtr = 1024;
       if (analysis.hasInlineAlloc && memory) {
         const dv = new DataView(memory.buffer);
@@ -3919,22 +3949,42 @@ export class WasmCodegen {
       };
 
       const allocateTagged = (tagged: TaggedValue, skipSlotSerialization = false, maxSlots = -1) => {
+        const array = isArray(tagged);
+        const object = isObject(tagged);
+        if (!skipSlotSerialization && (array || object) && memory) {
+          const raw = getPayload(tagged) as JSObject | JSArray;
+          const cachedPtr = ptrByIdentity.get(raw);
+          if (cachedPtr !== undefined) {
+            const cached = objPtrs.get(cachedPtr);
+            const slots = array
+              ? (raw as JSArray).elements.length
+              : (raw as JSObject).slots.length;
+            if (cached && slots <= (cached.capacity ?? 0)) {
+              const from = array ? (cached.serializedCount ?? 0) : 0;
+              serializeObject(raw, memory, cachedPtr, allocateTagged, maxSlots, from);
+              cached.serializedCount = array ? slots : undefined;
+              cached.serializedSlots =
+                object && maxSlots >= 0 ? Math.min(slots, maxSlots) : -1;
+              return cachedPtr;
+            }
+            objPtrs.delete(cachedPtr);
+            ptrByIdentity.delete(raw);
+          }
+        }
+
         const ptr = nextObjPtr;
-        let size = 8;
-        if (isArray(tagged)) {
+        if (array) {
           const raw = getPayload(tagged);
           const slots = raw.elements.length;
-          size = 16 + slots * 8;
-          const newEnd = ptr + Math.max(size, 8);
+          const capacity = skipSlotSerialization ? slots : Math.max(slots * 2, 4);
+          const newEnd = ptr + Math.max(16 + capacity * 8, 8);
           ensureMemory(newEnd);
           nextObjPtr = newEnd;
-          const serializedSlots = -1;
           objPtrs.set(ptr, {
-            ptr,
-            obj: raw,
-            value: tagged,
-            serializedSlots,
+            ptr, obj: raw, value: tagged, serializedSlots: -1, capacity,
+            serializedCount: skipSlotSerialization ? 0 : slots,
           });
+          if (!skipSlotSerialization) ptrByIdentity.set(raw, ptr);
           if (skipSlotSerialization && memory) {
             const view = new DataView(memory.buffer);
             view.setInt32(ptr, -1, true);
@@ -3944,20 +3994,15 @@ export class WasmCodegen {
           }
           return ptr;
         }
-        if (isObject(tagged)) {
+        if (object) {
           const raw = getPayload(tagged);
           const slots = raw.slots.length;
-          size = 8 + slots * 8;
-          const newEnd = ptr + Math.max(size, 8);
+          const newEnd = ptr + Math.max(8 + slots * 8, 8);
           ensureMemory(newEnd);
           nextObjPtr = newEnd;
           const serializedSlots = maxSlots >= 0 ? Math.min(slots, maxSlots) : -1;
-          objPtrs.set(ptr, {
-            ptr,
-            obj: raw,
-            value: tagged,
-            serializedSlots,
-          });
+          objPtrs.set(ptr, { ptr, obj: raw, value: tagged, serializedSlots, capacity: slots });
+          if (!skipSlotSerialization) ptrByIdentity.set(raw, ptr);
           if (skipSlotSerialization && memory) {
             const view = new DataView(memory.buffer);
             view.setInt32(ptr, raw.hiddenClass ? raw.hiddenClass.id : 0, true);
@@ -3968,7 +4013,7 @@ export class WasmCodegen {
           return ptr;
         }
         const raw = getPayload(tagged);
-        const newEnd = ptr + Math.max(size, 8);
+        const newEnd = ptr + 8;
         ensureMemory(newEnd);
         nextObjPtr = newEnd;
         objPtrs.set(ptr, { ptr, obj: raw, value: tagged });
@@ -4096,7 +4141,14 @@ export class WasmCodegen {
           }
           const payload = info ? serializablePayload(info.value) : null;
           if (info && memory && payload) {
-            serializeObject(payload, memory, info.ptr);
+            if (isArray(info.value)) {
+              const len = (getPayload(info.value) as JSArray).elements.length;
+              const from = len >= (info.serializedCount ?? 0) ? info.serializedCount ?? 0 : 0;
+              serializeObject(payload, memory, info.ptr, allocateTagged, -1, from);
+              info.serializedCount = len;
+            } else {
+              serializeObject(payload, memory, info.ptr);
+            }
           }
         },
       };

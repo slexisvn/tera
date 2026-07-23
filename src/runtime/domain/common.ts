@@ -1,6 +1,6 @@
 import * as mlfw from "@slexisvn/mlfw";
 import type { RuntimeFunctionMetadata, RuntimeFunctionPayload, TaggedValue } from "../../core/value/index.js";
-import { snakeToCamel } from "../../core/naming.js";
+import { camelToSnake, snakeToCamel } from "../../core/naming.js";
 import { hostBuiltin, optionsArg } from "./host.js";
 
 export { snakeToCamel };
@@ -120,7 +120,7 @@ export function recordValue(value: unknown): unknown {
     const out: Record<string, unknown> = {};
     for (const [key, inner] of Object.entries(value)) {
       const wrapped = recordValue(inner);
-      out[key] = wrapped;
+      out[camelToSnake(key)] = wrapped;
     }
     return out;
   }

@@ -29,6 +29,10 @@ describe("grammar: keywords and operators", () => {
     expect(await scopeOf("if a and b or not c:", "if")).toBe("keyword.control.tera");
   });
 
+  it("scopes for-of as control flow", async () => {
+    expect(await scopeOf("for step of range(200):", "of")).toBe("keyword.control.tera");
+  });
+
   it("scopes matmul and constants", async () => {
     expect(await scopeOf("out = inp @ w", "@")).toBe("keyword.operator.tera");
     expect(await scopeOf("x = true", "true")).toBe("constant.language.tera");
@@ -83,8 +87,6 @@ describe("grammar: builtins", () => {
     ["t = Trainer(max_epochs=3)", "Trainer", "support.class.trainer.tera"],
     ["m = Accuracy()", "Accuracy", "support.class.metric.tera"],
     ["c = chart.line(df)", "chart", "support.class.namespace.tera"],
-    ["x = zeros([2], device=cpu)", "cpu", "constant.language.device.tera"],
-    ["x = zeros([2], dtype=f32)", "f32", "constant.language.dtype.tera"],
   ])("scopes %s by its runtime kind", async (line, text, scope) => {
     expect(await scopeOf(line, text)).toBe(scope);
   });

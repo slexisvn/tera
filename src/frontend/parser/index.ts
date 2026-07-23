@@ -295,9 +295,9 @@ export class Parser {
         case "async":
           if (
             this.peek().type === TokenType.Keyword &&
-            this.peek().value === "function"
+            (this.peek().value === "fn" || this.peek().value === "function")
           ) {
-            return this.parseFunctionDeclaration(true);
+            return this.parseFunctionDeclaration(true, String(this.peek().value));
           }
           break;
         case "let":

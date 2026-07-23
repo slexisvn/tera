@@ -182,7 +182,7 @@
     "declarations": {
       "patterns": [
         {
-          "match": "\\b(fn|function)\\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+          "match": "\\b(fn)\\s+([A-Za-z_$][A-Za-z0-9_$]*)",
           "captures": {
             "1": {
               "name": "keyword.other.declaration.tera"
@@ -219,7 +219,7 @@
     "annotations": {
       "patterns": [
         {
-          "match": "(->)\\s*(?!(?:instanceof|undefined|continue|function|default|extends|finally|delete|return|switch|typeof|async|await|break|catch|class|const|false|model|super|throw|while|yield|case|else|null|this|true|void|and|for|let|new|not|try|var|do|fn|if|in|of|or)\\b)([A-Za-z_$][A-Za-z0-9_$]*)",
+          "match": "(->)\\s*(?!(?:instanceof|undefined|continue|default|extends|finally|delete|return|switch|typeof|async|await|break|catch|class|const|false|model|super|throw|while|yield|case|else|null|this|true|void|and|for|let|new|not|try|var|do|fn|if|in|of|or)\\b)([A-Za-z_$][A-Za-z0-9_$]*)",
           "captures": {
             "1": {
               "name": "keyword.operator.arrow.tera"
@@ -235,15 +235,15 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.tera",
-          "match": "\\b(?:function|extends|class|const|model|let|var|fn)\\b"
+          "match": "\\b(?:extends|class|const|model|let|var|fn)\\b"
         },
         {
           "name": "keyword.control.tera",
-          "match": "\\b(?:continue|default|finally|return|switch|async|await|break|catch|throw|while|yield|case|else|for|try|do|if)\\b"
+          "match": "\\b(?:continue|default|finally|return|switch|async|await|break|catch|throw|while|yield|case|else|for|try|do|if|of)\\b"
         },
         {
           "name": "keyword.operator.word.tera",
-          "match": "\\b(?:instanceof|delete|typeof|void|and|new|not|in|of|or)\\b"
+          "match": "\\b(?:instanceof|delete|typeof|void|and|new|not|in|or)\\b"
         },
         {
           "name": "constant.language.tera",
@@ -259,15 +259,67 @@
       "patterns": [
         {
           "name": "storage.type.tera",
-          "match": "\\b(?:GroupedData|DataFrame|boolean|unknown|Column|number|Object|string|String|Tensor|Array|float|Model|bool|List|any|int|Map|Set)\\b"
+          "match": "\\b(?:GroupedData|DataFrame|boolean|unknown|Column|Object|string|String|Tensor|Array|float|Model|bool|any|int|Map|Set)\\b"
         }
       ]
     },
     "builtins": {
       "patterns": [
         {
+          "name": "support.function.factory.tera",
+          "match": "\\b(?:empty_like|randn_like|zeros_like|full_like|ones_like|linspace|randperm|arange|tensor|empty|randn|zeros|full|ones|eye)\\b"
+        },
+        {
           "name": "support.function.tera",
           "match": "\\b(?:optim_config|count_star|compile|count|range|stack|where|expr|avg|cat|col|lit|max|min|sum)\\b"
+        },
+        {
+          "name": "support.function.tera",
+          "match": "\\b(?:print)\\b"
+        },
+        {
+          "name": "support.class.sequential.tera",
+          "match": "\\b(?:Sequential)\\b"
+        },
+        {
+          "name": "support.class.nn-module.tera",
+          "match": "\\b(?:AdaptiveAvgPool2d|CrossEntropyLoss|BatchNorm1d|BatchNorm2d|LogSoftmax|AvgPool2d|Embedding|LayerNorm|LeakyReLU|MaxPool2d|LSTMCell|BCELoss|Dropout|Flatten|GRUCell|MSELoss|NLLLoss|Sigmoid|Softmax|Conv1d|Conv2d|Linear|GELU|LSTM|ReLU|SiLU|Tanh|ELU|GRU)\\b"
+        },
+        {
+          "name": "support.class.optimizer.tera",
+          "match": "\\b(?:AdamW|Adam|SGD)\\b"
+        },
+        {
+          "name": "support.class.scheduler.tera",
+          "match": "\\b(?:CosineAnnealingLR|ReduceLROnPlateau|StepLR)\\b"
+        },
+        {
+          "name": "support.class.trainer.tera",
+          "match": "\\b(?:Trainer)\\b"
+        },
+        {
+          "name": "support.function.tera",
+          "match": "\\b(?:log)\\b"
+        },
+        {
+          "name": "support.function.data.tera",
+          "match": "\\b(?:register_columns_table|load_tokenizer|TensorDataset|DataLoader|load_model|DataFrame|load_json|read_text|Tokenizer|load_csv)\\b"
+        },
+        {
+          "name": "support.function.tera",
+          "match": "\\b(?:min_track_record_length|garch_volatility|cross_sectional|deflated_sharpe|kalman_smoother|garch_forecast|hurst_exponent|mean_reversion|engle_granger|kalman_filter|mean_variance|cusum_events|dynamic_beta|equal_weight|walk_forward|dollar_bars|kyle_lambda|risk_parity|roll_spread|volume_bars|load_quill|long_short|fit_garch|half_life|kpss_test|tick_bars|tick_rule|adf_test|backtest|johansen|momentum|amihud|sharpe|zscore|bsadf|quill|sadf|vpin|hrp|pbo)\\b"
+        },
+        {
+          "name": "support.class.callback.tera",
+          "match": "\\b(?:GradientAccumulationScheduler|LearningRateMonitor|ProgressCallback|ModelCheckpoint|EarlyStopping|Timer)\\b"
+        },
+        {
+          "name": "support.class.logger.tera",
+          "match": "\\b(?:ConsoleLogger|CSVLogger)\\b"
+        },
+        {
+          "name": "support.class.metric.tera",
+          "match": "\\b(?:MetricCollection|ConfusionMatrix|Precision|Accuracy|F1Score|Recall)\\b"
         },
         {
           "name": "support.function.tera",
@@ -287,11 +339,7 @@
         },
         {
           "name": "support.function.tera",
-          "match": "\\b(?:cholesky|lstsq|solve|eigh|pinv|cov|det|inv|svd)\\b"
-        },
-        {
-          "name": "support.function.tera",
-          "match": "\\b(?:mean_absolute_error|mean_squared_error|confusion_matrix|accuracy_score|r2_score)\\b"
+          "match": "\\b(?:GridSearchCV)\\b"
         },
         {
           "name": "support.function.tera",
@@ -299,7 +347,11 @@
         },
         {
           "name": "support.function.tera",
-          "match": "\\b(?:GridSearchCV)\\b"
+          "match": "\\b(?:mean_absolute_error|mean_squared_error|confusion_matrix|accuracy_score|r2_score)\\b"
+        },
+        {
+          "name": "support.function.tera",
+          "match": "\\b(?:cholesky|lstsq|solve|eigh|pinv|cov|det|inv|svd)\\b"
         },
         {
           "name": "support.function.tera",
@@ -330,68 +382,8 @@
           "match": "\\b(?:multivariate_normal|random_exponential|random_uniform|random_normal|random_chi2|random_t)\\b"
         },
         {
-          "name": "support.function.tera",
-          "match": "\\b(?:min_track_record_length|garch_volatility|cross_sectional|deflated_sharpe|kalman_smoother|garch_forecast|hurst_exponent|mean_reversion|engle_granger|kalman_filter|mean_variance|cusum_events|dynamic_beta|equal_weight|walk_forward|dollar_bars|kyle_lambda|risk_parity|roll_spread|volume_bars|load_quill|long_short|fit_garch|half_life|kpss_test|tick_bars|tick_rule|adf_test|backtest|johansen|momentum|amihud|sharpe|zscore|bsadf|quill|sadf|vpin|hrp|pbo)\\b"
-        },
-        {
-          "name": "support.function.data.tera",
-          "match": "\\b(?:register_columns_table|load_tokenizer|TensorDataset|DataLoader|load_model|DataFrame|load_json|read_text|Tokenizer|load_csv)\\b"
-        },
-        {
-          "name": "constant.language.device.tera",
-          "match": "\\b(?:webgpu|wasm|cpu|gpu)\\b"
-        },
-        {
-          "name": "constant.language.dtype.tera",
-          "match": "\\b(?:bool|f16|f32|f64|i32|i64)\\b"
-        },
-        {
-          "name": "support.function.factory.tera",
-          "match": "\\b(?:empty_like|randn_like|zeros_like|full_like|ones_like|linspace|randperm|arange|tensor|empty|randn|zeros|full|ones|eye)\\b"
-        },
-        {
-          "name": "support.class.sequential.tera",
-          "match": "\\b(?:Sequential)\\b"
-        },
-        {
-          "name": "support.class.nn-module.tera",
-          "match": "\\b(?:AdaptiveAvgPool2d|CrossEntropyLoss|BatchNorm1d|BatchNorm2d|LogSoftmax|AvgPool2d|Embedding|LayerNorm|LeakyReLU|MaxPool2d|LSTMCell|BCELoss|Dropout|Flatten|GRUCell|MSELoss|NLLLoss|Sigmoid|Softmax|Conv1d|Conv2d|Linear|GELU|LSTM|ReLU|SiLU|Tanh|ELU|GRU)\\b"
-        },
-        {
-          "name": "support.class.optimizer.tera",
-          "match": "\\b(?:AdamW|Adam|SGD)\\b"
-        },
-        {
-          "name": "support.class.scheduler.tera",
-          "match": "\\b(?:CosineAnnealingLR|ReduceLROnPlateau|StepLR)\\b"
-        },
-        {
-          "name": "support.class.trainer.tera",
-          "match": "\\b(?:Trainer)\\b"
-        },
-        {
-          "name": "support.class.callback.tera",
-          "match": "\\b(?:GradientAccumulationScheduler|LearningRateMonitor|ProgressCallback|ModelCheckpoint|EarlyStopping|Timer)\\b"
-        },
-        {
-          "name": "support.class.logger.tera",
-          "match": "\\b(?:ConsoleLogger|CSVLogger)\\b"
-        },
-        {
-          "name": "support.class.metric.tera",
-          "match": "\\b(?:MetricCollection|ConfusionMatrix|Precision|Accuracy|F1Score|Recall)\\b"
-        },
-        {
           "name": "support.class.namespace.tera",
           "match": "\\b(?:chart)\\b"
-        },
-        {
-          "name": "support.function.tera",
-          "match": "\\b(?:print)\\b"
-        },
-        {
-          "name": "support.function.tera",
-          "match": "\\b(?:log)\\b"
         }
       ]
     },

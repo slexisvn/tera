@@ -356,14 +356,14 @@ describe("BaselineRuntime gp() prototype and property lookups", () => {
 
   describe("string prototype methods", () => {
     it("resolves charAt on a string", () => {
-      const rt = makeEngineRuntime(["charAt"]);
+      const rt = makeEngineRuntime(["char_at"]);
       const str = mkString("hello");
       const result = rt.gp(str, 0, 0);
       expect(isFunction(result)).toBe(true);
     });
 
     it("resolves indexOf on a string", () => {
-      const rt = makeEngineRuntime(["indexOf"]);
+      const rt = makeEngineRuntime(["index_of"]);
       const str = mkString("abc");
       const result = rt.gp(str, 0, 0);
       expect(isFunction(result)).toBe(true);

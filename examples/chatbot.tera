@@ -35,8 +35,8 @@ for ids of ans_ids:
   din_rows.push(din)
   dout_rows.push(dout)
 
-decoder_in = tensor(din_rows, dtype=i32)
-decoder_out = tensor(dout_rows, dtype=i32)
+decoder_in = tensor(din_rows, dtype="i32")
+decoder_out = tensor(dout_rows, dtype="i32")
 
 loader = DataLoader(TensorDataset(questions, decoder_in, decoder_out), batch_size=batch_size, shuffle=true)
 
@@ -92,12 +92,12 @@ net = ChatBotLarge(tok.vocab_size, embed_dim, hidden, num_layers, tok.pad_id)
 
 fn reply(m: ChatBotLarge, tok: Tokenizer, prompt: string, max_len: int) -> string:
   ids = tok.encode(prompt)
-  query = tensor([ids], dtype=i32)
+  query = tensor([ids], dtype="i32")
   enc, state = m.encoder(m.embed(query))
   last = tok.bos_id
   out_ids = []
   for step of range(max_len):
-    emb = m.embed(tensor([last], dtype=i32))
+    emb = m.embed(tensor([last], dtype="i32"))
     emb_t = emb.reshape([1, 1, emb.shape[1]])
     dec, state = m.decoder(emb_t, state)
     scores = dec @ enc.transpose(1, 2)
@@ -112,7 +112,7 @@ fn reply(m: ChatBotLarge, tok: Tokenizer, prompt: string, max_len: int) -> strin
   return tok.decode(out_ids)
 
 load_model(net, "examples/chatbot.ckpt")
-net.to(cpu)
+net.to("cpu")
 net.eval()
 
 print("reply:", reply(net, tok, "how are you", 20))

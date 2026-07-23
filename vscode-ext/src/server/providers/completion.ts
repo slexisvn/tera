@@ -180,7 +180,7 @@ function methodItem(method: Method): CompletionItem {
   const item: CompletionItem = {
     label: method.name,
     kind: method.isGetter ? CompletionItemKind.Property : CompletionItemKind.Method,
-    detail: method.signature.display,
+    detail: method.isGetter && method.returns ? `${method.name}: ${method.returns}` : method.signature.display,
     sortText: `1_${method.name}`,
   };
   if (method.description) item.documentation = { kind: "markdown", value: method.description };

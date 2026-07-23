@@ -25,6 +25,7 @@ import { globalValueNumbering } from "./passes/gvn.js";
 import { representationSelection } from "./passes/repr-selection.js";
 import {
   deadCodeElimination,
+  eliminateDeadPhis,
   eliminateUnreachableBlocks,
 } from "./passes/dce.js";
 import { loadElimination } from "./passes/load-elimination.js";
@@ -32,7 +33,7 @@ import { deadStoreElimination } from "./passes/dead-stores.js";
 import { typeNarrowing } from "./passes/type-narrowing.js";
 import { validateOptimizedGraph } from "./validation/graph-validator.js";
 import { buildFrameStateIndex, clearFrameStateIndex } from "./passes/frame-state-values.js";
-import { applyOsrTransform } from "./passes/osr.js";
+import { applyOsrTransform, repairFrameStateDominance } from "./passes/osr.js";
 
 type CompiledFunctionLike = RegisterCompiledFunction;
 type OptimizedGraph = CFGFunction;
@@ -129,6 +130,8 @@ export class SpeculativeOptimizer {
     rebuildAll();
     const unrollCount = loopUnrolling(graph, findLoopsFn);
     rebuildAll();
+    eliminateDeadPhis(graph);
+    rebuildAll();
     const repSelCount = representationSelection(graph);
     rebuildAll();
     const deadStoreCount = deadStoreElimination(graph);
@@ -138,6 +141,8 @@ export class SpeculativeOptimizer {
     const unreachCount = eliminateUnreachableBlocks(graph);
     rebuildAll();
     clearFrameStateIndex(graph);
+
+    repairFrameStateDominance(graph);
 
     if (
       foldCount +

@@ -1,7 +1,10 @@
 import * as ir from "../ir/index.js";
-import type { CFGBlock, CFGFunction, CFGInstruction } from "../ir/index.js";
+import { CFGInstruction } from "../ir/index.js";
+import type { CFGBlock, CFGFunction } from "../ir/index.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
+import { computeDominators, dominates } from "./dominators.js";
+import { visitFrameStateValues } from "./frame-state-values.js";
 
 function reachableFrom(header: CFGBlock): Set<number> {
   const reachable = new Set<number>();
@@ -165,4 +168,34 @@ export function applyOsrTransform(
   ];
   graph.rebuildUses();
   return true;
+}
+
+export function repairFrameStateDominance(graph: CFGFunction): number {
+  const idom = computeDominators(graph);
+  const blockOf = new Map<CFGInstruction, CFGBlock>();
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) blockOf.set(node, block);
+  }
+
+  let placeholder: CFGInstruction | null = null;
+  let repaired = 0;
+
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      if (!node.frameState) continue;
+      visitFrameStateValues(node.frameState, (value, replace) => {
+        if (!(value instanceof CFGInstruction)) return;
+        if (value.type === ir.IR_PARAMETER || value.type === ir.IR_CONSTANT) {
+          return;
+        }
+        const defBlock = blockOf.get(value);
+        if (defBlock && dominates(idom, defBlock, block)) return;
+        if (!placeholder) placeholder = ir.irConstant(undefined);
+        replace(placeholder as FrameValue);
+        repaired++;
+      });
+    }
+  }
+
+  return repaired;
 }

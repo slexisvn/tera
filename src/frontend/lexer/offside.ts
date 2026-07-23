@@ -37,7 +37,6 @@ function tokenizeFragment(source: string, line: number, column: number): Token[]
 
 function mapKeyword(tok: Token): Token {
   if (tok.type !== TokenType.Keyword) return tok;
-  if (tok.value === "fn") return { ...tok, value: "function" };
   if (tok.value === "and") return { ...tok, type: TokenType.Punctuator, value: "&&" };
   if (tok.value === "or") return { ...tok, type: TokenType.Punctuator, value: "||" };
   if (tok.value === "not") return { ...tok, type: TokenType.Punctuator, value: "!" };

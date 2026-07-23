@@ -141,6 +141,10 @@ export function materializeFrameValue(
 ): TaggedValue {
   if (value === null || value === undefined) return mkUndefined();
   if (isDeoptIRNode(value)) {
+    if (value.type === ir.IR_PARAMETER) {
+      const index = value.props ? metadataNumber(value.props.index) : -1;
+      return index >= 0 && index < args.length ? args[index] : mkUndefined();
+    }
     const captured = runtimeValues ? runtimeValues.get(value.id) : undefined;
     if (captured !== undefined) return captured;
     if (value.type === ir.IR_LOAD_FIELD) {
@@ -233,10 +237,6 @@ export function materializeFrameValue(
         interpreter,
         thisValue,
       );
-    }
-    if (value.type === ir.IR_PARAMETER) {
-      const index = value.props ? metadataNumber(value.props.index) : -1;
-      return index >= 0 && index < args.length ? args[index] : mkUndefined();
     }
     if (value.type === ir.IR_LOAD_GLOBAL && value.props && interpreter) {
       const name = typeof value.props.name === "string" ? value.props.name : "";

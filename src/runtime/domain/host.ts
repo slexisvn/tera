@@ -190,15 +190,20 @@ function wrapHostObject(value: object): TaggedValue {
   object._display = (compact: boolean) => formatHostValue(value, compact) ?? object.toString();
   installHostIndexing(object, value, nativeToTagged);
   const native = new Set(methodNames(value));
+  const functions = new Set<string>();
+  for (const name of native) {
+    const descriptor = ownDescriptor(value, name);
+    if (descriptor && typeof descriptor.value === "function") functions.add(camelToSnake(name));
+  }
   for (const name of native) {
     const descriptor = ownDescriptor(value, name);
     if (!descriptor) continue;
-    const alias = camelToSnake(name);
-    const names = native.has(alias) ? [name] : [name, alias];
+    const names = [camelToSnake(name)];
     if (typeof descriptor.value === "function") {
       for (const exposed of new Set(names)) object.setProperty(exposed, mkFunction(hostMethod(value, name)));
       continue;
     }
+    if (functions.has(names[0])) continue;
     const settable = descriptor.get ? descriptor.set !== undefined : descriptor.writable !== false;
     for (const exposed of new Set(names)) {
       object.defineProperty(exposed, {

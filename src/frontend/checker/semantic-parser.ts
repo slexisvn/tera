@@ -4,6 +4,7 @@ import type { ASTNode } from "../ast/index.js";
 import type {
   BlockNode,
   FunctionNode,
+  ForNode,
   InterfaceFieldNode,
   InterfaceNode,
   ModelNode,
@@ -19,6 +20,11 @@ type Line = {
   tokens: Token[];
   text: string;
   line: number;
+};
+
+type PositionedNode = ASTNode & {
+  __line?: number;
+  __column?: number;
 };
 
 function leadingIndent(line: string): number {
@@ -55,12 +61,11 @@ function findTopLevel(tokens: Token[], value: string, start = 0): number {
   let depth = 0;
   for (let i = start; i < tokens.length; i++) {
     const tok = tokens[i];
+    if (depth === 0 && tok.value === value) return i;
     if (tok.type === TokenType.Punctuator) {
       if (tok.value === "(" || tok.value === "[" || tok.value === "{") depth++;
       else if (tok.value === ")" || tok.value === "]" || tok.value === "}") depth--;
       if (depth === 0 && tok.value === value) return i;
-    } else if (depth === 0 && tok.value === value) {
-      return i;
     }
   }
   return -1;
@@ -73,7 +78,7 @@ function sliceType(tokens: Token[]): string {
 function parseExpr(tokens: Token[]): ASTNode {
   const parserTokens = [...tokens, { type: TokenType.EOF, value: "", line: tokens.at(-1)?.line ?? 0, column: tokens.at(-1)?.column ?? 0 }];
   const parser = new Parser(parserTokens);
-  return parser.parseExpression();
+  return annotateExpression(parser.parseExpression(), tokens);
 }
 
 function parseExprOrNull(tokens: Token[]): ASTNode | null {
@@ -193,11 +198,13 @@ class SemanticParser {
     const first = line.tokens[0]?.value;
     if (first === "type") return this.parseTypeAlias(line);
     if (first === "interface") return this.parseInterface(line);
-    if (first === "fn" || first === "async") return this.parseFunction(line);
+    if (first === "function") return this.parseControlBlock(line, line.tokens.length);
+    if (first === "fn" || (first === "async" && line.tokens[1]?.value === "fn")) return this.parseFunction(line);
     if (line.tokens[0]?.type === TokenType.Identifier && line.tokens[1]?.value === "(" && line.tokens.at(-1)?.value === ":") return this.parseFunction(line);
     if (first === "model") return this.parseModel(line);
     if (first === "if") return this.parseControlBlock(line, 1);
-    if (["class", "else", "for", "while", "try", "catch", "finally"].includes(String(first)) || line.tokens.at(-1)?.value === ":") return this.parseControlBlock(line, 1);
+    if (first === "for") return this.parseFor(line);
+    if (["class", "else", "while", "try", "catch", "finally"].includes(String(first)) || line.tokens.at(-1)?.value === ":") return this.parseControlBlock(line, 1);
     if (first === "return") return this.parseReturn(line);
     return this.parseSimple(line);
   }
@@ -282,6 +289,139 @@ class SemanticParser {
       ? { kind: "Expr", value, span: { line: line.line, column: line.indent + 1 } }
       : { kind: "Block", body: [], span: { line: line.line, column: line.indent + 1 } };
   }
+
+  parseFor(line: Line): ForNode | BlockNode {
+    const variable = line.tokens[1];
+    const mode = line.tokens[2];
+    const colon = findTopLevel(line.tokens, ":");
+    if (variable?.type !== TokenType.Identifier || (mode?.value !== "of" && mode?.value !== "in") || colon < 0) {
+      return this.parseControlBlock(line, 1);
+    }
+    this.index++;
+    const iterable = parseExpr(line.tokens.slice(3, colon));
+    return {
+      kind: "For",
+      variable: String(variable.value),
+      mode: mode.value,
+      iterable,
+      body: this.parseBlock(line.indent),
+      span: { line: line.line, column: line.indent + 1 },
+      variableSpan: { line: variable.line, column: variable.column },
+    };
+  }
+}
+
+function annotateExpression(node: ASTNode, tokens: Token[]): ASTNode {
+  annotateNode(node, tokens, { index: 0 });
+  return node;
+}
+
+function annotateNode(node: ASTNode | null | undefined, tokens: Token[], cursor: { index: number }): void {
+  if (!node) return;
+  switch (node.type) {
+    case "Identifier":
+      markNode(node, findNext(tokens, cursor, (tok) => tok.value === node.name));
+      break;
+    case "Literal":
+      markNode(node, findNext(tokens, cursor, (tok) => literalMatches(tok, node)));
+      break;
+    case "MemberExpression":
+    case "OptionalMemberExpression": {
+      annotateNode(node.object as ASTNode, tokens, cursor);
+      copySpan(node, node.object as ASTNode);
+      const dot = findNext(tokens, cursor, (tok) => tok.value === "." || tok.value === "?.");
+      if (dot) {
+        cursor.index = tokens.indexOf(dot) + 1;
+        if (typeof node.property === "string") findNext(tokens, cursor, (tok) => tok.value === node.property);
+        else annotateNode(node.property as ASTNode, tokens, cursor);
+      }
+      break;
+    }
+    case "CallExpression":
+    case "OptionalCallExpression":
+      annotateNode(node.callee as ASTNode, tokens, cursor);
+      copySpan(node, node.callee as ASTNode);
+      findNext(tokens, cursor, (tok) => tok.value === "(");
+      for (const arg of node.args as ASTNode[]) annotateNode(arg, tokens, cursor);
+      break;
+    case "NamedArgument": {
+      const name = findNext(tokens, cursor, (tok) => tok.value === node.name);
+      markNode(node, name);
+      findNext(tokens, cursor, (tok) => tok.value === "=");
+      annotateNode(node.value as ASTNode, tokens, cursor);
+      break;
+    }
+    case "BinaryExpression":
+    case "LogicalExpression":
+    case "NullishCoalescingExpression":
+      annotateNode(node.left as ASTNode, tokens, cursor);
+      copySpan(node, node.left as ASTNode);
+      if ("op" in node) findNext(tokens, cursor, (tok) => tok.value === node.op);
+      annotateNode(node.right as ASTNode, tokens, cursor);
+      break;
+    case "ArrayExpression":
+      markNode(node, findNext(tokens, cursor, (tok) => tok.value === "["));
+      for (const item of node.elements as Array<ASTNode | null>) annotateNode(item, tokens, cursor);
+      break;
+    case "ObjectExpression":
+      markNode(node, findNext(tokens, cursor, (tok) => tok.value === "{"));
+      for (const prop of node.properties as Array<{ value?: ASTNode; argument?: ASTNode }>) {
+        annotateNode(prop.value ?? prop.argument, tokens, cursor);
+      }
+      break;
+    case "ConditionalExpression":
+      annotateNode(node.test as ASTNode, tokens, cursor);
+      copySpan(node, node.test as ASTNode);
+      annotateNode(node.consequent as ASTNode, tokens, cursor);
+      annotateNode(node.alternate as ASTNode, tokens, cursor);
+      break;
+    case "ArrowFunctionExpression":
+      markNode(node, tokens[cursor.index]);
+      break;
+    default:
+      markNode(node, tokens[cursor.index]);
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) {
+          for (const item of value) if (item && typeof item === "object" && "type" in item) annotateNode(item as ASTNode, tokens, cursor);
+        } else if (value && typeof value === "object" && "type" in value) {
+          annotateNode(value as ASTNode, tokens, cursor);
+        }
+      }
+      break;
+  }
+}
+
+function findNext(tokens: Token[], cursor: { index: number }, matches: (tok: Token) => boolean): Token | undefined {
+  for (let i = cursor.index; i < tokens.length; i++) {
+    if (matches(tokens[i])) {
+      cursor.index = i + 1;
+      return tokens[i];
+    }
+  }
+  return undefined;
+}
+
+function markNode(node: ASTNode, token: Token | undefined): void {
+  if (!token) return;
+  const target = node as PositionedNode;
+  target.__line = token.line;
+  target.__column = token.column;
+}
+
+function copySpan(target: ASTNode, source: ASTNode): void {
+  const from = source as PositionedNode;
+  if (!from.__line || !from.__column) return;
+  const to = target as PositionedNode;
+  to.__line = from.__line;
+  to.__column = from.__column;
+}
+
+function literalMatches(tok: Token, node: ASTNode): boolean {
+  if (node.kind === "number") return tok.type === TokenType.Number && Number(tok.value) === node.value;
+  if (node.kind === "string") return tok.type === TokenType.String && tok.value === node.value;
+  if (node.kind === "boolean") return tok.value === (node.value ? "true" : "false");
+  if (node.kind === "null") return tok.value === "null";
+  return tok.value === "undefined";
 }
 
 export function parseSemanticProgram(source: string): SemanticProgram {

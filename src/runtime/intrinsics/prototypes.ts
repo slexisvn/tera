@@ -20,9 +20,7 @@ type BuiltinMethod = RuntimeFunctionPayload & {
 function populatePrototype(methods: Record<string, BuiltinMethod>): JSObject {
   const proto = createJSObject();
   for (const [name, method] of Object.entries(methods)) {
-    proto.setProperty(name, mkFunction(method));
-    const alias = camelToSnake(name);
-    if (alias !== name && !(alias in methods)) proto.setProperty(alias, mkFunction(method));
+    proto.setProperty(camelToSnake(name), mkFunction(method));
   }
   return proto;
 }

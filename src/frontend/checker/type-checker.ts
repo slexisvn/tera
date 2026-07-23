@@ -3,7 +3,7 @@ import { lookup, type BoundProgram, type Scope } from "./binder.js";
 import { diagnostic, type Diagnostic } from "./diagnostics.js";
 import { functionSignatureForType, inferExpression, instantiateForCall, narrowScope, objectLiteralShape } from "./infer.js";
 import type { SemanticNode } from "./semantic-ast.js";
-import { cleanType, compatible, instantiateShapeForType, parseFunctionType, type Signature } from "./type-system.js";
+import { cleanType, compatible, instantiateShapeForType, iterableBindingType, parseFunctionType, type Signature } from "./type-system.js";
 
 export type SymbolType = {
   name: string;
@@ -42,6 +42,10 @@ export class TypeChecker {
         for (const stmt of node.body) this.checkNode(stmt, child);
         break;
       }
+      case "For": {
+        this.checkFor(node, scope);
+        break;
+      }
       case "Var":
         this.checkVar(node, scope);
         break;
@@ -52,6 +56,16 @@ export class TypeChecker {
         this.checkExpression(node.value, scope, node.span.line, node.span.column);
         break;
     }
+  }
+
+  checkFor(node: Extract<SemanticNode, { kind: "For" }>, scope: Scope): void {
+    const child = this.bound.scopes.get(node) ?? scope;
+    const iterableType = inferExpression(node.iterable, this.bound, scope);
+    const variableType = iterableBindingType(iterableType, node.mode, this.bound.env);
+    child.locals.set(node.variable, { type: variableType, optional: false });
+    this.onDeclare?.({ name: node.variable, line: node.variableSpan.line, column: node.variableSpan.column, type: variableType });
+    this.checkExpression(node.iterable, scope, node.span.line, node.span.column);
+    for (const stmt of node.body) this.checkNode(stmt, child);
   }
 
   checkVar(node: Extract<SemanticNode, { kind: "Var" }>, scope: Scope): void {
@@ -116,7 +130,10 @@ export class TypeChecker {
         if (!param && instantiated.params.size > 0 && !instantiated.allowUnknownNamed) this.add(line, column, `Unknown named argument '${argName}' for ${instantiated.name}()`);
         if (param) {
           const actual = inferExpression(arg.value as ASTNode, this.bound, scope);
-          if (!compatible(actual, param.type, this.bound.env)) this.add(line, column, `Type '${actual}' is not assignable to parameter '${argName}: ${param.type}'`);
+          if (!compatible(actual, param.type, this.bound.env)) {
+            const at = nodePosition(arg.value as ASTNode, line, column);
+            this.add(at.line, at.column, `Type '${actual}' is not assignable to parameter '${argName}: ${param.type}'`);
+          }
         }
       } else {
         const argName = instantiated.positional[positional++];
@@ -125,7 +142,10 @@ export class TypeChecker {
         const param = instantiated.params.get(argName);
         if (!param) continue;
         const actual = inferExpression(arg, this.bound, scope);
-        if (!compatible(actual, param.type, this.bound.env)) this.add(line, column, `Type '${actual}' is not assignable to parameter '${argName}: ${param.type}'`);
+        if (!compatible(actual, param.type, this.bound.env)) {
+          const at = nodePosition(arg, line, column);
+          this.add(at.line, at.column, `Type '${actual}' is not assignable to parameter '${argName}: ${param.type}'`);
+        }
       }
     }
     for (const required of instantiated.required) {
@@ -172,4 +192,12 @@ export class TypeChecker {
   add(line: number, column: number, message: string): void {
     this.diagnostics.push(diagnostic(line, column, message, this.strict));
   }
+}
+
+function nodePosition(node: ASTNode, fallbackLine: number, fallbackColumn: number): { line: number; column: number } {
+  const positioned = node as ASTNode & { __line?: number; __column?: number };
+  return {
+    line: positioned.__line ?? fallbackLine,
+    column: positioned.__column ?? fallbackColumn,
+  };
 }

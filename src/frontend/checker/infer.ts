@@ -76,7 +76,9 @@ function inferBinary(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName
   if (["==", "!=", "===", "!==", "<", "<=", ">", ">="].includes(op)) return "bool";
   if (op === "+" && (left === "string" || right === "string")) return "string";
   if ([...NUMERIC_OPS, "@"].includes(op) && (resolveType(left, bound.env) === "Tensor" || resolveType(right, bound.env) === "Tensor")) return "Tensor";
-  if (NUMERIC_OPS.includes(op) && compatible(left, "number", bound.env) && compatible(right, "number", bound.env)) return "number";
+  if (NUMERIC_OPS.includes(op) && compatible(left, "float", bound.env) && compatible(right, "float", bound.env)) {
+    return left === "int" && right === "int" && op !== "/" ? "int" : "float";
+  }
   if (node.type === NodeType.NullishCoalescingExpression) return unionType([removeNullish(left, bound.env), right]);
   return "any";
 }
@@ -104,8 +106,8 @@ function inferMember(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName
   if (field) return field.type;
   const method = builtinMethod(objectType, property);
   if (method?.getter) return method.returns;
-  if (objectType === "string" && property === "length") return "number";
-  if ((objectType.endsWith("[]") || objectType.startsWith("[")) && property === "length") return "number";
+  if (objectType === "string" && property === "length") return "int";
+  if ((objectType.endsWith("[]") || objectType.startsWith("[")) && property === "length") return "int";
   return "any";
 }
 

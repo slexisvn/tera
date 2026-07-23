@@ -6,20 +6,17 @@ const KEYWORDS = [
 
 const BUILTINS = [
   'tensor', 'zeros', 'ones', 'empty', 'full', 'randn', 'arange', 'eye', 'linspace', 'randperm',
-  'zerosLike', 'onesLike', 'emptyLike', 'fullLike', 'randnLike',
+  'zeros_like', 'ones_like', 'empty_like', 'full_like', 'randn_like',
   'where', 'cat', 'stack',
-  'sum', 'min', 'max', 'avg', 'count', 'countStar',
+  'sum', 'min', 'max', 'avg', 'count', 'count_star',
   'DataFrame', 'col', 'lit', 'expr',
   'range', 'print', 'trace', 'graph', 'compile', 'save', 'load',
 ];
 
 const TYPES = [
-  'int', 'float', 'bool', 'boolean', 'str', 'string', 'number', 'void', 'none', 'null',
+  'int', 'float', 'bool', 'boolean', 'str', 'string', 'void', 'none', 'null',
   'Tensor', 'DataFrame', 'Column', 'GroupedData', 'Model', 'Module', 'Record', 'Array',
-  'List', 'Dict', 'Tuple', 'Optional', 'Result',
-  'i8', 'i16', 'i32', 'i64', 'u8', 'u16', 'u32', 'u64',
-  'f16', 'f32', 'f64', 'bf16', 'float16', 'float32', 'float64',
-  'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64',
+  'Object', 'Tuple', 'Optional', 'Result',
 ];
 
 export const KEYWORD_SET = new Set(KEYWORDS);

@@ -1,25 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { checkSource } from "../../src/index.js";
+import { checkSource, inferSymbolTypes } from "../../src/index.js";
 
 const messages = (source: string) => checkSource(source, "strict").map((d) => d.message);
 
 describe("checker pipeline", () => {
   it("reports assignment type errors with strict severity", () => {
-    const diagnostics = checkSource("count: number = \"nope\"", "strict");
+    const diagnostics = checkSource("count: float = \"nope\"", "strict");
 
     expect(diagnostics).toEqual([
       expect.objectContaining({
         line: 1,
         column: 1,
         severity: "error",
-        message: "Type 'string' is not assignable to 'number'",
+        message: "Type 'string' is not assignable to 'float'",
       }),
     ]);
   });
 
   it("binds aliases and validates object interface shapes", () => {
     const source = [
-      "type UserId = number | string",
+      "type UserId = float | string",
       "interface User:",
       "  id: UserId",
       "  name: string",
@@ -39,14 +39,14 @@ describe("checker pipeline", () => {
     const source = [
       "interface Box<T>:",
       "  value: T",
-      "interface NamedNumberBox extends Box<number>:",
+      "interface NamedFloatBox extends Box<float>:",
       "  label: string",
-      "valid: NamedNumberBox = { value: 1, label: \"score\" }",
-      "invalid: NamedNumberBox = { value: \"wrong\", label: \"score\" }",
+      "valid: NamedFloatBox = { value: 1, label: \"score\" }",
+      "invalid: NamedFloatBox = { value: \"wrong\", label: \"score\" }",
     ].join("\n");
 
     expect(messages(source)).toEqual([
-      "Type 'string' is not assignable to field 'value: number'",
+      "Type 'string' is not assignable to field 'value: float'",
     ]);
   });
 
@@ -54,21 +54,68 @@ describe("checker pipeline", () => {
     const source = [
       "fn id<T>(value: T) -> T:",
       "  return value",
-      "fn bad_return(x: number) -> string:",
+      "fn bad_return(x: float) -> string:",
       "  return x",
-      "ok: number = id<number>(1)",
-      "bad: number = id<string>(\"x\")",
+      "ok: float = id<float>(1)",
+      "bad: float = id<string>(\"x\")",
     ].join("\n");
 
     expect(messages(source)).toEqual([
-      "Type 'number' is not assignable to return type 'string'",
-      "Type 'string' is not assignable to 'number'",
+      "Type 'float' is not assignable to return type 'string'",
+      "Type 'string' is not assignable to 'float'",
+    ]);
+  });
+
+  it("checks argument types for fn declarations", () => {
+    const source = [
+      "fn abc(a: string):",
+      "  return a",
+      "a = 1",
+      "abc(a)",
+    ].join("\n");
+
+    expect(messages(source)).toEqual([
+      "Type 'int' is not assignable to parameter 'a: string'",
+    ]);
+    expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "a", line: 3, column: 1, type: "int" }),
+    ]));
+  });
+
+  it("places argument type diagnostics on the offending argument", () => {
+    const diagnostics = checkSource([
+      "fn abc(a: string, b: int):",
+      "  return a",
+      "value = 1",
+      "abc(value, \"bad\")",
+    ].join("\n"), "strict");
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        line: 4,
+        column: 5,
+        message: "Type 'int' is not assignable to parameter 'a: string'",
+      }),
+      expect.objectContaining({
+        line: 4,
+        column: 12,
+        message: "Type 'string' is not assignable to parameter 'b: int'",
+      }),
+    ]);
+  });
+
+  it("checks argument types for builtin constructors", () => {
+    expect(messages('net = Linear("bad", 8)')).toEqual([
+      "Type 'string' is not assignable to parameter 'in: int'",
+    ]);
+    expect(messages('tok = Tokenizer(vocab_size="bad")')).toEqual([
+      "Type 'string' is not assignable to parameter 'vocab_size: int'",
     ]);
   });
 
   it("checks named arguments for unknown, duplicate, missing, and mismatched values", () => {
     const source = [
-      "fn mix(a: number, b: string, flag: bool) -> string:",
+      "fn mix(a: float, b: string, flag: bool) -> string:",
       "  return b",
       "mix(a=1, b=\"x\", flag=true)",
       "mix(a=\"bad\", b=\"x\", flag=true)",
@@ -78,16 +125,37 @@ describe("checker pipeline", () => {
     ].join("\n");
 
     expect(messages(source)).toEqual([
-      "Type 'string' is not assignable to parameter 'a: number'",
+      "Type 'string' is not assignable to parameter 'a: float'",
       "Unknown named argument 'extra' for mix()",
       "Argument 'a' was passed more than once",
       "Missing required argument 'flag' for mix()",
     ]);
   });
 
+  it("places named argument type diagnostics on the offending value", () => {
+    const diagnostics = checkSource([
+      "fn configure(width: int, title: string):",
+      "  return title",
+      "configure(width=\"wide\", title=42)",
+    ].join("\n"), "strict");
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        line: 3,
+        column: 17,
+        message: "Type 'string' is not assignable to parameter 'width: int'",
+      }),
+      expect.objectContaining({
+        line: 3,
+        column: 31,
+        message: "Type 'int' is not assignable to parameter 'title: string'",
+      }),
+    ]);
+  });
+
   it("narrows nullish unions inside block scopes without leaking the narrowed type", () => {
     const source = [
-      "fn length_or_zero(value: string | null) -> number:",
+      "fn length_or_zero(value: string | null) -> float:",
       "  if value != null:",
       "    ok: string = value",
       "    return value.length",
@@ -107,16 +175,16 @@ describe("checker pipeline", () => {
       "try:",
       "  throw \"boom\"",
       "catch e:",
-      "  recovered: number = \"bad\"",
+      "  recovered: float = \"bad\"",
     ].join("\n");
 
     expect(messages(source)).toEqual([
-      "Type 'string' is not assignable to 'number'",
+      "Type 'string' is not assignable to 'float'",
     ]);
   });
 
   describe("numeric types", () => {
-    it("accepts number where int or float is declared", () => {
+    it("accepts int and float numeric compatibility", () => {
       expect(messages("fn square(n: int) -> int:\n  return n * n")).toEqual([]);
       expect(messages("fn half(n: float) -> float:\n  return n / 2")).toEqual([]);
     });
@@ -150,6 +218,39 @@ describe("checker pipeline", () => {
     });
   });
 
+  describe("loop binding inference", () => {
+    it("infers for-of variables from iterable element types", () => {
+      const symbols = inferSymbolTypes([
+        "for step of range(200):",
+        "  pred = step",
+        "for item of [1.5, 2.5]:",
+        "  value = item",
+        "for char of \"abc\":",
+        "  text = char",
+      ].join("\n"));
+
+      expect(symbols).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "step", line: 1, column: 5, type: "int" }),
+        expect.objectContaining({ name: "item", line: 3, column: 5, type: "float" }),
+        expect.objectContaining({ name: "char", line: 5, column: 5, type: "string" }),
+      ]));
+    });
+
+    it("infers for-in variables from indexable containers", () => {
+      const symbols = inferSymbolTypes([
+        "for index in [1, 2]:",
+        "  value = index",
+        "for key in { a: 1 }:",
+        "  name = key",
+      ].join("\n"));
+
+      expect(symbols).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "index", line: 1, column: 5, type: "int" }),
+        expect.objectContaining({ name: "key", line: 3, column: 5, type: "string" }),
+      ]));
+    });
+  });
+
   describe("model declarations", () => {
     const model = [
       "model Net(n: int):",
@@ -171,6 +272,36 @@ describe("checker pipeline", () => {
       expect(messages(`${model}fn use(net: Net) -> Net:\n  return net\nn = use(Net(3))`)).toEqual([]);
     });
 
+    it("reports model body and constructor call failures at the offending arguments", () => {
+      const source = [
+        "model ChatBotLarge(vocab_size: string, embed_size: int, hidden_size: int):",
+        "  embed = Embedding(vocab_size, embed_size)",
+        "  head = Linear(2 * hidden_size, vocab_size)",
+        "  forward (q: Tensor) -> Tensor:",
+        "    return q",
+        "tok = Tokenizer()",
+        "net = ChatBotLarge(tok.vocab_size, 8, 16)",
+      ].join("\n");
+
+      expect(checkSource(source, "strict")).toEqual([
+        expect.objectContaining({
+          line: 2,
+          column: 21,
+          message: "Type 'string' is not assignable to parameter 'num: int'",
+        }),
+        expect.objectContaining({
+          line: 3,
+          column: 34,
+          message: "Type 'string' is not assignable to parameter 'out: int'",
+        }),
+        expect.objectContaining({
+          line: 7,
+          column: 20,
+          message: "Type 'int' is not assignable to parameter 'vocab_size: string'",
+        }),
+      ]);
+    });
+
     it("still checks a section that declares its own return type", () => {
       const source = [
         "model Net(n: int):",
@@ -188,13 +319,13 @@ describe("checker pipeline", () => {
 
   describe("union types", () => {
     it("accepts each member of a declared union", () => {
-      expect(messages('x: string | number = "a"')).toEqual([]);
-      expect(messages("x: string | number = 1")).toEqual([]);
+      expect(messages('x: string | float = "a"')).toEqual([]);
+      expect(messages("x: string | float = 1")).toEqual([]);
     });
 
     it("rejects a value outside the union", () => {
-      expect(messages("x: string | number = true")).toEqual([
-        "Type 'bool' is not assignable to 'string | number'",
+      expect(messages("x: string | float = true")).toEqual([
+        "Type 'bool' is not assignable to 'string | float'",
       ]);
     });
 
@@ -204,13 +335,13 @@ describe("checker pipeline", () => {
     });
 
     it("binds a trailing [] to its own arm, not to the whole union", () => {
-      expect(messages("x: string | number[] = [1, 2]")).toEqual([]);
-      expect(messages('x: string | number[] = "a"')).toEqual([]);
-      expect(messages("x: string | number[] = 1")).toEqual([
-        "Type 'int' is not assignable to 'string | number[]'",
+      expect(messages("x: string | float[] = [1, 2]")).toEqual([]);
+      expect(messages('x: string | float[] = "a"')).toEqual([]);
+      expect(messages("x: string | float[] = 1")).toEqual([
+        "Type 'int' is not assignable to 'string | float[]'",
       ]);
-      expect(messages('x: string | number[] = ["a", "b"]')).toEqual([
-        "Type '[string, string]' is not assignable to 'string | number[]'",
+      expect(messages('x: string | float[] = ["a", "b"]')).toEqual([
+        "Type '[string, string]' is not assignable to 'string | float[]'",
       ]);
     });
   });
@@ -226,17 +357,17 @@ describe("checker pipeline", () => {
       expect(messages(`${frame}c = chart.line(df, x=0, y=1)`)).toEqual([]);
     });
 
-    it("accepts a list of column names for y", () => {
+    it("accepts an array of column names for y", () => {
       expect(messages(`${frame}c = chart.line(df, x="day", y=["value", "day"])`)).toEqual([]);
     });
 
-    it("accepts a list of column indexes for y", () => {
+    it("accepts an array of column indexes for y", () => {
       expect(messages(`${frame}c = chart.bar(df, x=0, y=[0, 1])`)).toEqual([]);
     });
 
     it("still rejects a value that is not a column selector", () => {
       expect(messages(`${frame}c = chart.line(df, x=true)`)).toEqual([
-        "Type 'bool' is not assignable to parameter 'x: string | number'",
+        "Type 'bool' is not assignable to parameter 'x: string | int | float'",
       ]);
     });
   });

@@ -917,6 +917,7 @@ export function serializeObject(
   basePtr: number,
   allocateTaggedValue: ((value: TaggedValue) => number) | null = null,
   maxSlots = -1,
+  fromIndex = 0,
 ) {
   if (!jsObj || !memory) return;
   const view = new DataView(memory.buffer);
@@ -938,13 +939,13 @@ export function serializeObject(
 
   if (!slots) return;
 
-  
-  
-  
+
+
+
   const limit =
     !isJsArray && maxSlots >= 0 ? Math.min(slots.length, maxSlots) : slots.length;
 
-  for (let i = 0; i < limit; i++) {
+  for (let i = Math.max(fromIndex, 0); i < limit; i++) {
     const val = slots[i];
     let numVal = 0;
     if (typeof val === "number" && isNumber(val)) numVal = toNumber(val);

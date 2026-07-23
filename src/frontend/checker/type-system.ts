@@ -1,5 +1,5 @@
-import { CHART_METADATA, DOMAIN_BUILTIN_METADATA } from "../../runtime/domain/metadata.js";
-import { TERA_PSEUDO_TYPES, type TeraPseudoTypeSpec } from "../../../data/tera-language-spec.js";
+import { chartMetadataFromSpec, runtimeBuiltinMetadataFromSpec } from "../../utils/language-spec-runtime.js";
+import { TERA_BUILTINS, TERA_CHART_METHODS, TERA_PSEUDO_TYPES, type TeraPseudoTypeSpec } from "../../../data/tera-language-spec.js";
 import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
 
 export type TypeName = string;
@@ -36,6 +36,9 @@ export type TypeEnv = {
 
 export const BUILTIN_SIGNATURES = new Map<string, Signature>();
 const PSEUDO_TYPE_SPECS = TERA_PSEUDO_TYPES as Record<string, TeraPseudoTypeSpec | undefined>;
+const BUILTIN_TYPE_SPECS = TERA_BUILTINS as Record<string, { methods?: TeraPseudoTypeSpec["methods"] } | undefined>;
+const domainBuiltins = runtimeBuiltinMetadataFromSpec(TERA_BUILTINS);
+const chartBuiltins = chartMetadataFromSpec(TERA_CHART_METHODS);
 
 export function cleanType(type: string | undefined): TypeName {
   if (!type) return "any";
@@ -119,10 +122,10 @@ for (const sig of [
 ]) {
   BUILTIN_SIGNATURES.set(sig.name, sig);
 }
-for (const metadata of Object.values(DOMAIN_BUILTIN_METADATA)) {
+for (const metadata of Object.values(domainBuiltins)) {
   BUILTIN_SIGNATURES.set(metadata.name, signatureFromMetadata(metadata));
 }
-for (const metadata of Object.values(CHART_METADATA)) {
+for (const metadata of Object.values(chartBuiltins)) {
   BUILTIN_SIGNATURES.set(`chart.${metadata.name}`, signatureFromMetadata({ ...metadata, name: `chart.${metadata.name}` }));
 }
 
@@ -224,6 +227,21 @@ function arrayElementType(type: TypeName): TypeName | null {
   return cleanType(source.slice(0, -2));
 }
 
+export function iterableBindingType(type: TypeName, mode: "in" | "of", env: TypeEnv): TypeName {
+  const resolved = resolveType(type, env);
+  if (mode === "in") {
+    if (resolved === "Object" || typeLiteralShape(resolved) || env.interfaces.has(baseTypeName(resolved))) return "string";
+    if (resolved === "string" || resolved === "Array" || resolved.endsWith("[]") || resolved.startsWith("[")) return "int";
+    return "any";
+  }
+  if (resolved === "string") return "string";
+  const element = arrayElementType(resolved);
+  if (element) return element;
+  if (resolved.startsWith("[") && resolved.endsWith("]")) return unionType(tupleTypes(resolved));
+  if (resolved === "Array") return "any";
+  return "any";
+}
+
 export function baseTypeName(type: TypeName): string {
   const generic = String(type).match(/^([A-Za-z_$][\w$]*)\s*</);
   return generic ? generic[1] : String(type);
@@ -235,7 +253,9 @@ export type MemberType = {
 };
 
 export function builtinMethod(type: TypeName, name: string): MemberType | null {
-  const method = PSEUDO_TYPE_SPECS[baseTypeName(type)]?.methods.find((entry) => entry.name === name);
+  const owner = baseTypeName(type);
+  const method = PSEUDO_TYPE_SPECS[owner]?.methods.find((entry) => entry.name === name)
+    ?? BUILTIN_TYPE_SPECS[owner]?.methods?.find((entry) => entry.name === name);
   return method ? { returns: cleanType(method.returns ?? "any"), getter: !!method.isGetter } : null;
 }
 
@@ -273,7 +293,7 @@ export function instantiateShapeForType(type: TypeName, env: TypeEnv): ObjectSha
   return { fields };
 }
 
-const NUMERIC_TYPES = new Set<TypeName>(["number", "int", "float"]);
+const NUMERIC_TYPES = new Set<TypeName>(["int", "float"]);
 
 export function compatible(actual: TypeName, expected: TypeName, env: TypeEnv): boolean {
   actual = resolveType(actual, env);

@@ -1,7 +1,11 @@
 import { NodeType, type ASTNode } from "../ast/index.js";
-import { ASYNC_DOMAIN_TYPES, DOMAIN_BUILTIN_METADATA, RESULT_FIELD_TYPES } from "../../runtime/domain/metadata.js";
+import { TERA_ASYNC_DOMAIN_TYPES, TERA_BUILTINS, TERA_RESULT_FIELD_TYPES } from "../../../data/tera-language-spec.js";
+import { runtimeBuiltinMetadataFromSpec } from "../../utils/language-spec-runtime.js";
 
 const RECORD_PREFIX = "@";
+const ASYNC_DOMAIN_TYPES = new Set<string>(TERA_ASYNC_DOMAIN_TYPES);
+const domainBuiltins = runtimeBuiltinMetadataFromSpec(TERA_BUILTINS);
+const RESULT_FIELD_TYPES = TERA_RESULT_FIELD_TYPES as Record<string, Record<string, string>>;
 
 type FunctionNode = ASTNode & { name?: string | null; body?: ASTNode | ASTNode[]; async?: boolean };
 type CallNode = ASTNode & { callee: ASTNode; args: ASTNode[]; implicitAwait?: boolean };
@@ -267,7 +271,7 @@ class EffectAnalyzer {
     const name = calleeName(callee);
     if (!name) return this.domainType(callee, types);
     if (RESULT_FIELD_TYPES[name]) return `${RECORD_PREFIX}${name}`;
-    const returns = DOMAIN_BUILTIN_METADATA[name]?.returns;
+    const returns = domainBuiltins[name]?.returns;
     if (returns) return ASYNC_DOMAIN_TYPES.has(returns) ? returns : null;
     for (const unit of this.byName.get(name) ?? []) if (unit.returns) return unit.returns;
     return null;
@@ -288,7 +292,7 @@ class EffectAnalyzer {
     if (resolved.units.length > 0) return resolved.units.some((unit) => unit.async);
 
     const name = calleeName(call.callee);
-    if (name) return DOMAIN_BUILTIN_METADATA[name]?.effect === "async";
+    if (name) return domainBuiltins[name]?.effect === "async";
     if (call.callee.type !== NodeType.MemberExpression) return false;
     return this.domainType(call.callee.object as ASTNode, types) !== null;
   }

@@ -4,7 +4,7 @@ seq = arange(0, 6)
 lin = linspace(0.0, 1.0, 5)
 ident = eye(3)
 filled = full([2, 2], 7.0)
-noise = randn([2, 3], dtype=f32)
+noise = randn([2, 3], dtype="f32")
 
 print("a =", a)
 print("shape(a) =", a.shape, "| dtype:", a.dtype)

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -21,9 +21,6 @@ import type { Param, PseudoTypeSource } from "../src/shared/language-data.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXT_ROOT = resolve(HERE, "..");
-const ROOT = resolve(EXT_ROOT, "..");
-
-const RUNTIME_BUNDLE = resolve(ROOT, "dist/index.node.js");
 
 const OUTPUTS = {
   grammar: join(EXT_ROOT, "syntaxes/tera.tmLanguage.json"),
@@ -31,7 +28,6 @@ const OUTPUTS = {
   snippets: join(EXT_ROOT, "snippets/tera.json"),
 };
 
-const DOC_ONLY_KINDS = new Set(["step", "global"]);
 const BUILTIN_SPECS = TERA_BUILTINS as Record<string, TeraBuiltinSpec | undefined>;
 const KIND_METHOD_SPECS = TERA_KIND_METHODS as Record<string, TeraMethodSpec[] | undefined>;
 const CHART_METHOD_SPECS = TERA_CHART_METHODS as Record<string, TeraChartMethodSpec | undefined>;
@@ -41,30 +37,9 @@ const CHART_NAMESPACE_DESCRIPTION =
   "Namespace of chart constructors for notebook visual outputs. Each call returns a "
   + "`ChartSpec` that the notebook renders; `data` accepts a `DataFrame`, a tensor, or plain arrays.";
 
-const DOCUMENTED_ELSEWHERE = new Set(["chart"]);
-
-type RuntimeMetadataEntry = {
-  name: string;
-  returns?: string | null;
-  kind?: string;
-  effect?: string;
-  params?: Param[];
-};
-
-type RuntimeModule = {
-  KEYWORDS: Set<string>;
-  DOMAIN_BUILTIN_METADATA: Record<string, RuntimeMetadataEntry>;
-  CHART_METADATA: Record<string, RuntimeMetadataEntry>;
-};
-
 export async function generate(outputs = OUTPUTS) {
-  const runtime = await loadRuntime();
-
-  const keywords = assertKeywordsInSync(runtime.KEYWORDS);
-  const runtimeBuiltins = collectRuntimeBuiltins(runtime);
-  assertSpecInSync(runtimeBuiltins);
-
-  const builtins = mergeBuiltins(runtimeBuiltins);
+  const keywords = collectKeywords();
+  const builtins = collectBuiltins();
   const pseudoTypes = toPseudoTypeSource();
   const types = collectTypes(pseudoTypes);
 
@@ -86,16 +61,9 @@ export async function generate(outputs = OUTPUTS) {
   };
 }
 
-async function loadRuntime(): Promise<RuntimeModule> {
-  if (!existsSync(RUNTIME_BUNDLE)) {
-    throw new Error(`Missing ${RUNTIME_BUNDLE}. Run "npm run build" at the repo root first.`);
-  }
-  return (await import(pathToFileURL(RUNTIME_BUNDLE).href)) as RuntimeModule;
-}
-
-function collectRuntimeBuiltins(runtime: RuntimeModule): BuiltinSource[] {
-  const entries = [...Object.values(runtime.DOMAIN_BUILTIN_METADATA)];
-  const builtins = entries.map(toBuiltinSource);
+function collectBuiltins(): BuiltinSource[] {
+  const builtins = Object.entries(BUILTIN_SPECS)
+    .map(([name, builtin]) => toBuiltinSource(name, builtin!));
 
   builtins.push({
     name: "chart",
@@ -104,14 +72,13 @@ function collectRuntimeBuiltins(runtime: RuntimeModule): BuiltinSource[] {
     returns: "chart",
     effect: "sync",
     signature: null,
-    methods: Object.values(runtime.CHART_METADATA).map((entry) => {
-      const doc = CHART_METHOD_SPECS[entry.name];
+    methods: Object.entries(CHART_METHOD_SPECS).map(([name, doc]) => {
       return {
-        name: entry.name,
+        name,
         description: doc?.description ?? null,
-        returns: entry.returns ?? null,
-        effect: entry.effect ?? "sync",
-        params: doc ? parseParams(callArguments(doc.display)) : normalizeParams(entry.params ?? []),
+        returns: doc?.returns ?? null,
+        effect: doc?.effect ?? "sync",
+        params: normalizeParams(doc?.params ?? parseParams(callArguments(doc?.display ?? ""))),
       };
     }),
   });
@@ -125,85 +92,25 @@ function callArguments(display: string): string {
   return open < 0 || close < open ? "" : display.slice(open + 1, close);
 }
 
-function toBuiltinSource(entry: RuntimeMetadataEntry): BuiltinSource {
+function toBuiltinSource(name: string, entry: TeraBuiltinSpec): BuiltinSource {
   return {
-    name: entry.name,
+    name,
     kind: entry.kind ?? "function",
-    description: null,
+    description: entry.description ?? null,
     returns: entry.returns ?? null,
     effect: entry.effect ?? "sync",
     signature: { params: normalizeParams(entry.params ?? []) },
-    methods: [],
+    methods: mergeMethods(entry.kind ?? "function", entry.methods ?? []),
   };
 }
 
-function assertSpecInSync(runtimeBuiltins: BuiltinSource[]): void {
-  const runtimeNames = new Set(runtimeBuiltins.map((builtin) => builtin.name));
-
-  const undocumented = [...runtimeNames]
-    .filter((name) => !BUILTIN_SPECS[name] && !DOCUMENTED_ELSEWHERE.has(name))
-    .sort();
-  const phantom: string[] = [];
-  const wrongKind: string[] = [];
-
-  for (const [name, doc] of Object.entries(TERA_BUILTINS)) {
-    if (!runtimeNames.has(name)) {
-      if (!doc.kind || !DOC_ONLY_KINDS.has(doc.kind)) phantom.push(name);
-      continue;
-    }
-    const runtimeKind = runtimeBuiltins.find((builtin) => builtin.name === name)!.kind;
-    if (doc.kind && doc.kind !== runtimeKind) wrongKind.push(`${name} (docs say {${doc.kind}}, runtime says {${runtimeKind}})`);
-  }
-
-  const problems = [
-    undocumented.length ? `undocumented builtins — add ${undocumented[0]} to data/tera-language-spec.ts:\n    ${undocumented.join(", ")}` : "",
-    phantom.length ? `documented but not defined by the runtime (remove them, or mark {step} if scope-local):\n    ${phantom.join(", ")}` : "",
-    wrongKind.length ? `kind annotation disagrees with the runtime:\n    ${wrongKind.join("\n    ")}` : "",
-  ].filter(Boolean);
-
-  if (problems.length) {
-    throw new Error(`data/tera-language-spec.ts is out of sync with src/runtime/domain:\n  ${problems.join("\n  ")}`);
-  }
-}
-
-function mergeBuiltins(runtimeBuiltins: BuiltinSource[]): BuiltinSource[] {
-  const merged = runtimeBuiltins.map((builtin) => {
-    const doc = BUILTIN_SPECS[builtin.name];
-    if (!doc) return builtin;
-
-    return {
-      ...builtin,
-      description: doc.description,
-      signature: doc.params ? { params: normalizeParams(doc.params) } : builtin.signature,
-      methods: mergeMethods(builtin, doc.methods ?? [], KIND_METHOD_SPECS[builtin.kind] ?? []),
-    };
-  });
-
-  for (const [name, doc] of Object.entries(TERA_BUILTINS)) {
-    if (merged.some((builtin) => builtin.name === name)) continue;
-    merged.push({
-      name,
-      kind: doc.kind!,
-      description: doc.description,
-      returns: null,
-      effect: "sync",
-      signature: doc.params ? { params: normalizeParams(doc.params) } : null,
-      methods: toMethodSources(doc.methods ?? []),
-    });
-  }
-
-  return merged;
-}
-
 function mergeMethods(
-  builtin: BuiltinSource,
+  kind: string,
   own: SpecMethodInput[],
-  template: SpecMethodInput[],
 ): BuiltinSource["methods"] {
   const byName = new Map<string, BuiltinSource["methods"][number]>();
-  for (const method of builtin.methods) byName.set(method.name, method);
 
-  for (const method of [...template, ...own]) {
+  for (const method of [...KIND_METHOD_SPECS[kind] ?? [], ...own]) {
     const [documented] = toMethodSources([method]);
     const existing = byName.get(method.name);
     byName.set(method.name, existing
@@ -263,22 +170,8 @@ function collectTypes(pseudoTypes: PseudoTypeSource): string[] {
   return [...new Set([...TERA_PRIMITIVE_TYPES, ...Object.keys(pseudoTypes)])].sort();
 }
 
-function assertKeywordsInSync(lexerKeywords: Iterable<string>): string[] {
-  const actual = new Set(lexerKeywords);
-  const grouped = new Set(Object.values(KEYWORD_GROUPS).flat());
-
-  const missing = [...actual].filter((k) => !grouped.has(k)).sort();
-  const stale = [...grouped].filter((k) => !actual.has(k)).sort();
-
-  if (missing.length || stale.length) {
-    const details = [
-      missing.length ? `not grouped (add to data/tera-language-spec.ts): ${missing.join(", ")}` : "",
-      stale.length ? `no longer in the lexer (remove from data/tera-language-spec.ts): ${stale.join(", ")}` : "",
-    ].filter(Boolean).join("\n  ");
-    throw new Error(`data/tera-language-spec.ts is out of sync with the Tera lexer:\n  ${details}`);
-  }
-
-  return [...grouped].sort();
+function collectKeywords(): string[] {
+  return [...new Set(Object.values(KEYWORD_GROUPS).flat())].sort();
 }
 
 type SpecMethodInput = {

@@ -9,6 +9,7 @@ const PATTERNS = {
   class: new RegExp(`^class\\s+(${IDENT})`),
   method: new RegExp(`^(${IDENT})\\s*\\(([^)]*)\\)\\s*(?:->\\s*[^:]+)?\\s*:`),
   blockMethod: new RegExp(`^(${IDENT})\\s*:\\s*$`),
+  forEach: new RegExp(`^for\\s+(${IDENT})\\s+(of|in)\\s+(.+):\\s*$`),
   variable: new RegExp(`^(${IDENT})\\s*(?::\\s*([^=]+))?\\s*=\\s*(.+)$`),
   field: new RegExp(`^this\\.(${IDENT})\\s*(?::\\s*([^=]+))?\\s*=\\s*(.+)$`),
   param: new RegExp(`^(${IDENT})(?:\\s*:\\s*([^=]+?))?(?:\\s*=.*)?$`),
@@ -67,12 +68,6 @@ export function buildSymbolTable(lines: string[], env: BuiltinEnv, inferredTypes
         for (const param of parseParams(declaration.params)) {
           addSymbol(next, param.name, "parameter", lineNo, base + param.column - 1, param.typeName);
         }
-        if (declaration.holdsFields) {
-          const fields = fieldsByType.get(declaration.name)!;
-          for (const param of parseParams(declaration.params)) {
-            fields.push({ name: param.name, kind: "field", line: lineNo, column: param.column, typeName: param.typeName });
-          }
-        }
       }
       continue;
     }
@@ -92,9 +87,25 @@ export function buildSymbolTable(lines: string[], env: BuiltinEnv, inferredTypes
       continue;
     }
 
+    const loop = line.match(PATTERNS.forEach);
+    if (loop) {
+      addSymbol(scope, loop[1], "variable", lineNo, column + line.indexOf(loop[1]) + 1, inferredType(loop[1], lineNo));
+      continue;
+    }
+
     const variable = line.match(PATTERNS.variable);
     if (variable) {
-      addSymbol(scope, variable[1], "variable", lineNo, column + 1, cleanType(variable[2]) ?? inferredType(variable[1], lineNo));
+      const typeName = cleanType(variable[2]) ?? inferredType(variable[1], lineNo);
+      addSymbol(scope, variable[1], "variable", lineNo, column + 1, typeName);
+      if (scope.kind === "model" || scope.kind === "class") {
+        fieldsByType.get(scope.name)?.push({
+          name: variable[1],
+          kind: "field",
+          line: lineNo,
+          column: column + 1,
+          typeName,
+        });
+      }
     }
   }
 
@@ -184,7 +195,6 @@ function cleanType(type: string | undefined): string | null {
 function readReturnType(line: string): string | null {
   return cleanType(line.match(PATTERNS.returnType)?.[1]);
 }
-
 
 function enclosingType(stack: Scope[]): string | null {
   for (let i = stack.length - 1; i >= 0; i--) {

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import * as mlfw from "@slexisvn/mlfw";
 import { DataFrame } from "@slexisvn/query-engine";
 import { Engine } from "../../src/index.js";
-import { ASYNC_DOMAIN_TYPES } from "../../src/runtime/domain/metadata.js";
+import { TERA_ASYNC_DOMAIN_TYPES } from "../../data/tera-language-spec.js";
+
+const ASYNC_DOMAIN_TYPES = new Set<string>(TERA_ASYNC_DOMAIN_TYPES);
 
 const printed = async (source: string) => {
   const out: string[] = [];

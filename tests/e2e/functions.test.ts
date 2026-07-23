@@ -7,7 +7,7 @@ const native = (source: string, typecheck: "off" | "warn" | "strict" = "off") =>
 
 describe("Tera functions and calls", () => {
   it("runs indentation functions with erased parameter and return types", () => {
-    expect(run("fn add(a: number, b: number = 2) -> number:\n  return a + b\nadd(a=3)")).toBe(5);
+    expect(run("fn add(a: float, b: float = 2) -> float:\n  return a + b\nadd(a=3)")).toBe(5);
   });
 
   it("binds named arguments with Python-style rules", () => {
@@ -35,12 +35,12 @@ describe("Tera functions and calls", () => {
 
   it("checks typed returns and named argument types", () => {
     const diagnostics = checkSource(
-      "fn add(a: number, b: number) -> string:\n  return a + b\nadd(a=\"x\", b=2)",
+      "fn add(a: float, b: float) -> string:\n  return a + b\nadd(a=\"x\", b=2)",
       "strict",
     );
     const messages = diagnostics.map((d) => d.message).join("\n");
     expect(messages).toContain("return type 'string'");
-    expect(messages).toContain("parameter 'a: number'");
+    expect(messages).toContain("parameter 'a: float'");
     expect(() => native("x: string = 1\nx", "strict")).toThrow(TypecheckError);
   });
 });

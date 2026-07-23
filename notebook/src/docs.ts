@@ -104,7 +104,7 @@ const SECTION_ORDER = [
 
 const DATAFRAME_BUILTINS = new Set([
   'DataFrame', 'load_csv', 'col', 'lit', 'expr',
-  'sum', 'avg', 'min', 'max', 'count', 'countStar',
+  'sum', 'avg', 'min', 'max', 'count', 'count_star',
 ]);
 const DATA_UTILITY_BUILTINS = new Set(['TensorDataset', 'DataLoader', 'encode', 'decode', 'normalize', 'train_test_split']);
 const QUANT_BUILTINS = new Set([
@@ -132,7 +132,7 @@ const TRAINING_BUILTINS = new Set([
   'Accuracy', 'ConfusionMatrix', 'F1Score', 'MetricCollection', 'Precision', 'Recall',
 ]);
 const TOKENIZER_FILE_BUILTINS = new Set(['Tokenizer', 'load_tokenizer', 'read_text', 'load_json', 'load_model']);
-const RUNTIME_BUILTINS = new Set(['compile', 'graph', 'print', 'range', 'trace', 'cpu', 'gpu', 'wasm', 'webgpu']);
+const RUNTIME_BUILTINS = new Set(['compile', 'graph', 'print', 'range', 'trace']);
 
 const EXAMPLES: Record<string, string> = {
   tensor: 'tensor([[1, 2], [3, 4]])',
@@ -145,25 +145,25 @@ const EXAMPLES: Record<string, string> = {
   eye: 'eye(3)',
   linspace: 'linspace(0, 1, 5)',
   randperm: 'randperm(5)',
-  zerosLike: 'x = randn([2, 3])\nzerosLike(x)',
-  onesLike: 'x = randn([2, 3])\nonesLike(x)',
-  emptyLike: 'x = randn([2, 3])\nemptyLike(x)',
-  fullLike: 'x = randn([2, 3])\nfullLike(x, 9)',
-  randnLike: 'x = zeros([2, 3])\nrandnLike(x)',
+  zeros_like: 'x = randn([2, 3])\nzeros_like(x)',
+  ones_like: 'x = randn([2, 3])\nones_like(x)',
+  empty_like: 'x = randn([2, 3])\nempty_like(x)',
+  full_like: 'x = randn([2, 3])\nfull_like(x, 9)',
+  randn_like: 'x = zeros([2, 3])\nrandn_like(x)',
   where: 'mask = tensor([true, false, true])\na = tensor([1, 1, 1])\nb = tensor([9, 9, 9])\nwhere(mask, a, b)',
   cat: 'a = ones([2, 2])\nb = zeros([2, 2])\ncat([a, b], axis=0)',
   stack: 'a = ones([2])\nb = zeros([2])\nstack([a, b], axis=0)',
 
   DataFrame: 'df = DataFrame(name=["A", "B", "C"], value=[10, 20, 30])\ndf.show()',
   col: 'df = DataFrame(name=["A", "B", "C"], value=[10, 20, 30])\ndf.select(col("name"), col("value")).show()',
-  lit: 'df = DataFrame(value=[1, 2, 3])\ndf.withColumn("bias", lit(1)).show()',
-  expr: 'df = DataFrame(price=[10, 20, 30])\ndf.withColumn("taxed", expr("price * 1.1")).show()',
-  sum: 'df = DataFrame(group=["a", "a", "b"], value=[1, 2, 3])\ndf.groupBy("group").agg(sum(col("value")).alias("total")).show()',
-  avg: 'df = DataFrame(group=["a", "a", "b"], value=[1, 2, 3])\ndf.groupBy("group").agg(avg(col("value")).alias("mean")).show()',
-  min: 'df = DataFrame(group=["a", "a", "b"], value=[1, 2, 3])\ndf.groupBy("group").agg(min(col("value")).alias("low")).show()',
-  max: 'df = DataFrame(group=["a", "a", "b"], value=[1, 2, 3])\ndf.groupBy("group").agg(max(col("value")).alias("high")).show()',
-  count: 'df = DataFrame(group=["a", "a", "b"], value=[1, 2, 3])\ndf.groupBy("group").agg(count(col("value")).alias("n")).show()',
-  countStar: 'df = DataFrame(group=["a", "a", "b"], value=[1, 2, 3])\ndf.groupBy("group").agg(countStar().alias("n")).show()',
+  lit: 'df = DataFrame(value=[1, 2, 3])\ndf.with_column("bias", lit(1)).show()',
+  expr: 'df = DataFrame(price=[10, 20, 30])\ndf.with_column("taxed", expr("price * 1.1")).show()',
+  sum: 'df = DataFrame(group=["a", "a", "b"], value=[1, 2, 3])\ndf.group_by("group").agg(sum(col("value")).alias("total")).show()',
+  avg: 'df = DataFrame(group=["a", "a", "b"], value=[1, 2, 3])\ndf.group_by("group").agg(avg(col("value")).alias("mean")).show()',
+  min: 'df = DataFrame(group=["a", "a", "b"], value=[1, 2, 3])\ndf.group_by("group").agg(min(col("value")).alias("low")).show()',
+  max: 'df = DataFrame(group=["a", "a", "b"], value=[1, 2, 3])\ndf.group_by("group").agg(max(col("value")).alias("high")).show()',
+  count: 'df = DataFrame(group=["a", "a", "b"], value=[1, 2, 3])\ndf.group_by("group").agg(count(col("value")).alias("n")).show()',
+  count_star: 'df = DataFrame(group=["a", "a", "b"], value=[1, 2, 3])\ndf.group_by("group").agg(count_star().alias("n")).show()',
   encode: 'labels = ["cat", "dog", "cat"]\nencoded, classes = encode(labels)\nprint(classes)\nencoded',
   decode: 'labels = ["cat", "dog", "cat"]\nencoded, classes = encode(labels)\ndecode(encoded, classes)',
   normalize: 'x = tensor([[1, 2], [3, 4]])\nnormalize(x)',
@@ -189,10 +189,10 @@ const EXAMPLES: Record<string, string> = {
   MaxPool2d: 'pool = MaxPool2d(2)\npool(randn([1, 1, 8, 8]))',
   AvgPool2d: 'pool = AvgPool2d(2)\npool(randn([1, 1, 8, 8]))',
   AdaptiveAvgPool2d: 'pool = AdaptiveAvgPool2d([2, 2])\npool(randn([1, 1, 8, 8]))',
-  Embedding: 'emb = Embedding(10, 4)\nemb(tensor([1, 2, 3], { dtype: i32 }))',
+  Embedding: 'emb = Embedding(10, 4)\nemb(tensor([1, 2, 3], { dtype: "i32" }))',
   MSELoss: 'loss_fn = MSELoss()\nloss_fn(tensor([1.0, 2.0]), tensor([1.5, 2.5]))',
-  CrossEntropyLoss: 'loss_fn = CrossEntropyLoss()\nlogits = randn([3, 4])\ntarget = tensor([0, 1, 2], { dtype: i32 })\nloss_fn(logits, target)',
-  NLLLoss: 'loss_fn = NLLLoss()\nlog_probs = randn([3, 4]).log_softmax(axis=-1)\ntarget = tensor([0, 1, 2], { dtype: i32 })\nloss_fn(log_probs, target)',
+  CrossEntropyLoss: 'loss_fn = CrossEntropyLoss()\nlogits = randn([3, 4])\ntarget = tensor([0, 1, 2], { dtype: "i32" })\nloss_fn(logits, target)',
+  NLLLoss: 'loss_fn = NLLLoss()\nlog_probs = randn([3, 4]).log_softmax(axis=-1)\ntarget = tensor([0, 1, 2], { dtype: "i32" })\nloss_fn(log_probs, target)',
   BCELoss: 'loss_fn = BCELoss()\nloss_fn(tensor([0.2, 0.8]), tensor([0, 1]))',
 
   Adam: 'net = Sequential(Linear(2, 4), ReLU(), Linear(4, 1))\nAdam(net.parameters(), lr=0.001)',
@@ -362,14 +362,14 @@ function sortSections(sections: DocsSection[]): DocsSection[] {
 function sectionForBuiltin(builtin: BuiltinDoc): string {
   const name = builtin.name;
   const kind = builtin.kind || '';
-  if (kind === 'factory' || kind === 'dtype' || TENSOR_BUILTINS.has(name)) return 'Tensors';
+  if (kind === 'factory' || TENSOR_BUILTINS.has(name)) return 'Tensors';
   if (kind === 'module' || kind === 'sequential') return 'Models & layers';
   if (DATAFRAME_BUILTINS.has(name)) return 'DataFrame';
   if (DATA_UTILITY_BUILTINS.has(name)) return 'Data utilities';
   if (kind === 'quant' || QUANT_BUILTINS.has(name)) return 'Quant';
   if (TRAINING_BUILTINS.has(name) || ['optimizer', 'scheduler', 'trainer', 'callback', 'logger', 'metric', 'step'].includes(kind)) return 'Training';
   if (TOKENIZER_FILE_BUILTINS.has(name)) return 'Tokenizer & files';
-  if (RUNTIME_BUILTINS.has(name) || kind === 'device' || kind === 'utility') return 'Runtime';
+  if (RUNTIME_BUILTINS.has(name) || kind === 'utility') return 'Runtime';
   return 'Language basics';
 }
 
@@ -428,7 +428,6 @@ function docOrder(item: DocItem): number {
   if (item.source === 'chart') return 100;
   if (item.source === 'member') return memberOrder(item);
   if (item.kind === 'factory') return 10;
-  if (item.kind === 'dtype') return 20;
   if (TENSOR_BUILTINS.has(item.name)) return 30;
   if (item.name === 'DataFrame') return 10;
   if (DATAFRAME_BUILTINS.has(item.name) && item.name !== 'load_csv') return 20;
@@ -443,7 +442,6 @@ function docOrder(item: DocItem): number {
   if (item.kind === 'callback') return 50;
   if (item.kind === 'logger') return 60;
   if (item.kind === 'step') return 70;
-  if (item.kind === 'device') return 20;
   if (item.kind === 'utility') return 30;
   return 100;
 }
@@ -454,9 +452,9 @@ function memberOrder(item: DocItem): number {
   if (item.owner === 'DataFrame') return 100;
   if (item.owner === 'GroupedData') return 200;
   if (item.owner === 'Column') return 300;
-  if (item.owner === 'List') return 100;
+  if (item.owner === 'Array') return 100;
   if (item.owner === 'String') return 200;
-  if (item.owner === 'Dict') return 300;
+  if (item.owner === 'Object') return 300;
   return 500;
 }
 
@@ -722,19 +720,18 @@ function dataframeMemberExample(item: DocItem): string {
     select: `${base}\ndf.select("name", "value").show()`,
     filter: `${base}\ndf.filter(col("value").gt(10)).show()`,
     where: `${base}\ndf.where(col("value").gt(10)).show()`,
-    withColumn: `${base}\ndf.withColumn("double", col("value").mul(2)).show()`,
+    with_column: `${base}\ndf.with_column("double", col("value").mul(2)).show()`,
     drop: `${base}\ndf.drop("group").show()`,
-    groupBy: `${base}\ndf.groupBy("group").agg(sum(col("value")).alias("total")).show()`,
-    orderBy: `${base}\ndf.orderBy("value").show()`,
+    group_by: `${base}\ndf.group_by("group").agg(sum(col("value")).alias("total")).show()`,
+    order_by: `${base}\ndf.order_by("value").show()`,
     sort: `${base}\ndf.sort("value").show()`,
     limit: `${base}\ndf.limit(2).show()`,
     head: `${base}\ndf.head(2).show()`,
     distinct: 'df = DataFrame(value=[1, 1, 2])\ndf.distinct().show()',
     union: 'a = DataFrame(value=[1, 2])\nb = DataFrame(value=[3, 4])\na.union(b).show()',
-    unionAll: 'a = DataFrame(value=[1, 2])\nb = DataFrame(value=[2, 3])\na.unionAll(b).show()',
+    union_all: 'a = DataFrame(value=[1, 2])\nb = DataFrame(value=[2, 3])\na.union_all(b).show()',
     join: 'left = DataFrame(id=[1, 2], a=["x", "y"])\nright = DataFrame(id=[1, 2], b=[10, 20])\nleft.join(right, on="id").show()',
     collect: `${base}\ndf.collect()`,
-    toArray: `${base}\ndf.toArray()`,
     count: `${base}\ndf.count()`,
     show: `${base}\ndf.show()`,
     to_tensor: `${base}\ndf.to_tensor("value")`,
@@ -751,7 +748,7 @@ function columnMemberExample(item: DocItem): string {
   if (['add', 'sub', 'mul', 'div', 'eq', 'ne', 'lt', 'le', 'gt', 'ge'].includes(name)) return `${base}\ndf.filter(col("value").${name}(2)).show()`;
   if (name === 'and' || name === 'or') return `${base}\ndf.filter(col("value").gt(1).${name}(col("value").lt(3))).show()`;
   if (name === 'not') return `${base}\ndf.filter(col("value").gt(2).not()).show()`;
-  if (name === 'isNull' || name === 'isNotNull') return 'df = DataFrame(value=[1, null, 3])\ndf.filter(col("value").' + name + '()).show()';
+  if (name === 'is_null' || name === 'is_not_null') return 'df = DataFrame(value=[1, null, 3])\ndf.filter(col("value").' + name + '()).show()';
   if (name === 'like') return 'df = DataFrame(name=["ann", "bob", "amy"])\ndf.filter(col("name").like("a%")).show()';
   if (name === 'between') return `${base}\ndf.filter(col("value").between(1, 2)).show()`;
   if (name === 'isin') return `${base}\ndf.filter(col("value").isin(1, 3)).show()`;
@@ -817,9 +814,9 @@ function sampleReceiver(typeName: string): string {
     DataFrame: 'df',
     GroupedData: 'grouped',
     Column: 'col("value")',
-    List: 'items',
+    Array: 'items',
     String: '"text"',
-    Dict: 'record',
+    Object: 'record',
   };
   return map[typeName] || typeName.toLowerCase();
 }

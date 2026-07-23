@@ -16,7 +16,8 @@ import { snakeToCamel } from "../../core/naming.js";
 import { camelOptions, resolveDevice, splitOptions, type NativeFn } from "./common.js";
 import { MODEL_MARKER } from "../../frontend/parser/index.js";
 import { bindModelBridge, nativeToTagged, optionsArg, taggedToNative } from "./host.js";
-import { DOMAIN_BUILTIN_METADATA } from "./metadata.js";
+import { TERA_BUILTINS } from "../../../data/tera-language-spec.js";
+import { runtimeBuiltinMetadataFromSpec } from "../../utils/language-spec-runtime.js";
 
 type InterpreterLike = {
   callFunctionValue(fn: TaggedValue, args: TaggedValue[], thisValue: TaggedValue): TaggedValue;
@@ -27,6 +28,7 @@ type BuiltinMap = Record<string, RuntimeFunctionPayload>;
 
 const ml = mlfw as Record<string, unknown>;
 const STEP_METHODS = { train: "trainingStep", validate: "validationStep", optimizer: "configureOptimizers" } as const;
+const domainBuiltins = runtimeBuiltinMetadataFromSpec(TERA_BUILTINS);
 
 const bridges = new WeakMap<object, unknown>();
 const activeBridges: unknown[] = [];
@@ -128,7 +130,7 @@ export function createModelBuiltins(): BuiltinMap {
   return {
     compile: {
       name: "compile",
-      metadata: DOMAIN_BUILTIN_METADATA.compile,
+      metadata: domainBuiltins.compile,
       call(args: TaggedValue[], _this: TaggedValue, interpreter: InterpreterLike) {
         const model = args[0] ?? mkUndefined();
         const options = optionsArg(args[args.length - 1] === undefined ? undefined : taggedToNative(args[args.length - 1]!));

@@ -80,6 +80,13 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
     for (const stmt of node.body) bindNode(stmt, bound, child);
     return;
   }
+  if (node.kind === "For") {
+    const child = createScope(scope, scope.signature);
+    child.locals.set(node.variable, { type: "any", optional: false });
+    bound.scopes.set(node, child);
+    for (const stmt of node.body) bindNode(stmt, bound, child);
+    return;
+  }
   if (node.kind === "Var") {
     const type = cleanType(node.declaredType) || "any";
     scope.locals.set(node.name, { type, optional: false });

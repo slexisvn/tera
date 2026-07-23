@@ -13,49 +13,49 @@ describe("Tera type checker", () => {
 
   it("checks aliases, interfaces, unions, arrays, and object fields", () => {
     const source = [
-      "type Id = number | string",
+      "type Id = float | string",
       "interface Named:",
       "  readonly name: string",
-      "  age?: number",
+      "  age?: float",
       "good: Named = { name: \"tera\" }",
       "bad: Named = { name: 3 }",
       "missing: Named = { age: 1 }",
       "ids: Id[] = [1, \"two\"]",
-      "wrong: number = good.name",
+      "wrong: float = good.name",
     ].join("\n");
     const messages = checkSource(source, "strict").map((d) => d.message).join("\n");
     expect(messages).toContain("field 'name: string'");
     expect(messages).toContain("Missing required field 'name'");
-    expect(messages).toContain("Type 'string' is not assignable to 'number'");
+    expect(messages).toContain("Type 'string' is not assignable to 'float'");
   });
 
   it("checks generic functions, tuples, function types, and generic parents", () => {
     const source = [
       "fn id<T>(value: T) -> T:",
       "  return value",
-      "ok: number = id<number>(1)",
-      "bad: number = id<string>(\"x\")",
-      "pair: [number, string] = [1, \"ok\"]",
-      "bad_pair: [number, string] = [\"x\", 1]",
-      "fn apply(value: number, f: (number) -> number) -> number:",
+      "ok: float = id<float>(1)",
+      "bad: float = id<string>(\"x\")",
+      "pair: [float, string] = [1, \"ok\"]",
+      "bad_pair: [float, string] = [\"x\", 1]",
+      "fn apply(value: float, f: (float) -> float) -> float:",
       "  return f(value)",
-      "bad_fn: (number) -> string = x => x + 1",
+      "bad_fn: (float) -> string = x => x + 1",
       "interface Box<T>:",
       "  value: T",
-      "interface NamedBox extends Box<number>:",
+      "interface NamedBox extends Box<float>:",
       "  label: string",
       "bad_box: NamedBox = { value: \"x\", label: \"tera\" }",
     ].join("\n");
     const messages = checkSource(source, "strict").map((d) => d.message).join("\n");
-    expect(messages).toContain("Type 'string' is not assignable to 'number'");
-    expect(messages).toContain("Type '[string, int]' is not assignable to '[number, string]'");
-    expect(messages).toContain("Type '(number) -> number' is not assignable to '(number) -> string'");
-    expect(messages).toContain("field 'value: number'");
+    expect(messages).toContain("Type 'string' is not assignable to 'float'");
+    expect(messages).toContain("Type '[string, int]' is not assignable to '[float, string]'");
+    expect(messages).toContain("Type '(float) -> float' is not assignable to '(float) -> string'");
+    expect(messages).toContain("field 'value: float'");
   });
 
   it("narrows union types inside control flow and erases types at runtime", () => {
     const source = [
-      "fn safe_len(x: string | null) -> number:",
+      "fn safe_len(x: string | null) -> float:",
       "  if x != null:",
       "    y: string = x",
       "    return x.length",
@@ -68,11 +68,11 @@ describe("Tera type checker", () => {
 
   it("erases type aliases and interfaces without swallowing following declarations", () => {
     const source = [
-      "type Id = number | string",
+      "type Id = float | string",
       "interface User:",
       "  id: Id",
       "  name: string",
-      "fn safe_len(x: string | null) -> number:",
+      "fn safe_len(x: string | null) -> float:",
       "  if x != null:",
       "    y: string = x",
       "    return y.length",
@@ -86,9 +86,9 @@ describe("Tera type checker", () => {
 
   it("erases function type annotations on variable assignments", () => {
     const source = [
-      "fn apply(x: number, f: (number) -> number) -> number:",
+      "fn apply(x: float, f: (float) -> float) -> float:",
       "  return f(x)",
-      "double: (number) -> number = x => x * 2",
+      "double: (float) -> float = x => x * 2",
       "apply(21, double)",
     ].join("\n");
     expect(checkSource(source, "strict")).toEqual([]);

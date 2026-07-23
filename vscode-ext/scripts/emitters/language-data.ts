@@ -2,7 +2,7 @@ import type {
   Builtin, KeywordGroup, LanguageData, Method, Operators, Param, PseudoTypeSource,
 } from "../../src/shared/language-data.ts";
 
-const SCALAR_KINDS = new Set(["device", "dtype", "constant"]);
+const SCALAR_KINDS = new Set(["constant"]);
 
 export type BuiltinSource = {
   name: string;

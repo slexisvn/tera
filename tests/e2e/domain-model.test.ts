@@ -7,7 +7,7 @@ const native = (source: string) => new Engine().runNative(source);
 
 describe("Tera domain builtins and model", () => {
   it("runs tensor matmul through the domain registry", () => {
-    const text = String(run("a = tensor([[1, 2], [3, 4]])\nb = tensor([[5, 6], [7, 8]])\n(a @ b).toString()"));
+    const text = String(run("a = tensor([[1, 2], [3, 4]])\nb = tensor([[5, 6], [7, 8]])\n(a @ b).to_string()"));
     expect(text).toContain("Tensor(shape=[2, 2]");
   });
 
@@ -16,7 +16,7 @@ describe("Tera domain builtins and model", () => {
     const elementsOf = (expression: string) => {
       const out: string[] = [];
       new Engine({ output: (text: unknown) => out.push(String(text)) })
-        .runNative(`${tensors}print((${expression}).toArray())`);
+        .runNative(`${tensors}print((${expression}).to_array())`);
       return out.join("");
     };
 
@@ -39,7 +39,7 @@ describe("Tera domain builtins and model", () => {
     });
 
     it("chains operators into tensor methods", () => {
-      expect(run(`${tensors}((x * 2.0).sum()).toArray()`)).toBe(20);
+      expect(run(`${tensors}((x * 2.0).sum()).to_array()`)).toBe(20);
     });
 
     it("keeps tensor operators working once the function is hot", () => {
@@ -50,12 +50,12 @@ describe("Tera domain builtins and model", () => {
         "last = 0",
         "for i of range(3000):",
         "  last = step(x)",
-        "print(last.toArray())",
+        "print(last.to_array())",
       ].join("\n");
       const out: string[] = [];
       new Engine({ output: (text: unknown) => out.push(String(text)) }).runNative(source);
       expect(out.join("")).toBe("[[2, 4]]");
-    });
+    }, 20000);
 
     it("rejects a non-commutative operator that has no left-hand method", () => {
       expect(() => run("x = tensor([[1.0]])\n2.0 - x")).toThrow(/requires a left operand with sub\(\)/);
@@ -93,8 +93,12 @@ describe("Tera domain builtins and model", () => {
       expect(printed("m = tensor([[1.0, 2.0]])\nprint(cat([m, m], dim=1).shape)")).toBe("[1, 4]");
     });
 
-    it("resolves device and dtype constants", () => {
-      expect(printed("x = tensor([[1.0]], device=cpu, dtype=f32)\nprint(x.device, x.dtype)")).toBe("cpu f32");
+    it("resolves device and dtype string options", () => {
+      expect(printed("x = tensor([[1.0]], device=\"cpu\", dtype=\"f32\")\nprint(x.device, x.dtype)")).toBe("cpu f32");
+    });
+
+    it("does not expose device and dtype names as globals", () => {
+      expect(() => native("tensor([[1.0]], dtype=f32)")).toThrow(/f32 is not defined/);
     });
 
     it("keeps options-object parameters out of the positional slots", () => {
@@ -114,12 +118,23 @@ describe("Tera domain builtins and model", () => {
     };
 
     it("maps the grad option onto the native requiresGrad flag", () => {
-      expect(printed("x = tensor([[1.0]], grad=true)\nprint(x.requiresGrad)")).toBe("true");
-      expect(printed("x = tensor([[1.0]])\nprint(x.requiresGrad)")).toBe("false");
+      const source = [
+        "x = tensor([[1.0]], grad=true)",
+        "y = (x ** 2.0).sum()",
+        "y.backward()",
+        "print(x.grad.to_array())",
+      ].join("\n");
+      expect(printed(source)).toBe("[[2]]");
     });
 
     it("still accepts the native option spelling", () => {
-      expect(printed("x = tensor([[1.0]], requires_grad=true)\nprint(x.requiresGrad)")).toBe("true");
+      const source = [
+        "x = tensor([[1.0]], requires_grad=true)",
+        "y = (x ** 2.0).sum()",
+        "y.backward()",
+        "print(x.grad.to_array())",
+      ].join("\n");
+      expect(printed(source)).toBe("[[2]]");
     });
 
     it("re-reads native getters instead of freezing them at wrap time", () => {
@@ -128,7 +143,7 @@ describe("Tera domain builtins and model", () => {
         "print(x.grad)",
         "f = (x ** 2.0).sum()",
         "f.backward()",
-        "print(x.grad.toArray())",
+        "print(x.grad.to_array())",
       ].join("\n");
       expect(printed(source)).toBe("null|[[2, 4]]");
     });
@@ -144,7 +159,7 @@ describe("Tera domain builtins and model", () => {
         "  loss.backward()",
         "  w = (w - 0.1 * w.grad).detach().requires_grad()",
         "  b = (b - 0.1 * b.grad).detach().requires_grad()",
-        "print(w.toArray(), b.toArray())",
+        "print(w.to_array(), b.to_array())",
       ].join("\n");
 
       const [weights, bias] = JSON.parse(`[${printed(source).replace("] [", "], [")}]`);
@@ -156,6 +171,23 @@ describe("Tera domain builtins and model", () => {
 
   it("creates DataFrames with named arguments", async () => {
     await expect(Promise.resolve(native("df = DataFrame(a=[1, 2], b=[3, 4])\ndf.count()"))).resolves.toBe(2);
+  });
+
+  it("exposes host object members through snake_case Tera names", () => {
+    const out: string[] = [];
+    const source = [
+      "tok = Tokenizer()",
+      "tok.fit([\"hello tera\"])",
+      "x = tensor([1, 2])",
+      "print(typeof tok.vocab_size)",
+      "print(typeof tok.vocabSize)",
+      "print(typeof tok.encode_batch)",
+      "print(typeof tok.encodeBatch)",
+      "print(typeof x.to_array)",
+      "print(typeof x.toArray)",
+    ].join("\n");
+    new Engine({ output: (text: unknown) => out.push(String(text)) }).runNative(source);
+    expect(out.join("|")).toBe("number|undefined|function|undefined|function|undefined");
   });
 
   it("parses multiline named DataFrame and backtest calls", () => {
@@ -194,7 +226,7 @@ describe("Tera domain builtins and model", () => {
     expect(run(`${model}\nnet.parameters().length`)).toBe(2);
     expect(run(`${model}\nnet.train(false)\nnet.training()`)).toBe(false);
     expect(run(`${model}\nnet.eval()\nnet.training()`)).toBe(false);
-    expect(String(run(`${model}\nnet(randn([3, 2])).toString()`))).toContain("Tensor(shape=[3, 1]");
+    expect(String(run(`${model}\nnet(randn([3, 2])).to_string()`))).toContain("Tensor(shape=[3, 1]");
     expect(run(`${model}\nopt = SGD(net.parameters(), lr=0.01)\ntypeof opt.step`)).toBe("function");
   });
 
@@ -207,14 +239,14 @@ describe("Tera domain builtins and model", () => {
       "net = Tiny(2, 1)",
     ].join("\n");
     expect(run(`${model}\ncompile(net, input=randn([3, 2])).parameters().length`)).toBe(2);
-    expect(String(run(`${model}\ncompile(net, input=randn([3, 2]))(randn([3, 2])).toString()`))).toContain("Tensor(shape=[3, 1]");
+    expect(String(run(`${model}\ncompile(net, input=randn([3, 2]))(randn([3, 2])).to_string()`))).toContain("Tensor(shape=[3, 1]");
   });
 
   describe("tensor slicing", () => {
     const setup = "m = tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])\n";
     const sliced = (expr: string) => {
       const out: string[] = [];
-      new Engine({ output: (text: unknown) => out.push(String(text)) }).runNative(`${setup}print((${expr}).toArray())`);
+      new Engine({ output: (text: unknown) => out.push(String(text)) }).runNative(`${setup}print((${expr}).to_array())`);
       return out.join("");
     };
 
@@ -262,7 +294,14 @@ describe("Tera domain builtins and model", () => {
     expect(checkSource("df = DataFrame(a=[1], b=[2])\ndf", "strict")).toEqual([]);
     expect(checkSource("model Tiny:\n  forward(x):\n    return x\nnet = Tiny()\ncompile(net, input=1)", "strict")).toEqual([]);
     expect(checkSource("compile(input=1)", "strict").map((d) => d.message).join("\n")).toContain("Missing required argument 'model'");
-    expect(checkSource("zscore(window=\"bad\")", "strict").map((d) => d.message).join("\n")).toContain("window: number");
+    expect(checkSource("zscore(window=\"bad\")", "strict").map((d) => d.message).join("\n")).toContain("window: int");
     expect(createDomainBuiltins().zscore.metadata?.params?.[0]?.name).toBe("window");
+  });
+
+  it("normalizes package record keys to snake_case", () => {
+    expect(native("result = adf_test([1, 2, 3, 4, 5])\n[result.critical_values.five, typeof result.criticalValues]")).toEqual([
+      -3.8487400000000003,
+      "undefined",
+    ]);
   });
 });

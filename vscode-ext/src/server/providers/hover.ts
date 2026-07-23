@@ -18,7 +18,7 @@ export default defineProvider({
   },
 });
 
-function computeHover(context: ProviderContext, params: HoverParams): Hover | null {
+export function computeHover(context: ProviderContext, params: HoverParams): Hover | null {
   const document = context.analyzer.get(params.textDocument.uri);
   if (!document) return null;
 
@@ -31,6 +31,7 @@ function computeHover(context: ProviderContext, params: HoverParams): Hover | nu
       ? memberHover(context, document, receiver, word.text, params.position)
       : uniqueMethodHover(context, word.text);
     if (hover) return { ...hover, range: word.range };
+    if (receiver) return null;
   }
 
   const builtin = context.types.builtin(word.text);
@@ -70,7 +71,7 @@ function memberHover(
 ): Hover | null {
   const receiverType = document.symbols.resolve(receiver, position)?.typeName ?? receiver;
 
-  const lookup = context.types.lookupMethod(receiverType, name) ?? context.types.findUniqueMethod(name);
+  const lookup = context.types.lookupMethod(receiverType, name);
   if (lookup) return methodHover(lookup);
 
   const field = document.symbols.resolveField(receiverType, name);
@@ -97,6 +98,7 @@ function methodHover(lookup: MethodLookup): Hover {
     "",
     `_${lookup.method.isGetter ? "property" : "method"} of ${lookup.ownerName}_`,
   ];
+  if (lookup.method.returns) lines.push("", `${lookup.method.isGetter ? "type" : "returns"}: \`${lookup.method.returns}\``);
   if (lookup.method.description) lines.push("", lookup.method.description);
   return markdown(lines);
 }

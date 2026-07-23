@@ -1,5 +1,5 @@
 import * as ir from "../ir/index.js";
-import { markFrameStateValues } from "./frame-state-values.js";
+import { markFrameStateValues, visitFrameStateValues } from "./frame-state-values.js";
 
 type DceNode = ir.CFGInstruction;
 type DceBlock = ir.CFGBlock;
@@ -63,6 +63,48 @@ export function deadCodeElimination(graph: DceGraph): number {
 
 function isRequiredEffect(node: DceNode): boolean {
   return node.effectKind !== ir.EFFECT_NONE && node.effectKind !== ir.EFFECT_READ;
+}
+
+export function eliminateDeadPhis(graph: DceGraph): number {
+  const frameStateReferenced = new Set<DceNode>();
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      if (!node.frameState) continue;
+      visitFrameStateValues(node.frameState, (value) => {
+        if (value instanceof ir.CFGInstruction) frameStateReferenced.add(value);
+      });
+    }
+  }
+
+  let removed = 0;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const block of graph.blocks) {
+      for (let index = block.params.length - 1; index >= 0; index--) {
+        const phi = block.params[index];
+        if (phi.uses.length > 0 || frameStateReferenced.has(phi)) continue;
+
+        for (const input of phi.inputs) {
+          if (input) input.uses = input.uses.filter((u) => u !== phi);
+        }
+        block.params.splice(index, 1);
+        block.nodes = block.nodes.filter((n) => n !== phi);
+        for (const pred of block.predecessors) {
+          const args = pred.edgeArgs.get(block.id);
+          if (args && index < args.length) args.splice(index, 1);
+        }
+        for (let j = index; j < block.params.length; j++) {
+          block.params[j].props.index = j;
+        }
+        removed++;
+        changed = true;
+      }
+    }
+  }
+
+  if (removed > 0) graph.rebuildUses?.();
+  return removed;
 }
 
 export function eliminateUnreachableBlocks(graph: DceGraph): number {

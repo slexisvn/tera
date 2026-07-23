@@ -59,6 +59,16 @@ export type BlockNode = {
   span: SourceSpan;
 };
 
+export type ForNode = {
+  kind: "For";
+  variable: string;
+  mode: "in" | "of";
+  iterable: ASTNode;
+  body: SemanticNode[];
+  span: SourceSpan;
+  variableSpan: SourceSpan;
+};
+
 export type VarNode = {
   kind: "Var";
   name: string;
@@ -85,6 +95,7 @@ export type SemanticNode =
   | FunctionNode
   | ModelNode
   | BlockNode
+  | ForNode
   | VarNode
   | ReturnNode
   | ExprNode;

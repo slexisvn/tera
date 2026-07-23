@@ -5,4 +5,4 @@ export type { Diagnostic, TypecheckMode, SymbolType } from "./frontend/checker/i
 export { tokenize } from "./frontend/lexer/offside.js";
 export { KEYWORDS } from "./frontend/lexer/index.js";
 export { parse } from "./frontend/parser/language.js";
-export { CHART_METADATA, DOMAIN_BUILTIN_METADATA } from "./runtime/domain/metadata.js";
+export { TERA_BUILTINS, TERA_CHART_METHODS } from "../data/tera-language-spec.js";
