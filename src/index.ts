@@ -6,4 +6,3 @@ export { tokenize } from "./frontend/lexer/offside.js";
 export { KEYWORDS } from "./frontend/lexer/index.js";
 export { parse } from "./frontend/parser/language.js";
 export { CHART_METADATA, DOMAIN_BUILTIN_METADATA } from "./runtime/domain/metadata.js";
-export { TYPE_METHODS } from "./runtime/domain/type-methods.js";

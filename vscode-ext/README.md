@@ -56,15 +56,15 @@ npm run typecheck && npm test
 | `src/notebook/` | Notebook kernel process and chart renderer |
 | `src/shared/` | Types shared between the server, the emitters, and the web notebook |
 | `scripts/` | `generate.ts` emits the grammar, snippets and `language-data.json`; `build.ts` bundles |
-| `data/builtin-docs.md` | Descriptions, parameters and methods for every built-in |
+| `../data/tera-language-spec.ts` | Shared Tera language spec, docs, signatures, methods and operators |
 
-Nothing about the language is hand-listed twice. Keywords come from the compiler frontend
-(`@slexisvn/tera/frontend`); built-ins, their `kind` and their return types come from
-`src/runtime/domain`; `data/builtin-docs.md` supplies only the prose. The `chart` namespace is
-the exception — its methods are documented in `notebook/src/chart/docs.ts`.
+Nothing about the language is hand-listed twice. Keywords, operators, docs, method
+signatures, chart docs and pseudo-type method data come from `../data/tera-language-spec.ts`.
+Runtime built-ins, their `kind` and their return types still come from `src/runtime/domain`
+and are validated against the shared spec during generation.
 
 `npm run generate` fails when these disagree: if the lexer gains or drops a keyword
-(`scripts/language-spec.ts`), or if a built-in is undocumented, documented but nonexistent,
+(`../data/tera-language-spec.ts`), or if a built-in is undocumented, documented but nonexistent,
 or annotated with a kind the runtime contradicts. So the grammar and the docs cannot
 silently drift from the language.
 

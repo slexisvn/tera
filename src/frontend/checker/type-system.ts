@@ -1,5 +1,5 @@
 import { CHART_METADATA, DOMAIN_BUILTIN_METADATA } from "../../runtime/domain/metadata.js";
-import { TYPE_METHODS } from "../../runtime/domain/type-methods.js";
+import { TERA_PSEUDO_TYPES, type TeraPseudoTypeSpec } from "../../../data/tera-language-spec.js";
 import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
 
 export type TypeName = string;
@@ -35,6 +35,7 @@ export type TypeEnv = {
 };
 
 export const BUILTIN_SIGNATURES = new Map<string, Signature>();
+const PSEUDO_TYPE_SPECS = TERA_PSEUDO_TYPES as Record<string, TeraPseudoTypeSpec | undefined>;
 
 export function cleanType(type: string | undefined): TypeName {
   if (!type) return "any";
@@ -234,8 +235,8 @@ export type MemberType = {
 };
 
 export function builtinMethod(type: TypeName, name: string): MemberType | null {
-  const method = TYPE_METHODS[baseTypeName(type)]?.[name];
-  return method ? { returns: cleanType(method.returns), getter: !!method.getter } : null;
+  const method = PSEUDO_TYPE_SPECS[baseTypeName(type)]?.methods.find((entry) => entry.name === name);
+  return method ? { returns: cleanType(method.returns ?? "any"), getter: !!method.isGetter } : null;
 }
 
 export function typeLiteralShape(type: TypeName): ObjectShape | null {

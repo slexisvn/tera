@@ -2,7 +2,6 @@ import { RangeSetBuilder, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, hoverTooltip, ViewPlugin, type DecorationSet, type Tooltip, type ViewUpdate } from "@codemirror/view";
 import type { LanguageData } from "../../../vscode-ext/src/shared/language-data";
 import rawLanguageData from "../../../vscode-ext/language-data.json";
-import { CHART_METHOD_DOCS } from "../chart/docs";
 import { BUILTIN_SET, KEYWORD_SET, tokenClass, TOKEN_RE } from "./highlight";
 
 const languageData = rawLanguageData as unknown as LanguageData;
@@ -38,12 +37,12 @@ for (const [typeName, methods] of Object.entries(languageData.pseudoTypes)) {
   }
 }
 
-for (const [name, info] of CHART_METHOD_DOCS.entries()) {
-  chartDocs.set(name, {
-    title: `chart.${name}`,
+for (const method of languageData.builtins.find((item) => item.name === "chart")?.methods || []) {
+  chartDocs.set(method.name, {
+    title: `chart.${method.name}`,
     kind: "chart",
-    description: info.description,
-    signature: info.display,
+    description: method.description || "",
+    signature: method.signature?.display,
   });
 }
 

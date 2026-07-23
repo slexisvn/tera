@@ -15,6 +15,6 @@
     "skipLibCheck": true,
     "types": ["node", "vscode"]
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "../types/**/*.d.ts"],
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "../data/**/*.ts", "../types/**/*.d.ts"],
   "exclude": ["node_modules", "dist", "media"]
 }

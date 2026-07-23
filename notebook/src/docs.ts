@@ -1,4 +1,3 @@
-import { CHART_METHOD_DOCS } from './chart/docs';
 import { appendInlineCode } from './utils/format';
 
 const INITIAL_ITEMS = 6;
@@ -30,6 +29,7 @@ type BuiltinDoc = {
   description?: string;
   signature?: SignatureInfo;
   returns?: string | null;
+  methods?: PseudoMethodDoc[];
 };
 
 type PseudoMethodDoc = {
@@ -314,13 +314,16 @@ function buildDocsSections(data: LanguageDocsData): DocsSection[] {
       })).sort(byDocOrder));
   }
 
-  const chartItems = [...CHART_METHOD_DOCS.entries()].map(([name, info]) => docItem({
-    name: `chart.${name}`,
-    display: info.display,
+  const chartBuiltin = (data.builtins || []).find((builtin) => builtin.name === 'chart');
+  const chartItems = (chartBuiltin?.methods || []).map((method) => docItem({
+    name: `chart.${method.name}`,
+    display: method.signature?.display || method.name,
     tag: 'chart',
-    desc: info.description,
+    desc: method.description,
     callable: true,
-    insert: chartExample(name),
+    params: method.signature?.params || [],
+    returns: method.returns,
+    insert: chartExample(method.name),
     source: 'chart',
   }));
   if (chartItems.length) addDocsSection(sections, 'Charts', chartItems);

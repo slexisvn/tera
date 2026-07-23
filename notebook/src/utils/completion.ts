@@ -1,12 +1,12 @@
 import type { Completion, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
 import languageData from "../../../vscode-ext/language-data.json";
-import { CHART_METHOD_DOCS } from "../chart/docs";
 import { KEYWORDS } from "../config/constants";
 
 type BuiltinItem = {
   name: string;
   kind?: string;
   description?: string;
+  methods?: PseudoMethodItem[];
 };
 
 type PseudoMethodItem = {
@@ -16,6 +16,7 @@ type PseudoMethodItem = {
 };
 
 const memberItems: PseudoMethodItem[] = Object.values(languageData.pseudoTypes || {}).flat() as PseudoMethodItem[];
+const chartItems = ((languageData.builtins as BuiltinItem[]).find((item) => item.name === "chart")?.methods || []) as PseudoMethodItem[];
 
 export function makeCompletionSource(completionNames: string[]) {
   return (context: CompletionContext): CompletionResult | null => {
@@ -31,7 +32,7 @@ export function makeCompletionSource(completionNames: string[]) {
       options.push({ label, type, detail, info });
     };
     if (owner === "chart") {
-      for (const [name, doc] of CHART_METHOD_DOCS.entries()) add(name, "function", "chart", doc.description);
+      for (const item of chartItems) add(item.name, "function", "chart", item.description);
     } else if (owner) {
       for (const item of memberItems) add(item.name, item.isGetter ? "property" : "method", item.isGetter ? "property" : "method", item.description);
     } else {

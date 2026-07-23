@@ -1,27 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KEYWORDS } from "@slexisvn/tera/frontend";
-import { KEYWORD_GROUPS, assertKeywordsInSync } from "../scripts/language-spec.ts";
 import { scopeOf, tokenizeLine } from "./grammar-harness.ts";
-
-describe("language spec", () => {
-  it("groups exactly the keywords the lexer defines", () => {
-    expect(() => assertKeywordsInSync(KEYWORDS)).not.toThrow();
-    expect(assertKeywordsInSync(KEYWORDS)).toHaveLength(KEYWORDS.size);
-  });
-
-  it("assigns every keyword to exactly one group", () => {
-    const all = Object.values(KEYWORD_GROUPS).flat();
-    expect(new Set(all).size).toBe(all.length);
-  });
-
-  it("rejects a keyword the lexer no longer has", () => {
-    expect(() => assertKeywordsInSync(new Set(["fn"]))).toThrow(/no longer in the lexer/);
-  });
-
-  it("rejects a lexer keyword that is not grouped", () => {
-    expect(() => assertKeywordsInSync(new Set([...KEYWORDS, "brand_new_kw"]))).toThrow(/not grouped/);
-  });
-});
 
 describe("grammar: declarations", () => {
   it("scopes a model declaration and its name", async () => {
