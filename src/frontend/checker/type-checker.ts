@@ -5,14 +5,23 @@ import { functionSignatureForType, inferExpression, instantiateForCall, narrowSc
 import type { SemanticNode } from "./semantic-ast.js";
 import { cleanType, compatible, instantiateShapeForType, parseFunctionType, type Signature } from "./type-system.js";
 
+export type SymbolType = {
+  name: string;
+  line: number;
+  column: number;
+  type: string;
+};
+
 export class TypeChecker {
   bound: BoundProgram;
   diagnostics: Diagnostic[] = [];
   strict: boolean;
+  onDeclare?: (symbol: SymbolType) => void;
 
-  constructor(bound: BoundProgram, strict: boolean) {
+  constructor(bound: BoundProgram, strict: boolean, onDeclare?: (symbol: SymbolType) => void) {
     this.bound = bound;
     this.strict = strict;
+    this.onDeclare = onDeclare;
   }
 
   check(): Diagnostic[] {
@@ -58,8 +67,10 @@ export class TypeChecker {
         this.add(node.span.line, node.span.column, `Type '${actual}' is not assignable to '${declared}'`);
       }
     }
-    scope.locals.set(node.name, { type: node.declaredType ? declared : actual, optional: false });
-    const callable = functionSignatureForType(node.name, node.declaredType ? declared : actual);
+    const stored = node.declaredType ? declared : actual;
+    scope.locals.set(node.name, { type: stored, optional: false });
+    this.onDeclare?.({ name: node.name, line: node.span.line, column: node.span.column, type: stored });
+    const callable = functionSignatureForType(node.name, stored);
     if (callable) this.bound.signatures.set(node.name, callable);
     this.checkExpression(node.value, scope, node.span.line, node.span.column);
   }

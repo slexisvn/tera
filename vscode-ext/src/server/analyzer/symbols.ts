@@ -8,11 +8,11 @@ const PATTERNS = {
   model: new RegExp(`^model\\s+(${IDENT})\\s*\\(([^)]*)\\)`),
   class: new RegExp(`^class\\s+(${IDENT})`),
   method: new RegExp(`^(${IDENT})\\s*\\(([^)]*)\\)\\s*(?:->\\s*[^:]+)?\\s*:`),
+  blockMethod: new RegExp(`^(${IDENT})\\s*:\\s*$`),
   variable: new RegExp(`^(${IDENT})\\s*(?::\\s*([^=]+))?\\s*=\\s*(.+)$`),
   field: new RegExp(`^this\\.(${IDENT})\\s*(?::\\s*([^=]+))?\\s*=\\s*(.+)$`),
   param: new RegExp(`^(${IDENT})(?:\\s*:\\s*([^=]+?))?(?:\\s*=.*)?$`),
   returnType: /->\s*([^:]+):/,
-  call: new RegExp(`^(${IDENT})\\s*\\(`),
   indent: /^ */,
 };
 
@@ -26,12 +26,16 @@ type Declaration = {
   holdsFields: boolean;
 };
 
-export function buildSymbolTable(lines: string[], env: BuiltinEnv): SymbolTable {
+export function buildSymbolTable(lines: string[], env: BuiltinEnv, inferredTypes: Map<string, string>): SymbolTable {
   const root = makeScope("<root>", null, 1, lines.length + 1, 0);
   const scopes: Scope[] = [root];
   const stack: Scope[] = [root];
   const fieldsByType = new Map<string, TeraSymbol[]>();
-  const declaredTypes = collectDeclaredTypes(lines);
+
+  const inferredType = (name: string, line: number): string | null => {
+    const type = inferredTypes.get(`${name}:${line}`);
+    return type && type !== "any" ? type : null;
+  };
 
   for (let index = 0; index < lines.length; index++) {
     const raw = lines[index];
@@ -48,7 +52,7 @@ export function buildSymbolTable(lines: string[], env: BuiltinEnv): SymbolTable 
     const column = raw.length - raw.trimStart().length;
     const lineNo = index + 1;
 
-    const declaration = readDeclaration(line, stack);
+    const declaration = readDeclaration(line, stack, env.keywords);
     if (declaration) {
       const symbol = addSymbol(scope, declaration.name, declaration.symbolKind, lineNo, column + 1, readReturnType(line));
       const next = makeScope(declaration.name, scope, lineNo, lines.length + 1, indent, declaration.scopeKind);
@@ -82,7 +86,7 @@ export function buildSymbolTable(lines: string[], env: BuiltinEnv): SymbolTable 
           kind: "field",
           line: lineNo,
           column: column + 6,
-          typeName: cleanType(field[2]) ?? inferType(field[3], env, declaredTypes),
+          typeName: cleanType(field[2]) ?? inferredType(field[1], lineNo),
         });
       }
       continue;
@@ -90,7 +94,7 @@ export function buildSymbolTable(lines: string[], env: BuiltinEnv): SymbolTable 
 
     const variable = line.match(PATTERNS.variable);
     if (variable) {
-      addSymbol(scope, variable[1], "variable", lineNo, column + 1, cleanType(variable[2]) ?? inferType(variable[3], env, declaredTypes));
+      addSymbol(scope, variable[1], "variable", lineNo, column + 1, cleanType(variable[2]) ?? inferredType(variable[1], lineNo));
     }
   }
 
@@ -110,7 +114,7 @@ export function buildSymbolTable(lines: string[], env: BuiltinEnv): SymbolTable 
   };
 }
 
-function readDeclaration(line: string, stack: Scope[]): Declaration | null {
+function readDeclaration(line: string, stack: Scope[], keywords: Set<string>): Declaration | null {
   const fn = line.match(PATTERNS.fn);
   if (fn) return { name: fn[1], params: fn[2], symbolKind: "function", scopeKind: "function", holdsFields: false };
 
@@ -124,8 +128,12 @@ function readDeclaration(line: string, stack: Scope[]): Declaration | null {
   if (!insideType) return null;
 
   const method = line.match(PATTERNS.method);
-  if (!method) return null;
-  return { name: method[1], params: method[2], symbolKind: "function", scopeKind: "function", holdsFields: false };
+  if (method) return { name: method[1], params: method[2], symbolKind: "function", scopeKind: "function", holdsFields: false };
+
+  const block = line.match(PATTERNS.blockMethod);
+  if (block && !keywords.has(block[1])) return { name: block[1], params: null, symbolKind: "function", scopeKind: "function", holdsFields: false };
+
+  return null;
 }
 
 function makeScope(
@@ -177,23 +185,6 @@ function readReturnType(line: string): string | null {
   return cleanType(line.match(PATTERNS.returnType)?.[1]);
 }
 
-function collectDeclaredTypes(lines: string[]): Set<string> {
-  const out = new Set<string>();
-  for (const raw of lines) {
-    const line = raw.trim();
-    const match = line.match(PATTERNS.model) ?? line.match(PATTERNS.class);
-    if (match) out.add(match[1]);
-  }
-  return out;
-}
-
-function inferType(value: string | undefined, env: BuiltinEnv, declaredTypes: Set<string>): string | null {
-  const callee = value?.trim().match(PATTERNS.call)?.[1];
-  if (!callee) return null;
-  if (declaredTypes.has(callee)) return callee;
-  if (!env.builtinNames.has(callee)) return null;
-  return env.builtinTypes.get(callee) ?? callee;
-}
 
 function enclosingType(stack: Scope[]): string | null {
   for (let i = stack.length - 1; i >= 0; i--) {

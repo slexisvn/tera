@@ -117,6 +117,7 @@ export type IRValueLike =
   | CFGFunction
   | RegisterCompiledFunction;
 type CFGDependency = { kind: string; id: string | number; version: number | null };
+export type OsrCandidate = { headerBlockId: number; slots: number[] };
 
 export const EFFECT_NONE = "none";
 export const EFFECT_GUARD = "guard";
@@ -372,6 +373,8 @@ export class CFGFunction {
   dependencies: CFGDependency[];
   inlineBudgetRemaining: number;
   bailout: string | null;
+  osrCandidates: Map<number, OsrCandidate>;
+  osrParamSlots: number[] | null;
   _frameStateIndex?: Map<FrameValue, { replace(next: FrameValue): void }[]> | null;
 
   constructor(name: string) {
@@ -383,6 +386,8 @@ export class CFGFunction {
     this.dependencies = [];
     this.bailout = null;
     this.inlineBudgetRemaining = 0;
+    this.osrCandidates = new Map();
+    this.osrParamSlots = null;
   }
 
   addBlock() {

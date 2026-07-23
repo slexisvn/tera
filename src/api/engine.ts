@@ -9,7 +9,7 @@ import {
   updateCallMode,
 } from "../bytecode/register/interpreter/index.js";
 import { RegisterCompiledFunction } from "../bytecode/register/ops/bytecode.js";
-import type { RegisterConstant } from "../bytecode/register/ops/bytecode.js";
+import type { RegisterConstant, OsrEntry } from "../bytecode/register/ops/bytecode.js";
 import type { GlobalCell } from "../runtime/intrinsics/global-cells.js";
 import { SpeculativeOptimizer } from "../optimizing/optimizer.js";
 import { WasmCodegen } from "../optimizing/wasm/codegen.js";
@@ -48,6 +48,7 @@ import {
 export type EngineOptions = {
   typecheck?: "off" | "warn" | "strict";
   output?: (text: string) => void;
+  osr?: boolean;
   tieringPolicy?: TieringPolicyOptions;
   microtaskPolicy?: MicrotaskPolicyValue;
   gc?: ConstructorParameters<typeof GenerationalGC>[0];
@@ -143,11 +144,13 @@ export class Engine {
   typecheckMode: "off" | "warn" | "strict";
   output?: (text: string) => void;
   diagnostics: Diagnostic[];
+  osrEnabled: boolean;
 
   constructor(options: EngineOptions = {}) {
     this.typecheckMode = options.typecheck || "warn";
     this.output = options.output;
     this.diagnostics = [];
+    this.osrEnabled = options.osr !== false;
     this.tieringPolicy = createTieringPolicy(options.tieringPolicy);
     this.microtaskQueue = new MicrotaskQueue({
       policy: options.microtaskPolicy || MicrotaskPolicy.AUTO,
@@ -365,6 +368,37 @@ export class Engine {
       const message = e instanceof Error ? e.message : String(e);
       tracer.jitCompile(functionName(compiledFn), `Baseline failed: ${message}`);
     }
+  }
+
+  compileOsr(compiledFn: RegisterCompiledFunction, offset: number): OsrEntry | null {
+    const cached = compiledFn.osrCache.get(offset);
+    if (cached !== undefined) return cached;
+
+    if (compiledFn.isAsync || compiledFn.isGenerator) {
+      compiledFn.osrCache.set(offset, null);
+      return null;
+    }
+
+    let entry: OsrEntry | null = null;
+    try {
+      resetIRNodeIds();
+      const result = this.optimizer.compile(compiledFn, offset);
+      if (!result.graph.bailout) {
+        const code = this.wasmCodegen.compile(result, compiledFn);
+        if (code) {
+          entry = { code, slots: result.graph.osrParamSlots ?? [] };
+          dependencyRegistry.registerOsr(compiledFn, result.graph.dependencies);
+          tracer.jitOSR(functionName(compiledFn), offset);
+        }
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      tracer.jitCompile(functionName(compiledFn), `OSR failed: ${message}`);
+      entry = null;
+    }
+
+    compiledFn.osrCache.set(offset, entry);
+    return entry;
   }
 
   optimizeFunction(compiledFn: RegisterCompiledFunction): void {

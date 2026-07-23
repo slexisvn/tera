@@ -136,6 +136,10 @@ export function buildIR(
           regs.set(slot, phi);
         }
         loopPhiMap.set(nextBlock.id, phis);
+        graph.osrCandidates.set(i, {
+          headerBlockId: nextBlock.id,
+          slots: [...phis.keys()],
+        });
         if (
           !predecessor.isTerminated() ||
           predecessor.successors.includes(nextBlock)

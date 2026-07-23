@@ -19,7 +19,8 @@ type FeedbackSummary = Record<string, number>;
 type TieringFunctionRecord = {
   name?: string | null;
   invocationCount?: number;
-  optimizedCode?: { _osrEntry?: object } | null;
+  optimizedCode?: object | null;
+  osrCache?: Map<number, unknown> | null;
   baselineCode?: object | null;
   disableOptimization?: boolean;
   optimizationCooldownUntil?: number;
@@ -233,11 +234,7 @@ function hasOSRReadyFeedback(fn: TieringFunctionRecord): boolean {
 }
 
 function hasOptimizedOSREntry(fn: TieringFunctionRecord): boolean {
-  return !!(
-    fn &&
-    fn.optimizedCode &&
-    typeof fn.optimizedCode._osrEntry === "function"
-  );
+  return !!(fn && fn.osrCache && fn.osrCache.size > 0);
 }
 
 function hasStableFeedback(fn: TieringFunctionRecord): boolean {

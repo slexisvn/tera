@@ -183,10 +183,15 @@ type TieringPolicyLike = {
 type JitEngineLike = {
   microtaskQueue?: MicrotaskQueue;
   tieringPolicy?: TieringPolicyLike | null;
+  osrEnabled?: boolean;
   output?: (text: string) => void;
   compileLazy?: (compiledFn: bytecode.RegisterCompiledFunction) => void;
   baselineCompile?: (compiledFn: bytecode.RegisterCompiledFunction) => void;
   optimizeFunction?: (compiledFn: bytecode.RegisterCompiledFunction) => void;
+  compileOsr?: (
+    compiledFn: bytecode.RegisterCompiledFunction,
+    offset: number,
+  ) => bytecode.OsrEntry | null;
   deoptimizer?: {
     lazyMarker: {
       hasPendingDeopt(compiledFn: bytecode.RegisterCompiledFunction): boolean;
@@ -1257,6 +1262,51 @@ export class RegisterInterpreter {
     );
   }
 
+  onBackEdge(
+    compiledFn: bytecode.RegisterCompiledFunction,
+    frame: RegisterFrame,
+    target: number,
+    loopCounter: number,
+  ): TaggedValue | null {
+    if ((this._sweepTick = (this._sweepTick + 1) & 0xffff) === 0) {
+      this._maybeSweepHeapPayloads();
+    }
+    const policy = this.tieringPolicy;
+    const feedback = compiledFn.feedbackVector;
+    const hot = feedback
+      ? feedback.decrementLoopBudget(1)
+      : policy
+        ? loopCounter === policy.loopOsrThreshold
+        : false;
+    if (!hot) return null;
+
+    const engine = this.jitEngine;
+    if (
+      !engine ||
+      !policy ||
+      engine.osrEnabled === false ||
+      compiledFn.disableOptimization ||
+      requiresInterpreterOnly(compiledFn) ||
+      typeof engine.compileOsr !== "function"
+    ) {
+      return null;
+    }
+
+    let entry = compiledFn.osrCache.get(target);
+    if (entry === undefined) {
+      entry = engine.compileOsr(compiledFn, target);
+    }
+    if (feedback) feedback.resetLoopBudget();
+    if (!entry) return null;
+
+    const args: TaggedValue[] = [];
+    for (const slot of entry.slots) {
+      const value = frame.getReg(slot);
+      args.push(value === undefined ? mkUndefined() : value);
+    }
+    return entry.code(args, frame.thisValue, this);
+  }
+
   runFrame(frame: RegisterFrame): TaggedValue {
     const { compiledFn } = frame;
     const instructions = compiledFn.instructions;
@@ -1649,30 +1699,8 @@ export class RegisterInterpreter {
               const target = operands[0];
               if (target < frame.pc) {
                 loopCounter++;
-                if (((this._sweepTick = (this._sweepTick + 1) & 0xffff) === 0)) {
-                  this._maybeSweepHeapPayloads();
-                }
-                if (compiledFn.feedbackVector) {
-                  compiledFn.feedbackVector.decrementLoopBudget(1);
-                }
-                if (
-                  this.jitEngine &&
-                  this.tieringPolicy &&
-                  compiledFn.optimizedCode &&
-                  typeof compiledFn.optimizedCode._osrEntry === "function" &&
-                  (typeof this.tieringPolicy.shouldOSR === "function"
-                    ? this.tieringPolicy.shouldOSR(compiledFn, loopCounter)
-                    : loopCounter >= this.tieringPolicy.loopOsrThreshold) &&
-                  !compiledFn.disableOptimization
-                ) {
-                  const osrLocals = frame.registers.slice();
-                  return compiledFn.optimizedCode._osrEntry(
-                    osrLocals,
-                    target,
-                    frame.thisValue,
-                    frame.acc,
-                  );
-                }
+                const osr = this.onBackEdge(compiledFn, frame, target, loopCounter);
+                if (osr !== null) return osr;
               }
               frame.pc = target;
               continue;
@@ -1683,9 +1711,8 @@ export class RegisterInterpreter {
                 const target = operands[0];
                 if (target < frame.pc) {
                   loopCounter++;
-                  if (compiledFn.feedbackVector) {
-                    compiledFn.feedbackVector.decrementLoopBudget(1);
-                  }
+                  const osr = this.onBackEdge(compiledFn, frame, target, loopCounter);
+                  if (osr !== null) return osr;
                 }
                 frame.pc = target;
                 continue;
@@ -1698,9 +1725,8 @@ export class RegisterInterpreter {
                 const target = operands[0];
                 if (target < frame.pc) {
                   loopCounter++;
-                  if (compiledFn.feedbackVector) {
-                    compiledFn.feedbackVector.decrementLoopBudget(1);
-                  }
+                  const osr = this.onBackEdge(compiledFn, frame, target, loopCounter);
+                  if (osr !== null) return osr;
                 }
                 frame.pc = target;
                 continue;

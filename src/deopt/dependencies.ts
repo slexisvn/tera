@@ -25,6 +25,7 @@ export type Dependency = {
 type DependencyOwner = RegisterCompiledFunction & {
   optimizedCode?: OptimizedCode | null;
   optimizedDependencies?: Dependency[];
+  osrCache?: Map<number, unknown>;
   pendingDependencyDeopt?: {
     reason: string;
     kind: DependencyKind;
@@ -55,11 +56,15 @@ export function dependencyKey(
 export class DependencyRegistry {
   byKey: Map<string, Set<DependencyOwner>>;
   byFunction: Map<DependencyOwner, Dependency[]>;
+  osrByKey: Map<string, Set<DependencyOwner>>;
+  osrByFunction: Map<DependencyOwner, Dependency[]>;
   lazyMarker: LazyMarker | null;
 
   constructor() {
     this.byKey = new Map();
     this.byFunction = new Map();
+    this.osrByKey = new Map();
+    this.osrByFunction = new Map();
     this.lazyMarker = null;
   }
 
@@ -70,6 +75,36 @@ export class DependencyRegistry {
   clear(): void {
     this.byKey.clear();
     this.byFunction.clear();
+    this.osrByKey.clear();
+    this.osrByFunction.clear();
+  }
+
+  registerOsr(
+    compiledFn: DependencyOwner,
+    dependencies: Iterable<Dependency> | Dependency[] | null | undefined,
+  ): void {
+    this.unregisterOsr(compiledFn);
+    const deps = normalizeDependencies(dependencies);
+    if (deps.length === 0) return;
+    this.osrByFunction.set(compiledFn, deps);
+    for (const dep of deps) {
+      const key = dependencyKey(dep.kind, dep.id, dep.version);
+      if (!this.osrByKey.has(key)) this.osrByKey.set(key, new Set());
+      this.osrByKey.get(key)!.add(compiledFn);
+    }
+  }
+
+  unregisterOsr(compiledFn: DependencyOwner): void {
+    const deps = this.osrByFunction.get(compiledFn);
+    if (!deps) return;
+    for (const dep of deps) {
+      const key = dependencyKey(dep.kind, dep.id, dep.version);
+      const fns = this.osrByKey.get(key);
+      if (!fns) continue;
+      fns.delete(compiledFn);
+      if (fns.size === 0) this.osrByKey.delete(key);
+    }
+    this.osrByFunction.delete(compiledFn);
   }
 
   register(compiledFn: DependencyOwner, dependencies: Iterable<Dependency> | Dependency[] | null | undefined): void {
@@ -136,6 +171,18 @@ export class DependencyRegistry {
         `Dependency invalidated: ${fn.name || "<anonymous>"} (${reason})`,
       );
     }
+
+    const osrAffected = new Set<DependencyOwner>();
+    for (const key of keys) {
+      const fns = this.osrByKey.get(key);
+      if (!fns) continue;
+      for (const fn of fns) osrAffected.add(fn);
+    }
+    for (const fn of osrAffected) {
+      if (fn.osrCache) fn.osrCache.clear();
+      this.unregisterOsr(fn);
+    }
+
     return affected.size;
   }
 

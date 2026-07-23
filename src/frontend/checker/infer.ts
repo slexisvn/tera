@@ -1,6 +1,7 @@
 import { NodeType, type ASTNode, type ObjectPropertyNode } from "../ast/index.js";
 import { lookup, type BoundProgram, type Scope } from "./binder.js";
 import {
+  builtinMethod,
   cleanType,
   compatible,
   instantiateShapeForType,
@@ -66,14 +67,16 @@ function inferArray(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName 
   return `[${elements.map((item) => inferExpression(item, bound, scope)).join(", ")}]`;
 }
 
+const NUMERIC_OPS = ["+", "-", "*", "/", "%", "**"];
+
 function inferBinary(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
   const op = String(node.op ?? "");
   const left = inferExpression(node.left as ASTNode, bound, scope);
   const right = inferExpression(node.right as ASTNode, bound, scope);
-  if (op === "+" && (left === "string" || right === "string")) return "string";
-  if (["+", "-", "*", "/", "%"].includes(op) && compatible(left, "number", bound.env) && compatible(right, "number", bound.env)) return "number";
   if (["==", "!=", "===", "!==", "<", "<=", ">", ">="].includes(op)) return "bool";
-  if (op === "@" && left === "Tensor") return "Tensor";
+  if (op === "+" && (left === "string" || right === "string")) return "string";
+  if ([...NUMERIC_OPS, "@"].includes(op) && (resolveType(left, bound.env) === "Tensor" || resolveType(right, bound.env) === "Tensor")) return "Tensor";
+  if (NUMERIC_OPS.includes(op) && compatible(left, "number", bound.env) && compatible(right, "number", bound.env)) return "number";
   if (node.type === NodeType.NullishCoalescingExpression) return unionType([removeNullish(left, bound.env), right]);
   return "any";
 }
@@ -89,12 +92,18 @@ export function objectLiteralShape(node: ASTNode, bound: BoundProgram, scope: Sc
   return { fields };
 }
 
+function memberName(node: ASTNode): string {
+  return typeof node.property === "string" ? node.property : String((node.property as ASTNode).name ?? "");
+}
+
 function inferMember(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
   const objectType = resolveType(inferExpression(node.object as ASTNode, bound, scope), bound.env);
-  const property = typeof node.property === "string" ? node.property : String((node.property as ASTNode).name ?? "");
+  const property = memberName(node);
   const shape = instantiateShapeForType(objectType, bound.env);
   const field = shape?.fields.get(property);
   if (field) return field.type;
+  const method = builtinMethod(objectType, property);
+  if (method?.getter) return method.returns;
   if (objectType === "string" && property === "length") return "number";
   if ((objectType.endsWith("[]") || objectType.startsWith("[")) && property === "length") return "number";
   return "any";
@@ -132,23 +141,15 @@ export function instantiateForCall(sig: Signature, args: ASTNode[], bound: Bound
 }
 
 function inferCall(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
-  const name = callName(node.callee as ASTNode);
-  if (!name) return "any";
-  const sig = bound.signatures.get(name);
-  if (!sig) return methodReturn(name);
-  return instantiateForCall(sig, node.args as ASTNode[], bound, scope).returns;
-}
-
-function methodReturn(name: string): TypeName {
-  const method = name.split(".").at(-1);
-  if (method === "parameters") return "Array";
-  if (method === "is_training") return "bool";
-  if (method === "validate" || method === "forward") return "Tensor";
-  if (method === "optimizer") return "Object";
-  if (method === "count") return "number";
-  if (method === "columns" || method === "collect" || method === "toArray") return "Array";
-  if (method === "toString" || method === "to_string") return "string";
-  if (method === "relu" || method === "mean" || method === "matmul") return "Tensor";
+  const callee = node.callee as ASTNode;
+  const name = callName(callee);
+  const sig = name ? bound.signatures.get(name) : undefined;
+  if (sig) return instantiateForCall(sig, node.args as ASTNode[], bound, scope).returns;
+  if (callee.type === NodeType.MemberExpression || callee.type === NodeType.OptionalMemberExpression) {
+    const objectType = resolveType(inferExpression(callee.object as ASTNode, bound, scope), bound.env);
+    const method = builtinMethod(objectType, memberName(callee));
+    if (method) return method.returns;
+  }
   return "any";
 }
 

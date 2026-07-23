@@ -1,4 +1,5 @@
 import { CHART_METADATA, DOMAIN_BUILTIN_METADATA } from "../../runtime/domain/metadata.js";
+import { TYPE_METHODS } from "../../runtime/domain/type-methods.js";
 import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
 
 export type TypeName = string;
@@ -225,6 +226,16 @@ function arrayElementType(type: TypeName): TypeName | null {
 export function baseTypeName(type: TypeName): string {
   const generic = String(type).match(/^([A-Za-z_$][\w$]*)\s*</);
   return generic ? generic[1] : String(type);
+}
+
+export type MemberType = {
+  returns: TypeName;
+  getter: boolean;
+};
+
+export function builtinMethod(type: TypeName, name: string): MemberType | null {
+  const method = TYPE_METHODS[baseTypeName(type)]?.[name];
+  return method ? { returns: cleanType(method.returns), getter: !!method.getter } : null;
 }
 
 export function typeLiteralShape(type: TypeName): ObjectShape | null {

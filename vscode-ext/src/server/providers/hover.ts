@@ -1,6 +1,7 @@
 import type { Hover, HoverParams } from "vscode-languageserver/node.js";
 import type { AnalyzedDocument, Position } from "../analyzer/index.ts";
 import { wordRangeAt } from "../analyzer/position.ts";
+import type { MethodLookup } from "../language/type-resolver.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
 export default defineProvider({
@@ -24,9 +25,11 @@ function computeHover(context: ProviderContext, params: HoverParams): Hover | nu
   const word = wordRangeAt(document.lines, params.position);
   if (!word) return null;
 
-  const receiver = readReceiver(document, params.position);
-  if (receiver) {
-    const hover = memberHover(context, document, receiver, word.text, params.position);
+  if (isMemberAccess(document, params.position)) {
+    const receiver = readReceiver(document, params.position);
+    const hover = receiver
+      ? memberHover(context, document, receiver, word.text, params.position)
+      : uniqueMethodHover(context, word.text);
     if (hover) return { ...hover, range: word.range };
   }
 
@@ -68,17 +71,7 @@ function memberHover(
   const receiverType = document.symbols.resolve(receiver, position)?.typeName ?? receiver;
 
   const lookup = context.types.lookupMethod(receiverType, name) ?? context.types.findUniqueMethod(name);
-  if (lookup) {
-    const lines = [
-      "```tera",
-      `${lookup.ownerName}.${lookup.method.signature.display}`,
-      "```",
-      "",
-      `_${lookup.method.isGetter ? "property" : "method"} of ${lookup.ownerName}_`,
-    ];
-    if (lookup.method.description) lines.push("", lookup.method.description);
-    return markdown(lines);
-  }
+  if (lookup) return methodHover(lookup);
 
   const field = document.symbols.resolveField(receiverType, name);
   if (!field) return null;
@@ -89,6 +82,28 @@ function memberHover(
   if (builtin?.signature) lines.push("", "```tera", builtin.signature.display, "```");
   if (builtin?.description) lines.push("", builtin.description);
   return markdown(lines);
+}
+
+function uniqueMethodHover(context: ProviderContext, name: string): Hover | null {
+  const lookup = context.types.findUniqueMethod(name);
+  return lookup ? methodHover(lookup) : null;
+}
+
+function methodHover(lookup: MethodLookup): Hover {
+  const lines = [
+    "```tera",
+    `${lookup.ownerName}.${lookup.method.signature.display}`,
+    "```",
+    "",
+    `_${lookup.method.isGetter ? "property" : "method"} of ${lookup.ownerName}_`,
+  ];
+  if (lookup.method.description) lines.push("", lookup.method.description);
+  return markdown(lines);
+}
+
+function isMemberAccess(document: AnalyzedDocument, position: Position): boolean {
+  const line = document.lines[position.line] ?? "";
+  return /\.\s*[A-Za-z0-9_$]*$/.test(line.slice(0, position.character));
 }
 
 function readReceiver(document: AnalyzedDocument, position: Position): string | null {

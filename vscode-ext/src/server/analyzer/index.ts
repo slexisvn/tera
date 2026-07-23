@@ -1,4 +1,4 @@
-import { parse } from "@slexisvn/tera/frontend";
+import { inferSymbolTypes, parse } from "@slexisvn/tera/frontend";
 import type { LanguageData } from "../../shared/language-data.ts";
 import { buildBuiltinEnv, type BuiltinEnv } from "./builtin-env.ts";
 import { analyzeDiagnostics } from "./diagnostics.ts";
@@ -49,9 +49,19 @@ function analyze(text: string, env: BuiltinEnv): AnalyzedDocument {
     lines,
     tokens: analyzeTokens(text),
     ast: parseSafely(text),
-    symbols: buildSymbolTable(lines, env),
+    symbols: buildSymbolTable(lines, env, inferTypesSafely(text)),
     errors: analyzeDiagnostics(text),
   };
+}
+
+function inferTypesSafely(text: string): Map<string, string> {
+  const types = new Map<string, string>();
+  try {
+    for (const symbol of inferSymbolTypes(text)) types.set(`${symbol.name}:${symbol.line}`, symbol.type);
+  } catch {
+    return types;
+  }
+  return types;
 }
 
 function parseSafely(text: string): unknown {

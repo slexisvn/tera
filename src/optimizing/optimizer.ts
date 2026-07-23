@@ -32,6 +32,7 @@ import { deadStoreElimination } from "./passes/dead-stores.js";
 import { typeNarrowing } from "./passes/type-narrowing.js";
 import { validateOptimizedGraph } from "./validation/graph-validator.js";
 import { buildFrameStateIndex, clearFrameStateIndex } from "./passes/frame-state-values.js";
+import { applyOsrTransform } from "./passes/osr.js";
 
 type CompiledFunctionLike = RegisterCompiledFunction;
 type OptimizedGraph = CFGFunction;
@@ -48,7 +49,10 @@ export class SpeculativeOptimizer {
     this.frameStates = [];
   }
 
-  compile(compiledFn: CompiledFunctionLike): SpeculativeCompileResult {
+  compile(
+    compiledFn: CompiledFunctionLike,
+    osrOffset: number | null = null,
+  ): SpeculativeCompileResult {
     const feedback = compiledFn.feedbackVector;
     if (!feedback) {
       throw new Error("Cannot optimize without feedback");
@@ -70,6 +74,14 @@ export class SpeculativeOptimizer {
     buildIR(graph, entryBlock, compiledFn, feedback, this.frameStates);
     if (graph.bailout) return { graph, frameStates: this.frameStates };
     graph.rebuildUses();
+
+    if (
+      osrOffset !== null &&
+      !applyOsrTransform(graph, osrOffset, compiledFn, this.frameStates)
+    ) {
+      graph.bailout = `no osr entry at ${osrOffset}`;
+      return { graph, frameStates: this.frameStates };
+    }
 
     const findLoopsFn = (g: Parameters<typeof findLoops>[0]) => findLoops(g);
 

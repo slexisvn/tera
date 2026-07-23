@@ -135,13 +135,8 @@ export type BaselineCode = {
 export type OptimizedCode = {
   (args: TaggedValue[], thisValue: TaggedValue, interpreter: object): TaggedValue;
   _dispose?: () => void;
-  _osrEntry?: (
-    locals: Array<TaggedValue | object>,
-    loopHeaderOffset: number,
-    thisValue: TaggedValue,
-    acc: TaggedValue,
-  ) => TaggedValue;
 };
+export type OsrEntry = { code: OptimizedCode; slots: number[] };
 export type LocalBindingKind = "temp" | "var" | "let" | "const" | "class";
 
 export type SourceMapEntry = {
@@ -303,6 +298,7 @@ export class RegisterCompiledFunction {
   invocationCount: number;
   baselineCode: BaselineCode | null;
   optimizedCode: OptimizedCode | null;
+  osrCache: Map<number, OsrEntry | null>;
   deoptCount: number;
   dependencyDeoptCount: number;
   compileFailureCount: number;
@@ -349,6 +345,7 @@ export class RegisterCompiledFunction {
     this.invocationCount = 0;
     this.baselineCode = null;
     this.optimizedCode = null;
+    this.osrCache = new Map();
     this.deoptCount = 0;
     this.dependencyDeoptCount = 0;
     this.compileFailureCount = 0;
