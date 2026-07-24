@@ -21,92 +21,110 @@ function nodeFromIr(value: ir.CFGInstruction): ReprNode {
   return value;
 }
 
+const INT32_PRODUCERS = new Set([
+  ir.IR_INT32_ADD,
+  ir.IR_INT32_SUB,
+  ir.IR_INT32_MUL,
+  ir.IR_INT32_DIV,
+  ir.IR_INT32_MOD,
+  ir.IR_INT32_SHL,
+  ir.IR_INT32_SHR,
+  ir.IR_INT32_AND,
+  ir.IR_LOAD_ARRAY_LENGTH,
+  ir.IR_GENERIC_BITAND,
+  ir.IR_GENERIC_BITOR,
+  ir.IR_GENERIC_BITXOR,
+  ir.IR_GENERIC_SHL,
+  ir.IR_GENERIC_SHR,
+  ir.IR_GENERIC_BITNOT,
+]);
+
+const BOOL_PRODUCERS = new Set([
+  ir.IR_INT32_COMPARE,
+  ir.IR_FLOAT64_COMPARE,
+  ir.IR_GENERIC_COMPARE,
+  ir.IR_CHECK_CALL_TARGET,
+  ir.IR_NOT,
+]);
+
+const FLOAT64_PRODUCERS = new Set([
+  ir.IR_FLOAT64_ADD,
+  ir.IR_FLOAT64_SUB,
+  ir.IR_FLOAT64_MUL,
+  ir.IR_FLOAT64_DIV,
+]);
+
+const INT32_CONSUMERS = new Set([
+  ir.IR_INT32_ADD,
+  ir.IR_INT32_SUB,
+  ir.IR_INT32_MUL,
+  ir.IR_INT32_DIV,
+  ir.IR_INT32_MOD,
+  ir.IR_INT32_SHL,
+  ir.IR_INT32_SHR,
+  ir.IR_INT32_AND,
+  ir.IR_INT32_COMPARE,
+]);
+
+const FLOAT64_CONSUMERS = new Set([
+  ir.IR_FLOAT64_ADD,
+  ir.IR_FLOAT64_SUB,
+  ir.IR_FLOAT64_MUL,
+  ir.IR_FLOAT64_DIV,
+  ir.IR_FLOAT64_COMPARE,
+]);
+
+const NUMERIC_UNLESS_OVERLOADED = new Set([
+  ir.IR_GENERIC_SUB,
+  ir.IR_GENERIC_MUL,
+  ir.IR_GENERIC_DIV,
+  ir.IR_GENERIC_POW,
+]);
+
+const OVERLOADABLE_ARITHMETIC = new Set([
+  ir.IR_GENERIC_ADD,
+  ...NUMERIC_UNLESS_OVERLOADED,
+]);
+
+const TAGGED_NUMBER_PRODUCERS = new Set([
+  ir.IR_GENERIC_MOD,
+  ir.IR_GENERIC_USHR,
+]);
+
+const HANDLE_PRODUCERS = new Set([
+  ...OVERLOADABLE_ARITHMETIC,
+  ir.IR_GENERIC_GET_PROP,
+  ir.IR_GENERIC_SET_PROP,
+  ir.IR_GENERIC_GET_INDEX,
+  ir.IR_GENERIC_SET_INDEX,
+  ir.IR_LOAD_GLOBAL,
+  ir.IR_LOAD_LOCAL,
+  ir.IR_LOAD_CONST,
+  ir.IR_NEW_OBJECT,
+  ir.IR_NEW_ARRAY,
+  ir.IR_CALL_BUILTIN,
+  ir.IR_TYPEOF,
+]);
+
+export function producesNumber(node: ReprNode): boolean {
+  if (
+    INT32_PRODUCERS.has(node.type) ||
+    FLOAT64_PRODUCERS.has(node.type) ||
+    BOOL_PRODUCERS.has(node.type) ||
+    TAGGED_NUMBER_PRODUCERS.has(node.type)
+  )
+    return true;
+  if (node.type === ir.IR_CHECK_SMI || node.type === ir.IR_CHECK_NUMBER)
+    return true;
+  if (node.type === ir.IR_CONSTANT)
+    return (
+      typeof node.props.value === "number" ||
+      typeof node.props.value === "boolean"
+    );
+  return false;
+}
+
 export function representationSelection(graph: ReprGraph): number {
-  const INT32_PRODUCERS = new Set([
-    ir.IR_INT32_ADD,
-    ir.IR_INT32_SUB,
-    ir.IR_INT32_MUL,
-    ir.IR_INT32_DIV,
-    ir.IR_INT32_MOD,
-    ir.IR_INT32_SHL,
-    ir.IR_INT32_SHR,
-    ir.IR_INT32_AND,
-    ir.IR_LOAD_ARRAY_LENGTH,
-    ir.IR_GENERIC_BITAND,
-    ir.IR_GENERIC_BITOR,
-    ir.IR_GENERIC_BITXOR,
-    ir.IR_GENERIC_SHL,
-    ir.IR_GENERIC_SHR,
-    ir.IR_GENERIC_BITNOT,
-  ]);
-
-  const BOOL_PRODUCERS = new Set([
-    ir.IR_INT32_COMPARE,
-    ir.IR_FLOAT64_COMPARE,
-    ir.IR_GENERIC_COMPARE,
-    ir.IR_CHECK_CALL_TARGET,
-    ir.IR_NOT,
-  ]);
-
-  const FLOAT64_PRODUCERS = new Set([
-    ir.IR_FLOAT64_ADD,
-    ir.IR_FLOAT64_SUB,
-    ir.IR_FLOAT64_MUL,
-    ir.IR_FLOAT64_DIV,
-  ]);
-
-  const INT32_CONSUMERS = new Set([
-    ir.IR_INT32_ADD,
-    ir.IR_INT32_SUB,
-    ir.IR_INT32_MUL,
-    ir.IR_INT32_DIV,
-    ir.IR_INT32_MOD,
-    ir.IR_INT32_SHL,
-    ir.IR_INT32_SHR,
-    ir.IR_INT32_AND,
-    ir.IR_INT32_COMPARE,
-  ]);
-
-  const FLOAT64_CONSUMERS = new Set([
-    ir.IR_FLOAT64_ADD,
-    ir.IR_FLOAT64_SUB,
-    ir.IR_FLOAT64_MUL,
-    ir.IR_FLOAT64_DIV,
-    ir.IR_FLOAT64_COMPARE,
-  ]);
-
-  const NUMERIC_UNLESS_OVERLOADED = new Set([
-    ir.IR_GENERIC_SUB,
-    ir.IR_GENERIC_MUL,
-    ir.IR_GENERIC_DIV,
-    ir.IR_GENERIC_POW,
-  ]);
-
-  const OVERLOADABLE_ARITHMETIC = new Set([
-    ir.IR_GENERIC_ADD,
-    ...NUMERIC_UNLESS_OVERLOADED,
-  ]);
-
-  const TAGGED_NUMBER_PRODUCERS = new Set([
-    ir.IR_GENERIC_MOD,
-    ir.IR_GENERIC_USHR,
-  ]);
-
-  const HANDLE_PRODUCERS = new Set([
-    ...OVERLOADABLE_ARITHMETIC,
-    ir.IR_GENERIC_GET_PROP,
-    ir.IR_GENERIC_SET_PROP,
-    ir.IR_GENERIC_GET_INDEX,
-    ir.IR_GENERIC_SET_INDEX,
-    ir.IR_LOAD_GLOBAL,
-    ir.IR_LOAD_LOCAL,
-    ir.IR_LOAD_CONST,
-    ir.IR_NEW_OBJECT,
-    ir.IR_NEW_ARRAY,
-    ir.IR_CALL_BUILTIN,
-    ir.IR_TYPEOF,
-  ]);
-
   const nodeRep = new Map<number, Representation>();
 
   for (const param of graph.parameters) {
@@ -194,20 +212,7 @@ export function representationSelection(graph: ReprGraph): number {
       rep === REP_BOOL
     )
       return true;
-    if (
-      INT32_PRODUCERS.has(inp.type) ||
-      FLOAT64_PRODUCERS.has(inp.type) ||
-      BOOL_PRODUCERS.has(inp.type) ||
-      TAGGED_NUMBER_PRODUCERS.has(inp.type)
-    )
-      return true;
-    if (inp.type === ir.IR_CONSTANT)
-      return (
-        typeof inp.props.value === "number" ||
-        typeof inp.props.value === "boolean"
-      );
-    if (inp.type === ir.IR_CHECK_SMI || inp.type === ir.IR_CHECK_NUMBER)
-      return true;
+    if (producesNumber(inp)) return true;
     if (inp.type === ir.IR_PARAMETER)
       return (
         inp.uses &&

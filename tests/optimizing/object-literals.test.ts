@@ -33,14 +33,22 @@ const tierUp = (body: string, name = "run") => {
   return engine.collectFunctions().find((fn) => fn.name === name);
 };
 
+const withOsr = () =>
+  new Engine({
+    typecheck: "off",
+    tieringPolicy: { jitThreshold: 30, baselineThreshold: 3 },
+  });
+
 const differential = (source: string) => {
+  const expected = withoutJit().runNative(source);
   const optimized = new Engine({
     typecheck: "off",
     osr: false,
     tieringPolicy: { jitThreshold: 30, baselineThreshold: 3 },
   }).runNative(source);
-  expect(optimized).toEqual(withoutJit().runNative(source));
-  return optimized;
+  expect(optimized).toEqual(expected);
+  expect(withOsr().runNative(source)).toEqual(expected);
+  return expected;
 };
 
 describe("object literal allocation in optimized code", () => {

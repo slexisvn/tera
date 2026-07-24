@@ -744,34 +744,42 @@ export class FeedbackSlot {
 }
 
 export const DEFAULT_LOOP_BUDGET = 1000;
+export const INVOCATION_COUNT_FOR_OPTIMIZATION = 3000;
 
 export class FeedbackVector {
   slots: Array<FeedbackSlot | null>;
   createdAt: number;
   loopBudget: number;
+  loopBudgetSize: number;
   loopBudgetExhausted: boolean;
+  osrUrgency: number;
 
-  constructor(slotCount: number) {
+  constructor(slotCount: number, budgetSize = DEFAULT_LOOP_BUDGET) {
     this.slots = [];
     for (let i = 0; i < slotCount; i++) {
       this.slots.push(null);
     }
     this.createdAt = Date.now();
-    this.loopBudget = DEFAULT_LOOP_BUDGET;
+    this.loopBudgetSize = budgetSize;
+    this.loopBudget = budgetSize;
     this.loopBudgetExhausted = false;
+    this.osrUrgency = 0;
   }
 
   decrementLoopBudget(amount = 1): boolean {
     this.loopBudget -= amount;
-    if (this.loopBudget <= 0 && !this.loopBudgetExhausted) {
-      this.loopBudgetExhausted = true;
-      return true;
-    }
-    return false;
+    if (this.loopBudget > 0) return false;
+    this.loopBudget = this.loopBudgetSize;
+    this.loopBudgetExhausted = true;
+    return true;
+  }
+
+  incrementOsrUrgency(): void {
+    this.osrUrgency++;
   }
 
   resetLoopBudget(): void {
-    this.loopBudget = DEFAULT_LOOP_BUDGET;
+    this.loopBudget = this.loopBudgetSize;
     this.loopBudgetExhausted = false;
   }
 
@@ -865,9 +873,17 @@ export class FeedbackVector {
     return vec;
   }
 
-  static fromCompiledFunction(compiledFn: { feedbackSlotCount: number }): FeedbackVector {
-    const vec = new FeedbackVector(compiledFn.feedbackSlotCount);
-    return vec;
+  static fromCompiledFunction(compiledFn: {
+    feedbackSlotCount: number;
+    instructions?: { length: number };
+  }): FeedbackVector {
+    const bytecodeLength = compiledFn.instructions?.length ?? 0;
+    return new FeedbackVector(
+      compiledFn.feedbackSlotCount,
+      bytecodeLength > 0
+        ? INVOCATION_COUNT_FOR_OPTIMIZATION * bytecodeLength
+        : DEFAULT_LOOP_BUDGET,
+    );
   }
 
   getPolymorphicProfile(slotIdx: number): Record<string, RuntimeValue> | null {

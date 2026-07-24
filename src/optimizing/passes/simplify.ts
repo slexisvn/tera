@@ -432,7 +432,11 @@ export function strengthReduction(graph: SimplifyGraph): number {
     for (let i = 0; i < block.nodes.length; i++) {
       const node = block.nodes[i];
 
-      if (node.type === ir.IR_INT32_MUL && node.inputs.length === 2) {
+      if (
+        node.type === ir.IR_INT32_MUL &&
+        node.inputs.length === 2 &&
+        node.props.noOverflow === true
+      ) {
         let constInput: SimplifyNode | null = null;
         let otherInput: SimplifyNode | null = null;
         if (node.inputs[1]?.type === ir.IR_CONSTANT) {

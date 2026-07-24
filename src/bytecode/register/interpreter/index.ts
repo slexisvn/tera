@@ -493,7 +493,8 @@ function tryTierUp(
     ? policy.shouldOptimize(compiled)
     : compiled.invocationCount >= policy.jitThreshold &&
       !compiled.optimizedCode &&
-      !compiled.disableOptimization;
+      !compiled.disableOptimization &&
+      Date.now() >= (compiled.optimizationCooldownUntil || 0);
 
   if (shouldJIT && !requiresInterpreterOnly(compiled) && typeof engine.optimizeFunction === "function") {
     if (policy.shouldOptimize) policy.notifyCompilationStart?.();
@@ -1274,11 +1275,16 @@ export class RegisterInterpreter {
     const policy = this.tieringPolicy;
     const feedback = compiledFn.feedbackVector;
     const hot = feedback
-      ? feedback.decrementLoopBudget(1)
+      ? feedback.decrementLoopBudget(Math.max(frame.pc - target, 1))
       : policy
         ? loopCounter === policy.loopOsrThreshold
         : false;
     if (!hot) return null;
+
+    if (feedback && feedback.osrUrgency === 0) {
+      feedback.incrementOsrUrgency();
+      return null;
+    }
 
     const engine = this.jitEngine;
     if (
@@ -1304,6 +1310,7 @@ export class RegisterInterpreter {
       const value = frame.getReg(slot);
       args.push(value === undefined ? mkUndefined() : value);
     }
+    if (entry.code._declinesEntry?.(args)) return null;
     return entry.code(args, frame.thisValue, this);
   }
 

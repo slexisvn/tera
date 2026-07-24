@@ -135,6 +135,7 @@ export type BaselineCode = {
 export type OptimizedCode = {
   (args: TaggedValue[], thisValue: TaggedValue, interpreter: object): TaggedValue;
   _dispose?: () => void;
+  _declinesEntry?: (args: TaggedValue[]) => boolean;
 };
 export type OsrEntry = { code: OptimizedCode; slots: number[] };
 export type LocalBindingKind = "temp" | "var" | "let" | "const" | "class";

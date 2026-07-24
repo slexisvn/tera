@@ -6,7 +6,6 @@ import {
 import { tracer } from "../../core/tracing/index.js";
 import {
   dependencyRegistry,
-  DEP_MAP,
   DEP_PROTO_VALIDITY,
 } from "../../deopt/dependencies.js";
 import {
@@ -312,12 +311,6 @@ export class JSObject {
         this.overflowProperties.set(name, value);
       }
       storeBarrierForTaggedValue(this, value);
-      dependencyRegistry.invalidate(
-        DEP_MAP,
-        this.hiddenClass.id,
-        this.hiddenClass.version,
-        `store:${name}`,
-      );
       this.invalidatePrototypeDependents(`store:${name}`);
       return true;
     }
@@ -505,24 +498,12 @@ export class JSObject {
   setPropertyByOffset(offset: number, value: TaggedValue): boolean {
     if (offset < MAX_IN_OBJECT_PROPERTIES) {
       this.slots[offset] = value;
-      dependencyRegistry.invalidate(
-        DEP_MAP,
-        this.hiddenClass.id,
-        this.hiddenClass.version,
-        `store-offset:${offset}`,
-      );
       return true;
     }
     for (const [name, desc] of this.hiddenClass.properties) {
       if (desc.offset === offset) {
         if (!this.overflowProperties) this.overflowProperties = new Map();
         this.overflowProperties.set(name, value);
-        dependencyRegistry.invalidate(
-          DEP_MAP,
-          this.hiddenClass.id,
-          this.hiddenClass.version,
-          `store:${name}`,
-        );
         return true;
       }
     }

@@ -14,10 +14,6 @@ import {
   isObject,
   isBool,
   isArray,
-  isString,
-  isFunction,
-  isNull,
-  isUndefined,
   mkSmi,
   mkDouble,
   mkNumber,
@@ -86,6 +82,7 @@ import {
   REP_BOOL,
 } from "../passes/repr-selection.js";
 import { validateOptimizedGraph } from "../validation/graph-validator.js";
+import { visitDeoptSnapshotValues } from "../passes/frame-state-values.js";
 import * as wasmFormat from "./wasm-format.js";
 import { elementsKindId, elementsKindName } from "./object-layout.js";
 import {
@@ -101,6 +98,7 @@ import {
   INT32_ARITH,
   FLOAT64_ARITH,
   INT32_OVERFLOW_CHECK,
+  needsOverflowCheck,
   COMPARE_OPS,
   INT32_ARITH_OPCODES,
   INT64_ARITH_OPCODES,
@@ -257,6 +255,7 @@ type WasmAnalysis = {
   needsMemory: boolean;
   needsDeoptImport: boolean;
   entryGuards: AnyNode[];
+  isOsr: boolean;
   needsRuntimeStubImport: boolean;
   runtimeStubTable: RuntimeStubTable;
   resultValueRep: WasmValueRep | null;
@@ -496,6 +495,9 @@ export class WasmCodegen {
     const nodeValueRep = new Map<number, WasmValueRep>();
     const runtimeStubTable = new RuntimeStubTable();
 
+    const valueRepOf = (node: AnyNode): WasmValueRep =>
+      nodeValueRep.get(node.id) || valueRepForRep(repForNode(node));
+
     let needsMemory = false;
     let needsDeoptImport = false;
     let needsRuntimeStubImport = false;
@@ -544,6 +546,7 @@ export class WasmCodegen {
           }
           needsMemory = true;
           nodeWasmType.set(node.id, wasmFormat.TYPE_I32);
+          nodeValueRep.set(node.id, REP_HANDLE);
           allocObjNodes.push(node);
           continue;
         }
@@ -571,12 +574,14 @@ export class WasmCodegen {
                 syntheticNode.id = syntheticId;
                 this._typeofConstants.set(typeStr, syntheticNode);
                 nodeWasmType.set(syntheticId, wasmFormat.TYPE_I32);
+                nodeValueRep.set(syntheticId, REP_HANDLE);
                 if (!this._nonPrimitiveConstants) this._nonPrimitiveConstants = [];
                 this._nonPrimitiveConstants.push(syntheticNode);
               }
               const syntheticNode = this._typeofConstants.get(typeStr);
               if (syntheticNode) {
                 nodeWasmType.set(node.id, wasmFormat.TYPE_I32);
+                nodeValueRep.set(node.id, REP_HANDLE);
                 localAlias.set(node.id, syntheticNode.id);
                 needsMemory = true;
                 continue;
@@ -735,6 +740,11 @@ export class WasmCodegen {
             needsMemory = true;
             needsDeoptImport = true;
             break;
+          case ir.IR_CHECK_ARRAY:
+          case ir.IR_CHECK_BOUNDS:
+            needsMemory = true;
+            needsDeoptImport = true;
+            break;
           case ir.IR_CHECK_ELEMENTS_KIND:
             needsMemory = true;
             needsDeoptImport = true;
@@ -773,6 +783,7 @@ export class WasmCodegen {
           }
           case ir.IR_LOAD_CONST: {
             nodeWasmType.set(node.id, wasmFormat.TYPE_I32);
+            nodeValueRep.set(node.id, REP_HANDLE);
             needsMemory = true;
             if (!this._nonPrimitiveConstants) this._nonPrimitiveConstants = [];
             this._nonPrimitiveConstants.push(node);
@@ -841,12 +852,10 @@ export class WasmCodegen {
       }
     }
 
-    if (INT32_OVERFLOW_CHECK.size > 0) {
-      for (const block of graph.blocks) {
-        for (const node of block.nodes) {
-          if (INT32_OVERFLOW_CHECK.has(node.type)) {
-            needsDeoptImport = true;
-          }
+    for (const block of graph.blocks) {
+      for (const node of block.nodes) {
+        if (needsOverflowCheck(node)) {
+          needsDeoptImport = true;
         }
       }
     }
@@ -1076,8 +1085,7 @@ export class WasmCodegen {
     const paramValueReps: WasmValueRep[] = [];
     for (const param of graph.parameters) {
       const pType = nodeWasmType.get(param.id) || wasmFormat.TYPE_I32;
-      const pValueRep =
-        nodeValueRep.get(param.id) || valueRepForRep(repForNode(param));
+      const pValueRep = valueRepOf(param);
       paramTypes.push(pType);
       paramValueReps.push(pValueRep);
       if (pValueRep === REP_HANDLE) needsMemory = true;
@@ -1159,8 +1167,7 @@ export class WasmCodegen {
     let hasOverflowChecks = false;
     for (const block of graph.blocks) {
       for (const node of block.nodes) {
-        if (INT32_OVERFLOW_CHECK.has(node.type) ||
-            (node._speculativeType && INT32_OVERFLOW_CHECK.has(node._speculativeType))) {
+        if (needsOverflowCheck(node)) {
           hasOverflowChecks = true;
           break;
         }
@@ -1251,17 +1258,28 @@ export class WasmCodegen {
       });
     }
 
-    let resultType = wasmFormat.TYPE_I32;
-    let resultValueRep = null;
+    let resultType: WasmType | null = null;
+    let resultValueRep: WasmValueRep | null = null;
     for (const block of graph.blocks) {
       for (const node of block.nodes) {
-        if (node.type === ir.IR_RETURN && node.inputs[0]) {
-          const rt = nodeWasmType.get(node.inputs[0].id);
-          if (rt) resultType = rt;
-          resultValueRep = nodeValueRep.get(node.inputs[0].id) || null;
+        if (node.type !== ir.IR_RETURN || !node.inputs[0]) continue;
+        const returned = node.inputs[0];
+        const rep = valueRepOf(returned);
+        if (resultValueRep !== null && resultValueRep !== rep) {
+          this.lastAnalysisFailure = `returns disagree on value representation (${resultValueRep} vs ${rep})`;
+          return null;
+        }
+        resultValueRep = rep;
+        const rt = nodeWasmType.get(returned.id);
+        if (rt) {
+          resultType =
+            resultType === wasmFormat.TYPE_F64 || rt === wasmFormat.TYPE_F64
+              ? wasmFormat.TYPE_F64
+              : rt;
         }
       }
     }
+    if (resultType === null) resultType = wasmFormat.TYPE_I32;
 
     if (needsDeoptImport) {
       needsMemory = true;
@@ -1312,6 +1330,7 @@ export class WasmCodegen {
       needsMemory,
       needsDeoptImport,
       entryGuards,
+      isOsr: !!graph.osrParamSlots,
       needsRuntimeStubImport,
       runtimeStubTable,
       resultValueRep,
@@ -1414,24 +1433,23 @@ export class WasmCodegen {
       orderIndex.set(order[i].id, i);
     }
 
-    const loopInfoMap = new Map<number, { loopBlocks: Set<number>; exitBlockId: number | null }>();
+    const loopInfoMap = new Map<number, { loopBlocks: Set<number>; exitBlockIds: number[] }>();
     for (const headerId of loopHeaders) {
       const header = blockMap.get(headerId);
       if (!header) continue;
       const loopBlocks = findLoopBlocks(header, backEdges, graph.blocks);
-      let exitBlockId = null;
+      const exitTargets = new Set<number>();
       for (const lbId of loopBlocks) {
         const lb = blockMap.get(lbId);
         if (!lb) continue;
         for (const succ of lb.successors) {
-          if (!loopBlocks.has(succ.id)) {
-            exitBlockId = succ.id;
-            break;
-          }
+          if (!loopBlocks.has(succ.id)) exitTargets.add(succ.id);
         }
-        if (exitBlockId !== null) break;
       }
-      loopInfoMap.set(headerId, { loopBlocks, exitBlockId });
+      const exitBlockIds = [...exitTargets].sort(
+        (a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0),
+      );
+      loopInfoMap.set(headerId, { loopBlocks, exitBlockIds });
     }
 
     const labelStack: Array<{ type: string; targetId: number | null }> = [];
@@ -1655,6 +1673,38 @@ export class WasmCodegen {
             return;
           }
 
+          if (trueExitLabel >= 0 !== falseExitLabel >= 0) {
+            const exitIsTrue = trueExitLabel >= 0;
+            const exitBlockId = exitIsTrue ? trueBlockId : falseBlockId;
+            const fallThroughId = exitIsTrue ? falseBlockId : trueBlockId;
+
+            labelStack.push({ type: "block", targetId: null });
+            bytes.push(wasmFormat.OP_BLOCK, wasmFormat.TYPE_VOID);
+            bytes.push(
+              wasmFormat.OP_LOCAL_GET,
+              ...wasmFormat.encodeU32(condLocal),
+            );
+            if (exitIsTrue) bytes.push(wasmFormat.OP_I32_EQZ);
+            bytes.push(wasmFormat.OP_BR_IF, ...wasmFormat.encodeU32(0));
+            emitPhiUpdates(exitBlockId, block);
+            const exitDepth = this.findLabelDepth(
+              labelStack,
+              "block",
+              exitBlockId,
+            );
+            if (exitDepth >= 0) {
+              bytes.push(wasmFormat.OP_BR, ...wasmFormat.encodeU32(exitDepth));
+            }
+            bytes.push(wasmFormat.OP_END);
+            labelStack.pop();
+
+            const fallThrough = blockMap.get(fallThroughId);
+            if (fallThrough && !emitted.has(fallThroughId)) {
+              emitRegion(fallThrough);
+            }
+            return;
+          }
+
           const trueBlock = blockMap.get(trueBlockId);
           const falseBlock = blockMap.get(falseBlockId);
           const trueJoinId =
@@ -1812,7 +1862,7 @@ export class WasmCodegen {
         emitBlockNodes(block, options);
         return;
       }
-      const { loopBlocks, exitBlockId } = loopInfo;
+      const { loopBlocks, exitBlockIds } = loopInfo;
 
         for (const node of block.nodes) {
           if (node.type !== ir.IR_PHI) break;
@@ -1844,19 +1894,19 @@ export class WasmCodegen {
           }
         }
 
-        if (exitBlockId !== null) {
-          labelStack.push({ type: "block", targetId: exitBlockId });
+        for (let k = exitBlockIds.length - 1; k >= 0; k--) {
+          labelStack.push({ type: "block", targetId: exitBlockIds[k] });
           bytes.push(wasmFormat.OP_BLOCK, wasmFormat.TYPE_VOID);
         }
 
         labelStack.push({ type: "loop", targetId: block.id });
         bytes.push(wasmFormat.OP_LOOP, wasmFormat.TYPE_VOID);
 
-        const loopOrder = order.filter(
-          (b) => loopBlocks.has(b.id) && !emitted.has(b.id),
-        );
-        for (const lb of loopOrder) {
-          if (emitted.has(lb.id)) continue;
+        emitted.add(block.id);
+        emitBlockNodes(block);
+
+        for (const lb of order) {
+          if (!loopBlocks.has(lb.id) || emitted.has(lb.id)) continue;
           emitted.add(lb.id);
           emitBlockNodes(lb);
         }
@@ -1864,7 +1914,7 @@ export class WasmCodegen {
         bytes.push(wasmFormat.OP_END);
         labelStack.pop();
 
-        if (exitBlockId !== null) {
+        for (const exitBlockId of exitBlockIds) {
           bytes.push(wasmFormat.OP_END);
           labelStack.pop();
 
@@ -1988,14 +2038,7 @@ export class WasmCodegen {
       offset += 8;
     };
 
-    const maxSlot = Math.max(...fs.localValues.keys(), -1);
-    for (let i = 0; i <= maxSlot; i++) {
-      writeValue(fs.localValues.get(i));
-    }
-
-    for (const val of fs.stackValues) {
-      writeValue(val);
-    }
+    visitDeoptSnapshotValues(fs, writeValue);
   }
 
   emitConditionalDeopt(
@@ -2051,7 +2094,7 @@ export class WasmCodegen {
     );
   }
 
-  emitRuntimeStubCall(node: AnyNode, analysis: AnyAnalysis, bytes: number[], runtimeStubImportIdx: number): void {
+  emitRuntimeStubCall(node: AnyNode, analysis: AnyAnalysis, bytes: number[], runtimeStubImportIdx: number, deoptImportIdx: number): void {
     if (runtimeStubImportIdx < 0) {
       bytes.push(wasmFormat.OP_UNREACHABLE);
       return;
@@ -2090,8 +2133,20 @@ export class WasmCodegen {
     );
     if (loc !== undefined) {
       const outType = analysis.nodeWasmType.get(node.id);
-      if (outType === wasmFormat.TYPE_I32)
-        this.emitToInt32FromF64(bytes, analysis);
+      if (outType === wasmFormat.TYPE_I32) {
+        if (deoptImportIdx >= 0) {
+          this.emitCheckedInt64FromF64(
+            bytes,
+            analysis,
+            node.frameState,
+            node.frameState?.id ?? 0,
+            deoptImportIdx,
+          );
+          bytes.push(wasmFormat.OP_I32_WRAP_I64);
+        } else {
+          this.emitToInt32FromF64(bytes, analysis);
+        }
+      }
       bytes.push(wasmFormat.OP_LOCAL_SET, ...wasmFormat.encodeU32(loc));
     } else {
       bytes.push(wasmFormat.OP_DROP);
@@ -2129,11 +2184,17 @@ export class WasmCodegen {
       if (INT32_OVERFLOW_CHECK.has(specType) && analysis.hasOverflowChecks && deoptImportIdx >= 0) {
         const tmpLocal = analysis.overflowTempLocal;
         bytes.push(wasmFormat.OP_LOCAL_GET, ...wasmFormat.encodeU32(local(node.inputs[0].id)));
-        if (lt === wasmFormat.TYPE_F64) this.emitToInt32FromF64(bytes, analysis);
-        bytes.push(wasmFormat.OP_I64_EXTEND_I32_S);
+        if (lt === wasmFormat.TYPE_F64) {
+          this.emitCheckedInt64FromF64(bytes, analysis, node.frameState, fsId, deoptImportIdx);
+        } else {
+          bytes.push(wasmFormat.OP_I64_EXTEND_I32_S);
+        }
         bytes.push(wasmFormat.OP_LOCAL_GET, ...wasmFormat.encodeU32(local(node.inputs[1].id)));
-        if (rt === wasmFormat.TYPE_F64) this.emitToInt32FromF64(bytes, analysis);
-        bytes.push(wasmFormat.OP_I64_EXTEND_I32_S);
+        if (rt === wasmFormat.TYPE_F64) {
+          this.emitCheckedInt64FromF64(bytes, analysis, node.frameState, fsId, deoptImportIdx);
+        } else {
+          bytes.push(wasmFormat.OP_I64_EXTEND_I32_S);
+        }
         const overflowOpcode = INT64_ARITH_OPCODES[specType];
         if (overflowOpcode === undefined) return;
         bytes.push(overflowOpcode);
@@ -2290,6 +2351,46 @@ export class WasmCodegen {
     bytes.push(wasmFormat.OP_ELSE);
     bytes.push(wasmFormat.OP_I32_CONST, ...wasmFormat.encodeS32(0));
     bytes.push(wasmFormat.OP_END);
+  }
+
+  emitCheckedInt64FromF64(
+    bytes: number[],
+    analysis: AnyAnalysis,
+    frameState: AnyNode["frameState"],
+    fsId: number,
+    deoptImportIdx: number,
+  ): void {
+    const scratch = analysis.toInt32ScratchLocal;
+    bytes.push(wasmFormat.OP_LOCAL_TEE, ...wasmFormat.encodeU32(scratch));
+    bytes.push(wasmFormat.OP_DROP);
+    bytes.push(wasmFormat.OP_LOCAL_GET, ...wasmFormat.encodeU32(scratch));
+    bytes.push(wasmFormat.OP_F64_TRUNC);
+    bytes.push(wasmFormat.OP_LOCAL_GET, ...wasmFormat.encodeU32(scratch));
+    bytes.push(wasmFormat.OP_F64_EQ);
+    bytes.push(wasmFormat.OP_LOCAL_GET, ...wasmFormat.encodeU32(scratch));
+    bytes.push(wasmFormat.OP_F64_CONST, ...wasmFormat.encodeF64(2147483647));
+    bytes.push(wasmFormat.OP_F64_LE);
+    bytes.push(wasmFormat.OP_I32_AND);
+    bytes.push(wasmFormat.OP_LOCAL_GET, ...wasmFormat.encodeU32(scratch));
+    bytes.push(wasmFormat.OP_F64_CONST, ...wasmFormat.encodeF64(-2147483648));
+    bytes.push(wasmFormat.OP_F64_GE);
+    bytes.push(wasmFormat.OP_I32_AND);
+    bytes.push(wasmFormat.OP_I32_EQZ);
+    bytes.push(wasmFormat.OP_IF, wasmFormat.TYPE_VOID);
+    this.emitDeoptSnapshot(frameState, analysis, bytes);
+    bytes.push(
+      wasmFormat.OP_I32_CONST,
+      ...wasmFormat.encodeS32(deoptReasonId(DEOPT_OVERFLOW)),
+    );
+    bytes.push(wasmFormat.OP_I32_CONST, ...wasmFormat.encodeS32(fsId));
+    bytes.push(wasmFormat.OP_CALL, ...wasmFormat.encodeU32(deoptImportIdx));
+    bytes.push(wasmFormat.OP_UNREACHABLE);
+    bytes.push(wasmFormat.OP_END);
+    bytes.push(wasmFormat.OP_LOCAL_GET, ...wasmFormat.encodeU32(scratch));
+    bytes.push(
+      wasmFormat.OP_MISC_PREFIX,
+      wasmFormat.MISC_I64_TRUNC_SAT_F64_S,
+    );
   }
 
   emitNativeNode(node: AnyNode, analysis: AnyAnalysis, bytes: number[]): void {
@@ -2544,7 +2645,7 @@ export class WasmCodegen {
     }
 
     if (this.needsFieldRuntimeStub(node)) {
-      this.emitRuntimeStubCall(node, analysis, bytes, runtimeStubImportIdx);
+      this.emitRuntimeStubCall(node, analysis, bytes, runtimeStubImportIdx, deoptImportIdx);
       return;
     }
 
@@ -2660,7 +2761,7 @@ export class WasmCodegen {
     }
 
     if (RUNTIME_STUB_NODES.has(node.type)) {
-      this.emitRuntimeStubCall(node, analysis, bytes, runtimeStubImportIdx);
+      this.emitRuntimeStubCall(node, analysis, bytes, runtimeStubImportIdx, deoptImportIdx);
       return;
     }
 
@@ -2957,16 +3058,20 @@ export class WasmCodegen {
             wasmFormat.OP_LOCAL_GET,
             ...wasmFormat.encodeU32(local(node.inputs[0].id)),
           );
-          if (leftType === wasmFormat.TYPE_F64)
-            this.emitToInt32FromF64(bytes, analysis);
-          bytes.push(wasmFormat.OP_I64_EXTEND_I32_S);
+          if (leftType === wasmFormat.TYPE_F64) {
+            this.emitCheckedInt64FromF64(bytes, analysis, node.frameState, fsId, deoptImportIdx);
+          } else {
+            bytes.push(wasmFormat.OP_I64_EXTEND_I32_S);
+          }
           bytes.push(
             wasmFormat.OP_LOCAL_GET,
             ...wasmFormat.encodeU32(local(node.inputs[1].id)),
           );
-          if (rightType === wasmFormat.TYPE_F64)
-            this.emitToInt32FromF64(bytes, analysis);
-          bytes.push(wasmFormat.OP_I64_EXTEND_I32_S);
+          if (rightType === wasmFormat.TYPE_F64) {
+            this.emitCheckedInt64FromF64(bytes, analysis, node.frameState, fsId, deoptImportIdx);
+          } else {
+            bytes.push(wasmFormat.OP_I64_EXTEND_I32_S);
+          }
           const opcode = INT64_ARITH_OPCODES[node.type];
           if (opcode === undefined) break;
           bytes.push(opcode);
@@ -3709,9 +3814,11 @@ export class WasmCodegen {
                 const type = analysis.nodeWasmType.get(node.id);
                 const rawF64 = buffer[offsetIndex];
                 const rawInt = Math.trunc(rawF64);
-                const objInfo = threadLocal.currentObjPtrs
-                  ? threadLocal.currentObjPtrs.get(rawInt)
-                  : null;
+                const objInfo =
+                  analysis.nodeValueRep.get(node.id) === REP_HANDLE &&
+                  threadLocal.currentObjPtrs
+                    ? threadLocal.currentObjPtrs.get(rawInt)
+                    : null;
                 if (objInfo) {
                   runtimeValues.set(node.id, objInfo.value);
                   offsetIndex++;
@@ -3727,14 +3834,7 @@ export class WasmCodegen {
             offsetIndex++;
           };
 
-          const maxSlot = Math.max(...fs.localValues.keys(), -1);
-          for (let i = 0; i <= maxSlot; i++) {
-            readValue(fs.localValues.get(i));
-          }
-
-          for (const val of fs.stackValues) {
-            readValue(val);
-          }
+          visitDeoptSnapshotValues(fs, readValue);
         }
 
         throw new DeoptSignal(
@@ -3886,6 +3986,19 @@ export class WasmCodegen {
     );
     const needsRuntimeObj = hasStubs || analysis.needsAllocObjImport;
 
+    const failingEntryGuard = (args: TaggedValue[]): AnyNode | null => {
+      for (const guard of entryGuards) {
+        const input = guard.inputs[0];
+        if (!input || input.type !== ir.IR_PARAMETER) continue;
+        const paramIdx = metadataNumber(input.props.index);
+        if (paramIdx === null) continue;
+        const arg = paramIdx < args.length ? args[paramIdx] : mkUndefined();
+        if (guard.type === ir.IR_CHECK_SMI && !isSmi(arg)) return guard;
+        if (guard.type === ir.IR_CHECK_NUMBER && !isNumber(arg)) return guard;
+      }
+      return null;
+    };
+
     const optimizedCode = function optimizedCode(
       args: TaggedValue[],
       thisValue: TaggedValue,
@@ -3910,50 +4023,38 @@ export class WasmCodegen {
         }
       };
 
-      for (const guard of entryGuards) {
-        const input = guard.inputs[0];
-        if (!input || input.type !== ir.IR_PARAMETER) continue;
-        const paramIdx = metadataNumber(input.props.index);
-        if (paramIdx === null) continue;
-        const arg = paramIdx < args.length ? args[paramIdx] : mkUndefined();
+      const failedGuard = failingEntryGuard(args);
+      if (failedGuard) {
+        const reason = deoptReasonForNode(failedGuard);
+        recordWasmDeopt(reason, 0);
 
-        let guardFailed = false;
-        if (guard.type === ir.IR_CHECK_SMI && !isSmi(arg)) guardFailed = true;
-        if (guard.type === ir.IR_CHECK_NUMBER && !isNumber(arg))
-          guardFailed = true;
-
-        if (guardFailed) {
-          const reason = deoptReasonForNode(guard);
-          recordWasmDeopt(reason, 0);
-
-          const frameState = guard.frameState;
-          if (!frameState) {
-            const frame = new RegisterFrame(compiledFn, args, thisValue);
-            return interpreter.resumeAt(frame);
-          }
-          if (frameState.isInlinedFrame) {
-            return resumeFrameStateChain(
-              args,
-              thisValue,
-              frameState,
-              new Map(),
-              interpreter,
-            );
-          }
-          if (frameState.bytecodeOffset !== 0) {
-            const frame = new RegisterFrame(compiledFn, args, thisValue);
-            return interpreter.resumeAt(frame);
-          }
-          const frame = materializeFrameFromState(
-            frameState.compiledFunction || compiledFn,
+        const frameState = failedGuard.frameState;
+        if (!frameState) {
+          const frame = new RegisterFrame(compiledFn, args, thisValue);
+          return interpreter.resumeAt(frame);
+        }
+        if (frameState.isInlinedFrame) {
+          return resumeFrameStateChain(
             args,
             thisValue,
             frameState,
             new Map(),
             interpreter,
           );
+        }
+        if (frameState.bytecodeOffset !== 0) {
+          const frame = new RegisterFrame(compiledFn, args, thisValue);
           return interpreter.resumeAt(frame);
         }
+        const frame = materializeFrameFromState(
+          frameState.compiledFunction || compiledFn,
+          args,
+          thisValue,
+          frameState,
+          new Map(),
+          interpreter,
+        );
+        return interpreter.resumeAt(frame);
       }
 
       const objPtrs: Map<number, ObjectPointerInfo> = new Map();
@@ -4098,17 +4199,7 @@ export class WasmCodegen {
       for (let i = 0; i < paramTypes.length; i++) {
         const arg = i < args.length ? args[i] : mkUndefined();
         const paramValueRep = analysis.paramValueReps?.[i] || null;
-        const passAsTaggedHandle =
-          needsMemory &&
-          paramValueRep === REP_HANDLE &&
-          (isBool(arg) ||
-            isDouble(arg) ||
-            isObject(arg) ||
-            isArray(arg) ||
-            isFunction(arg) ||
-            isString(arg) ||
-            isNull(arg) ||
-            isUndefined(arg));
+        const passAsTaggedHandle = needsMemory && paramValueRep === REP_HANDLE;
         const fieldExtent = analysis.paramFieldExtents
           ? analysis.paramFieldExtents[i] ?? -1
           : -1;
@@ -4252,7 +4343,10 @@ export class WasmCodegen {
           
           if (e.runtimeValues && e.runtimeValues.size > 0) {
             for (const [nodeId, val] of e.runtimeValues) {
-              if (typeof val === "number") {
+              if (
+                typeof val === "number" &&
+                analysis.nodeValueRep.get(nodeId) === REP_HANDLE
+              ) {
                 const ptrInfo = objPtrs.get(val);
                 if (ptrInfo && ptrInfo.value) {
                   e.runtimeValues.set(nodeId, ptrInfo.value);
@@ -4298,21 +4392,22 @@ export class WasmCodegen {
 
       takeObjPtr();
 
+      const returnedHandle =
+        resultValueRep === REP_HANDLE
+          ? objPtrs.get(Math.trunc(rawResult))
+          : undefined;
+
       if (analysis.mutatesHeapObjects) {
         commitTrackedObjects();
-      } else if (needsMemory && memory) {
-        const retInfo = objPtrs.get(Math.trunc(rawResult));
-        if (retInfo) commitTrackedObject(retInfo);
+      } else if (needsMemory && memory && returnedHandle) {
+        commitTrackedObject(returnedHandle);
       }
 
-      const returnedHandle = objPtrs.get(Math.trunc(rawResult));
       if (returnedHandle) {
         return returnedHandle.value;
       }
 
       if (resultValueRep === REP_HANDLE) {
-        const info = objPtrs.get(Math.trunc(rawResult));
-        if (info) return info.value;
         const ptr = Math.trunc(rawResult);
         if (ptr >= 1024 && ptr < nextObjPtr) {
           if (!memory) return mkNumber(rawResult);
@@ -4344,6 +4439,11 @@ export class WasmCodegen {
     optimizedCode._dispose = () => {
       memory = null;
     };
+
+    if (analysis.isOsr) {
+      optimizedCode._declinesEntry = (args: TaggedValue[]) =>
+        failingEntryGuard(args) !== null;
+    }
 
     return optimizedCode;
   }

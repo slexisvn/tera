@@ -497,6 +497,12 @@ export const INT32_OVERFLOW_CHECK = new Set([
   ir.IR_INT32_MUL,
 ]);
 
+export function needsOverflowCheck(node: AnyNode): boolean {
+  if (INT32_OVERFLOW_CHECK.has(node.type)) return true;
+  const speculative = node._speculativeType;
+  return !!speculative && INT32_OVERFLOW_CHECK.has(speculative);
+}
+
 export const COMPARE_OPS: Record<string, { i32: number; f64: number }> = {
   "==": { i32: OP_I32_EQ, f64: OP_F64_EQ },
   "!=": { i32: OP_I32_NE, f64: OP_F64_NE },

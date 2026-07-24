@@ -920,7 +920,11 @@ export function serializeObject(
   fromIndex = 0,
 ) {
   if (!jsObj || !memory) return;
-  const view = new DataView(memory.buffer);
+  let view = new DataView(memory.buffer);
+  const liveView = () => {
+    if (view.buffer !== memory.buffer) view = new DataView(memory.buffer);
+    return view;
+  };
   const isJsArray = jsObj instanceof JSArray;
   const mapId = isJsArray ? -1 : jsObj.hiddenClass ? jsObj.hiddenClass.id : 0;
   view.setInt32(basePtr, mapId, true);
@@ -963,7 +967,7 @@ export function serializeObject(
     ) {
       numVal = allocateTaggedValue(val);
     }
-    view.setFloat64(basePtr + (isJsArray ? 16 : 8) + i * 8, numVal, true);
+    liveView().setFloat64(basePtr + (isJsArray ? 16 : 8) + i * 8, numVal, true);
   }
 }
 

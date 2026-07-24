@@ -34,6 +34,25 @@ export function sunkAllocationIds(
   return ids;
 }
 
+export function visitDeoptSnapshotValues(
+  frameState: FrameState | null | undefined,
+  visit: (value: FrameValue | null | undefined) => void,
+): void {
+  if (!frameState) return;
+
+  const maxSlot = Math.max(...frameState.localValues.keys(), -1);
+  for (let slot = 0; slot <= maxSlot; slot++) {
+    visit(frameState.localValues.get(slot));
+  }
+
+  for (const value of frameState.stackValues) visit(value);
+
+  for (const allocation of frameState.sunkAllocations?.values() ?? []) {
+    for (const value of allocation.props?.values() ?? []) visit(value);
+    for (const value of allocation.fields?.values() ?? []) visit(value);
+  }
+}
+
 export function visitFrameStateValues(
   frameState: FrameState | null | undefined,
   visitor: FrameStateVisitor,

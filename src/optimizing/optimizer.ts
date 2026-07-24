@@ -110,8 +110,6 @@ export class SpeculativeOptimizer {
     rebuildAll();
     let propCount = constantPropagation(graph);
     rebuildAll();
-    let strengthCount = strengthReduction(graph);
-    rebuildAll();
     if (propCount > 0) {
       foldCount += constantFolding(graph);
       rebuildAll();
@@ -132,6 +130,8 @@ export class SpeculativeOptimizer {
     const gvnCount = globalValueNumbering(graph);
     rebuildAll();
     const boundsElimCount = rangeAnalysisAndBoundsCheckElimination(graph);
+    rebuildAll();
+    const strengthCount = strengthReduction(graph);
     rebuildAll();
     const unrollCount = loopUnrolling(graph, findLoopsFn);
     rebuildAll();

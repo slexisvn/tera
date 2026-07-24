@@ -8,6 +8,7 @@ import {
   sunkAllocationIds,
   visitFrameStateValues,
 } from "./frame-state-values.js";
+import { producesNumber } from "./repr-selection.js";
 
 function reachableFrom(header: CFGBlock): Set<number> {
   const reachable = new Set<number>();
@@ -27,6 +28,22 @@ function rehomeConstant(node: CFGInstruction, header: CFGBlock): void {
   }
   node.block = header;
   header.nodes.splice(header.params.length, 0, node);
+}
+
+function substituteFrameStateValues(
+  state: FrameState,
+  folds: Map<CFGInstruction, CFGInstruction>,
+): void {
+  for (const [slot, value] of state.localValues) {
+    const replacement = folds.get(value as CFGInstruction);
+    if (replacement) state.localValues.set(slot, replacement as FrameValue);
+  }
+  for (let i = 0; i < state.stackValues.length; i++) {
+    const replacement = folds.get(state.stackValues[i] as CFGInstruction);
+    if (replacement) state.stackValues[i] = replacement as FrameValue;
+  }
+  const thisReplacement = folds.get(state.thisValue as CFGInstruction);
+  if (thisReplacement) state.thisValue = thisReplacement as FrameValue;
 }
 
 function substitute(
@@ -49,17 +66,51 @@ function substitute(
     }
   }
   for (const state of frameStates) {
-    for (const [slot, value] of state.localValues) {
-      const replacement = folds.get(value as CFGInstruction);
-      if (replacement) state.localValues.set(slot, replacement as FrameValue);
-    }
-    for (let i = 0; i < state.stackValues.length; i++) {
-      const replacement = folds.get(state.stackValues[i] as CFGInstruction);
-      if (replacement) state.stackValues[i] = replacement as FrameValue;
-    }
-    const thisReplacement = folds.get(state.thisValue as CFGInstruction);
-    if (thisReplacement) state.thisValue = thisReplacement as FrameValue;
+    substituteFrameStateValues(state, folds);
   }
+}
+
+function loopGuardSources(
+  graph: CFGFunction,
+  reachable: Set<number>,
+  phis: CFGInstruction[],
+): Map<CFGInstruction, CFGInstruction> {
+  const phiSet = new Set(phis);
+  const sources = new Map<CFGInstruction, CFGInstruction>();
+  for (const block of graph.blocks) {
+    if (!reachable.has(block.id)) continue;
+    for (const node of block.nodes) {
+      if (node.type !== ir.IR_CHECK_SMI && node.type !== ir.IR_CHECK_NUMBER) {
+        continue;
+      }
+      const guarded = node.inputs[0];
+      if (!guarded || !phiSet.has(guarded)) continue;
+      const existing = sources.get(guarded);
+      if (existing && existing.type === ir.IR_CHECK_SMI) continue;
+      sources.set(guarded, node);
+    }
+  }
+  return sources;
+}
+
+function templateFrameState(header: CFGBlock): FrameState | null {
+  for (const node of header.nodes) {
+    if (node.frameState) return node.frameState;
+  }
+  return null;
+}
+
+function entryFrameState(
+  source: FrameState | null,
+  frameStates: FrameState[],
+  folds: Map<CFGInstruction, CFGInstruction>,
+): FrameState | null {
+  if (!source) return null;
+  const state = source.clone();
+  substituteFrameStateValues(state, folds);
+  state.id = frameStates.length;
+  frameStates.push(state);
+  return state;
 }
 
 export function applyOsrTransform(
@@ -154,9 +205,33 @@ export function applyOsrTransform(
   }
 
   const osrEntry = graph.addBlock();
+  const entryArgs = variantParams.slice();
+  const guardSources = loopGuardSources(graph, reachable, variantPhis);
+  const entryFolds = new Map<CFGInstruction, CFGInstruction>();
+  for (let index = 0; index < variantPhis.length; index++) {
+    entryFolds.set(variantPhis[index], variantParams[index]);
+  }
+  const headerState = templateFrameState(header);
+  for (let index = 0; index < variantPhis.length; index++) {
+    const phi = variantPhis[index];
+    const source = guardSources.get(phi);
+    const latchValue = phi.inputs[1];
+    if (!source && !(latchValue && producesNumber(latchValue))) continue;
+    const sourceState = source?.frameState ?? headerState;
+    if (!sourceState) continue;
+    const param = variantParams[index];
+    const guard =
+      source && source.type === ir.IR_CHECK_SMI
+        ? ir.irCheckSmi(param)
+        : ir.irCheckNumber(param);
+    guard.frameState = entryFrameState(sourceState, frameStates, entryFolds);
+    osrEntry.addNode(guard);
+    phi.replaceInput(0, guard);
+    entryArgs[index] = guard;
+  }
   osrEntry.addNode(ir.irJump(header));
   header.predecessors = [];
-  osrEntry.addSuccessor(header, variantParams);
+  osrEntry.addSuccessor(header, entryArgs);
   header.predecessors.push(latch);
   latch.setEdgeArgs(header, newLatchArgs);
 

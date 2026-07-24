@@ -476,6 +476,7 @@ describe("strengthReduction", () => {
     const c = irConstant(8);
     block.addNode(c);
     const mul = irInt32Mul(p, c);
+    mul.props.noOverflow = true;
     block.addNode(mul);
     const ret = irReturn(mul);
     block.addNode(ret);
@@ -492,12 +493,39 @@ describe("strengthReduction", () => {
     const c = irConstant(2);
     block.addNode(c);
     const mul = irInt32Mul(p, c);
+    mul.props.noOverflow = true;
     block.addNode(mul);
     const ret = irReturn(mul);
     block.addNode(ret);
     strengthReduction(graph);
     expect(ret.inputs[0].type).toBe(IR_INT32_SHL);
     expect(ret.inputs[0].inputs[1].props.value).toBe(1);
+  });
+
+  it("does NOT reduce multiply by power of 2 to shift when overflow is possible", () => {
+    const { graph, block } = makeGraph();
+    const p = graph.addParameter(0);
+    const c = irConstant(2);
+    block.addNode(c);
+    const mul = irInt32Mul(p, c);
+    block.addNode(mul);
+    const ret = irReturn(mul);
+    block.addNode(ret);
+    strengthReduction(graph);
+    expect(ret.inputs[0].type).toBe(mul.type);
+  });
+
+  it("does NOT decompose multiply by 3 when overflow is possible", () => {
+    const { graph, block } = makeGraph();
+    const p = graph.addParameter(0);
+    const c = irConstant(3);
+    block.addNode(c);
+    const mul = irInt32Mul(p, c);
+    block.addNode(mul);
+    const ret = irReturn(mul);
+    block.addNode(ret);
+    strengthReduction(graph);
+    expect(ret.inputs[0].type).toBe(mul.type);
   });
 
   it("does NOT reduce divide by power of 2 to shift (unsound for negative dividends)", () => {
@@ -532,6 +560,7 @@ describe("strengthReduction", () => {
     const c = irConstant(3);
     block.addNode(c);
     const mul = irInt32Mul(p, c);
+    mul.props.noOverflow = true;
     block.addNode(mul);
     const ret = irReturn(mul);
     block.addNode(ret);
@@ -547,6 +576,7 @@ describe("strengthReduction", () => {
     const c = irConstant(7);
     block.addNode(c);
     const mul = irInt32Mul(p, c);
+    mul.props.noOverflow = true;
     block.addNode(mul);
     const ret = irReturn(mul);
     block.addNode(ret);
@@ -574,6 +604,7 @@ describe("strengthReduction", () => {
     block.addNode(c);
     const p = graph.addParameter(0);
     const mul = irInt32Mul(c, p);
+    mul.props.noOverflow = true;
     block.addNode(mul);
     const ret = irReturn(mul);
     block.addNode(ret);
