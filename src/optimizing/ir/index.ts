@@ -460,6 +460,38 @@ export class CFGFunction {
   }
 }
 
+export function homeInstruction(
+  node: CFGInstruction,
+  block: CFGBlock,
+): CFGInstruction {
+  if (node.block) {
+    node.block.nodes = node.block.nodes.filter((n) => n !== node);
+  }
+  node.block = block;
+  block.nodes.splice(block.params.length, 0, node);
+  return node;
+}
+
+export function blockParamIncoming(param: CFGInstruction): CFGInstruction[] {
+  const incoming: CFGInstruction[] = [];
+  const seen = new Set<number>();
+  const add = (value: CFGInstruction | undefined | null) => {
+    if (!value || seen.has(value.id)) return;
+    seen.add(value.id);
+    incoming.push(value);
+  };
+  for (const input of param.inputs) add(input);
+  const block = param.block;
+  if (block) {
+    const index = typeof param.props.index === "number" ? param.props.index : 0;
+    for (const predecessor of block.predecessors) {
+      const args = predecessor.getEdgeArgs(block);
+      if (args.length > index) add(args[index]);
+    }
+  }
+  return incoming;
+}
+
 export const IRNode = CFGInstruction;
 export const IRBlock = CFGBlock;
 export const IRGraph = CFGFunction;

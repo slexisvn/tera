@@ -128,6 +128,7 @@ export class BaselineCompiler {
     if (hasClosures) {
       c += `var _ouv=new Map(),_ce=null;\n`;
     }
+    c += `$.enter(r);\ntry{\n`;
     c += `L:while(1){switch(pc){\n`;
 
     for (let i = 0; i < instrs.length; i++) {
@@ -140,6 +141,7 @@ export class BaselineCompiler {
     }
 
     c += `default:return $.u;}}\n`;
+    c += `}finally{$.leave();}\n`;
     return c;
   }
 

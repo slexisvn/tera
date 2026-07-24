@@ -17,7 +17,18 @@ type FrameLike = {
   openUpvalues?: Map<number, UpvalueLike> | null;
   compiledFn?: { constants?: RegisterConstant[] };
 };
-type InterpreterLike = { activeFrames?: FrameLike[] };
+type InterpreterLike = {
+  activeFrames?: FrameLike[];
+  baselineFrames?: FrameLike[];
+};
+
+function forEachRootFrame(
+  interpreter: InterpreterLike,
+  visit: (frame: FrameLike) => void,
+): void {
+  for (const frame of interpreter.activeFrames ?? []) visit(frame);
+  for (const frame of interpreter.baselineFrames ?? []) visit(frame);
+}
 type CellLike = Pick<GlobalCell, "value" | "read">;
 type CellCollection = Map<string, CellLike> | Iterable<[string, CellLike]>;
 type GlobalCellsLike = Pick<GlobalCellMap, "cells"> | CellCollection;
@@ -46,6 +57,27 @@ type PayloadLike = GCObject & {
   prototypeObj?: PayloadLike;
   frame?: FrameLike;
 };
+
+export function visitFrameRoots(
+  frame: FrameLike,
+  visit: (value: RootSlotValue) => void,
+): void {
+  const registers = frame.registers || frame.locals;
+  if (registers) for (const value of registers) visit(value);
+  if (frame.stack) for (const value of frame.stack) visit(value);
+  if (frame.acc !== undefined) visit(frame.acc);
+  const cells = frame.closureEnv?.cells;
+  if (cells) {
+    for (const cell of cells) {
+      if (cell && typeof cell.get === "function") visit(cell.get());
+    }
+  }
+  if (frame.openUpvalues) {
+    for (const cell of frame.openUpvalues.values()) {
+      if (cell && typeof cell.get === "function") visit(cell.get());
+    }
+  }
+}
 
 function isIterableCellCollection(value: CellCollection | null | undefined): value is Iterable<[string, CellLike]> {
   return !!value && typeof value[Symbol.iterator] === "function";
@@ -92,23 +124,12 @@ export function markReachableHeapIds(
     }
   };
 
-  if (interpreter && interpreter.activeFrames) {
-    for (const frame of interpreter.activeFrames) {
-      const regs = frame.registers || frame.locals;
-      if (regs) for (let i = 0; i < regs.length; i++) seedTagged(regs[i]);
-      if (frame.acc !== undefined) seedTagged(frame.acc);
-      const env = frame.closureEnv;
-      if (env && env.cells) {
-        for (const cell of env.cells) {
-          if (cell && typeof cell.get === "function") seedMaybeRegister(cell.get());
-        }
-      }
-      if (frame.openUpvalues) {
-        for (const cell of frame.openUpvalues.values()) {
-          if (cell && typeof cell.get === "function") seedMaybeRegister(cell.get());
-        }
-      }
-    }
+  if (interpreter) {
+    forEachRootFrame(interpreter, (frame) => {
+      visitFrameRoots(frame, (value) => {
+        if (value !== null) seedTagged(value);
+      });
+    });
   }
 
   if (globalCells) {
@@ -198,21 +219,13 @@ export function enumerateRoots(
 ): GCObject[] {
   const roots: GCObject[] = [];
 
-  if (interpreter && interpreter.activeFrames) {
-    for (const frame of interpreter.activeFrames) {
-      if (frame.locals) {
-        for (const local of frame.locals) {
-          const obj = extractHeapObject(local);
-          if (obj) roots.push(obj);
-        }
-      }
-      if (frame.stack) {
-        for (const val of frame.stack) {
-          const obj = extractHeapObject(val);
-          if (obj) roots.push(obj);
-        }
-      }
-    }
+  if (interpreter) {
+    forEachRootFrame(interpreter, (frame) => {
+      visitFrameRoots(frame, (value) => {
+        const obj = extractHeapObject(value);
+        if (obj) roots.push(obj);
+      });
+    });
   }
 
   if (globalCells) {
@@ -251,24 +264,17 @@ export function collectLiveHeapIds(
     if (id > 0) liveIds.add(id);
   };
 
-  if (interpreter && interpreter.activeFrames) {
-    for (const frame of interpreter.activeFrames) {
-      if (frame.locals) {
-        for (const local of frame.locals) {
-          if (typeof local === "number") trackValue(local);
-        }
-      }
-      if (frame.stack) {
-        for (const val of frame.stack) {
-          if (typeof val === "number") trackValue(val);
-        }
-      }
+  if (interpreter) {
+    forEachRootFrame(interpreter, (frame) => {
+      visitFrameRoots(frame, (value) => {
+        if (typeof value === "number") trackValue(value);
+      });
       if (frame.compiledFn && frame.compiledFn.constants) {
         for (const c of frame.compiledFn.constants) {
           if (typeof c === "number") trackValue(c);
         }
       }
-    }
+    });
   }
 
   if (globalCells) {

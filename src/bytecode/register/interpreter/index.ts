@@ -629,6 +629,7 @@ export class RegisterInterpreter {
   globalCells: GlobalCellMap;
   callStack: string[];
   activeFrames: RegisterFrame[];
+  baselineFrames: Array<{ registers: TaggedValue[] }>;
   _sweepTick: number;
   _heapSweepThreshold: number;
   icManager: InlineCacheManager;
@@ -640,6 +641,7 @@ export class RegisterInterpreter {
     this.globalCells = new GlobalCellMap();
     this.callStack = [];
     this.activeFrames = [];
+    this.baselineFrames = [];
     this._sweepTick = 0;
     this._heapSweepThreshold = 1 << 18;
     this.icManager = new InlineCacheManager();

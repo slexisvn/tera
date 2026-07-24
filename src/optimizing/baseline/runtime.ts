@@ -77,7 +77,10 @@ export type BaselineInterpreter = {
   constructFunctionValue(fn: TaggedValue, args: TaggedValue[]): TaggedValue;
   tieringPolicy?: { jitThreshold: number } | null;
   jitEngine?: { optimizeFunction?: (fn: bytecode.RegisterCompiledFunction) => void } | null;
+  baselineFrames?: BaselineFrameRoots[];
 };
+
+export type BaselineFrameRoots = { registers: TaggedValue[] };
 
 const MAX_CALL_DEPTH = 1000;
 let globalCallDepth = 0;
@@ -423,6 +426,14 @@ export class BaselineRuntime {
         }
       }
     }
+  }
+
+  enter(registers: TaggedValue[]): void {
+    this.interp.baselineFrames?.push({ registers });
+  }
+
+  leave(): void {
+    this.interp.baselineFrames?.pop();
   }
 
   gi(obj: TaggedValue, index: TaggedValue, fbSlot: number) {

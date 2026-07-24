@@ -1,0 +1,633 @@
+{
+ "seed": 57,
+ "config": "jit",
+ "program": {
+  "globals": [
+   {
+    "name": "g0",
+    "init": {
+     "k": "method",
+     "obj": {
+      "k": "bin",
+      "op": "+",
+      "l": {
+       "k": "str",
+       "v": ""
+      },
+      "r": {
+       "k": "str",
+       "v": "1"
+      }
+     },
+     "name": "substring",
+     "args": [
+      {
+       "k": "num",
+       "v": 0
+      },
+      {
+       "k": "num",
+       "v": 12
+      }
+     ]
+    }
+   },
+   {
+    "name": "g1",
+    "init": {
+     "k": "arr",
+     "items": [
+      {
+       "k": "arr",
+       "items": [
+        {
+         "k": "num",
+         "v": 1
+        },
+        {
+         "k": "num",
+         "v": 2
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "funcs": [
+   {
+    "name": "f1",
+    "params": [
+     "p0"
+    ],
+    "body": [
+     {
+      "k": "let",
+      "name": "p0",
+      "op": "=",
+      "value": {
+       "k": "str",
+       "v": "1"
+      }
+     },
+     {
+      "k": "let",
+      "name": "g1",
+      "op": "=",
+      "value": {
+       "k": "arr",
+       "items": [
+        {
+         "k": "bool",
+         "v": true
+        },
+        {
+         "k": "ident",
+         "name": "g0"
+        },
+        {
+         "k": "ident",
+         "name": "g0"
+        }
+       ]
+      }
+     },
+     {
+      "k": "ret",
+      "value": {
+       "k": "bin",
+       "op": "and",
+       "l": {
+        "k": "un",
+        "op": "not",
+        "e": {
+         "k": "bin",
+         "op": "==",
+         "l": {
+          "k": "tof",
+          "e": {
+           "k": "ident",
+           "name": "p0"
+          }
+         },
+         "r": {
+          "k": "str",
+          "v": "object"
+         }
+        }
+       },
+       "r": {
+        "k": "bool",
+        "v": true
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "run",
+    "params": [
+     "n"
+    ],
+    "body": [
+     {
+      "k": "let",
+      "name": "acc",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "let",
+      "name": "sec",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "let",
+      "name": "txt",
+      "op": "=",
+      "value": {
+       "k": "str",
+       "v": ""
+      }
+     },
+     {
+      "k": "let",
+      "name": "i",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "while",
+      "cond": {
+       "k": "bin",
+       "op": "<",
+       "l": {
+        "k": "ident",
+        "name": "i"
+       },
+       "r": {
+        "k": "ident",
+        "name": "n"
+       }
+      },
+      "body": [
+       {
+        "k": "let",
+        "name": "i",
+        "op": "=",
+        "value": {
+         "k": "bin",
+         "op": "+",
+         "l": {
+          "k": "ident",
+          "name": "i"
+         },
+         "r": {
+          "k": "num",
+          "v": 1
+         }
+        }
+       },
+       {
+        "k": "let",
+        "name": "cur",
+        "op": "=",
+        "value": {
+         "k": "cond",
+         "c": {
+          "k": "bin",
+          "op": "<",
+          "l": {
+           "k": "ident",
+           "name": "i"
+          },
+          "r": {
+           "k": "num",
+           "v": 225
+          }
+         },
+         "a": {
+          "k": "call",
+          "callee": "f1",
+          "args": [
+           {
+            "k": "cond",
+            "c": {
+             "k": "bin",
+             "op": "and",
+             "l": {
+              "k": "bool",
+              "v": false
+             },
+             "r": {
+              "k": "bool",
+              "v": false
+             }
+            },
+            "a": {
+             "k": "index",
+             "obj": {
+              "k": "str",
+              "v": "0"
+             },
+             "index": {
+              "k": "ident",
+              "name": "acc"
+             },
+             "opt": true
+            },
+            "b": {
+             "k": "method",
+             "obj": {
+              "k": "bin",
+              "op": "+",
+              "l": {
+               "k": "str",
+               "v": ""
+              },
+              "r": {
+               "k": "str",
+               "v": "q"
+              }
+             },
+             "name": "substring",
+             "args": [
+              {
+               "k": "num",
+               "v": 0
+              },
+              {
+               "k": "num",
+               "v": 3
+              }
+             ]
+            }
+           }
+          ]
+         },
+         "b": {
+          "k": "cond",
+          "c": {
+           "k": "bin",
+           "op": "===",
+           "l": {
+            "k": "bin",
+            "op": "/",
+            "l": {
+             "k": "ident",
+             "name": "i"
+            },
+            "r": {
+             "k": "num",
+             "v": 3
+            }
+           },
+           "r": {
+            "k": "arr",
+            "items": [
+             {
+              "k": "str",
+              "v": "q"
+             },
+             {
+              "k": "str",
+              "v": "abc"
+             },
+             {
+              "k": "ident",
+              "name": "sec"
+             }
+            ]
+           }
+          },
+          "a": {
+           "k": "obj",
+           "fields": [
+            [
+             "x",
+             {
+              "k": "ident",
+              "name": "g0"
+             }
+            ],
+            [
+             "z",
+             {
+              "k": "str",
+              "v": "abc"
+             }
+            ],
+            [
+             "y",
+             {
+              "k": "ident",
+              "name": "n"
+             }
+            ]
+           ]
+          },
+          "b": {
+           "k": "num",
+           "v": 0
+          }
+         }
+        }
+       },
+       {
+        "k": "let",
+        "name": "wit",
+        "op": "=",
+        "value": {
+         "k": "call",
+         "callee": "f1",
+         "args": [
+          {
+           "k": "ident",
+           "name": "g0"
+          }
+         ]
+        }
+       },
+       {
+        "k": "if",
+        "cond": {
+         "k": "bin",
+         "op": "!==",
+         "l": {
+          "k": "cond",
+          "c": {
+           "k": "bin",
+           "op": "!=",
+           "l": {
+            "k": "str",
+            "v": "1024"
+           },
+           "r": {
+            "k": "str",
+            "v": "1"
+           }
+          },
+          "a": {
+           "k": "num",
+           "v": 0
+          },
+          "b": {
+           "k": "arr",
+           "items": [
+            {
+             "k": "ident",
+             "name": "g1"
+            },
+            {
+             "k": "ident",
+             "name": "acc"
+            },
+            {
+             "k": "ident",
+             "name": "g1"
+            },
+            {
+             "k": "ident",
+             "name": "acc"
+            }
+           ]
+          }
+         },
+         "r": {
+          "k": "str",
+          "v": "q"
+         }
+        },
+        "then": [
+         {
+          "k": "let",
+          "name": "w1",
+          "op": "=",
+          "value": {
+           "k": "num",
+           "v": 0
+          }
+         },
+         {
+          "k": "while",
+          "cond": {
+           "k": "bin",
+           "op": "<",
+           "l": {
+            "k": "ident",
+            "name": "w1"
+           },
+           "r": {
+            "k": "num",
+            "v": 4
+           }
+          },
+          "body": [
+           {
+            "k": "let",
+            "name": "w1",
+            "op": "=",
+            "value": {
+             "k": "bin",
+             "op": "+",
+             "l": {
+              "k": "ident",
+              "name": "w1"
+             },
+             "r": {
+              "k": "num",
+              "v": 1
+             }
+            }
+           }
+          ]
+         }
+        ],
+        "alt": [
+         {
+          "k": "let",
+          "name": "cur",
+          "op": "=",
+          "value": {
+           "k": "bin",
+           "op": "%",
+           "l": {
+            "k": "ident",
+            "name": "g0"
+           },
+           "r": {
+            "k": "ident",
+            "name": "sec"
+           }
+          }
+         },
+         {
+          "k": "let",
+          "name": "v2",
+          "op": "=",
+          "value": {
+           "k": "arr",
+           "items": [
+            {
+             "k": "prop",
+             "obj": {
+              "k": "call",
+              "callee": "f1",
+              "args": [
+               {
+                "k": "ident",
+                "name": "i"
+               }
+              ]
+             },
+             "name": "z",
+             "opt": true
+            },
+            {
+             "k": "ident",
+             "name": "cur"
+            },
+            {
+             "k": "str",
+             "v": ""
+            },
+            {
+             "k": "index",
+             "obj": {
+              "k": "index",
+              "obj": {
+               "k": "ident",
+               "name": "g1"
+              },
+              "index": {
+               "k": "ident",
+               "name": "acc"
+              },
+              "opt": true
+             },
+             "index": {
+              "k": "call",
+              "callee": "f1",
+              "args": [
+               {
+                "k": "ident",
+                "name": "g1"
+               }
+              ]
+             },
+             "opt": true
+            }
+           ]
+          }
+         },
+         {
+          "k": "let",
+          "name": "v3",
+          "op": "=",
+          "value": {
+           "k": "num",
+           "v": 0
+          }
+         }
+        ]
+       },
+       {
+        "k": "let",
+        "name": "txt",
+        "op": "=",
+        "value": {
+         "k": "method",
+         "obj": {
+          "k": "bin",
+          "op": "+",
+          "l": {
+           "k": "bin",
+           "op": "+",
+           "l": {
+            "k": "str",
+            "v": ""
+           },
+           "r": {
+            "k": "ident",
+            "name": "wit"
+           }
+          },
+          "r": {
+           "k": "ident",
+           "name": "txt"
+          }
+         },
+         "name": "substring",
+         "args": [
+          {
+           "k": "num",
+           "v": 0
+          },
+          {
+           "k": "num",
+           "v": 16
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "k": "ret",
+      "value": {
+       "k": "arr",
+       "items": [
+        {
+         "k": "ident",
+         "name": "acc"
+        },
+        {
+         "k": "ident",
+         "name": "sec"
+        },
+        {
+         "k": "ident",
+         "name": "txt"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "name": "driver",
+    "params": [
+     "m"
+    ],
+    "body": []
+   }
+  ],
+  "top": [
+   {
+    "k": "let",
+    "name": "r0",
+    "op": "=",
+    "value": {
+     "k": "call",
+     "callee": "run",
+     "args": [
+      {
+       "k": "num",
+       "v": 1200
+      }
+     ]
+    }
+   }
+  ]
+ }
+}

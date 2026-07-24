@@ -116,6 +116,10 @@ export function producesNumber(node: ReprNode): boolean {
     return true;
   if (node.type === ir.IR_CHECK_SMI || node.type === ir.IR_CHECK_NUMBER)
     return true;
+  if (node.type === ir.IR_LOAD_ELEMENT)
+    return (
+      node.props.elementRep === "int32" || node.props.elementRep === "float64"
+    );
   if (node.type === ir.IR_CONSTANT)
     return (
       typeof node.props.value === "number" ||
@@ -245,7 +249,11 @@ export function representationSelection(graph: ReprGraph): number {
     return REP_HANDLE;
   };
 
-  const mergePhiRep = (inputs: ReprNode[]): Representation => {
+  const joinIncomingReps = (
+    inputs: ReprNode[],
+    unknownIsHandle: boolean,
+  ): Representation | null => {
+    let known = false;
     let hasHandle = false;
     let hasTaggedNumber = false;
     let hasFloat64 = false;
@@ -254,13 +262,18 @@ export function representationSelection(graph: ReprGraph): number {
 
     for (const inp of inputs) {
       const rep = nodeRep.get(inp.id);
-      if (rep === REP_HANDLE || rep === undefined) hasHandle = true;
+      if (rep === undefined) {
+        if (!unknownIsHandle) continue;
+        hasHandle = true;
+      } else if (rep === REP_HANDLE) hasHandle = true;
       else if (rep === REP_TAGGED_NUMBER) hasTaggedNumber = true;
       else if (rep === REP_FLOAT64) hasFloat64 = true;
       else if (rep === REP_INT32) hasInt32 = true;
       else if (rep === REP_BOOL) hasBool = true;
+      known = true;
     }
 
+    if (!known) return unknownIsHandle ? REP_HANDLE : null;
     if (hasHandle) return REP_HANDLE;
     if (hasBool && (hasTaggedNumber || hasFloat64 || hasInt32))
       return REP_HANDLE;
@@ -270,6 +283,9 @@ export function representationSelection(graph: ReprGraph): number {
     if (hasBool) return REP_BOOL;
     return REP_HANDLE;
   };
+
+  const mergePhiRep = (inputs: ReprNode[]): Representation =>
+    joinIncomingReps(inputs, true) as Representation;
 
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
@@ -294,7 +310,7 @@ export function representationSelection(graph: ReprGraph): number {
         }
         nodeRep.set(node.id, needsFloat ? REP_FLOAT64 : REP_INT32);
       } else if (node.type === ir.IR_PHI) {
-        nodeRep.set(node.id, mergePhiRep(node.inputs));
+        nodeRep.set(node.id, mergePhiRep(ir.blockParamIncoming(node)));
       } else if (node.type === ir.IR_BOX) {
         nodeRep.set(
           node.id,
@@ -530,6 +546,41 @@ export function representationSelection(graph: ReprGraph): number {
       result.push(node);
     }
     block.nodes = result;
+  }
+
+  const blockParams: ReprNode[] = [];
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      if (node.type === ir.IR_PHI) blockParams.push(node);
+    }
+  }
+
+  const reflowWorklist: ReprNode[] = [];
+  const reflowQueued = new Set<number>();
+  const enqueueReflow = (param: ReprNode): void => {
+    if (reflowQueued.has(param.id)) return;
+    reflowQueued.add(param.id);
+    reflowWorklist.push(param);
+  };
+
+  for (const param of blockParams) {
+    nodeRep.delete(param.id);
+    enqueueReflow(param);
+  }
+
+  while (reflowWorklist.length > 0) {
+    const param = reflowWorklist.pop()!;
+    reflowQueued.delete(param.id);
+    const rep = joinIncomingReps(ir.blockParamIncoming(param), false);
+    if (rep === null || rep === nodeRep.get(param.id)) continue;
+    nodeRep.set(param.id, rep);
+    for (const use of param.uses) {
+      if (use.type === ir.IR_PHI) enqueueReflow(use);
+    }
+  }
+
+  for (const param of blockParams) {
+    if (!nodeRep.has(param.id)) nodeRep.set(param.id, REP_HANDLE);
   }
 
   const nodeById = new Map<number, ReprNode>();

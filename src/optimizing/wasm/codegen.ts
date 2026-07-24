@@ -82,7 +82,10 @@ import {
   REP_BOOL,
 } from "../passes/repr-selection.js";
 import { validateOptimizedGraph } from "../validation/graph-validator.js";
-import { visitDeoptSnapshotValues } from "../passes/frame-state-values.js";
+import {
+  frameStateValueIds,
+  visitDeoptSnapshotValues,
+} from "../passes/frame-state-values.js";
 import * as wasmFormat from "./wasm-format.js";
 import { elementsKindId, elementsKindName } from "./object-layout.js";
 import {
@@ -367,6 +370,7 @@ export function isInsideWasmExecution(): boolean {
 export class WasmCodegen {
   lastAnalysisFailure: string | null = null;
   lastCompileRejection: string | null = null;
+  lastEmitFailure: string | null = null;
   _typeofConstants: Map<string, SyntheticConstantNode> | null = null;
   _nonPrimitiveConstants: SyntheticConstantNode[] | null = null;
   _globalCandidates: Map<string, GlobalCandidateEntry> | null = null;
@@ -383,6 +387,7 @@ export class WasmCodegen {
     if (!graph || !Array.isArray(graph.blocks))
       return "graph is missing blocks";
     if (graph.blocks.length === 0) return "graph has no blocks";
+    const observedFrameStateValues = frameStateValueIds(graph);
     const receiverShape = new Map<number, { mono: Set<ir.IRMetadataValue>; poly: Set<ir.IRMetadataValue> }>();
     const recordShape = (
       recv: AnyNode | undefined,
@@ -453,20 +458,15 @@ export class WasmCodegen {
           return "property access on this receiver";
         }
         if (node.type === ir.IR_RETURN) hasReturn = true;
-        if (node.type === ir.IR_PHI) {
-          let hasBool = false;
-          let hasNumeric = false;
-          for (const inp of node.inputs) {
-            const rep = repForNode(inp);
-            if (rep === REP_BOOL) hasBool = true;
-            else if (
-              rep === REP_INT32 ||
-              rep === REP_FLOAT64 ||
-              rep === REP_TAGGED_NUMBER
-            )
-              hasNumeric = true;
+        if (
+          node.type === ir.IR_PHI &&
+          (node.uses.length > 0 || observedFrameStateValues.has(node.id))
+        ) {
+          const paramRep = valueRepForRep(repForNode(node));
+          for (const incoming of ir.blockParamIncoming(node)) {
+            if (valueRepForRep(repForNode(incoming)) === paramRep) continue;
+            return `block parameter is ${paramRep} but an incoming value is ${valueRepForRep(repForNode(incoming))}`;
           }
-          if (hasBool && hasNumeric) return "phi mixes boolean and number";
         }
       }
       const preds = block.predecessors || [];
@@ -663,11 +663,7 @@ export class WasmCodegen {
           node.inputs.every((inp) => {
             if (inp.type === ir.IR_CONSTANT && typeof inp.props.value !== "number")
               return false;
-            if (
-              repForNode(inp) === REP_HANDLE &&
-              inp.type !== ir.IR_CALL_KNOWN_FUNCTION
-            )
-              return false;
+            if (repForNode(inp) === REP_HANDLE) return false;
             const t = nodeWasmType.get(inp.id);
             return t === wasmFormat.TYPE_I32 || t === wasmFormat.TYPE_F64;
           })
@@ -1051,6 +1047,7 @@ export class WasmCodegen {
           (lt === wasmFormat.TYPE_I32 || lt === wasmFormat.TYPE_F64) &&
           (rt === wasmFormat.TYPE_I32 || rt === wasmFormat.TYPE_F64);
         if (!bothNumeric) continue;
+        if (node.inputs.some((input) => valueRepOf(input) === REP_HANDLE)) continue;
         if (hasF64) {
           speculativeNodes.add(node.id);
           node._speculativeType = SPECULATIVE_ARITH_F64[node.type];
@@ -1281,6 +1278,24 @@ export class WasmCodegen {
     }
     if (resultType === null) resultType = wasmFormat.TYPE_I32;
 
+    if (hasSelfRecursion) {
+      const returnedRep = resultValueRep ?? REP_TAGGED_NUMBER;
+      for (const block of graph.blocks) {
+        for (const node of block.nodes) {
+          if (
+            node.type !== ir.IR_CALL_KNOWN_FUNCTION ||
+            node.props.target !== compiledFn
+          ) {
+            continue;
+          }
+          const callRep = valueRepOf(node);
+          if (callRep === returnedRep) continue;
+          this.lastAnalysisFailure = `self-recursive call reads its result as ${callRep} but the function returns ${returnedRep}`;
+          return null;
+        }
+      }
+    }
+
     if (needsDeoptImport) {
       needsMemory = true;
     }
@@ -1368,6 +1383,10 @@ export class WasmCodegen {
     allocObjImportIdx: number,
   ): number[] {
     const bytes: number[] = [];
+    this.lastEmitFailure = null;
+    const failEmit = (reason: string) => {
+      if (this.lastEmitFailure === null) this.lastEmitFailure = reason;
+    };
 
     if (analysis._syntheticConstants) {
       for (const synNode of analysis._syntheticConstants) {
@@ -1529,7 +1548,10 @@ export class WasmCodegen {
       for (const node of block.nodes) {
         if (node.type === ir.IR_JUMP) {
           const targetId = metadataNumber(node.props.targetBlock);
-          if (targetId === null) return;
+          if (targetId === null) {
+            failEmit("jump without a target block");
+            return;
+          }
           if (options.stopBeforeTargets?.has(targetId)) {
             emitPhiUpdates(targetId, block);
             return;
@@ -1566,6 +1588,8 @@ export class WasmCodegen {
             emitPhiUpdates(targetId, block);
             const nextBlock = blockMap.get(targetId);
             if (nextBlock) emitRegion(nextBlock);
+          } else {
+            failEmit(`jump to block ${targetId} has no reachable label`);
           }
           return;
         }
@@ -1574,7 +1598,10 @@ export class WasmCodegen {
           const condLocal = this.resolveLocal(node.inputs[0].id, analysis);
           const trueBlockId = metadataNumber(node.props.trueBlock);
           const falseBlockId = metadataNumber(node.props.falseBlock);
-          if (trueBlockId === null || falseBlockId === null) return;
+          if (trueBlockId === null || falseBlockId === null) {
+            failEmit("branch without both target blocks");
+            return;
+          }
 
           const trueIsBackEdge =
             loopHeaders.has(trueBlockId) &&
@@ -1609,6 +1636,8 @@ export class WasmCodegen {
                   wasmFormat.OP_BR,
                   ...wasmFormat.encodeU32(exitDepth),
                 );
+              } else {
+                failEmit(`loop exit to block ${falseBlockId} has no reachable label`);
               }
             }
             return;
@@ -1641,6 +1670,8 @@ export class WasmCodegen {
                   wasmFormat.OP_BR,
                   ...wasmFormat.encodeU32(exitDepth),
                 );
+              } else {
+                failEmit(`loop exit to block ${trueBlockId} has no reachable label`);
               }
             }
             return;
@@ -1694,14 +1725,13 @@ export class WasmCodegen {
             );
             if (exitDepth >= 0) {
               bytes.push(wasmFormat.OP_BR, ...wasmFormat.encodeU32(exitDepth));
+            } else {
+              failEmit(`branch exit to block ${exitBlockId} has no reachable label`);
             }
             bytes.push(wasmFormat.OP_END);
             labelStack.pop();
 
-            const fallThrough = blockMap.get(fallThroughId);
-            if (fallThrough && !emitted.has(fallThroughId)) {
-              emitRegion(fallThrough);
-            }
+            emitSuccessor(fallThroughId, block);
             return;
           }
 
@@ -1742,10 +1772,7 @@ export class WasmCodegen {
             emitPhiUpdates(falseBlockId, block);
             bytes.push(wasmFormat.OP_END);
             labelStack.pop();
-            const falseRegion = blockMap.get(falseBlockId);
-            if (falseRegion && !emitted.has(falseBlockId)) {
-              emitRegion(falseRegion);
-            }
+            emitSuccessor(falseBlockId, block);
           } else if (falseJoinId === trueBlockId) {
             bytes.push(
               wasmFormat.OP_LOCAL_GET,
@@ -1763,10 +1790,7 @@ export class WasmCodegen {
             }
             bytes.push(wasmFormat.OP_END);
             labelStack.pop();
-            const trueRegion = blockMap.get(trueBlockId);
-            if (trueRegion && !emitted.has(trueBlockId)) {
-              emitRegion(trueRegion);
-            }
+            emitSuccessor(trueBlockId, block);
           } else if (mergeBlockId !== null) {
             const mergeAlreadyOpen =
               this.findLabelDepth(labelStack, "block", mergeBlockId) >= 0;
@@ -1784,10 +1808,7 @@ export class WasmCodegen {
             );
             bytes.push(wasmFormat.OP_BR_IF, ...wasmFormat.encodeU32(0));
 
-            const falseRegion = blockMap.get(falseBlockId);
-            if (falseRegion && !emitted.has(falseBlockId)) {
-              emitRegion(falseRegion);
-            }
+            emitSuccessor(falseBlockId, block);
             const mergeBrDepth = this.findLabelDepth(
               labelStack,
               "block",
@@ -1798,15 +1819,14 @@ export class WasmCodegen {
                 wasmFormat.OP_BR,
                 ...wasmFormat.encodeU32(mergeBrDepth),
               );
+            } else {
+              failEmit(`merge at block ${mergeBlockId} has no reachable label`);
             }
 
             bytes.push(wasmFormat.OP_END);
             labelStack.pop();
 
-            const trueRegion = blockMap.get(trueBlockId);
-            if (trueRegion && !emitted.has(trueBlockId)) {
-              emitRegion(trueRegion);
-            }
+            emitSuccessor(trueBlockId, block);
 
             if (!mergeAlreadyOpen) {
               bytes.push(wasmFormat.OP_END);
@@ -1815,6 +1835,8 @@ export class WasmCodegen {
               const mergeRegion = blockMap.get(mergeBlockId);
               if (mergeRegion && !emitted.has(mergeBlockId)) {
                 emitRegion(mergeRegion);
+              } else {
+                failEmit(`merge block ${mergeBlockId} was emitted outside its label`);
               }
             }
           } else {
@@ -1824,15 +1846,9 @@ export class WasmCodegen {
             );
             bytes.push(wasmFormat.OP_IF, wasmFormat.TYPE_VOID);
             labelStack.push({ type: "if", targetId: null });
-            const trueRegion = blockMap.get(trueBlockId);
-            if (trueRegion && !emitted.has(trueBlockId)) {
-              emitRegion(trueRegion);
-            }
+            emitSuccessor(trueBlockId, block);
             bytes.push(wasmFormat.OP_ELSE);
-            const falseRegion = blockMap.get(falseBlockId);
-            if (falseRegion && !emitted.has(falseBlockId)) {
-              emitRegion(falseRegion);
-            }
+            emitSuccessor(falseBlockId, block);
             bytes.push(wasmFormat.OP_END);
             labelStack.pop();
           }
@@ -1847,6 +1863,21 @@ export class WasmCodegen {
           allocObjImportIdx,
         );
       }
+    };
+
+    const emitSuccessor = (targetId: number, from: AnyBlock) => {
+      const region = blockMap.get(targetId);
+      if (region && !emitted.has(targetId)) {
+        emitRegion(region);
+        return;
+      }
+      const labelIdx = this.findLabelDepth(labelStack, "block", targetId);
+      if (labelIdx >= 0) {
+        emitPhiUpdates(targetId, from);
+        bytes.push(wasmFormat.OP_BR, ...wasmFormat.encodeU32(labelIdx));
+        return;
+      }
+      failEmit(`block ${targetId} has no reachable label`);
     };
 
     const emitRegion = (
@@ -3773,6 +3804,14 @@ export class WasmCodegen {
     );
     builder.setCode(0, analysis.additionalLocals, bodyBytes);
 
+    if (this.lastEmitFailure !== null) {
+      tracer.jitCompile(
+        compiledFn.name ?? "<anonymous>",
+        `Wasm: control flow not emittable: ${this.lastEmitFailure}`,
+      );
+      return null;
+    }
+
     const wasmBytes = builder.toBytes();
 
     let wasmModule;
@@ -4022,6 +4061,18 @@ export class WasmCodegen {
           compiledFn.disableOptimization = true;
         }
       };
+
+      if (analysis.globalCellOffsets) {
+        for (const name of analysis.globalCellOffsets.keys()) {
+          const cell = interpreter.globalCells.get(name);
+          const cellValue = cell ? cell.read() : mkUndefined();
+          if (isNumber(cellValue)) continue;
+          recordWasmDeopt(DEOPT_NUMBER_CHECK_FAILED, 0);
+          return interpreter.resumeAt(
+            new RegisterFrame(compiledFn, args, thisValue),
+          );
+        }
+      }
 
       const failedGuard = failingEntryGuard(args);
       if (failedGuard) {

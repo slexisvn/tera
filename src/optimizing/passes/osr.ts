@@ -10,6 +10,21 @@ import {
 } from "./frame-state-values.js";
 import { producesNumber } from "./repr-selection.js";
 
+function carriesNumber(
+  value: CFGInstruction | null | undefined,
+  memo: Map<number, boolean>,
+): boolean {
+  if (!value) return false;
+  if (producesNumber(value)) return true;
+  if (value.type !== ir.IR_BLOCK_PARAM) return false;
+  const cached = memo.get(value.id);
+  if (cached !== undefined) return cached;
+  memo.set(value.id, false);
+  const carried = carriesNumber(value.inputs[1], memo);
+  memo.set(value.id, carried);
+  return carried;
+}
+
 function reachableFrom(header: CFGBlock): Set<number> {
   const reachable = new Set<number>();
   const stack: CFGBlock[] = [header];
@@ -20,14 +35,6 @@ function reachableFrom(header: CFGBlock): Set<number> {
     for (const successor of block.successors) stack.push(successor);
   }
   return reachable;
-}
-
-function rehomeConstant(node: CFGInstruction, header: CFGBlock): void {
-  if (node.block) {
-    node.block.nodes = node.block.nodes.filter((n) => n !== node);
-  }
-  node.block = header;
-  header.nodes.splice(header.params.length, 0, node);
 }
 
 function substituteFrameStateValues(
@@ -191,7 +198,7 @@ export function applyOsrTransform(
         }
         if (reachable.has(input.block.id)) continue;
         if (input.type === ir.IR_CONSTANT) {
-          rehomeConstant(input, header);
+          ir.homeInstruction(input, header);
           continue;
         }
         return false;
@@ -212,11 +219,12 @@ export function applyOsrTransform(
     entryFolds.set(variantPhis[index], variantParams[index]);
   }
   const headerState = templateFrameState(header);
+  const carriedNumbers = new Map<number, boolean>();
   for (let index = 0; index < variantPhis.length; index++) {
     const phi = variantPhis[index];
     const source = guardSources.get(phi);
     const latchValue = phi.inputs[1];
-    if (!source && !(latchValue && producesNumber(latchValue))) continue;
+    if (!source && !carriesNumber(latchValue, carriedNumbers)) continue;
     const sourceState = source?.frameState ?? headerState;
     if (!sourceState) continue;
     const param = variantParams[index];

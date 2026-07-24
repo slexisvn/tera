@@ -1,0 +1,359 @@
+{
+ "seed": 204,
+ "config": "jit",
+ "program": {
+  "globals": [
+   {
+    "name": "g0",
+    "init": {
+     "k": "obj",
+     "fields": [
+      [
+       "a",
+       {
+        "k": "num",
+        "v": 1
+       }
+      ]
+     ]
+    }
+   },
+   {
+    "name": "g1",
+    "init": {
+     "k": "bool",
+     "v": true
+    }
+   }
+  ],
+  "funcs": [
+   {
+    "name": "f0",
+    "params": [
+     "p0",
+     "p1",
+     "p2"
+    ],
+    "body": [
+     {
+      "k": "let",
+      "name": "g0",
+      "op": "=",
+      "value": {
+       "k": "obj",
+       "fields": [
+        [
+         "z",
+         {
+          "k": "bin",
+          "op": "&",
+          "l": {
+           "k": "num",
+           "v": 6
+          },
+          "r": {
+           "k": "num",
+           "v": 18
+          }
+         }
+        ]
+       ]
+      }
+     },
+     {
+      "k": "if",
+      "cond": {
+       "k": "bin",
+       "op": "<=",
+       "l": {
+        "k": "index",
+        "obj": {
+         "k": "arr",
+         "items": [
+          {
+           "k": "str",
+           "v": "abc"
+          },
+          {
+           "k": "str",
+           "v": "abc"
+          },
+          {
+           "k": "str",
+           "v": "xyz"
+          }
+         ]
+        },
+        "index": {
+         "k": "num",
+         "v": -1
+        },
+        "opt": true
+       },
+       "r": {
+        "k": "bin",
+        "op": "-",
+        "l": {
+         "k": "bin",
+         "op": "&",
+         "l": {
+          "k": "ident",
+          "name": "g0"
+         },
+         "r": {
+          "k": "ident",
+          "name": "g1"
+         }
+        },
+        "r": {
+         "k": "ident",
+         "name": "p1"
+        }
+       }
+      },
+      "then": [
+       {
+        "k": "let",
+        "name": "v1",
+        "op": "=",
+        "value": {
+         "k": "index",
+         "obj": {
+          "k": "arr",
+          "items": [
+           {
+            "k": "num",
+            "v": 1
+           }
+          ]
+         },
+         "index": {
+          "k": "num",
+          "v": 5
+         },
+         "opt": true
+        }
+       }
+      ],
+      "alt": null
+     },
+     {
+      "k": "let",
+      "name": "v2",
+      "op": "=",
+      "value": {
+       "k": "method",
+       "obj": {
+        "k": "bin",
+        "op": "+",
+        "l": {
+         "k": "str",
+         "v": ""
+        },
+        "r": {
+         "k": "str",
+         "v": ""
+        }
+       },
+       "name": "substring",
+       "args": [
+        {
+         "k": "num",
+         "v": 0
+        },
+        {
+         "k": "num",
+         "v": 12
+        }
+       ]
+      }
+     },
+     {
+      "k": "ret",
+      "value": {
+       "k": "obj",
+       "fields": [
+        [
+         "a",
+         {
+          "k": "num",
+          "v": 1
+         }
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "name": "run",
+    "params": [
+     "n"
+    ],
+    "body": [
+     {
+      "k": "let",
+      "name": "acc",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 1024
+      }
+     },
+     {
+      "k": "let",
+      "name": "sec",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "let",
+      "name": "txt",
+      "op": "=",
+      "value": {
+       "k": "str",
+       "v": ""
+      }
+     },
+     {
+      "k": "let",
+      "name": "i",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "while",
+      "cond": {
+       "k": "bin",
+       "op": "<",
+       "l": {
+        "k": "ident",
+        "name": "i"
+       },
+       "r": {
+        "k": "ident",
+        "name": "n"
+       }
+      },
+      "body": [
+       {
+        "k": "let",
+        "name": "i",
+        "op": "=",
+        "value": {
+         "k": "bin",
+         "op": "+",
+         "l": {
+          "k": "ident",
+          "name": "i"
+         },
+         "r": {
+          "k": "num",
+          "v": 1
+         }
+        }
+       },
+       {
+        "k": "let",
+        "name": "v4",
+        "op": "=",
+        "value": {
+         "k": "bin",
+         "op": "or",
+         "l": {
+          "k": "bin",
+          "op": "===",
+          "l": {
+           "k": "ident",
+           "name": "acc"
+          },
+          "r": {
+           "k": "bin",
+           "op": "+",
+           "l": {
+            "k": "num",
+            "v": 16
+           },
+           "r": {
+            "k": "call",
+            "callee": "f0",
+            "args": [
+             {
+              "k": "ident",
+              "name": "acc"
+             },
+             {
+              "k": "ident",
+              "name": "g0"
+             },
+             {
+              "k": "ident",
+              "name": "i"
+             }
+            ]
+           }
+          }
+         },
+         "r": {
+          "k": "un",
+          "op": "not",
+          "e": {
+           "k": "bin",
+           "op": "<=",
+           "l": {
+            "k": "obj",
+            "fields": [
+             [
+              "b",
+              {
+               "k": "ident",
+               "name": "g0"
+              }
+             ]
+            ]
+           },
+           "r": {
+            "k": "ident",
+            "name": "g0"
+           }
+          }
+         }
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "driver",
+    "params": [
+     "m"
+    ],
+    "body": []
+   }
+  ],
+  "top": [
+   {
+    "k": "let",
+    "name": "r0",
+    "op": "=",
+    "value": {
+     "k": "call",
+     "callee": "run",
+     "args": [
+      {
+       "k": "num",
+       "v": 600
+      }
+     ]
+    }
+   }
+  ]
+ }
+}

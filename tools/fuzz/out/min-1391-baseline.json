@@ -1,0 +1,2157 @@
+{
+ "seed": 1391,
+ "config": "baseline",
+ "program": {
+  "globals": [
+   {
+    "name": "g0",
+    "init": {
+     "k": "un",
+     "op": "not",
+     "e": {
+      "k": "bool",
+      "v": true
+     }
+    }
+   }
+  ],
+  "funcs": [
+   {
+    "name": "f0",
+    "params": [
+     "p0"
+    ],
+    "body": [
+     {
+      "k": "let",
+      "name": "p0",
+      "op": "=",
+      "value": {
+       "k": "arr",
+       "items": [
+        {
+         "k": "index",
+         "obj": {
+          "k": "ident",
+          "name": "p0"
+         },
+         "index": {
+          "k": "ident",
+          "name": "p0"
+         },
+         "opt": true
+        }
+       ]
+      }
+     },
+     {
+      "k": "ret",
+      "value": {
+       "k": "index",
+       "obj": {
+        "k": "prop",
+        "obj": {
+         "k": "ident",
+         "name": "p0"
+        },
+        "name": "b",
+        "opt": true
+       },
+       "index": {
+        "k": "str",
+        "v": "true"
+       },
+       "opt": true
+      }
+     }
+    ]
+   },
+   {
+    "name": "f1",
+    "params": [
+     "p0",
+     "p1",
+     "p2"
+    ],
+    "body": [
+     {
+      "k": "let",
+      "name": "w1",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "while",
+      "cond": {
+       "k": "bin",
+       "op": "<",
+       "l": {
+        "k": "ident",
+        "name": "w1"
+       },
+       "r": {
+        "k": "num",
+        "v": 4
+       }
+      },
+      "body": [
+       {
+        "k": "let",
+        "name": "w1",
+        "op": "=",
+        "value": {
+         "k": "bin",
+         "op": "+",
+         "l": {
+          "k": "ident",
+          "name": "w1"
+         },
+         "r": {
+          "k": "num",
+          "v": 1
+         }
+        }
+       },
+       {
+        "k": "let",
+        "name": "w2",
+        "op": "=",
+        "value": {
+         "k": "num",
+         "v": 0
+        }
+       },
+       {
+        "k": "while",
+        "cond": {
+         "k": "bin",
+         "op": "<",
+         "l": {
+          "k": "ident",
+          "name": "w2"
+         },
+         "r": {
+          "k": "num",
+          "v": 2
+         }
+        },
+        "body": [
+         {
+          "k": "let",
+          "name": "w2",
+          "op": "=",
+          "value": {
+           "k": "bin",
+           "op": "+",
+           "l": {
+            "k": "ident",
+            "name": "w2"
+           },
+           "r": {
+            "k": "num",
+            "v": 1
+           }
+          }
+         },
+         {
+          "k": "let",
+          "name": "v3",
+          "op": "=",
+          "value": {
+           "k": "prop",
+           "obj": {
+            "k": "bin",
+            "op": "+",
+            "l": {
+             "k": "index",
+             "obj": {
+              "k": "index",
+              "obj": {
+               "k": "str",
+               "v": "1"
+              },
+              "index": {
+               "k": "ident",
+               "name": "w1"
+              },
+              "opt": true
+             },
+             "index": {
+              "k": "num",
+              "v": 4
+             },
+             "opt": true
+            },
+            "r": {
+             "k": "obj",
+             "fields": [
+              [
+               "c",
+               {
+                "k": "prop",
+                "obj": {
+                 "k": "str",
+                 "v": "1"
+                },
+                "name": "length",
+                "opt": true
+               }
+              ]
+             ]
+            }
+           },
+           "name": "length",
+           "opt": true
+          }
+         }
+        ]
+       },
+       {
+        "k": "let",
+        "name": "w4",
+        "op": "=",
+        "value": {
+         "k": "num",
+         "v": 0
+        }
+       },
+       {
+        "k": "while",
+        "cond": {
+         "k": "bin",
+         "op": "<",
+         "l": {
+          "k": "ident",
+          "name": "w4"
+         },
+         "r": {
+          "k": "num",
+          "v": 2
+         }
+        },
+        "body": [
+         {
+          "k": "let",
+          "name": "w4",
+          "op": "=",
+          "value": {
+           "k": "bin",
+           "op": "+",
+           "l": {
+            "k": "ident",
+            "name": "w4"
+           },
+           "r": {
+            "k": "num",
+            "v": 1
+           }
+          }
+         },
+         {
+          "k": "let",
+          "name": "g0",
+          "op": "=",
+          "value": {
+           "k": "bin",
+           "op": ">",
+           "l": {
+            "k": "bin",
+            "op": "and",
+            "l": {
+             "k": "bin",
+             "op": "==",
+             "l": {
+              "k": "index",
+              "obj": {
+               "k": "ident",
+               "name": "g0"
+              },
+              "index": {
+               "k": "num",
+               "v": 2
+              },
+              "opt": true
+             },
+             "r": {
+              "k": "bin",
+              "op": "!=",
+              "l": {
+               "k": "tof",
+               "e": {
+                "k": "bool",
+                "v": true
+               }
+              },
+              "r": {
+               "k": "str",
+               "v": "object"
+              }
+             }
+            },
+            "r": {
+             "k": "bin",
+             "op": "===",
+             "l": {
+              "k": "bin",
+              "op": "+",
+              "l": {
+               "k": "str",
+               "v": "ab"
+              },
+              "r": {
+               "k": "str",
+               "v": "a"
+              }
+             },
+             "r": {
+              "k": "bin",
+              "op": "and",
+              "l": {
+               "k": "bool",
+               "v": false
+              },
+              "r": {
+               "k": "bool",
+               "v": false
+              }
+             }
+            }
+           },
+           "r": {
+            "k": "arr",
+            "items": [
+             {
+              "k": "call",
+              "callee": "f0",
+              "args": [
+               {
+                "k": "call",
+                "callee": "f0",
+                "args": [
+                 {
+                  "k": "bool",
+                  "v": false
+                 }
+                ]
+               }
+              ]
+             },
+             {
+              "k": "arr",
+              "items": []
+             },
+             {
+              "k": "nul"
+             },
+             {
+              "k": "ident",
+              "name": "p0"
+             }
+            ]
+           }
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "k": "let",
+      "name": "v5",
+      "op": "=",
+      "value": {
+       "k": "method",
+       "obj": {
+        "k": "bin",
+        "op": "+",
+        "l": {
+         "k": "str",
+         "v": ""
+        },
+        "r": {
+         "k": "tof",
+         "e": {
+          "k": "call",
+          "callee": "f0",
+          "args": [
+           {
+            "k": "ident",
+            "name": "p1"
+           }
+          ]
+         }
+        }
+       },
+       "name": "substring",
+       "args": [
+        {
+         "k": "num",
+         "v": 0
+        },
+        {
+         "k": "num",
+         "v": 12
+        }
+       ]
+      }
+     },
+     {
+      "k": "let",
+      "name": "v5",
+      "op": "=",
+      "value": {
+       "k": "method",
+       "obj": {
+        "k": "bin",
+        "op": "+",
+        "l": {
+         "k": "str",
+         "v": ""
+        },
+        "r": {
+         "k": "index",
+         "obj": {
+          "k": "call",
+          "callee": "f0",
+          "args": [
+           {
+            "k": "un",
+            "op": "-",
+            "e": {
+             "k": "cond",
+             "c": {
+              "k": "bool",
+              "v": true
+             },
+             "a": {
+              "k": "ident",
+              "name": "p1"
+             },
+             "b": {
+              "k": "ident",
+              "name": "v5"
+             }
+            }
+           }
+          ]
+         },
+         "index": {
+          "k": "num",
+          "v": 2147483647
+         },
+         "opt": true
+        }
+       },
+       "name": "substring",
+       "args": [
+        {
+         "k": "num",
+         "v": 0
+        },
+        {
+         "k": "num",
+         "v": 12
+        }
+       ]
+      }
+     },
+     {
+      "k": "let",
+      "name": "v6",
+      "op": "=",
+      "value": {
+       "k": "ident",
+       "name": "v5"
+      }
+     },
+     {
+      "k": "ret",
+      "value": {
+       "k": "bin",
+       "op": "<=",
+       "l": {
+        "k": "index",
+        "obj": {
+         "k": "index",
+         "obj": {
+          "k": "ident",
+          "name": "v5"
+         },
+         "index": {
+          "k": "num",
+          "v": 2
+         },
+         "opt": true
+        },
+        "index": {
+         "k": "call",
+         "callee": "f0",
+         "args": [
+          {
+           "k": "prop",
+           "obj": {
+            "k": "ident",
+            "name": "p0"
+           },
+           "name": "a",
+           "opt": true
+          }
+         ]
+        },
+        "opt": true
+       },
+       "r": {
+        "k": "obj",
+        "fields": [
+         [
+          "d",
+          {
+           "k": "ident",
+           "name": "v5"
+          }
+         ],
+         [
+          "y",
+          {
+           "k": "arr",
+           "items": [
+            {
+             "k": "ident",
+             "name": "v6"
+            },
+            {
+             "k": "arr",
+             "items": []
+            },
+            {
+             "k": "call",
+             "callee": "f0",
+             "args": [
+              {
+               "k": "ident",
+               "name": "v5"
+              }
+             ]
+            },
+            {
+             "k": "str",
+             "v": "true"
+            }
+           ]
+          }
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "f2",
+    "params": [
+     "p0",
+     "p1",
+     "p2"
+    ],
+    "body": [
+     {
+      "k": "let",
+      "name": "p1",
+      "op": "=",
+      "value": {
+       "k": "index",
+       "obj": {
+        "k": "ident",
+        "name": "g0"
+       },
+       "index": {
+        "k": "call",
+        "callee": "f1",
+        "args": [
+         {
+          "k": "method",
+          "obj": {
+           "k": "bin",
+           "op": "+",
+           "l": {
+            "k": "str",
+            "v": ""
+           },
+           "r": {
+            "k": "str",
+            "v": "ab"
+           }
+          },
+          "name": "substring",
+          "args": [
+           {
+            "k": "num",
+            "v": 0
+           },
+           {
+            "k": "num",
+            "v": 2
+           }
+          ]
+         },
+         {
+          "k": "method",
+          "obj": {
+           "k": "bin",
+           "op": "+",
+           "l": {
+            "k": "str",
+            "v": ""
+           },
+           "r": {
+            "k": "ident",
+            "name": "p2"
+           }
+          },
+          "name": "substring",
+          "args": [
+           {
+            "k": "num",
+            "v": 1
+           },
+           {
+            "k": "num",
+            "v": 3
+           }
+          ]
+         },
+         {
+          "k": "call",
+          "callee": "f1",
+          "args": [
+           {
+            "k": "bin",
+            "op": "^",
+            "l": {
+             "k": "ident",
+             "name": "g0"
+            },
+            "r": {
+             "k": "num",
+             "v": 15
+            }
+           },
+           {
+            "k": "index",
+            "obj": {
+             "k": "ident",
+             "name": "g0"
+            },
+            "index": {
+             "k": "ident",
+             "name": "p1"
+            },
+            "opt": true
+           },
+           {
+            "k": "index",
+            "obj": {
+             "k": "ident",
+             "name": "p2"
+            },
+            "index": {
+             "k": "ident",
+             "name": "g0"
+            },
+            "opt": true
+           }
+          ]
+         }
+        ]
+       },
+       "opt": true
+      }
+     },
+     {
+      "k": "ret",
+      "value": {
+       "k": "call",
+       "callee": "f0",
+       "args": [
+        {
+         "k": "ident",
+         "name": "g0"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "name": "f3",
+    "params": [
+     "p0",
+     "p1"
+    ],
+    "body": [
+     {
+      "k": "if",
+      "cond": {
+       "k": "bin",
+       "op": "<=",
+       "l": {
+        "k": "ident",
+        "name": "p0"
+       },
+       "r": {
+        "k": "num",
+        "v": 0
+       }
+      },
+      "then": [
+       {
+        "k": "ret",
+        "value": {
+         "k": "method",
+         "obj": {
+          "k": "bin",
+          "op": "+",
+          "l": {
+           "k": "str",
+           "v": ""
+          },
+          "r": {
+           "k": "tof",
+           "e": {
+            "k": "ident",
+            "name": "p0"
+           }
+          }
+         },
+         "name": "substring",
+         "args": [
+          {
+           "k": "num",
+           "v": 2
+          },
+          {
+           "k": "num",
+           "v": 4
+          }
+         ]
+        }
+       }
+      ],
+      "alt": null
+     },
+     {
+      "k": "let",
+      "name": "g0",
+      "op": "=",
+      "value": {
+       "k": "call",
+       "callee": "f1",
+       "args": [
+        {
+         "k": "bin",
+         "op": "==",
+         "l": {
+          "k": "str",
+          "v": "a"
+         },
+         "r": {
+          "k": "ident",
+          "name": "p1"
+         }
+        },
+        {
+         "k": "ident",
+         "name": "p1"
+        },
+        {
+         "k": "str",
+         "v": "ab"
+        }
+       ]
+      }
+     },
+     {
+      "k": "let",
+      "name": "v7",
+      "op": "=",
+      "value": {
+       "k": "bin",
+       "op": "<",
+       "l": {
+        "k": "ident",
+        "name": "g0"
+       },
+       "r": {
+        "k": "index",
+        "obj": {
+         "k": "ident",
+         "name": "p1"
+        },
+        "index": {
+         "k": "num",
+         "v": 0.5
+        },
+        "opt": true
+       }
+      }
+     },
+     {
+      "k": "let",
+      "name": "g0",
+      "op": "=",
+      "value": {
+       "k": "bin",
+       "op": "!==",
+       "l": {
+        "k": "num",
+        "v": 1e-308
+       },
+       "r": {
+        "k": "arr",
+        "items": []
+       }
+      }
+     },
+     {
+      "k": "ret",
+      "value": {
+       "k": "bin",
+       "op": "+",
+       "l": {
+        "k": "call",
+        "callee": "f3",
+        "args": [
+         {
+          "k": "bin",
+          "op": "-",
+          "l": {
+           "k": "ident",
+           "name": "p0"
+          },
+          "r": {
+           "k": "num",
+           "v": 1
+          }
+         },
+         {
+          "k": "cond",
+          "c": {
+           "k": "ident",
+           "name": "g0"
+          },
+          "a": {
+           "k": "obj",
+           "fields": [
+            [
+             "b",
+             {
+              "k": "bool",
+              "v": false
+             }
+            ],
+            [
+             "c",
+             {
+              "k": "ident",
+              "name": "p1"
+             }
+            ],
+            [
+             "z",
+             {
+              "k": "str",
+              "v": "1"
+             }
+            ]
+           ]
+          },
+          "b": {
+           "k": "prop",
+           "obj": {
+            "k": "ident",
+            "name": "p0"
+           },
+           "name": "z",
+           "opt": true
+          }
+         }
+        ]
+       },
+       "r": {
+        "k": "bin",
+        "op": "&",
+        "l": {
+         "k": "prop",
+         "obj": {
+          "k": "ident",
+          "name": "v7"
+         },
+         "name": "b",
+         "opt": true
+        },
+        "r": {
+         "k": "num",
+         "v": 23
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "run",
+    "params": [
+     "n"
+    ],
+    "body": [
+     {
+      "k": "let",
+      "name": "acc",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "let",
+      "name": "sec",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "let",
+      "name": "txt",
+      "op": "=",
+      "value": {
+       "k": "str",
+       "v": ""
+      }
+     },
+     {
+      "k": "let",
+      "name": "i",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "while",
+      "cond": {
+       "k": "bin",
+       "op": "<",
+       "l": {
+        "k": "ident",
+        "name": "i"
+       },
+       "r": {
+        "k": "ident",
+        "name": "n"
+       }
+      },
+      "body": [
+       {
+        "k": "let",
+        "name": "i",
+        "op": "=",
+        "value": {
+         "k": "bin",
+         "op": "+",
+         "l": {
+          "k": "ident",
+          "name": "i"
+         },
+         "r": {
+          "k": "num",
+          "v": 1
+         }
+        }
+       },
+       {
+        "k": "let",
+        "name": "cur",
+        "op": "=",
+        "value": {
+         "k": "cond",
+         "c": {
+          "k": "bin",
+          "op": "<",
+          "l": {
+           "k": "ident",
+           "name": "i"
+          },
+          "r": {
+           "k": "num",
+           "v": 875
+          }
+         },
+         "a": {
+          "k": "bin",
+          "op": ">>>",
+          "l": {
+           "k": "bin",
+           "op": "/",
+           "l": {
+            "k": "bin",
+            "op": "+",
+            "l": {
+             "k": "bin",
+             "op": "|",
+             "l": {
+              "k": "ident",
+              "name": "n"
+             },
+             "r": {
+              "k": "ident",
+              "name": "n"
+             }
+            },
+            "r": {
+             "k": "bin",
+             "op": "%",
+             "l": {
+              "k": "ident",
+              "name": "n"
+             },
+             "r": {
+              "k": "num",
+              "v": 4
+             }
+            }
+           },
+           "r": {
+            "k": "bin",
+            "op": "/",
+            "l": {
+             "k": "num",
+             "v": -2147483647
+            },
+            "r": {
+             "k": "num",
+             "v": 2
+            }
+           }
+          },
+          "r": {
+           "k": "bin",
+           "op": "**",
+           "l": {
+            "k": "bin",
+            "op": "&",
+            "l": {
+             "k": "ident",
+             "name": "i"
+            },
+            "r": {
+             "k": "num",
+             "v": 4
+            }
+           },
+           "r": {
+            "k": "un",
+            "op": "-",
+            "e": {
+             "k": "num",
+             "v": -1
+            }
+           }
+          }
+         },
+         "b": {
+          "k": "arr",
+          "items": [
+           {
+            "k": "arr",
+            "items": []
+           },
+           {
+            "k": "call",
+            "callee": "f2",
+            "args": [
+             {
+              "k": "bin",
+              "op": "and",
+              "l": {
+               "k": "ident",
+               "name": "g0"
+              },
+              "r": {
+               "k": "bin",
+               "op": "<=",
+               "l": {
+                "k": "ident",
+                "name": "sec"
+               },
+               "r": {
+                "k": "ident",
+                "name": "acc"
+               }
+              }
+             },
+             {
+              "k": "bin",
+              "op": ">>",
+              "l": {
+               "k": "cond",
+               "c": {
+                "k": "bool",
+                "v": true
+               },
+               "a": {
+                "k": "ident",
+                "name": "i"
+               },
+               "b": {
+                "k": "ident",
+                "name": "acc"
+               }
+              },
+              "r": {
+               "k": "num",
+               "v": 6
+              }
+             },
+             {
+              "k": "bin",
+              "op": ">",
+              "l": {
+               "k": "index",
+               "obj": {
+                "k": "ident",
+                "name": "sec"
+               },
+               "index": {
+                "k": "ident",
+                "name": "acc"
+               },
+               "opt": true
+              },
+              "r": {
+               "k": "bin",
+               "op": "+",
+               "l": {
+                "k": "str",
+                "v": "xyz"
+               },
+               "r": {
+                "k": "ident",
+                "name": "n"
+               }
+              }
+             }
+            ]
+           },
+           {
+            "k": "str",
+            "v": "1"
+           }
+          ]
+         }
+        }
+       },
+       {
+        "k": "let",
+        "name": "wit",
+        "op": "=",
+        "value": {
+         "k": "call",
+         "callee": "f2",
+         "args": [
+          {
+           "k": "obj",
+           "fields": [
+            [
+             "z",
+             {
+              "k": "index",
+              "obj": {
+               "k": "cond",
+               "c": {
+                "k": "bool",
+                "v": false
+               },
+               "a": {
+                "k": "str",
+                "v": ""
+               },
+               "b": {
+                "k": "str",
+                "v": "a"
+               }
+              },
+              "index": {
+               "k": "bin",
+               "op": ">>>",
+               "l": {
+                "k": "ident",
+                "name": "acc"
+               },
+               "r": {
+                "k": "num",
+                "v": 1
+               }
+              },
+              "opt": true
+             }
+            ]
+           ]
+          },
+          {
+           "k": "ident",
+           "name": "sec"
+          },
+          {
+           "k": "bin",
+           "op": "+",
+           "l": {
+            "k": "ident",
+            "name": "g0"
+           },
+           "r": {
+            "k": "prop",
+            "obj": {
+             "k": "prop",
+             "obj": {
+              "k": "ident",
+              "name": "acc"
+             },
+             "name": "b",
+             "opt": true
+            },
+            "name": "x",
+            "opt": true
+           }
+          }
+         ]
+        }
+       },
+       {
+        "k": "let",
+        "name": "w8",
+        "op": "=",
+        "value": {
+         "k": "num",
+         "v": 0
+        }
+       },
+       {
+        "k": "while",
+        "cond": {
+         "k": "bin",
+         "op": "<",
+         "l": {
+          "k": "ident",
+          "name": "w8"
+         },
+         "r": {
+          "k": "num",
+          "v": 1
+         }
+        },
+        "body": [
+         {
+          "k": "let",
+          "name": "w8",
+          "op": "=",
+          "value": {
+           "k": "bin",
+           "op": "+",
+           "l": {
+            "k": "ident",
+            "name": "w8"
+           },
+           "r": {
+            "k": "num",
+            "v": 1
+           }
+          }
+         },
+         {
+          "k": "let",
+          "name": "v9",
+          "op": "=",
+          "value": {
+           "k": "obj",
+           "fields": [
+            [
+             "b",
+             {
+              "k": "cond",
+              "c": {
+               "k": "bool",
+               "v": false
+              },
+              "a": {
+               "k": "ident",
+               "name": "n"
+              },
+              "b": {
+               "k": "num",
+               "v": 2
+              }
+             }
+            ]
+           ]
+          }
+         },
+         {
+          "k": "let",
+          "name": "sec",
+          "op": "=",
+          "value": {
+           "k": "num",
+           "v": 8
+          }
+         },
+         {
+          "k": "let",
+          "name": "wit",
+          "op": "=",
+          "value": {
+           "k": "prop",
+           "obj": {
+            "k": "prop",
+            "obj": {
+             "k": "ident",
+             "name": "sec"
+            },
+            "name": "z",
+            "opt": true
+           },
+           "name": "a",
+           "opt": true
+          }
+         }
+        ]
+       },
+       {
+        "k": "if",
+        "cond": {
+         "k": "bin",
+         "op": ">=",
+         "l": {
+          "k": "ident",
+          "name": "i"
+         },
+         "r": {
+          "k": "arr",
+          "items": [
+           {
+            "k": "prop",
+            "obj": {
+             "k": "ident",
+             "name": "cur"
+            },
+            "name": "d",
+            "opt": true
+           },
+           {
+            "k": "obj",
+            "fields": [
+             [
+              "a",
+              {
+               "k": "bin",
+               "op": ">",
+               "l": {
+                "k": "bool",
+                "v": false
+               },
+               "r": {
+                "k": "bool",
+                "v": true
+               }
+              }
+             ],
+             [
+              "x",
+              {
+               "k": "index",
+               "obj": {
+                "k": "ident",
+                "name": "g0"
+               },
+               "index": {
+                "k": "num",
+                "v": 0
+               },
+               "opt": true
+              }
+             ],
+             [
+              "m",
+              {
+               "k": "lambda",
+               "params": [
+                "s"
+               ],
+               "body": {
+                "k": "str",
+                "v": "null"
+               }
+              }
+             ]
+            ]
+           },
+           {
+            "k": "bin",
+            "op": "!=",
+            "l": {
+             "k": "ident",
+             "name": "g0"
+            },
+            "r": {
+             "k": "tof",
+             "e": {
+              "k": "bool",
+              "v": true
+             }
+            }
+           }
+          ]
+         }
+        },
+        "then": [
+         {
+          "k": "if",
+          "cond": {
+           "k": "bin",
+           "op": "!=",
+           "l": {
+            "k": "tof",
+            "e": {
+             "k": "bin",
+             "op": ">=",
+             "l": {
+              "k": "arr",
+              "items": [
+               {
+                "k": "bin",
+                "op": "!==",
+                "l": {
+                 "k": "tof",
+                 "e": {
+                  "k": "ident",
+                  "name": "acc"
+                 }
+                },
+                "r": {
+                 "k": "str",
+                 "v": "function"
+                }
+               },
+               {
+                "k": "arr",
+                "items": [
+                 {
+                  "k": "ident",
+                  "name": "cur"
+                 }
+                ]
+               },
+               {
+                "k": "ident",
+                "name": "cur"
+               }
+              ]
+             },
+             "r": {
+              "k": "obj",
+              "fields": [
+               [
+                "z",
+                {
+                 "k": "bin",
+                 "op": ">",
+                 "l": {
+                  "k": "str",
+                  "v": "true"
+                 },
+                 "r": {
+                  "k": "ident",
+                  "name": "acc"
+                 }
+                }
+               ],
+               [
+                "c",
+                {
+                 "k": "call",
+                 "callee": "f3",
+                 "args": [
+                  {
+                   "k": "num",
+                   "v": 2
+                  },
+                  {
+                   "k": "bool",
+                   "v": true
+                  }
+                 ]
+                }
+               ]
+              ]
+             }
+            }
+           },
+           "r": {
+            "k": "str",
+            "v": "string"
+           }
+          },
+          "then": [
+           {
+            "k": "exprstmt",
+            "value": {
+             "k": "call",
+             "callee": "f3",
+             "args": [
+              {
+               "k": "num",
+               "v": 4
+              },
+              {
+               "k": "bin",
+               "op": "and",
+               "l": {
+                "k": "un",
+                "op": "not",
+                "e": {
+                 "k": "ident",
+                 "name": "n"
+                }
+               },
+               "r": {
+                "k": "bin",
+                "op": "==",
+                "l": {
+                 "k": "obj",
+                 "fields": [
+                  [
+                   "c",
+                   {
+                    "k": "ident",
+                    "name": "acc"
+                   }
+                  ],
+                  [
+                   "y",
+                   {
+                    "k": "str",
+                    "v": "0"
+                   }
+                  ]
+                 ]
+                },
+                "r": {
+                 "k": "obj",
+                 "fields": [
+                  [
+                   "z",
+                   {
+                    "k": "ident",
+                    "name": "acc"
+                   }
+                  ],
+                  [
+                   "c",
+                   {
+                    "k": "ident",
+                    "name": "i"
+                   }
+                  ]
+                 ]
+                }
+               }
+              }
+             ]
+            }
+           }
+          ],
+          "alt": null
+         },
+         {
+          "k": "let",
+          "name": "v10",
+          "op": "=",
+          "value": {
+           "k": "prop",
+           "obj": {
+            "k": "obj",
+            "fields": [
+             [
+              "z",
+              {
+               "k": "obj",
+               "fields": [
+                [
+                 "c",
+                 {
+                  "k": "arr",
+                  "items": []
+                 }
+                ]
+               ]
+              }
+             ],
+             [
+              "a",
+              {
+               "k": "str",
+               "v": "true"
+              }
+             ],
+             [
+              "b",
+              {
+               "k": "tof",
+               "e": {
+                "k": "ident",
+                "name": "i"
+               }
+              }
+             ]
+            ]
+           },
+           "name": "a",
+           "opt": true
+          }
+         }
+        ],
+        "alt": [
+         {
+          "k": "let",
+          "name": "sec",
+          "op": "=",
+          "value": {
+           "k": "bin",
+           "op": ">>",
+           "l": {
+            "k": "prop",
+            "obj": {
+             "k": "cond",
+             "c": {
+              "k": "un",
+              "op": "not",
+              "e": {
+               "k": "bool",
+               "v": true
+              }
+             },
+             "a": {
+              "k": "obj",
+              "fields": [
+               [
+                "b",
+                {
+                 "k": "ident",
+                 "name": "n"
+                }
+               ],
+               [
+                "c",
+                {
+                 "k": "ident",
+                 "name": "sec"
+                }
+               ],
+               [
+                "x",
+                {
+                 "k": "nul"
+                }
+               ],
+               [
+                "m",
+                {
+                 "k": "lambda",
+                 "params": [
+                  "s"
+                 ],
+                 "body": {
+                  "k": "arr",
+                  "items": [
+                   {
+                    "k": "ident",
+                    "name": "g0"
+                   }
+                  ]
+                 }
+                }
+               ]
+              ]
+             },
+             "b": {
+              "k": "obj",
+              "fields": [
+               [
+                "a",
+                {
+                 "k": "ident",
+                 "name": "cur"
+                }
+               ],
+               [
+                "b",
+                {
+                 "k": "bool",
+                 "v": false
+                }
+               ]
+              ]
+             }
+            },
+            "name": "z",
+            "opt": true
+           },
+           "r": {
+            "k": "num",
+            "v": 16
+           }
+          }
+         },
+         {
+          "k": "let",
+          "name": "g0",
+          "op": "=",
+          "value": {
+           "k": "bin",
+           "op": "!=",
+           "l": {
+            "k": "call",
+            "callee": "f3",
+            "args": [
+             {
+              "k": "num",
+              "v": 2
+             },
+             {
+              "k": "arr",
+              "items": [
+               {
+                "k": "arr",
+                "items": [
+                 {
+                  "k": "bool",
+                  "v": true
+                 },
+                 {
+                  "k": "bool",
+                  "v": false
+                 },
+                 {
+                  "k": "bool",
+                  "v": false
+                 },
+                 {
+                  "k": "ident",
+                  "name": "i"
+                 }
+                ]
+               },
+               {
+                "k": "nul"
+               },
+               {
+                "k": "ident",
+                "name": "wit"
+               },
+               {
+                "k": "obj",
+                "fields": [
+                 [
+                  "y",
+                  {
+                   "k": "ident",
+                   "name": "cur"
+                  }
+                 ],
+                 [
+                  "m",
+                  {
+                   "k": "lambda",
+                   "params": [
+                    "s"
+                   ],
+                   "body": {
+                    "k": "ident",
+                    "name": "s"
+                   }
+                  }
+                 ]
+                ]
+               }
+              ]
+             }
+            ]
+           },
+           "r": {
+            "k": "bin",
+            "op": "==",
+            "l": {
+             "k": "num",
+             "v": 31
+            },
+            "r": {
+             "k": "num",
+             "v": 0
+            }
+           }
+          }
+         },
+         {
+          "k": "let",
+          "name": "sec",
+          "op": "=",
+          "value": {
+           "k": "call",
+           "callee": "f2",
+           "args": [
+            {
+             "k": "arr",
+             "items": []
+            },
+            {
+             "k": "ident",
+             "name": "wit"
+            },
+            {
+             "k": "cond",
+             "c": {
+              "k": "bin",
+              "op": "or",
+              "l": {
+               "k": "bin",
+               "op": "and",
+               "l": {
+                "k": "bool",
+                "v": true
+               },
+               "r": {
+                "k": "bool",
+                "v": true
+               }
+              },
+              "r": {
+               "k": "bin",
+               "op": "or",
+               "l": {
+                "k": "bool",
+                "v": true
+               },
+               "r": {
+                "k": "bool",
+                "v": false
+               }
+              }
+             },
+             "a": {
+              "k": "cond",
+              "c": {
+               "k": "bin",
+               "op": "and",
+               "l": {
+                "k": "bool",
+                "v": true
+               },
+               "r": {
+                "k": "bool",
+                "v": true
+               }
+              },
+              "a": {
+               "k": "bin",
+               "op": "+",
+               "l": {
+                "k": "str",
+                "v": "a"
+               },
+               "r": {
+                "k": "bool",
+                "v": false
+               }
+              },
+              "b": {
+               "k": "ident",
+               "name": "i"
+              }
+             },
+             "b": {
+              "k": "index",
+              "obj": {
+               "k": "tof",
+               "e": {
+                "k": "str",
+                "v": "abc"
+               }
+              },
+              "index": {
+               "k": "cond",
+               "c": {
+                "k": "bool",
+                "v": true
+               },
+               "a": {
+                "k": "ident",
+                "name": "n"
+               },
+               "b": {
+                "k": "ident",
+                "name": "n"
+               }
+              },
+              "opt": true
+             }
+            }
+           ]
+          }
+         }
+        ]
+       },
+       {
+        "k": "let",
+        "name": "acc",
+        "op": "=",
+        "value": {
+         "k": "bin",
+         "op": "-",
+         "l": {
+          "k": "ident",
+          "name": "acc"
+         },
+         "r": {
+          "k": "bin",
+          "op": "+",
+          "l": {
+           "k": "num",
+           "v": 31
+          },
+          "r": {
+           "k": "ident",
+           "name": "i"
+          }
+         }
+        }
+       },
+       {
+        "k": "let",
+        "name": "sec",
+        "op": "=",
+        "value": {
+         "k": "ident",
+         "name": "wit"
+        }
+       },
+       {
+        "k": "let",
+        "name": "txt",
+        "op": "=",
+        "value": {
+         "k": "method",
+         "obj": {
+          "k": "bin",
+          "op": "+",
+          "l": {
+           "k": "bin",
+           "op": "+",
+           "l": {
+            "k": "str",
+            "v": ""
+           },
+           "r": {
+            "k": "bin",
+            "op": "<",
+            "l": {
+             "k": "ident",
+             "name": "wit"
+            },
+            "r": {
+             "k": "ident",
+             "name": "cur"
+            }
+           }
+          },
+          "r": {
+           "k": "ident",
+           "name": "txt"
+          }
+         },
+         "name": "substring",
+         "args": [
+          {
+           "k": "num",
+           "v": 0
+          },
+          {
+           "k": "num",
+           "v": 16
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "k": "ret",
+      "value": {
+       "k": "ident",
+       "name": "acc"
+      }
+     }
+    ]
+   },
+   {
+    "name": "driver",
+    "params": [
+     "m"
+    ],
+    "body": [
+     {
+      "k": "let",
+      "name": "k",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "let",
+      "name": "t",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "while",
+      "cond": {
+       "k": "bin",
+       "op": "<",
+       "l": {
+        "k": "ident",
+        "name": "k"
+       },
+       "r": {
+        "k": "ident",
+        "name": "m"
+       }
+      },
+      "body": [
+       {
+        "k": "let",
+        "name": "k",
+        "op": "=",
+        "value": {
+         "k": "bin",
+         "op": "+",
+         "l": {
+          "k": "ident",
+          "name": "k"
+         },
+         "r": {
+          "k": "num",
+          "v": 1
+         }
+        }
+       },
+       {
+        "k": "let",
+        "name": "t",
+        "op": "=",
+        "value": {
+         "k": "call",
+         "callee": "run",
+         "args": [
+          {
+           "k": "num",
+           "v": 3
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "k": "ret",
+      "value": {
+       "k": "ident",
+       "name": "t"
+      }
+     }
+    ]
+   }
+  ],
+  "top": [
+   {
+    "k": "let",
+    "name": "r0",
+    "op": "=",
+    "value": {
+     "k": "call",
+     "callee": "run",
+     "args": [
+      {
+       "k": "num",
+       "v": 600
+      }
+     ]
+    }
+   },
+   {
+    "k": "let",
+    "name": "r1",
+    "op": "=",
+    "value": {
+     "k": "call",
+     "callee": "driver",
+     "args": [
+      {
+       "k": "num",
+       "v": 800
+      }
+     ]
+    }
+   },
+   {
+    "k": "let",
+    "name": "r2",
+    "op": "=",
+    "value": {
+     "k": "call",
+     "callee": "run",
+     "args": [
+      {
+       "k": "num",
+       "v": 600
+      }
+     ]
+    }
+   },
+   {
+    "k": "let",
+    "name": "r3",
+    "op": "=",
+    "value": {
+     "k": "call",
+     "callee": "run",
+     "args": [
+      {
+       "k": "num",
+       "v": 13
+      }
+     ]
+    }
+   }
+  ]
+ }
+}

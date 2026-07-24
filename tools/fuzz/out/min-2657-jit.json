@@ -1,0 +1,373 @@
+{
+ "seed": 2657,
+ "config": "jit",
+ "program": {
+  "globals": [
+   {
+    "name": "g0",
+    "init": {
+     "k": "prop",
+     "obj": {
+      "k": "obj",
+      "fields": [
+       [
+        "a",
+        {
+         "k": "num",
+         "v": 1
+        }
+       ]
+      ]
+     },
+     "name": "z",
+     "opt": true
+    }
+   },
+   {
+    "name": "g1",
+    "init": {
+     "k": "method",
+     "obj": {
+      "k": "bin",
+      "op": "+",
+      "l": {
+       "k": "str",
+       "v": ""
+      },
+      "r": {
+       "k": "index",
+       "obj": {
+        "k": "str",
+        "v": "null"
+       },
+       "index": {
+        "k": "str",
+        "v": "ab"
+       },
+       "opt": true
+      }
+     },
+     "name": "substring",
+     "args": [
+      {
+       "k": "num",
+       "v": 0
+      },
+      {
+       "k": "num",
+       "v": 12
+      }
+     ]
+    }
+   },
+   {
+    "name": "g2",
+    "init": {
+     "k": "bin",
+     "op": "+",
+     "l": {
+      "k": "num",
+      "v": 1.5
+     },
+     "r": {
+      "k": "num",
+      "v": 2147483648
+     }
+    }
+   }
+  ],
+  "funcs": [
+   {
+    "name": "f2",
+    "params": [
+     "p0",
+     "p1"
+    ],
+    "body": [
+     {
+      "k": "let",
+      "name": "g0",
+      "op": "=",
+      "value": {
+       "k": "ident",
+       "name": "g0"
+      }
+     },
+     {
+      "k": "let",
+      "name": "v3",
+      "op": "=",
+      "value": {
+       "k": "ident",
+       "name": "g2"
+      }
+     },
+     {
+      "k": "ret",
+      "value": {
+       "k": "un",
+       "op": "~",
+       "e": {
+        "k": "num",
+        "v": 1e+308
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "run",
+    "params": [
+     "n"
+    ],
+    "body": [
+     {
+      "k": "let",
+      "name": "acc",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 1
+      }
+     },
+     {
+      "k": "let",
+      "name": "sec",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "let",
+      "name": "txt",
+      "op": "=",
+      "value": {
+       "k": "str",
+       "v": ""
+      }
+     },
+     {
+      "k": "let",
+      "name": "i",
+      "op": "=",
+      "value": {
+       "k": "num",
+       "v": 0
+      }
+     },
+     {
+      "k": "while",
+      "cond": {
+       "k": "bin",
+       "op": "<",
+       "l": {
+        "k": "ident",
+        "name": "i"
+       },
+       "r": {
+        "k": "ident",
+        "name": "n"
+       }
+      },
+      "body": [
+       {
+        "k": "let",
+        "name": "i",
+        "op": "=",
+        "value": {
+         "k": "bin",
+         "op": "+",
+         "l": {
+          "k": "ident",
+          "name": "i"
+         },
+         "r": {
+          "k": "num",
+          "v": 1
+         }
+        }
+       },
+       {
+        "k": "if",
+        "cond": {
+         "k": "bool",
+         "v": true
+        },
+        "then": [
+         {
+          "k": "let",
+          "name": "g0",
+          "op": "=",
+          "value": {
+           "k": "call",
+           "callee": "f2",
+           "args": [
+            {
+             "k": "obj",
+             "fields": [
+              [
+               "a",
+               {
+                "k": "ident",
+                "name": "g0"
+               }
+              ],
+              [
+               "c",
+               {
+                "k": "bool",
+                "v": true
+               }
+              ],
+              [
+               "y",
+               {
+                "k": "ident",
+                "name": "g2"
+               }
+              ]
+             ]
+            },
+            {
+             "k": "prop",
+             "obj": {
+              "k": "ident",
+              "name": "g0"
+             },
+             "name": "x",
+             "opt": true
+            }
+           ]
+          }
+         }
+        ],
+        "alt": []
+       },
+       {
+        "k": "let",
+        "name": "acc",
+        "op": "=",
+        "value": {
+         "k": "bin",
+         "op": "+",
+         "l": {
+          "k": "ident",
+          "name": "acc"
+         },
+         "r": {
+          "k": "bin",
+          "op": "+",
+          "l": {
+           "k": "bin",
+           "op": ">>",
+           "l": {
+            "k": "cond",
+            "c": {
+             "k": "bool",
+             "v": true
+            },
+            "a": {
+             "k": "ident",
+             "name": "g0"
+            },
+            "b": {
+             "k": "ident",
+             "name": "g2"
+            }
+           },
+           "r": {
+            "k": "num",
+            "v": 0
+           }
+          },
+          "r": {
+           "k": "ident",
+           "name": "i"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "k": "ret",
+      "value": {
+       "k": "obj",
+       "fields": [
+        [
+         "a",
+         {
+          "k": "ident",
+          "name": "acc"
+         }
+        ],
+        [
+         "b",
+         {
+          "k": "cond",
+          "c": {
+           "k": "bin",
+           "op": "===",
+           "l": {
+            "k": "tof",
+            "e": {
+             "k": "ident",
+             "name": "sec"
+            }
+           },
+           "r": {
+            "k": "str",
+            "v": "function"
+           }
+          },
+          "a": {
+           "k": "str",
+           "v": "fn"
+          },
+          "b": {
+           "k": "ident",
+           "name": "sec"
+          }
+         }
+        ],
+        [
+         "c",
+         {
+          "k": "ident",
+          "name": "txt"
+         }
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "name": "driver",
+    "params": [
+     "m"
+    ],
+    "body": []
+   }
+  ],
+  "top": [
+   {
+    "k": "let",
+    "name": "r0",
+    "op": "=",
+    "value": {
+     "k": "call",
+     "callee": "run",
+     "args": [
+      {
+       "k": "num",
+       "v": 1200
+      }
+     ]
+    }
+   }
+  ]
+ }
+}

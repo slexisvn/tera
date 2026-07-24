@@ -53,6 +53,26 @@ export function visitDeoptSnapshotValues(
   }
 }
 
+export function frameStateValueIds(graph: FrameStateGraph): Set<number> {
+  const ids = new Set<number>();
+  const seen = new Set<FrameState>();
+  const add = (value: FrameValue | null | undefined) => {
+    const id = (value as ValueWithId | null | undefined)?.id;
+    if (typeof id === "number") ids.add(id);
+  };
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      for (let state = node.frameState; state; state = state.callerFrameState) {
+        if (seen.has(state)) break;
+        seen.add(state);
+        visitDeoptSnapshotValues(state, add);
+        add(state.thisValue);
+      }
+    }
+  }
+  return ids;
+}
+
 export function visitFrameStateValues(
   frameState: FrameState | null | undefined,
   visitor: FrameStateVisitor,

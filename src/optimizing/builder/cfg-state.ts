@@ -1,4 +1,9 @@
-import { irConstant, type CFGBlock, type CFGInstruction } from "../ir/index.js";
+import {
+  homeInstruction,
+  irConstant,
+  type CFGBlock,
+  type CFGInstruction,
+} from "../ir/index.js";
 
 const ACC_SLOT = -1;
 
@@ -26,8 +31,12 @@ export function rememberIncomingState(
   states.get(target)!.push({ predecessor, regs: new Map(regs), acc });
 }
 
-function definedValue(value: CfgNode | null | undefined): CfgNode {
-  return value || irConstant(undefined);
+function definedValue(
+  value: CfgNode | null | undefined,
+  home: CfgBlock,
+): CfgNode {
+  if (value) return value;
+  return homeInstruction(irConstant(undefined), home);
 }
 
 export function restoreIncomingState(
@@ -61,7 +70,9 @@ export function restoreIncomingState(
       if (!state) return slot === ACC_SLOT ? acc : regs.get(slot);
       return slot === ACC_SLOT ? state.acc : state.regs.get(slot);
     });
-    const incoming: CFGInstruction[] = values.map(definedValue);
+    const incoming: CFGInstruction[] = values.map((value, index) =>
+      definedValue(value, block.predecessors[index]),
+    );
     const first = incoming[0];
     const same = incoming.every((value) => value === first);
     const selected: CfgNode = same ? first : block.addParam(incoming);
