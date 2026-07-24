@@ -1,4 +1,4 @@
-import type { ChartPoint, TabularRow } from './types';
+import type { ChartPoint, TabularRow } from "./types.js";
 
 type BoxSummary = {
   q1: number;

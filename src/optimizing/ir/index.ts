@@ -601,8 +601,13 @@ export function irPolymorphicStore(obj: IRValueLike, maps: IRValueLike[], offset
   return node;
 }
 
-export function irStoreField(obj: IRValueLike, offset: number, value: IRValueLike) {
-  const node = new IRNode(IR_STORE_FIELD, { offset });
+export function irStoreField(
+  obj: IRValueLike,
+  offset: number,
+  value: IRValueLike,
+  propName?: string,
+) {
+  const node = new IRNode(IR_STORE_FIELD, { offset, propName });
   node.addInput(obj);
   node.addInput(value);
   return node;

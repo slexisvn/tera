@@ -23,6 +23,7 @@ type PatternNode =
 type ScopeLike = {
   isScript?: boolean;
   locals: Map<string, number>;
+  resolve(name: string): unknown;
   define(name: string, slot: number): void;
   defineVar(name: string, slot: number): void;
   defineFunction(name: string, slot: number): void;
@@ -43,6 +44,7 @@ type ScopeCompiler = {
   _declareForLoopBinding(node: ASTNode): void;
   _prescanStatement(node: ASTNode): void;
   _prescanLocals(statements: ASTNode[]): void;
+  _declareImplicitLocals(statements: ASTNode[]): void;
   _hoistVars(statements: ASTNode[]): void;
   _hoistVarsFromNode(node: ASTNode | null | undefined): void;
   _emitHoistedFunctionDeclarations(statements: ASTNode[]): void;
@@ -56,6 +58,57 @@ function asNodeArray(value: RuntimeValue): ASTNode[] {
 
 function isNode(value: RuntimeValue): value is ASTNode {
   return !!value && typeof value === "object" && "type" in value;
+}
+
+const NESTED_SCOPE_TYPES = new Set<string>([
+  NodeType.FunctionDeclaration,
+  NodeType.LazyFunctionDeclaration,
+  NodeType.FunctionExpression,
+  NodeType.ArrowFunctionExpression,
+  NodeType.ClassDeclaration,
+]);
+
+type ImplicitScan = { assigned: Set<string>; escaped: Set<string> };
+
+function scanImplicitBindings(value: RuntimeValue, scan: ImplicitScan): void {
+  if (Array.isArray(value)) {
+    for (const item of value) scanImplicitBindings(item, scan);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  if (!isNode(value)) {
+    for (const key of Object.keys(value)) {
+      scanImplicitBindings((value as Record<string, RuntimeValue>)[key], scan);
+    }
+    return;
+  }
+  if (NESTED_SCOPE_TYPES.has(value.type)) return;
+
+  if (value.type === NodeType.Identifier) {
+    const name = value.name;
+    if (typeof name === "string" && !scan.assigned.has(name)) {
+      scan.escaped.add(name);
+    }
+    return;
+  }
+
+  const target = value.target;
+  const writesIdentifier =
+    value.type === NodeType.AssignmentExpression &&
+    isNode(target) &&
+    target.type === NodeType.Identifier &&
+    typeof target.name === "string";
+
+  for (const key of Object.keys(value)) {
+    if (key === "type") continue;
+    if (writesIdentifier && key === "target") continue;
+    scanImplicitBindings(value[key], scan);
+  }
+
+  if (writesIdentifier) {
+    const name = (target as ASTNode).name as string;
+    if (!scan.escaped.has(name)) scan.assigned.add(name);
+  }
 }
 
 export function collectPatternNames(
@@ -322,9 +375,21 @@ export const scopeMethods = {
     }
   },
 
+  _declareImplicitLocals(this: ScopeCompiler, statements: ASTNode[]) {
+    if (this.scope.isScript) return;
+    const scan: ImplicitScan = { assigned: new Set(), escaped: new Set() };
+    scanImplicitBindings(statements, scan);
+    for (const name of scan.assigned) {
+      if (this.scope.locals.has(name)) continue;
+      if (this.scope.resolve(name)) continue;
+      this._declareLocal(name, "var");
+    }
+  },
+
   _prepareFunctionBody(this: ScopeCompiler, statements: ASTNode[]) {
     this._hoistVars(statements);
     this._prescanLocals(statements);
+    this._declareImplicitLocals(statements);
     this._emitHoistedFunctionDeclarations(statements);
   },
 };

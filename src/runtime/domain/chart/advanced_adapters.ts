@@ -1,7 +1,7 @@
-import { isDataFrame, isTensor } from './adapters';
-import { MAX_POINTS } from './spec';
-import { boxSummary, correlationMatrix, kde, linearRegression, makeHexbins } from './statistics';
-import type { ChartConfig, ChartPoint, ChartSeries, DataFrameLike, TabularRow } from './types';
+import { isDataFrame, isTensor } from "./adapters.js";
+import { MAX_POINTS } from "./spec.js";
+import { boxSummary, correlationMatrix, kde, linearRegression, makeHexbins } from "./statistics.js";
+import type { ChartConfig, ChartPoint, ChartSeries, DataFrameLike, TabularRow } from "./types.js";
 
 type NumericGroup = {
   name: string;

@@ -1,7 +1,7 @@
-import { isDataFrame } from './adapters';
-import { colorAt } from './palette';
-import { MAX_POINTS } from './spec';
-import type { ChartConfig, ChartDimension, ChartPoint, ChartSeries } from './types';
+import { isDataFrame } from "./adapters.js";
+import { colorAt } from "./palette.js";
+import { MAX_POINTS } from "./spec.js";
+import type { ChartConfig, ChartDimension, ChartPoint, ChartSeries } from "./types.js";
 
 type FrameSlot = {
   value: ChartDimension;

@@ -801,7 +801,7 @@ function compileInstruction(
         check.frameState = frameState;
         block.addNode(check);
         graph.addDependency(DEP_MAP, mapId, mapVersion);
-        const store = ir.irStoreField(check, offset, value);
+        const store = ir.irStoreField(check, offset, value, propName);
         block.addNode(store);
         tracer.jitCompile(
           functionName(compiledFn),
@@ -1410,7 +1410,7 @@ function compileInstruction(
                 value = ir.irConstant(undefined);
                 block.addNode(value);
               }
-              const store = ir.irStoreField(newObj, item.offset, value);
+              const store = ir.irStoreField(newObj, item.offset, value, item.field.name);
               block.addNode(store);
             }
             graph.inlineBudgetRemaining -= ctorInfo.length;

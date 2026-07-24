@@ -13,7 +13,11 @@ type IRNodeLike = {
 export type FrameValue =
   | RuntimeValue
   | IRNodeLike;
-type SunkAllocations = Map<FrameValue, FrameValue>;
+export type VirtualAllocation = {
+  fields?: Map<number, FrameValue>;
+  props?: Map<string, FrameValue>;
+};
+type SunkAllocations = Map<number, VirtualAllocation>;
 
 export class FrameState {
   compiledFunction: CompiledFunctionLike | null;

@@ -1,7 +1,8 @@
-import { adaptHistogram, adaptSeries, isDataFrame } from './adapters';
-import { adaptBubble, adaptRegression, prepareSeriesMode } from './advanced_adapters';
-import { CHART_SPEC, createFacetSpec, createFigureSpec } from './spec';
-import type { ChartConfig, ChartSeries, DataFrameLike, TabularRow } from './types';
+import { splitOptions } from "../common.js";
+import { adaptHistogram, adaptSeries, isDataFrame } from "./adapters.js";
+import { adaptBubble, adaptRegression, prepareSeriesMode } from "./advanced_adapters.js";
+import { CHART_SPEC, createFacetSpec, createFigureSpec } from "./spec.js";
+import type { ChartConfig, ChartSeries, DataFrameLike, TabularRow } from "./types.js";
 
 const MARKS = ['line', 'bar', 'scatter', 'area', 'histogram', 'regression', 'bubble'];
 const MARK_ALIAS: Record<string, string> = { point: 'scatter' };
@@ -56,10 +57,9 @@ export function createFigure(data: unknown, options: FigureOptions = {}): Figure
       return builder;
     },
     facet: (...args: unknown[]) => {
-      const named = takeNamed(args);
-      const positional = args.filter(value => !isNamed(value));
+      const { values, options: named } = splitOptions(args);
       facetConfig = { ...(facetConfig ?? {}) };
-      if (typeof positional[0] === 'string') facetConfig.field = positional[0];
+      if (typeof values[0] === 'string') facetConfig.field = values[0];
       Object.assign(facetConfig, named);
       return builder;
     },
@@ -188,13 +188,5 @@ function unique<T>(values: T[]): T[] {
 }
 
 function takeNamed(args: unknown[]): ChartConfig {
-  const last = args[args.length - 1];
-  if (!isNamed(last)) return {};
-  const named: ChartConfig & { __named?: unknown } = { ...last };
-  delete named.__named;
-  return named;
-}
-
-function isNamed(value: unknown): value is ChartConfig & { __named?: unknown } {
-  return Boolean(value && typeof value === 'object' && (value as { __named?: unknown }).__named);
+  return splitOptions(args).options;
 }

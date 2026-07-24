@@ -1,4 +1,4 @@
-import { colorAt } from './palette';
+import { colorAt } from '../../../src/runtime/domain/chart/palette';
 import { createScale } from './scales';
 import { svgElement, svgText, formatValue } from './svg';
 import { createTooltip } from './tooltip';

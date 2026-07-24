@@ -10,7 +10,10 @@ import type {
   RegisterCompiledFunction,
 } from "../bytecode/register/ops/bytecode.js";
 import { DeoptSignal } from "./signal.js";
-import { ObjectMaterializer } from "./materializer.js";
+import {
+  ObjectMaterializer,
+  withMaterializedAllocations,
+} from "./materializer.js";
 import {
   mkUndefined,
   mkSmi,
@@ -229,15 +232,12 @@ export class Deoptimizer {
 
     tracer.jitDeopt(getFunctionName(compiledFn), signal.reason, bytecodeOffset);
 
-    let materializedObjects = new Map<number, TaggedValue>();
-    if (frameState.sunkAllocations && frameState.sunkAllocations.size > 0) {
-      materializedObjects = this.materializer.materialize(
-        frameState.sunkAllocations as Parameters<ObjectMaterializer["materialize"]>[0],
-        signal.runtimeValues,
-      );
-      for (const [id, val] of materializedObjects) {
-        signal.runtimeValues.set(id, val);
-      }
+    const resolved = withMaterializedAllocations(
+      frameState as Parameters<typeof withMaterializedAllocations>[0],
+      signal.runtimeValues,
+    );
+    if (resolved !== signal.runtimeValues && resolved) {
+      for (const [id, val] of resolved) signal.runtimeValues.set(id, val);
     }
 
     const frame = new RegisterFrame(

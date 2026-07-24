@@ -24,6 +24,16 @@ type FrameStateGraph = {
   _frameStateIndex?: Map<FrameValue, FrameStateIndexLocation[]> | null;
 };
 
+export function sunkAllocationIds(
+  frameState: FrameState | null | undefined,
+): Set<number> {
+  const ids = new Set<number>();
+  for (let state = frameState; state; state = state.callerFrameState) {
+    for (const id of state.sunkAllocations?.keys() ?? []) ids.add(id);
+  }
+  return ids;
+}
+
 export function visitFrameStateValues(
   frameState: FrameState | null | undefined,
   visitor: FrameStateVisitor,

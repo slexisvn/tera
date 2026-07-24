@@ -1,6 +1,7 @@
 import * as ir from "../ir/index.js";
 import { RegisterFrame } from "../../bytecode/register/interpreter/index.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
+import { withMaterializedAllocations } from "../../deopt/materializer.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 import {
   isObject,
@@ -61,6 +62,7 @@ interface FrameStateLike {
   bytecodeOffset: number;
   stackValues?: FrameValue[];
   thisValue?: FrameValue | null;
+  sunkAllocations?: FrameState["sunkAllocations"];
   callerFrameState?: FrameStateLike | null;
   hasLocal(slot: number): boolean;
   getLocal(slot: number): FrameValue | undefined;
@@ -422,12 +424,13 @@ export function materializeFrameFromState(
     thisValue === undefined ? mkUndefined() : thisValue,
   );
   if (!frameState) return frame;
+  const resolved = withMaterializedAllocations(frameState, runtimeValues);
   const localsCount = frame.locals.length;
   for (let i = 0; i < localsCount; i++) {
     if (frameState.hasLocal(i)) {
       frame.locals[i] = materializeFrameValue(
         frameState.getLocal(i),
-        runtimeValues,
+        resolved,
         args,
         interpreter,
         thisValue,
@@ -437,7 +440,7 @@ export function materializeFrameFromState(
   if (frameState.stackValues && frameState.stackValues.length > 0) {
     frame.acc = materializeFrameValue(
       frameState.stackValues[frameState.stackValues.length - 1],
-      runtimeValues,
+      resolved,
       args,
       interpreter,
       thisValue,
@@ -446,7 +449,7 @@ export function materializeFrameFromState(
   if (frameState.thisValue !== null) {
     frame.thisValue = materializeFrameValue(
       frameState.thisValue,
-      runtimeValues,
+      resolved,
       args,
       interpreter,
       thisValue,

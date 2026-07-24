@@ -1,8 +1,9 @@
 import { NodeType, type ASTNode } from "../ast/index.js";
-import { TERA_ASYNC_DOMAIN_TYPES, TERA_BUILTINS, TERA_RESULT_FIELD_TYPES } from "../../../data/tera-language-spec.js";
+import { TERA_ASYNC_DOMAIN_TYPES, TERA_BUILTINS, TERA_CHART_METHODS, TERA_RESULT_FIELD_TYPES } from "../../../data/tera-language-spec.js";
 import { runtimeBuiltinMetadataFromSpec } from "../../utils/language-spec-runtime.js";
 
 const RECORD_PREFIX = "@";
+const METHOD_OF = "method of ";
 const ASYNC_DOMAIN_TYPES = new Set<string>(TERA_ASYNC_DOMAIN_TYPES);
 const domainBuiltins = runtimeBuiltinMetadataFromSpec(TERA_BUILTINS);
 const RESULT_FIELD_TYPES = TERA_RESULT_FIELD_TYPES as Record<string, Record<string, string>>;
@@ -56,6 +57,28 @@ function children(node: ASTNode): ASTNode[] {
 
 function calleeName(callee: ASTNode): string | null {
   return callee.type === NodeType.Identifier ? String(callee.name) : null;
+}
+
+function namespaceAsyncMethods(spec: Record<string, { kind?: string | null; effect?: string }>): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const [method, entry] of Object.entries(spec)) {
+    if (entry.effect !== "async" || !entry.kind?.startsWith(METHOD_OF)) continue;
+    const namespace = entry.kind.slice(METHOD_OF.length);
+    const methods = out.get(namespace) ?? new Set<string>();
+    methods.add(method);
+    out.set(namespace, methods);
+  }
+  return out;
+}
+
+const ASYNC_NAMESPACE_METHODS = namespaceAsyncMethods(TERA_CHART_METHODS);
+
+function isAsyncNamespaceCall(callee: ASTNode): boolean {
+  if (callee.type !== NodeType.MemberExpression || (callee as { computed?: boolean }).computed) return false;
+  const object = callee.object as ASTNode;
+  const property = (callee as { property?: unknown }).property;
+  if (object.type !== NodeType.Identifier || typeof property !== "string") return false;
+  return ASYNC_NAMESPACE_METHODS.get(String(object.name))?.has(property) === true;
 }
 
 function bindingName(node: ASTNode): string | null {
@@ -294,6 +317,7 @@ class EffectAnalyzer {
     const name = calleeName(call.callee);
     if (name) return domainBuiltins[name]?.effect === "async";
     if (call.callee.type !== NodeType.MemberExpression) return false;
+    if (isAsyncNamespaceCall(call.callee)) return true;
     return this.domainType(call.callee.object as ASTNode, types) !== null;
   }
 

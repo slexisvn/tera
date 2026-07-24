@@ -1,16 +1,11 @@
-import { DEFAULT_FRAME_DURATION_MS, normalizeEasing } from './interpolate';
-import { DEFAULT_DURATION_MS, normalizeSpeed } from './player';
-import type { ChartOptions, ChartRule, ChartSeries } from './types';
+import { TERA_CHART_METHODS } from "../../../../data/tera-language-spec.js";
+import { DEFAULT_DURATION_MS, DEFAULT_FRAME_DURATION_MS, normalizeEasing, normalizeSpeed } from "./animation.js";
+import type { ChartOptions, ChartRule, ChartSeries } from "./types.js";
 
 export const CHART_SPEC = 'tera.notebook.chart';
 export const MAX_POINTS = 10000;
 export const MORPHABLE_TYPES = new Set(['line', 'scatter', 'bubble']);
-export const CHART_TYPES = new Set([
-  'line', 'bar', 'scatter', 'histogram', 'area',
-  'box', 'violin', 'density', 'correlation', 'hexbin',
-  'heatmap', 'regression', 'ecdf', 'bubble', 'funnel', 'waterfall',
-  'figure',
-]);
+export const CHART_TYPES: ReadonlySet<string> = new Set(Object.keys(TERA_CHART_METHODS));
 
 type ChartFrame = {
   value?: string | number;
@@ -31,11 +26,11 @@ type FacetConfig = {
   cols?: number | null;
 };
 
-type PayloadLike = {
+export type ChartPayload = {
   steps?: unknown[];
   cells?: unknown[];
   bins?: unknown[];
-};
+} | unknown[];
 
 type RawOptions = Record<string, unknown>;
 
@@ -65,7 +60,7 @@ export function createFacetSpec(panels: FigurePanel[], facet: FacetConfig, optio
   return { kind: CHART_SPEC, type: 'figure', panels, facet, pointCount, options: normalizeOptions(options) };
 }
 
-export function createPayloadSpec(type: string, family: string, payload: PayloadLike | unknown[], options: RawOptions = {}) {
+export function createPayloadSpec(type: string, family: string, payload: ChartPayload, options: RawOptions = {}) {
   if (!CHART_TYPES.has(type)) throw new Error(`Unsupported chart type '${type}'`);
   return { kind: CHART_SPEC, type, family, payload, pointCount: payloadPointCount(payload), options: normalizeOptions(options) };
 }
@@ -163,7 +158,7 @@ function buildRules(values: unknown, labels: unknown, colors: unknown, dash: unk
   return rules;
 }
 
-function payloadPointCount(payload: PayloadLike | unknown[]): number {
+function payloadPointCount(payload: ChartPayload): number {
   if (Array.isArray(payload)) return payload.length;
   if (Array.isArray(payload?.steps)) return payload.steps.length;
   if (Array.isArray(payload?.cells)) return payload.cells.length;

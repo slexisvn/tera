@@ -1,5 +1,5 @@
-import { MAX_POINTS } from './spec';
-import type { ChartConfig, ChartDimension, ChartPoint, ChartSeries, DataFrameLike, TabularRow, TensorLike } from './types';
+import { MAX_POINTS } from "./spec.js";
+import type { ChartConfig, ChartDimension, ChartPoint, ChartSeries, DataFrameLike, TabularRow, TensorLike } from "./types.js";
 
 type HistogramGroup = {
   name: string;

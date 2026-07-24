@@ -3,6 +3,7 @@ import { mkObject, mkUndefined } from "../core/value/index.js";
 import type { TaggedValue } from "../core/value/index.js";
 import { tracer } from "../core/tracing/index.js";
 import type { JSObject } from "../objects/heap/js-object.js";
+import type { FrameValue, VirtualAllocation } from "./frame-state.js";
 
 type ValueNode = {
   id?: number;
@@ -10,10 +11,24 @@ type ValueNode = {
   props?: { value?: TaggedValue };
 };
 
-type VirtualAllocationState = {
-  props?: Iterable<[string, ValueNode | TaggedValue | null | undefined]>;
-  fields?: Iterable<[number, ValueNode | TaggedValue | null | undefined]>;
+type VirtualAllocationState = VirtualAllocation;
+
+type SunkAllocationCarrier = {
+  sunkAllocations?: Map<number, VirtualAllocationState> | null;
 };
+
+export function withMaterializedAllocations(
+  frameState: SunkAllocationCarrier | null | undefined,
+  runtimeValues: Map<number, TaggedValue> | null | undefined,
+): Map<number, TaggedValue> | null | undefined {
+  const sunk = frameState?.sunkAllocations;
+  if (!sunk || sunk.size === 0) return runtimeValues;
+  const resolved = new Map(runtimeValues ?? []);
+  for (const [id, value] of new ObjectMaterializer().materialize(sunk, resolved)) {
+    resolved.set(id, value);
+  }
+  return resolved;
+}
 
 export class ObjectMaterializer {
   materialize(
@@ -60,10 +75,11 @@ export class ObjectMaterializer {
   }
 
   _resolveValue(
-    valueNode: ValueNode | TaggedValue | null | undefined,
+    rawValue: FrameValue | null | undefined,
     runtimeValues: Map<number, TaggedValue> | undefined,
     materialized: Map<number, TaggedValue>,
   ): TaggedValue {
+    const valueNode = rawValue as ValueNode | TaggedValue | null | undefined;
     if (valueNode === null || valueNode === undefined) {
       return mkUndefined();
     }

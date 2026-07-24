@@ -565,7 +565,12 @@ export function tryInline(
         check.frameState = frameState;
         currentBlock.addNode(check);
         graph.addDependency(DEP_MAP, propertyHint.map, propertyHint.mapVersion);
-        const store = ir.irStoreField(check, propertyHint.offset, inlineAcc);
+        const store = ir.irStoreField(
+          check,
+          propertyHint.offset,
+          inlineAcc,
+          typeof propName === "string" ? propName : undefined,
+        );
         currentBlock.addNode(store);
       } else if (
         propertyHint &&

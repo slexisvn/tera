@@ -1,15 +1,10 @@
+import { DEFAULT_DURATION_MS, DEFAULT_SPEED, normalizeSpeed, SPEED_OPTIONS } from '../../../src/runtime/domain/chart/animation';
 import type { PlayerOptions } from './types';
 
-export const DEFAULT_DURATION_MS = 2200;
-export const DEFAULT_SPEED = 1;
-export const SPEED_OPTIONS = [0.5, 1, 2, 4];
+export { DEFAULT_DURATION_MS, DEFAULT_SPEED, normalizeSpeed, SPEED_OPTIONS };
 
 const FRACTION_MIN = 0;
 const FRACTION_MAX = 1;
-
-export function normalizeSpeed(value: number) {
-  return SPEED_OPTIONS.includes(value) ? value : DEFAULT_SPEED;
-}
 
 export function createPlayer({ duration = DEFAULT_DURATION_MS, speed: initialSpeed = DEFAULT_SPEED, loop: initialLoop = false, initialFraction = FRACTION_MAX, onUpdate }: PlayerOptions = {}) {
   let fraction = clampFraction(initialFraction);

@@ -22,13 +22,13 @@ describe("Tera objects and collections", () => {
     expect(run("[1, 2, 3].find_index(x => x == 2)")).toBe(1);
   });
 
-  it("builds chart specs through named arguments", () => {
-    expect(native("chart.line([[0, 1], [1, 3]], x=0, y=1).series[0].points[1].y")).toBe(3);
-    expect(native("chart.histogram([1, 2, 2, 3], bins=2).pointCount")).toBe(2);
+  it("builds chart specs through named arguments", async () => {
+    expect(await native("chart.line([[0, 1], [1, 3]], x=0, y=1).series[0].points[1].y")).toBe(3);
+    expect(await native("chart.histogram([1, 2, 2, 3], bins=2).pointCount")).toBe(2);
   });
 
-  it("builds non-empty chart specs from DataFrame columns", () => {
-    const spec = native([
+  it("builds non-empty chart specs from DataFrame columns", async () => {
+    const spec = await native([
       "metrics = DataFrame(epoch=[1, 2, 3, 4], loss=[1.0, 0.72, 0.48, 0.31], val_loss=[1.1, 0.81, 0.6, 0.44])",
       "chart.line(metrics, x=\"epoch\", y=[\"loss\", \"val_loss\"], title=\"Training\")",
     ].join("\n")) as { pointCount: number; series: Array<{ name: string; points: Array<{ x: unknown; y: number }> }> };

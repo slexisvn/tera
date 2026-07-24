@@ -4,7 +4,10 @@ import type { CFGBlock, CFGFunction } from "../ir/index.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
 import { computeDominators, dominates } from "./dominators.js";
-import { visitFrameStateValues } from "./frame-state-values.js";
+import {
+  sunkAllocationIds,
+  visitFrameStateValues,
+} from "./frame-state-values.js";
 
 function reachableFrom(header: CFGBlock): Set<number> {
   const reachable = new Set<number>();
@@ -183,11 +186,13 @@ export function repairFrameStateDominance(graph: CFGFunction): number {
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
       if (!node.frameState) continue;
+      const sunkIds = sunkAllocationIds(node.frameState);
       visitFrameStateValues(node.frameState, (value, replace) => {
         if (!(value instanceof CFGInstruction)) return;
         if (value.type === ir.IR_PARAMETER || value.type === ir.IR_CONSTANT) {
           return;
         }
+        if (sunkIds.has(value.id)) return;
         const defBlock = blockOf.get(value);
         if (defBlock && dominates(idom, defBlock, block)) return;
         if (!placeholder) placeholder = ir.irConstant(undefined);

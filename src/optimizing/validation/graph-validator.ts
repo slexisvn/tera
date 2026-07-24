@@ -17,6 +17,7 @@ import {
   type DominatorBlock,
 } from "../passes/dominators.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
+import { sunkAllocationIds } from "../passes/frame-state-values.js";
 
 type ValidationNode = CFGInstruction;
 type ValidationBlock = CFGBlock;
@@ -423,6 +424,7 @@ function validateFrameStateValues(
 ): void {
   if (!frameState || seen.has(frameState)) return;
   seen.add(frameState);
+  const sunkIds = sunkAllocationIds(frameState as never);
 
   for (const [slot, value] of frameState.localValues || []) {
     validateFrameStateValueAvailable(
@@ -433,6 +435,7 @@ function validateFrameStateValues(
       locations,
       dominators,
       errors,
+      sunkIds,
     );
   }
 
@@ -446,6 +449,7 @@ function validateFrameStateValues(
       locations,
       dominators,
       errors,
+      sunkIds,
     );
   }
 
@@ -458,6 +462,7 @@ function validateFrameStateValues(
       locations,
       dominators,
       errors,
+      sunkIds,
     );
   }
 
@@ -480,8 +485,10 @@ function validateFrameStateValueAvailable(
   locations: Map<ValidationNode, ValueLocation>,
   dominators: Map<DominatorBlock, DominatorBlock>,
   errors: string[],
+  sunkIds?: Set<number>,
 ): void {
   if (!(value instanceof CFGInstruction)) return;
+  if (sunkIds?.has(value.id)) return;
   const beforeCount = errors.length;
   validateInputAvailable(
     value,

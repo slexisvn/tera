@@ -1,13 +1,9 @@
+import { EASING_NAMES, getEasing } from '../../../src/runtime/domain/chart/animation';
 import type { ChartPoint, ChartScale, ChartSeries } from './types';
 
-export const DEFAULT_FRAME_DURATION_MS = 900;
-export const DEFAULT_EASING = 'cubic';
+export { EASING_NAMES, getEasing };
 export const TARGET_FPS = 60;
 
-const HALF = 0.5;
-
-type EasingName = keyof typeof EASINGS;
-type Easing = (t: number) => number;
 type Rgb = [number, number, number];
 type Segment = { from: number; to: number; t: number; index: number };
 type TweenMark = {
@@ -21,27 +17,6 @@ type TweenMark = {
   point?: ChartPoint;
 };
 type MarkMap = Map<string, TweenMark>;
-
-const easeInOutQuad = (t: number) => (t < HALF ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
-const easeInOutCubic = (t: number) => (t < HALF ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
-const easeInOutSine = (t: number) => -(Math.cos(Math.PI * t) - 1) / 2;
-
-const EASINGS = {
-  linear: (t: number) => t,
-  ease: easeInOutQuad,
-  'ease-in-out': easeInOutSine,
-  cubic: easeInOutCubic,
-};
-
-export const EASING_NAMES = Object.keys(EASINGS);
-
-export function getEasing(name: unknown): Easing {
-  return EASINGS[normalizeEasing(name)];
-}
-
-export function normalizeEasing(name: unknown): EasingName {
-  return typeof name === 'string' && name in EASINGS ? name as EasingName : DEFAULT_EASING;
-}
 
 export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;

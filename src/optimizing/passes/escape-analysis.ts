@@ -6,8 +6,12 @@ import {
   buildDominatorTree,
   dominates,
 } from "./dominators.js";
-import { replaceGraphFrameStateValue } from "./frame-state-values.js";
+import {
+  replaceGraphFrameStateValue,
+  visitFrameStateValues,
+} from "./frame-state-values.js";
 import { detachInputs } from "./graph-edit.js";
+import type { FrameValue } from "../../deopt/frame-state.js";
 
 type EscapeNode = ir.CFGInstruction;
 type EscapeBlock = ir.CFGBlock;
@@ -108,6 +112,26 @@ export function escapeAnalysisAndScalarReplacement(graph: EscapeGraph): number {
       }
     }
 
+    const recordVirtualState = (
+      node: EscapeNode,
+      propState: ValueState,
+      offsetState: ValueState,
+    ): void => {
+      const frameState = node.frameState;
+      if (!frameState) return;
+      let referenced = false;
+      visitFrameStateValues(frameState, (value) => {
+        if (value && aliases.has(value as EscapeNode)) referenced = true;
+      });
+      if (!referenced) return;
+      const sunk = frameState.sunkAllocations ?? new Map();
+      sunk.set(alloc.id, {
+        fields: new Map(offsetState) as Map<number, FrameValue>,
+        props: new Map(propState) as Map<string, FrameValue>,
+      });
+      frameState.setSunkAllocations(sunk);
+    };
+
     const processBlock = (
       block: EscapeBlock,
       propState: ValueState,
@@ -115,6 +139,7 @@ export function escapeAnalysisAndScalarReplacement(graph: EscapeGraph): number {
     ): void => {
       for (let i = 0; i < block.nodes.length; i++) {
         const node = block.nodes[i];
+        recordVirtualState(node, propState, offsetState);
         if (node === alloc) continue;
         if (!safeUses.has(node)) continue;
 
@@ -131,6 +156,9 @@ export function escapeAnalysisAndScalarReplacement(graph: EscapeGraph): number {
           const offset = node.props.offset;
           const value = node.inputs[1];
           offsetState.set(offset, value);
+          if (typeof node.props.propName === "string") {
+            propState.set(node.props.propName, value);
+          }
           toDelete.add(node.id);
         } else if (
           node.type === ir.IR_LOAD_FIELD &&
@@ -204,12 +232,6 @@ export function escapeAnalysisAndScalarReplacement(graph: EscapeGraph): number {
       }
     };
 
-    const relevantBlocks = new Set<EscapeBlock>([allocBlock]);
-    for (const use of safeUses) {
-      const useBlock = blockOf.get(use);
-      if (useBlock) relevantBlocks.add(useBlock);
-    }
-
     const walkDom = (
       block: EscapeBlock,
       propState: ValueState,
@@ -217,9 +239,7 @@ export function escapeAnalysisAndScalarReplacement(graph: EscapeGraph): number {
     ): void => {
       const localProp = new Map(propState);
       const localOffset = new Map(offsetState);
-      if (relevantBlocks.has(block)) {
-        processBlock(block, localProp, localOffset);
-      }
+      processBlock(block, localProp, localOffset);
       for (const child of (children.get(block) || []) as EscapeBlock[]) {
         walkDom(child, localProp, localOffset);
       }
