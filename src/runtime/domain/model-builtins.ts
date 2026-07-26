@@ -12,7 +12,7 @@ import {
 } from "../../core/value/index.js";
 import type { JSObject } from "../../objects/heap/js-object.js";
 import { runtimeGetProperty } from "../../objects/exotic/proxy-ops.js";
-import { snakeToCamel } from "../../core/naming.js";
+import { snakeToCamel } from "../../utils/naming.js";
 import { camelOptions, resolveDevice, splitOptions, type NativeFn } from "./common.js";
 import { MODEL_MARKER } from "../../frontend/parser/index.js";
 import { bindModelBridge, nativeToTagged, optionsArg, taggedToNative } from "./host.js";
@@ -26,7 +26,6 @@ type InterpreterLike = {
 
 type BuiltinMap = Record<string, RuntimeFunctionPayload>;
 
-const ml = mlfw as Record<string, unknown>;
 const STEP_METHODS = { train: "trainingStep", validate: "validationStep", optimizer: "configureOptimizers" } as const;
 const domainBuiltins = runtimeBuiltinMetadataFromSpec(TERA_BUILTINS);
 
@@ -52,8 +51,8 @@ function ownFields(model: TaggedValue): Array<[string, TaggedValue]> {
 function saveCheckpoint(model: { stateDict?: () => unknown }, path: unknown): void {
   if (typeof model.stateDict !== "function") throw new Error("save() requires a model");
   if (typeof path !== "string") throw new Error("save() requires a file path string");
-  const memfs = ml.memfs as { writeBinary(path: string, data: unknown): void; rename(from: string, to: string): void };
-  memfs.writeBinary(`${path}.tmp`, (ml.serializeCheckpoint as NativeFn)({ modelState: model.stateDict() }));
+  const memfs = mlfw.memfs as { writeBinary(path: string, data: unknown): void; rename(from: string, to: string): void };
+  memfs.writeBinary(`${path}.tmp`, (mlfw.serializeCheckpoint as NativeFn)({ modelState: model.stateDict() }));
   memfs.rename(`${path}.tmp`, path);
 }
 
@@ -65,7 +64,7 @@ function createBridge(model: TaggedValue, interpreter: InterpreterLike): unknown
     if (fn !== null) steps.push([nativeName, fn]);
   }
 
-  const Base = (steps.length > 0 ? ml.LightningModule : ml.Module) as new () => Record<string, unknown>;
+  const Base = (steps.length > 0 ? mlfw.LightningModule : mlfw.Module) as new () => Record<string, unknown>;
   const name = isString(runtimeGetProperty(model, MODEL_MARKER, interpreter))
     ? toDisplayString(runtimeGetProperty(model, MODEL_MARKER, interpreter))
     : "Model";

@@ -917,23 +917,6 @@ export function executeRuntimeStub(
       runtime.syncTagged?.(rawArgs[0]);
       return runtimeReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_LOAD_FIELD: {
-      const target = objectPayloadByOffset(args[0]);
-      const offset = numberFromMetadata(node.props.offset);
-      let val: TaggedValue = mkUndefined();
-      if (target && offset >= 0 && offset < target.slots.length) {
-        const slot = target.slots[offset];
-        if (typeof slot === "number") val = slot;
-      }
-      return runtimeReturn(val, runtime, stub.outputRep);
-    }
-    case ir.IR_STORE_FIELD: {
-      const target = objectPayloadByOffset(args[0]);
-      const offset = numberFromMetadata(node.props.offset);
-      if (target && offset >= 0 && offset < target.slots.length)
-        target.slots[offset] = args[1];
-      return runtimeReturn(args[1], runtime, stub.outputRep);
-    }
     default:
       throw new Error("Unsupported runtime stub: " + node.type);
   }

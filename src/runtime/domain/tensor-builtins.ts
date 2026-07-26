@@ -1,9 +1,7 @@
 import * as mlfw from "@slexisvn/mlfw";
 import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
-import { snakeToCamel } from "../../core/naming.js";
+import { snakeToCamel } from "../../utils/naming.js";
 import { callWithOptions, camelOptions, constructWithOptions, register, splitOptions, type BuiltinMap, type NativeCtor, type NativeFn } from "./common.js";
-
-const ml = mlfw as Record<string, unknown>;
 
 export const TENSOR_FACTORIES = [
   "tensor", "zeros", "ones", "empty", "full", "randn", "arange", "eye", "linspace", "randperm",
@@ -67,13 +65,13 @@ function optimConfig(...args: unknown[]): unknown {
 function loadModel(model: unknown, path: unknown): unknown {
   if (!model || typeof (model as { loadStateDict?: unknown }).loadStateDict !== "function") throw new Error("load_model() requires a model as the first argument");
   if (typeof path !== "string") throw new Error("load_model() requires a file path string");
-  (ml.applyCheckpoint as NativeFn)((ml.loadCheckpoint as NativeFn)(path), model);
+  (mlfw.applyCheckpoint as NativeFn)((mlfw.loadCheckpoint as NativeFn)(path), model);
   return model;
 }
 
 function readText(path: unknown): string {
   if (typeof path !== "string") throw new Error("read_text() requires a file path string");
-  const data = (ml.memfs as { readFile(path: string): string | Uint8Array }).readFile(path);
+  const data = (mlfw.memfs as { readFile(path: string): string | Uint8Array }).readFile(path);
   return typeof data === "string" ? data : new TextDecoder().decode(data);
 }
 
@@ -83,17 +81,17 @@ function loadJson(path: unknown): unknown {
 
 export function installTensorBuiltins(map: BuiltinMap, metadata: Record<string, RuntimeFunctionMetadata>): void {
   for (const name of [...TENSOR_FACTORIES, ...FREE_TENSOR_FUNCTIONS]) {
-    register(map, name, callWithOptions(ml[snakeToCamel(name)] as NativeFn, metadata[name]), metadata[name]);
+    register(map, name, callWithOptions((mlfw as any)[snakeToCamel(name)] as NativeFn, metadata[name]), metadata[name]);
   }
   for (const name of TENSOR_MODULES) {
-    const ctor = ml[name] as NativeCtor | undefined;
+    const ctor = mlfw[name] as NativeCtor | undefined;
     if (typeof ctor !== "function") continue;
     const construct = constructWithOptions(ctor, metadata[name]);
     register(map, name, OPTIMIZERS.includes(name as never) ? requireFirst(name, "params", construct) : construct, metadata[name]);
   }
-  if (typeof ml.Tokenizer === "function") {
-    register(map, "Tokenizer", constructWithOptions(ml.Tokenizer as NativeCtor, metadata.Tokenizer), metadata.Tokenizer);
-    register(map, "load_tokenizer", (path) => (ml.Tokenizer as { load(path: unknown): unknown }).load(path), metadata.load_tokenizer);
+  if (typeof mlfw.Tokenizer === "function") {
+    register(map, "Tokenizer", constructWithOptions(mlfw.Tokenizer as NativeCtor, metadata.Tokenizer), metadata.Tokenizer);
+    register(map, "load_tokenizer", (path) => (mlfw.Tokenizer as { load(path: unknown): unknown }).load(path), metadata.load_tokenizer);
   }
   register(map, "optim_config", optimConfig, metadata.optim_config);
   register(map, "load_model", loadModel, metadata.load_model);

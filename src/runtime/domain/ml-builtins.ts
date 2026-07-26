@@ -2,8 +2,8 @@ import * as mlfw from "@slexisvn/mlfw";
 import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
 import { camelOptions, register, splitOptions, type BuiltinMap, type NativeCtor, type NativeFn } from "./common.js";
 
-const ml = (mlfw as Record<string, unknown>).ml as Record<string, unknown>;
-const linalg = (mlfw as Record<string, unknown>).linalg as Record<string, unknown>;
+const ml = mlfw.ml;
+const linalg = mlfw.linalg;
 
 export const ML_MODELS = [
   "LinearRegression", "Ridge", "Lasso", "ElasticNet", "LogisticRegression",

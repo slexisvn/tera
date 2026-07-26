@@ -25,7 +25,7 @@ import {
 import { createJSArray, createJSMap, createJSObject } from "../../objects/heap/factory.js";
 import type { JSObject } from "../../objects/heap/js-object.js";
 import { AccessorPair } from "../../objects/heap/js-object.js";
-import { camelToSnake } from "../../core/naming.js";
+import { camelToSnake } from "../../utils/naming.js";
 import { mkPromiseCapability } from "../async/promise.js";
 import type { MicrotaskQueue } from "../microtasks/microtask.js";
 import { MODEL_MARKER } from "../../frontend/parser/index.js";

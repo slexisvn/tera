@@ -17,8 +17,6 @@ import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
 import { optionsArg } from "./host.js";
 import { register, splitOptions, type BuiltinMap, type NativeFn } from "./common.js";
 
-const makeTensor = (mlfw as Record<string, unknown>).tensor as NativeFn;
-
 const queryEngine = createEngine();
 let tableId = 0;
 
@@ -110,7 +108,7 @@ async function frameToTensor(frame: Frame, columns: string[]): Promise<unknown> 
       flat[cursor++] = value;
     }
   }
-  return makeTensor(flat, { shape: [rows.length, width] });
+  return mlfw.tensor(flat, { shape: [rows.length, width] });
 }
 
 async function frameEncode(frame: Frame, column: unknown, known: unknown): Promise<unknown[]> {
@@ -131,7 +129,7 @@ async function frameEncode(frame: Frame, column: unknown, known: unknown): Promi
     }
     encoded[row] = index;
   }
-  return [makeTensor(encoded, { shape: [rows.length] }), classes];
+  return [mlfw.tensor(encoded, { shape: [rows.length] }), classes];
 }
 
 function installFrameMethods(): void {

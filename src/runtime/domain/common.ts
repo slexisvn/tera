@@ -1,6 +1,6 @@
 import * as mlfw from "@slexisvn/mlfw";
 import type { RuntimeFunctionMetadata, RuntimeFunctionPayload, TaggedValue } from "../../core/value/index.js";
-import { camelToSnake, snakeToCamel } from "../../core/naming.js";
+import { camelToSnake, snakeToCamel } from "../../utils/naming.js";
 import { hostBuiltin, optionsArg } from "./host.js";
 
 export { snakeToCamel };

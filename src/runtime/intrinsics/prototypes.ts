@@ -10,7 +10,7 @@ import { createJSObject } from "../../objects/heap/factory.js";
 import { mkFunction, wellKnownSymbols } from "../../core/value/index.js";
 import type { RuntimeFunctionPayload } from "../../core/value/index.js";
 import type { JSObject } from "../../objects/heap/js-object.js";
-import { camelToSnake } from "../../core/naming.js";
+import { camelToSnake } from "../../utils/naming.js";
 
 type BuiltinMethod = RuntimeFunctionPayload & {
   name: string;

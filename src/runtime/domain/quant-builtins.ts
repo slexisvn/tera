@@ -4,8 +4,6 @@ import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
 import { camelOptions, nativeRecord, recordValue, register, splitOptions, type BuiltinMap, type NativeFn } from "./common.js";
 import { dataframeFromColumns, framePanel, isDataFrame } from "./dataframe-builtins.js";
 
-const quant = quantc as Record<string, unknown>;
-
 export const QUANT_ADVANCED = [
   "deflated_sharpe", "pbo", "min_track_record_length", "quill", "load_quill",
   "adf_test", "kpss_test", "hurst_exponent", "half_life",
@@ -23,29 +21,29 @@ type AlphaSpec = { fn: NativeFn; args: AlphaArg[]; returns: "record" | "bars" | 
 const arg = (name: string, kind: string, defaultValue?: unknown): AlphaArg => ({ name, kind, defaultValue });
 
 const ALPHA: Record<string, AlphaSpec> = {
-  adf_test: { fn: quant.adfTest as NativeFn, args: [arg("series", "series"), arg("lags", "number", 0), arg("trend", "string", "constant")], returns: "record" },
-  kpss_test: { fn: quant.kpssTest as NativeFn, args: [arg("series", "series"), arg("trend", "string", "constant"), arg("lags", "number")], returns: "record" },
-  hurst_exponent: { fn: quant.hurstExponent as NativeFn, args: [arg("series", "series"), arg("min_window", "number", 10), arg("max_window", "number"), arg("growth", "number", 1.5)], returns: "value" },
-  half_life: { fn: quant.halfLife as NativeFn, args: [arg("series", "series")], returns: "value" },
-  engle_granger: { fn: quant.engleGranger as NativeFn, args: [arg("dependent", "series"), arg("regressors", "matrix"), arg("lags", "number", 0)], returns: "record" },
-  johansen: { fn: quant.johansen as NativeFn, args: [arg("levels", "matrix"), arg("lags", "number", 1)], returns: "record" },
-  cusum_events: { fn: quant.cusumEvents as NativeFn, args: [arg("series", "series"), arg("threshold", "number"), arg("drift", "number", 0)], returns: "value" },
-  sadf: { fn: quant.sadfStatistic as NativeFn, args: [arg("series", "series"), arg("min_window", "number", 20), arg("lags", "number", 0), arg("trend", "string", "constant")], returns: "value" },
-  bsadf: { fn: quant.bsadfSeries as NativeFn, args: [arg("series", "series"), arg("min_window", "number", 20), arg("lags", "number", 0), arg("trend", "string", "constant")], returns: "value" },
-  kalman_filter: { fn: quant.kalmanFilter as NativeFn, args: [arg("observations", "series"), arg("observation_vectors", "matrix"), arg("spec", "object")], returns: "record" },
-  kalman_smoother: { fn: quant.kalmanSmoother as NativeFn, args: [arg("observations", "series"), arg("observation_vectors", "matrix"), arg("spec", "object")], returns: "value" },
-  dynamic_beta: { fn: quant.dynamicBeta as NativeFn, args: [arg("dependent", "series"), arg("regressors", "matrix"), arg("config", "options")], returns: "record" },
-  fit_garch: { fn: quant.fitGarch as NativeFn, args: [arg("returns", "series"), arg("options", "options")], returns: "record" },
-  garch_forecast: { fn: quant.garchForecast as NativeFn, args: [arg("returns", "series"), arg("params", "object"), arg("horizon", "number"), arg("initial_variance", "number")], returns: "value" },
-  garch_volatility: { fn: quant.garchVolatility as NativeFn, args: [arg("returns", "series"), arg("params", "object"), arg("initial_variance", "number")], returns: "value" },
-  tick_bars: { fn: quant.tickBars as NativeFn, args: [arg("ticks", "ticks"), arg("ticks_per_bar", "number")], returns: "bars" },
-  volume_bars: { fn: quant.volumeBars as NativeFn, args: [arg("ticks", "ticks"), arg("volume_per_bar", "number")], returns: "bars" },
-  dollar_bars: { fn: quant.dollarBars as NativeFn, args: [arg("ticks", "ticks"), arg("dollar_per_bar", "number")], returns: "bars" },
-  tick_rule: { fn: quant.tickRule as NativeFn, args: [arg("prices", "series")], returns: "value" },
-  roll_spread: { fn: quant.rollSpread as NativeFn, args: [arg("prices", "series")], returns: "value" },
-  amihud: { fn: quant.amihudIlliquidity as NativeFn, args: [arg("returns", "series"), arg("dollar_volumes", "series")], returns: "value" },
-  kyle_lambda: { fn: quant.kyleLambda as NativeFn, args: [arg("prices", "series"), arg("volumes", "series")], returns: "value" },
-  vpin: { fn: quant.vpin as NativeFn, args: [arg("ticks", "ticks"), arg("bucket_volume", "number"), arg("window", "number", 50)], returns: "value" },
+  adf_test: { fn: quantc.adfTest as NativeFn, args: [arg("series", "series"), arg("lags", "number", 0), arg("trend", "string", "constant")], returns: "record" },
+  kpss_test: { fn: quantc.kpssTest as NativeFn, args: [arg("series", "series"), arg("trend", "string", "constant"), arg("lags", "number")], returns: "record" },
+  hurst_exponent: { fn: quantc.hurstExponent as NativeFn, args: [arg("series", "series"), arg("min_window", "number", 10), arg("max_window", "number"), arg("growth", "number", 1.5)], returns: "value" },
+  half_life: { fn: quantc.halfLife as NativeFn, args: [arg("series", "series")], returns: "value" },
+  engle_granger: { fn: quantc.engleGranger as NativeFn, args: [arg("dependent", "series"), arg("regressors", "matrix"), arg("lags", "number", 0)], returns: "record" },
+  johansen: { fn: quantc.johansen as NativeFn, args: [arg("levels", "matrix"), arg("lags", "number", 1)], returns: "record" },
+  cusum_events: { fn: quantc.cusumEvents as NativeFn, args: [arg("series", "series"), arg("threshold", "number"), arg("drift", "number", 0)], returns: "value" },
+  sadf: { fn: quantc.sadfStatistic as NativeFn, args: [arg("series", "series"), arg("min_window", "number", 20), arg("lags", "number", 0), arg("trend", "string", "constant")], returns: "value" },
+  bsadf: { fn: quantc.bsadfSeries as NativeFn, args: [arg("series", "series"), arg("min_window", "number", 20), arg("lags", "number", 0), arg("trend", "string", "constant")], returns: "value" },
+  kalman_filter: { fn: quantc.kalmanFilter as NativeFn, args: [arg("observations", "series"), arg("observation_vectors", "matrix"), arg("spec", "object")], returns: "record" },
+  kalman_smoother: { fn: quantc.kalmanSmoother as NativeFn, args: [arg("observations", "series"), arg("observation_vectors", "matrix"), arg("spec", "object")], returns: "value" },
+  dynamic_beta: { fn: quantc.dynamicBeta as NativeFn, args: [arg("dependent", "series"), arg("regressors", "matrix"), arg("config", "options")], returns: "record" },
+  fit_garch: { fn: quantc.fitGarch as NativeFn, args: [arg("returns", "series"), arg("options", "options")], returns: "record" },
+  garch_forecast: { fn: quantc.garchForecast as NativeFn, args: [arg("returns", "series"), arg("params", "object"), arg("horizon", "number"), arg("initial_variance", "number")], returns: "value" },
+  garch_volatility: { fn: quantc.garchVolatility as NativeFn, args: [arg("returns", "series"), arg("params", "object"), arg("initial_variance", "number")], returns: "value" },
+  tick_bars: { fn: quantc.tickBars as NativeFn, args: [arg("ticks", "ticks"), arg("ticks_per_bar", "number")], returns: "bars" },
+  volume_bars: { fn: quantc.volumeBars as NativeFn, args: [arg("ticks", "ticks"), arg("volume_per_bar", "number")], returns: "bars" },
+  dollar_bars: { fn: quantc.dollarBars as NativeFn, args: [arg("ticks", "ticks"), arg("dollar_per_bar", "number")], returns: "bars" },
+  tick_rule: { fn: quantc.tickRule as NativeFn, args: [arg("prices", "series")], returns: "value" },
+  roll_spread: { fn: quantc.rollSpread as NativeFn, args: [arg("prices", "series")], returns: "value" },
+  amihud: { fn: quantc.amihudIlliquidity as NativeFn, args: [arg("returns", "series"), arg("dollar_volumes", "series")], returns: "value" },
+  kyle_lambda: { fn: quantc.kyleLambda as NativeFn, args: [arg("prices", "series"), arg("volumes", "series")], returns: "value" },
+  vpin: { fn: quantc.vpin as NativeFn, args: [arg("ticks", "ticks"), arg("bucket_volume", "number"), arg("window", "number", 50)], returns: "value" },
 };
 
 function tensorArray(data: unknown): unknown {
@@ -116,7 +114,7 @@ function quantFunction(name: unknown, fallback: string, ...args: unknown[]): unk
     cross_sectional: "crossSectional",
   };
   const key = typeof name === "string" ? aliases[name] ?? name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()) : fallback;
-  const candidate = quant[key];
+  const candidate = (quantc as any)[key];
   if (typeof candidate !== "function") throw new Error(`Unknown quant function '${String(name)}'`);
   return (candidate as NativeFn)(...args);
 }
@@ -138,7 +136,7 @@ function withPanel<T>(value: unknown, use: (panel: number[][]) => T, columns?: s
 }
 
 function withCovariance<T>(value: unknown, use: (cov: number[][]) => T): T | Promise<T> {
-  const sample = (quant.sampleCovariance as NativeFn);
+  const sample = (quantc.sampleCovariance as NativeFn);
   return withPanel(value, isDataFrame(value) ? (panel) => use(sample(panel) as number[][]) : use);
 }
 
@@ -156,20 +154,20 @@ function runBacktest(walkForward: boolean, prices: unknown, ...args: unknown[]):
   const { options } = splitOptions(args);
   const signal = quantFunction(options.signal, "momentum", Number(options.lookback ?? 20));
   const portfolio = quantFunction(options.portfolio, "longShortRank", Number(options.fraction ?? 0.5));
-  const strategy = (quant.compose as NativeFn)(signal, portfolio);
+  const strategy = (quantc.compose as NativeFn)(signal, portfolio);
   const config = backtestConfig(options);
   const columns = Array.isArray(options.asset_columns) ? options.asset_columns.map(String) : undefined;
   return withPanel(prices, (panel) => resultToTera(
     walkForward
-      ? (quant.walkForward as NativeFn)(panel, () => strategy, config)
-      : (quant.backtest as NativeFn)(panel, strategy, config),
+      ? (quantc.walkForward as NativeFn)(panel, () => strategy, config)
+      : (quantc.backtest as NativeFn)(panel, strategy, config),
   ), columns);
 }
 
 function parseAndCheck(source: unknown): unknown {
   if (typeof source !== "string") throw new Error("expected Quill product source as a string");
-  const product = (quant.parseProduct as NativeFn)(source);
-  const errors = (quant.checkProduct as NativeFn)(product) as Array<{ line: number; col: number; message: string }>;
+  const product = (quantc.parseProduct as NativeFn)(source);
+  const errors = (quantc.checkProduct as NativeFn)(product) as Array<{ line: number; col: number; message: string }>;
   if (errors.length > 0) throw new Error(`Quill type errors:\n${errors.map((e) => `  line ${e.line}:${e.col} ${e.message}`).join("\n")}`);
   return product;
 }
@@ -188,7 +186,7 @@ function productHandle(product: unknown): unknown {
     name: (product as { name?: unknown }).name ?? null,
     price: (...args: unknown[]) => {
       const { options } = splitOptions(args);
-      const result = (quant.priceProduct as NativeFn)(product, market(options), options.paths ?? 100000, options.seed ?? 1, options.greeks !== undefined ? { greeks: options.greeks } : {});
+      const result = (quantc.priceProduct as NativeFn)(product, market(options), options.paths ?? 100000, options.seed ?? 1, options.greeks !== undefined ? { greeks: options.greeks } : {});
       const priced = result as { price: unknown; standardError: unknown; greeks: unknown };
       return recordValue({ price: priced.price, standard_error: priced.standardError, greeks: priced.greeks });
     },
@@ -202,7 +200,7 @@ function loadQuill(path: unknown): unknown {
 }
 
 export function installQuantBuiltins(map: BuiltinMap, metadata: Record<string, RuntimeFunctionMetadata>): void {
-  const fn = (name: string): NativeFn => quant[name] as NativeFn;
+  const fn = (name: string): NativeFn => (quantc as any)[name];
   register(map, "momentum", (...args) => fn("momentum")(Number(splitOptions(args).options.lookback ?? args[0] ?? 20)), metadata.momentum);
   register(map, "mean_reversion", (...args) => fn("meanReversion")(Number(splitOptions(args).options.lookback ?? args[0] ?? 20)), metadata.mean_reversion);
   register(map, "zscore", (...args) => fn("zscore")(Number(splitOptions(args).options.window ?? args[0] ?? 20)), metadata.zscore);

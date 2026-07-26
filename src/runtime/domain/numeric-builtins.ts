@@ -1,9 +1,9 @@
 import * as mlfw from "@slexisvn/mlfw";
 import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
-import { camelOptions, recordValue, register, splitOptions, type BuiltinMap, type NativeFn } from "./common.js";
+import { camelOptions, register, splitOptions, type BuiltinMap, type NativeFn } from "./common.js";
 
-const numeric = (mlfw as Record<string, unknown>).numeric as Record<string, unknown>;
-const ops = (mlfw as Record<string, unknown>).ops as Record<string, unknown>;
+const numeric = mlfw.numeric;
+const ops = mlfw.ops;
 
 export const NUMERIC_DIST_FUNCS = [
   "normal_cdf", "normal_ppf", "normal_pdf",
@@ -89,16 +89,13 @@ const ARRAY_OP_IMPLS: Record<string, NativeFn> = {
   polyroots: numeric.polyroots as NativeFn,
 };
 
-type GeneratorLike = Record<string, NativeFn>;
-const Generator = numeric.Generator as new (seed?: never) => GeneratorLike;
-
 const RANDOM_IMPLS: Record<string, NativeFn> = {
-  random_uniform: (shape, opts = {}) => new Generator((opts as Record<string, unknown>).seed as never).uniform(shape as never, opts as never),
-  random_normal: (shape, opts = {}) => new Generator((opts as Record<string, unknown>).seed as never).normal(shape as never, opts as never),
-  random_t: (shape, df, opts = {}) => new Generator((opts as Record<string, unknown>).seed as never).standardT(shape as never, { ...(opts as object), df: df ?? (opts as Record<string, unknown>).df } as never),
-  random_chi2: (shape, df, opts = {}) => new Generator((opts as Record<string, unknown>).seed as never).chi2(shape as never, { ...(opts as object), df: df ?? (opts as Record<string, unknown>).df } as never),
-  random_exponential: (shape, opts = {}) => new Generator((opts as Record<string, unknown>).seed as never).exponential(shape as never, opts as never),
-  multivariate_normal: (mean, cov, n, opts = {}) => new Generator((opts as Record<string, unknown>).seed as never).multivariateNormal(mean as never, cov as never, (n ?? (opts as Record<string, unknown>).n ?? 1) as never, opts as never),
+  random_uniform: (shape, opts = {}) => new numeric.Generator((opts as Record<string, unknown>).seed as never).uniform(shape as never, opts as never),
+  random_normal: (shape, opts = {}) => new numeric.Generator((opts as Record<string, unknown>).seed as never).normal(shape as never, opts as never),
+  random_t: (shape, df, opts = {}) => new numeric.Generator((opts as Record<string, unknown>).seed as never).standardT(shape as never, { ...(opts as object), df: df ?? (opts as Record<string, unknown>).df } as never),
+  random_chi2: (shape, df, opts = {}) => new numeric.Generator((opts as Record<string, unknown>).seed as never).chi2(shape as never, { ...(opts as object), df: df ?? (opts as Record<string, unknown>).df } as never),
+  random_exponential: (shape, opts = {}) => new numeric.Generator((opts as Record<string, unknown>).seed as never).exponential(shape as never, opts as never),
+  multivariate_normal: (mean, cov, n, opts = {}) => new numeric.Generator((opts as Record<string, unknown>).seed as never).multivariateNormal(mean as never, cov as never, (n ?? (opts as Record<string, unknown>).n ?? 1) as never, opts as never),
 };
 
 function optsCall(fn: NativeFn): NativeFn {
@@ -107,11 +104,6 @@ function optsCall(fn: NativeFn): NativeFn {
     while (values.length < Math.max(0, fn.length - 1)) values.push(undefined);
     return fn(...values, camelOptions(options));
   };
-}
-
-function recordCall(fn: NativeFn): NativeFn {
-  const call = optsCall(fn);
-  return (...args) => recordValue(call(...args));
 }
 
 function distCall(name: string): NativeFn {
@@ -124,8 +116,8 @@ export function installNumericBuiltins(map: BuiltinMap, metadata: Record<string,
   for (const name of NUMERIC_SPECIAL_FUNCS) register(map, name, (...args) => (ops[name] as NativeFn)(...args), metadata[name]);
   for (const name of NUMERIC_TRANSFORM_FUNCS) register(map, name, (...args) => (numeric[name] as NativeFn)(...args), metadata[name]);
   for (const name of NUMERIC_INTERP_FUNCS) register(map, name, (...args) => INTERP_IMPLS[name](...args), metadata[name]);
-  for (const name of NUMERIC_STATS_TESTS) register(map, name, recordCall(STATS_TEST_IMPLS[name]), metadata[name]);
-  for (const name of NUMERIC_TIMESERIES) register(map, name, recordCall(TIMESERIES_IMPLS[name]), metadata[name]);
+  for (const name of NUMERIC_STATS_TESTS) register(map, name, STATS_TEST_IMPLS[name], metadata[name]);
+  for (const name of NUMERIC_TIMESERIES) register(map, name, TIMESERIES_IMPLS[name], metadata[name]);
   for (const name of NUMERIC_ARRAY_OPS) register(map, name, optsCall(ARRAY_OP_IMPLS[name]), metadata[name]);
   for (const name of NUMERIC_RANDOM) register(map, name, optsCall(RANDOM_IMPLS[name]), metadata[name]);
 }
