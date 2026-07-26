@@ -1,5 +1,6 @@
 import * as mlfw from "@slexisvn/mlfw";
 import type { RuntimeFunctionMetadata, RuntimeFunctionPayload, TaggedValue } from "../../core/value/index.js";
+import { isNamedArguments } from "../named-arguments.js";
 import { camelToSnake, snakeToCamel } from "../../utils/naming.js";
 import { hostBuiltin, optionsArg } from "./host.js";
 
@@ -44,8 +45,9 @@ function isPlainOptions(value: unknown): value is Record<string, unknown> {
 export function splitOptions(args: unknown[]): { values: unknown[]; options: Record<string, unknown> } {
   const values = args.slice();
   const last = values[values.length - 1];
-  const options = isPlainOptions(last) ? optionsArg(last) : {};
-  if (Object.keys(options).length > 0 && last === options) values.pop();
+  const named = isNamedArguments(last);
+  const options = named ? optionsArg(last) : {};
+  if (named) values.pop();
   return { values, options };
 }
 

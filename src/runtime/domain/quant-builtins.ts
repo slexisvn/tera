@@ -92,11 +92,17 @@ function coerce(kind: string, value: unknown, options: Record<string, unknown>):
   return value;
 }
 
+function argValue(param: AlphaArg, index: number, values: unknown[], options: Record<string, unknown>): unknown {
+  if (values[index] !== undefined) return values[index];
+  if (Object.prototype.hasOwnProperty.call(options, param.name)) return options[param.name];
+  return param.defaultValue;
+}
+
 function alpha(name: string): NativeFn {
   const spec = ALPHA[name]!;
   return (...args) => {
     const { values, options } = splitOptions(args);
-    const callArgs = spec.args.map((param, index) => coerce(param.kind, values[index] ?? options[param.name] ?? param.defaultValue, options));
+    const callArgs = spec.args.map((param, index) => coerce(param.kind, argValue(param, index, values, options), options));
     const result = spec.fn(...callArgs);
     if (spec.returns === "record") return recordValue(result);
     return result;

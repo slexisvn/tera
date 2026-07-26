@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { DataFrame } from "@slexisvn/query-engine";
+import { Engine } from "../../../src/index.js";
 import { backtestConfig, resultToTera } from "../../../src/runtime/domain/quant-builtins.js";
 
 type Frame = { columns(): string[]; collect(): Promise<Array<Record<string, unknown>>> };
@@ -12,6 +13,13 @@ const runResult = (equity: number[], portReturns: number[]) => ({
   turnover: 0.25,
   metrics: { sharpe: 1.5, maxDrawdown: 0.1 },
 });
+
+const native = (source: string) => new Engine().runNative(source);
+
+const garchSetup = [
+  "returns = [0.01, -0.02, 0.015, -0.005, 0.012]",
+  "params = {omega: 0.000001, alpha: 0.1, beta: 0.85}",
+].join("\n");
 
 describe("backtestConfig", () => {
   it("maps the snake_case options onto their camelCase config keys", () => {
@@ -94,5 +102,23 @@ describe("resultToTera", () => {
     const result = resultToTera(runResult([1, 2], [0.1, 0.2])) as Result;
     expect(await result.equity.collect()).toHaveLength(2);
     expect(await result.port_returns.collect()).toHaveLength(2);
+  });
+});
+
+describe("garch_volatility", () => {
+  it("keeps the params object positional when initial_variance is omitted", () => {
+    const result = native(`${garchSetup}\ngarch_volatility(returns, params)`) as number[];
+
+    expect(result).toHaveLength(5);
+    expect(result.every(Number.isFinite)).toBe(true);
+  });
+
+  it("binds named arguments without treating positional objects as options", () => {
+    const positional = native(`${garchSetup}\ngarch_volatility(returns, params, 0.0004)`);
+    const named = native(`${garchSetup}\ngarch_volatility(returns=returns, params=params, initial_variance=0.0004)`);
+    const mixed = native(`${garchSetup}\ngarch_volatility(returns, params, initial_variance=0.0004)`);
+
+    expect(named).toEqual(positional);
+    expect(mixed).toEqual(positional);
   });
 });

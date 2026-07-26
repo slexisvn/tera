@@ -52,6 +52,7 @@ import {
   type RuntimeFunctionPayload,
 } from "../../../core/value/index.js";
 import { markReachableHeapIds } from "../../../gc/roots.js";
+import { markNamedArguments } from "../../../runtime/named-arguments.js";
 
 import {
   createJSObject,
@@ -287,7 +288,7 @@ function boxPrimitive(value: TaggedValue, interpreter: InterpreterLike): TaggedV
 function namedOptionsObject(named: NamedRuntimeArg[]): TaggedValue {
   const obj = createJSObject();
   for (const arg of named) obj.setProperty(arg.name, arg.value);
-  return mkObject(obj);
+  return mkObject(markNamedArguments(obj));
 }
 
 function bindNamedArgs(

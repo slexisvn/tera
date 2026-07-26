@@ -28,6 +28,7 @@ import { AccessorPair } from "../../objects/heap/js-object.js";
 import { camelToSnake } from "../../utils/naming.js";
 import { mkPromiseCapability } from "../async/promise.js";
 import type { MicrotaskQueue } from "../microtasks/microtask.js";
+import { isNamedArguments, markNamedArguments } from "../named-arguments.js";
 import { MODEL_MARKER } from "../../frontend/parser/index.js";
 import { formatHostValue } from "./format.js";
 import { installHostIndexing } from "./indexing.js";
@@ -133,7 +134,7 @@ export function taggedToNative(value: TaggedValue): unknown {
         if (raw !== undefined && !(raw instanceof AccessorPair) && !(key in out)) out[key] = taggedToNative(raw);
       }
     }
-    return out;
+    return isNamedArguments(object) ? markNamedArguments(out) : out;
   }
   if (isFunction(value)) return value;
   return getPayload(value);
