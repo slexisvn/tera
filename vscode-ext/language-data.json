@@ -7905,14 +7905,70 @@
             "defaultValue": null
           },
           {
-            "name": "options",
-            "type": "Object",
+            "name": "signal",
+            "type": "string | Function",
             "optional": true,
-            "rest": true,
+            "rest": false,
+            "defaultValue": "momentum"
+          },
+          {
+            "name": "portfolio",
+            "type": "string | Function",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "long_short"
+          },
+          {
+            "name": "lookback",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "20"
+          },
+          {
+            "name": "fraction",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0.5"
+          },
+          {
+            "name": "cost",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0"
+          },
+          {
+            "name": "max_leverage",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "Infinity"
+          },
+          {
+            "name": "start",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0"
+          },
+          {
+            "name": "periods_per_year",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "252"
+          },
+          {
+            "name": "asset_columns",
+            "type": "string[]",
+            "optional": true,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "backtest(prices: any, ...options: Object) -> Object"
+        "display": "backtest(prices: any, signal: string | Function = momentum, portfolio: string | Function = long_short, lookback: int = 20, fraction: float = 0.5, cost: float = 0, max_leverage: float = Infinity, start: int = 0, periods_per_year: int = 252, asset_columns?: string[]) -> Object"
       },
       "methods": []
     },
@@ -7932,14 +7988,77 @@
             "defaultValue": null
           },
           {
-            "name": "options",
-            "type": "Object",
+            "name": "signal",
+            "type": "string | Function",
             "optional": true,
-            "rest": true,
+            "rest": false,
+            "defaultValue": "momentum"
+          },
+          {
+            "name": "portfolio",
+            "type": "string | Function",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "long_short"
+          },
+          {
+            "name": "lookback",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "20"
+          },
+          {
+            "name": "fraction",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0.5"
+          },
+          {
+            "name": "cost",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0"
+          },
+          {
+            "name": "max_leverage",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "Infinity"
+          },
+          {
+            "name": "folds",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "4"
+          },
+          {
+            "name": "min_train_fraction",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0.5"
+          },
+          {
+            "name": "periods_per_year",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "252"
+          },
+          {
+            "name": "asset_columns",
+            "type": "string[]",
+            "optional": true,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "walk_forward(prices: any, ...options: Object) -> Object"
+        "display": "walk_forward(prices: any, signal: string | Function = momentum, portfolio: string | Function = long_short, lookback: int = 20, fraction: float = 0.5, cost: float = 0, max_leverage: float = Infinity, folds: int = 4, min_train_fraction: float = 0.5, periods_per_year: int = 252, asset_columns?: string[]) -> Object"
       },
       "methods": []
     },
@@ -8078,19 +8197,26 @@
       "name": "deflated_sharpe",
       "kind": "quant",
       "description": "Deflated Sharpe ratio — the probability the strategy's Sharpe is real after accounting for the count and dispersion of `trial_sharpes` searched over (guards against selection bias).",
-      "returns": "any",
+      "returns": "float",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
+            "name": "returns",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "trial_sharpes",
+            "type": "any",
             "optional": true,
-            "rest": true,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "deflated_sharpe(...options: Object) -> any"
+        "display": "deflated_sharpe(returns: any, trial_sharpes?: any) -> float"
       },
       "methods": []
     },
@@ -8098,19 +8224,26 @@
       "name": "pbo",
       "kind": "quant",
       "description": "Probability of Backtest Overfitting via combinatorially symmetric cross-validation over a time × trial matrix (rows of returns, one column per candidate strategy). Accepts a matrix or a `DataFrame`.",
-      "returns": "any",
+      "returns": "float",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "trial_returns",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "partitions",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "10"
           }
         ],
-        "display": "pbo(...options: Object) -> any"
+        "display": "pbo(trial_returns: any, partitions: int = 10) -> float"
       },
       "methods": []
     },
@@ -8118,19 +8251,33 @@
       "name": "min_track_record_length",
       "kind": "quant",
       "description": "Minimum count of observations needed before the observed Sharpe exceeds `target_sharpe` at the given `confidence`.",
-      "returns": "any",
+      "returns": "float",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "returns",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "target_sharpe",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0"
+          },
+          {
+            "name": "confidence",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0.95"
           }
         ],
-        "display": "min_track_record_length(...options: Object) -> any"
+        "display": "min_track_record_length(returns: any, target_sharpe: float = 0, confidence: float = 0.95) -> float"
       },
       "methods": []
     },
@@ -8205,59 +8352,267 @@
       "name": "quill",
       "kind": "quant",
       "description": "Parse and type-check a Quill product definition from a source string and return a product handle. Call `.price(rate=..., spot=..., vol=..., paths?=..., seed?=..., greeks?=...)` on it to run the Monte-Carlo pricer; the result has `.price`, `.standard_error`, and a `.greeks` map (`delta`, `vega`, `rho`, …). `greeks` is `\"price-only\"`, `\"first-order\"`, or `\"full\"`.",
-      "returns": "any",
+      "returns": "Object",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "source",
+            "type": "string",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "quill(...options: Object) -> any"
+        "display": "quill(source: string) -> Object"
       },
-      "methods": []
+      "methods": [
+        {
+          "name": "price",
+          "description": "Price the checked product under the supplied market data. Returns `.price`, `.standard_error`, and `.greeks`.",
+          "returns": "Object",
+          "effect": "sync",
+          "isGetter": false,
+          "signature": {
+            "params": [
+              {
+                "name": "rate",
+                "type": "float",
+                "optional": false,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "spot",
+                "type": "float",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "vol",
+                "type": "float",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "spots",
+                "type": "Object",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "vols",
+                "type": "Object",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "params",
+                "type": "Object",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "model_params",
+                "type": "Object",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "correlation",
+                "type": "any",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "curve",
+                "type": "Object",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "paths",
+                "type": "int",
+                "optional": true,
+                "rest": false,
+                "defaultValue": "100000"
+              },
+              {
+                "name": "seed",
+                "type": "int",
+                "optional": true,
+                "rest": false,
+                "defaultValue": "1"
+              },
+              {
+                "name": "greeks",
+                "type": "string",
+                "optional": true,
+                "rest": false,
+                "defaultValue": "full"
+              }
+            ],
+            "display": "price(rate: float, spot?: float, vol?: float, spots?: Object, vols?: Object, params?: Object, model_params?: Object, correlation?: any, curve?: Object, paths: int = 100000, seed: int = 1, greeks: string = full) -> Object"
+          }
+        }
+      ]
     },
     {
       "name": "load_quill",
       "kind": "quant",
       "description": "Like `quill`, but read the Quill product definition from a file `path`. Returns the same product handle with a `.price(...)` method and a `.name` field.",
-      "returns": "any",
+      "returns": "Object",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "path",
+            "type": "string",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "load_quill(...options: Object) -> any"
+        "display": "load_quill(path: string) -> Object"
       },
-      "methods": []
+      "methods": [
+        {
+          "name": "price",
+          "description": "Price the loaded product under the supplied market data. Returns `.price`, `.standard_error`, and `.greeks`.",
+          "returns": "Object",
+          "effect": "sync",
+          "isGetter": false,
+          "signature": {
+            "params": [
+              {
+                "name": "rate",
+                "type": "float",
+                "optional": false,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "spot",
+                "type": "float",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "vol",
+                "type": "float",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "spots",
+                "type": "Object",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "vols",
+                "type": "Object",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "params",
+                "type": "Object",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "model_params",
+                "type": "Object",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "correlation",
+                "type": "any",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "curve",
+                "type": "Object",
+                "optional": true,
+                "rest": false,
+                "defaultValue": null
+              },
+              {
+                "name": "paths",
+                "type": "int",
+                "optional": true,
+                "rest": false,
+                "defaultValue": "100000"
+              },
+              {
+                "name": "seed",
+                "type": "int",
+                "optional": true,
+                "rest": false,
+                "defaultValue": "1"
+              },
+              {
+                "name": "greeks",
+                "type": "string",
+                "optional": true,
+                "rest": false,
+                "defaultValue": "full"
+              }
+            ],
+            "display": "price(rate: float, spot?: float, vol?: float, spots?: Object, vols?: Object, params?: Object, model_params?: Object, correlation?: any, curve?: Object, paths: int = 100000, seed: int = 1, greeks: string = full) -> Object"
+          }
+        }
+      ]
     },
     {
       "name": "adf_test",
       "kind": "quant",
       "description": "Augmented Dickey-Fuller unit-root test. Returns a record with `statistic`, `criticalValues`, and `stationary` (true when the statistic is below the critical value).",
-      "returns": "any",
+      "returns": "Object",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "series",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "lags",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0"
+          },
+          {
+            "name": "trend",
+            "type": "string",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "constant"
           }
         ],
-        "display": "adf_test(...options: Object) -> any"
+        "display": "adf_test(series: any, lags: int = 0, trend: string = constant) -> Object"
       },
       "methods": []
     },
@@ -8265,19 +8620,33 @@
       "name": "kpss_test",
       "kind": "quant",
       "description": "KPSS stationarity test (null hypothesis: the series is stationary). Returns `statistic`, `criticalValues`, `stationary`. Complements `adf_test`.",
-      "returns": "any",
+      "returns": "Object",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
+            "name": "series",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "trend",
+            "type": "string",
             "optional": true,
-            "rest": true,
+            "rest": false,
+            "defaultValue": "constant"
+          },
+          {
+            "name": "lags",
+            "type": "int",
+            "optional": true,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "kpss_test(...options: Object) -> any"
+        "display": "kpss_test(series: any, trend: string = constant, lags?: int) -> Object"
       },
       "methods": []
     },
@@ -8285,19 +8654,40 @@
       "name": "hurst_exponent",
       "kind": "quant",
       "description": "Hurst exponent from rescaled-range analysis. `< 0.5` mean-reverting, `~0.5` random walk, `> 0.5` trending.",
-      "returns": "any",
+      "returns": "float",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "series",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "min_window",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "10"
+          },
+          {
+            "name": "max_window",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "growth",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "1.5"
           }
         ],
-        "display": "hurst_exponent(...options: Object) -> any"
+        "display": "hurst_exponent(series: any, min_window: int = 10, max_window?: int, growth: float = 1.5) -> float"
       },
       "methods": []
     },
@@ -8305,19 +8695,19 @@
       "name": "half_life",
       "kind": "quant",
       "description": "Ornstein-Uhlenbeck mean-reversion half-life (in periods) estimated by regressing the change on the lagged level.",
-      "returns": "any",
+      "returns": "float",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "series",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "half_life(...options: Object) -> any"
+        "display": "half_life(series: any) -> float"
       },
       "methods": []
     },
@@ -8325,19 +8715,33 @@
       "name": "engle_granger",
       "kind": "quant",
       "description": "Engle-Granger two-step cointegration test: regress `dependent` on `regressors`, then ADF-test the residual. Returns `statistic`, `criticalValues`, `cointegrated`, `hedgeRatio`, and `spread`.",
-      "returns": "any",
+      "returns": "Object",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "dependent",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "regressors",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "lags",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0"
           }
         ],
-        "display": "engle_granger(...options: Object) -> any"
+        "display": "engle_granger(dependent: any, regressors: any, lags: int = 0) -> Object"
       },
       "methods": []
     },
@@ -8345,19 +8749,26 @@
       "name": "johansen",
       "kind": "quant",
       "description": "Johansen cointegration test on a matrix of price levels. Returns `eigenvalues`, `traceStatistics`, `maxEigenStatistics`, and the estimated cointegration `rank`.",
-      "returns": "any",
+      "returns": "Object",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "levels",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "lags",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "1"
           }
         ],
-        "display": "johansen(...options: Object) -> any"
+        "display": "johansen(levels: any, lags: int = 1) -> Object"
       },
       "methods": []
     },
@@ -8365,19 +8776,33 @@
       "name": "cusum_events",
       "kind": "quant",
       "description": "Symmetric CUSUM filter — returns the indices where the cumulative deviation exceeds `threshold`, used to sample structural-shift events.",
-      "returns": "any",
+      "returns": "int[]",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "series",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "threshold",
+            "type": "float",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "drift",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0"
           }
         ],
-        "display": "cusum_events(...options: Object) -> any"
+        "display": "cusum_events(series: any, threshold: float, drift: float = 0) -> int[]"
       },
       "methods": []
     },
@@ -8385,19 +8810,40 @@
       "name": "sadf",
       "kind": "quant",
       "description": "Supremum ADF statistic — the max ADF over expanding windows, a test for explosive (bubble) behavior.",
-      "returns": "any",
+      "returns": "float",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "series",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "min_window",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "20"
+          },
+          {
+            "name": "lags",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0"
+          },
+          {
+            "name": "trend",
+            "type": "string",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "constant"
           }
         ],
-        "display": "sadf(...options: Object) -> any"
+        "display": "sadf(series: any, min_window: int = 20, lags: int = 0, trend: string = constant) -> float"
       },
       "methods": []
     },
@@ -8405,19 +8851,40 @@
       "name": "bsadf",
       "kind": "quant",
       "description": "Backward-SADF series — the running SADF at each point, for dating the start/end of explosive regimes.",
-      "returns": "any",
+      "returns": "float[]",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "series",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "min_window",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "20"
+          },
+          {
+            "name": "lags",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0"
+          },
+          {
+            "name": "trend",
+            "type": "string",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "constant"
           }
         ],
-        "display": "bsadf(...options: Object) -> any"
+        "display": "bsadf(series: any, min_window: int = 20, lags: int = 0, trend: string = constant) -> float[]"
       },
       "methods": []
     },
@@ -8425,19 +8892,33 @@
       "name": "kalman_filter",
       "kind": "quant",
       "description": "Linear Kalman filter over a state-space `spec` (transition, observation, process/measurement noise). Returns filtered `states`, `covariances`, and one-step innovations.",
-      "returns": "any",
+      "returns": "Object",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
+            "name": "observations",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "observation_vectors",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "spec",
             "type": "Object",
-            "optional": true,
-            "rest": true,
+            "optional": false,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "kalman_filter(...options: Object) -> any"
+        "display": "kalman_filter(observations: any, observation_vectors: any, spec: Object) -> Object"
       },
       "methods": []
     },
@@ -8445,19 +8926,33 @@
       "name": "kalman_smoother",
       "kind": "quant",
       "description": "Rauch-Tung-Striebel smoother — the full-sample smoothed state matrix for the same state-space `spec` as `kalman_filter`.",
-      "returns": "any",
+      "returns": "Array",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
+            "name": "observations",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "observation_vectors",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "spec",
             "type": "Object",
-            "optional": true,
-            "rest": true,
+            "optional": false,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "kalman_smoother(...options: Object) -> any"
+        "display": "kalman_smoother(observations: any, observation_vectors: any, spec: Object) -> Array"
       },
       "methods": []
     },
@@ -8465,19 +8960,47 @@
       "name": "dynamic_beta",
       "kind": "quant",
       "description": "Time-varying hedge ratio / beta via a Kalman filter (random-walk coefficients). Returns the per-period `states` (betas) — the workhorse for dynamic pairs trading.",
-      "returns": "any",
+      "returns": "Object",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "dependent",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "regressors",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "process_noise",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0.0001"
+          },
+          {
+            "name": "observation_noise",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0.01"
+          },
+          {
+            "name": "initial_variance",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "1"
           }
         ],
-        "display": "dynamic_beta(...options: Object) -> any"
+        "display": "dynamic_beta(dependent: any, regressors: any, process_noise: float = 0.0001, observation_noise: float = 0.01, initial_variance: float = 1) -> Object"
       },
       "methods": []
     },
@@ -8485,19 +9008,61 @@
       "name": "fit_garch",
       "kind": "quant",
       "description": "Fit a GARCH(1,1) volatility model by maximum likelihood. Returns a record with `params` (`omega`, `alpha`, `beta`), `log_likelihood`, and fitted `variances`.",
-      "returns": "any",
+      "returns": "Object",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "returns",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "variance_targeting",
+            "type": "bool",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "true"
+          },
+          {
+            "name": "seed",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "1"
+          },
+          {
+            "name": "alpha_range",
+            "type": "[float, float]",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "[0.0001, 0.4]"
+          },
+          {
+            "name": "beta_range",
+            "type": "[float, float]",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "[0.3, 0.999]"
+          },
+          {
+            "name": "omega_scale_range",
+            "type": "[float, float]",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "[0.001, 2]"
+          },
+          {
+            "name": "stationarity_margin",
+            "type": "float",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "0.0001"
           }
         ],
-        "display": "fit_garch(...options: Object) -> any"
+        "display": "fit_garch(returns: any, variance_targeting: bool = true, seed: int = 1, alpha_range: [float, float] = [0.0001, 0.4], beta_range: [float, float] = [0.3, 0.999], omega_scale_range: [float, float] = [0.001, 2], stationarity_margin: float = 0.0001) -> Object"
       },
       "methods": []
     },
@@ -8505,19 +9070,40 @@
       "name": "garch_forecast",
       "kind": "quant",
       "description": "Forecast conditional variance `horizon` steps ahead from GARCH `params` (as returned by `fit_garch`).",
-      "returns": "any",
+      "returns": "float[]",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
+            "name": "returns",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "params",
             "type": "Object",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "horizon",
+            "type": "int",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "initial_variance",
+            "type": "float",
             "optional": true,
-            "rest": true,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "garch_forecast(...options: Object) -> any"
+        "display": "garch_forecast(returns: any, params: Object, horizon: int, initial_variance?: float) -> float[]"
       },
       "methods": []
     },
@@ -8525,19 +9111,33 @@
       "name": "garch_volatility",
       "kind": "quant",
       "description": "In-sample conditional volatility path (standard deviation per period) for the given GARCH `params`.",
-      "returns": "any",
+      "returns": "float[]",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
+            "name": "returns",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "params",
             "type": "Object",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "initial_variance",
+            "type": "float",
             "optional": true,
-            "rest": true,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "garch_volatility(...options: Object) -> any"
+        "display": "garch_volatility(returns: any, params: Object, initial_variance?: float) -> float[]"
       },
       "methods": []
     },
@@ -8545,19 +9145,26 @@
       "name": "tick_bars",
       "kind": "quant",
       "description": "Aggregate a `ticks` DataFrame (`price`, `volume`) into OHLC bars of fixed tick count. Returns a bar `DataFrame`.",
-      "returns": "any",
+      "returns": "DataFrame",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "ticks",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "ticks_per_bar",
+            "type": "int",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "tick_bars(...options: Object) -> any"
+        "display": "tick_bars(ticks: any, ticks_per_bar: int) -> DataFrame"
       },
       "methods": []
     },
@@ -8565,19 +9172,26 @@
       "name": "volume_bars",
       "kind": "quant",
       "description": "Information-driven bars sampled every fixed traded `volume_per_bar`. Returns a bar `DataFrame`.",
-      "returns": "any",
+      "returns": "DataFrame",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "ticks",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "volume_per_bar",
+            "type": "float",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "volume_bars(...options: Object) -> any"
+        "display": "volume_bars(ticks: any, volume_per_bar: float) -> DataFrame"
       },
       "methods": []
     },
@@ -8585,19 +9199,26 @@
       "name": "dollar_bars",
       "kind": "quant",
       "description": "Bars sampled every fixed traded dollar value — the most sample-stationary bar type. Returns a bar `DataFrame`.",
-      "returns": "any",
+      "returns": "DataFrame",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "ticks",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "dollar_per_bar",
+            "type": "float",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "dollar_bars(...options: Object) -> any"
+        "display": "dollar_bars(ticks: any, dollar_per_bar: float) -> DataFrame"
       },
       "methods": []
     },
@@ -8605,19 +9226,19 @@
       "name": "tick_rule",
       "kind": "quant",
       "description": "Lee-Ready tick rule — signs each trade `+1`/`-1` by price change to infer aggressor side.",
-      "returns": "any",
+      "returns": "int[]",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "prices",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "tick_rule(...options: Object) -> any"
+        "display": "tick_rule(prices: any) -> int[]"
       },
       "methods": []
     },
@@ -8625,19 +9246,19 @@
       "name": "roll_spread",
       "kind": "quant",
       "description": "Roll's implied effective bid-ask spread from the serial covariance of price changes.",
-      "returns": "any",
+      "returns": "float",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "prices",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "roll_spread(...options: Object) -> any"
+        "display": "roll_spread(prices: any) -> float"
       },
       "methods": []
     },
@@ -8645,19 +9266,26 @@
       "name": "amihud",
       "kind": "quant",
       "description": "Amihud illiquidity — average of `|return| / dollar_volume`, a price-impact-per-dollar measure.",
-      "returns": "any",
+      "returns": "float",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "returns",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "dollar_volumes",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "amihud(...options: Object) -> any"
+        "display": "amihud(returns: any, dollar_volumes: any) -> float"
       },
       "methods": []
     },
@@ -8665,19 +9293,26 @@
       "name": "kyle_lambda",
       "kind": "quant",
       "description": "Kyle's lambda — price impact per signed volume, estimated by regressing price changes on signed order flow.",
-      "returns": "any",
+      "returns": "float",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "prices",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "volumes",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "kyle_lambda(...options: Object) -> any"
+        "display": "kyle_lambda(prices: any, volumes: any) -> float"
       },
       "methods": []
     },
@@ -8685,19 +9320,33 @@
       "name": "vpin",
       "kind": "quant",
       "description": "Volume-synchronized Probability of Informed Trading — order-flow-toxicity series over volume buckets.",
-      "returns": "any",
+      "returns": "float[]",
       "effect": "sync",
       "signature": {
         "params": [
           {
-            "name": "options",
-            "type": "Object",
-            "optional": true,
-            "rest": true,
+            "name": "ticks",
+            "type": "any",
+            "optional": false,
+            "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "bucket_volume",
+            "type": "float",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "window",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": "50"
           }
         ],
-        "display": "vpin(...options: Object) -> any"
+        "display": "vpin(ticks: any, bucket_volume: float, window: int = 50) -> float[]"
       },
       "methods": []
     },

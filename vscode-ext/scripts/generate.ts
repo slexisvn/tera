@@ -191,9 +191,15 @@ function normalizeParams(params: readonly unknown[]): Param[] {
       type: item.type ?? null,
       optional: !!item.optional,
       rest: !!item.rest,
-      defaultValue: item.defaultValue === undefined || item.defaultValue === null ? null : String(item.defaultValue),
+      defaultValue: formatDefaultValue(item.defaultValue),
     };
   });
+}
+
+function formatDefaultValue(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (Array.isArray(value)) return `[${value.map((item) => formatDefaultValue(item) ?? "null").join(", ")}]`;
+  return String(value);
 }
 
 export function parseParams(text: string): Param[] {

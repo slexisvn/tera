@@ -47,6 +47,20 @@ export type TeraChartMethodSpec = {
   params?: TeraParam[];
 };
 
+function param(name: string, type: string, extra: Omit<TeraParam, "name" | "type"> = {}): TeraParam {
+  return { name, type, ...extra };
+}
+
+function optionalParam(name: string, type: string, defaultValue?: unknown): TeraParam {
+  return defaultValue === undefined ? param(name, type, { optional: true }) : param(name, type, { optional: true, defaultValue });
+}
+
+function namedOptionalParam(name: string, type: string, defaultValue?: unknown): TeraParam {
+  return defaultValue === undefined
+    ? param(name, type, { optional: true, named: true })
+    : param(name, type, { optional: true, named: true, defaultValue });
+}
+
 export const TERA_KEYWORD_GROUPS = {
   "declaration": [
     "fn",
@@ -1899,17 +1913,16 @@ export const TERA_BUILTINS = {
     "returns": "Object",
     "effect": "async",
     "params": [
-      {
-        "name": "prices",
-        "type": "any"
-      },
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("prices", "any"),
+      namedOptionalParam("signal", "string | Function", "momentum"),
+      namedOptionalParam("portfolio", "string | Function", "long_short"),
+      namedOptionalParam("lookback", "int", 20),
+      namedOptionalParam("fraction", "float", 0.5),
+      namedOptionalParam("cost", "float", 0),
+      namedOptionalParam("max_leverage", "float", "Infinity"),
+      namedOptionalParam("start", "int", 0),
+      namedOptionalParam("periods_per_year", "int", 252),
+      namedOptionalParam("asset_columns", "string[]")
     ]
   },
   "walk_forward": {
@@ -1918,17 +1931,17 @@ export const TERA_BUILTINS = {
     "returns": "Object",
     "effect": "async",
     "params": [
-      {
-        "name": "prices",
-        "type": "any"
-      },
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("prices", "any"),
+      namedOptionalParam("signal", "string | Function", "momentum"),
+      namedOptionalParam("portfolio", "string | Function", "long_short"),
+      namedOptionalParam("lookback", "int", 20),
+      namedOptionalParam("fraction", "float", 0.5),
+      namedOptionalParam("cost", "float", 0),
+      namedOptionalParam("max_leverage", "float", "Infinity"),
+      namedOptionalParam("folds", "int", 4),
+      namedOptionalParam("min_train_fraction", "float", 0.5),
+      namedOptionalParam("periods_per_year", "int", 252),
+      namedOptionalParam("asset_columns", "string[]")
     ]
   },
   "momentum": {
@@ -2014,43 +2027,29 @@ export const TERA_BUILTINS = {
   "deflated_sharpe": {
     "description": "Deflated Sharpe ratio — the probability the strategy's Sharpe is real after accounting for the count and dispersion of `trial_sharpes` searched over (guards against selection bias).",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("returns", "any"),
+      optionalParam("trial_sharpes", "any")
     ]
   },
   "pbo": {
     "description": "Probability of Backtest Overfitting via combinatorially symmetric cross-validation over a time × trial matrix (rows of returns, one column per candidate strategy). Accepts a matrix or a `DataFrame`.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("trial_returns", "any"),
+      optionalParam("partitions", "int", 10)
     ]
   },
   "min_track_record_length": {
     "description": "Minimum count of observations needed before the observed Sharpe exceeds `target_sharpe` at the given `confidence`.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("returns", "any"),
+      optionalParam("target_sharpe", "float", 0),
+      optionalParam("confidence", "float", 0.95)
     ]
   },
   "risk_parity": {
@@ -2096,351 +2095,287 @@ export const TERA_BUILTINS = {
   "quill": {
     "description": "Parse and type-check a Quill product definition from a source string and return a product handle. Call `.price(rate=..., spot=..., vol=..., paths?=..., seed?=..., greeks?=...)` on it to run the Monte-Carlo pricer; the result has `.price`, `.standard_error`, and a `.greeks` map (`delta`, `vega`, `rho`, …). `greeks` is `\"price-only\"`, `\"first-order\"`, or `\"full\"`.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "Object",
     "params": [
+      param("source", "string")
+    ],
+    "methods": [
       {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
+        "name": "price",
+        "description": "Price the checked product under the supplied market data. Returns `.price`, `.standard_error`, and `.greeks`.",
+        "returns": "Object",
+        "params": [
+          param("rate", "float", { named: true }),
+          namedOptionalParam("spot", "float"),
+          namedOptionalParam("vol", "float"),
+          namedOptionalParam("spots", "Object"),
+          namedOptionalParam("vols", "Object"),
+          namedOptionalParam("params", "Object"),
+          namedOptionalParam("model_params", "Object"),
+          namedOptionalParam("correlation", "any"),
+          namedOptionalParam("curve", "Object"),
+          namedOptionalParam("paths", "int", 100000),
+          namedOptionalParam("seed", "int", 1),
+          namedOptionalParam("greeks", "string", "full")
+        ]
       }
     ]
   },
   "load_quill": {
     "description": "Like `quill`, but read the Quill product definition from a file `path`. Returns the same product handle with a `.price(...)` method and a `.name` field.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "Object",
     "params": [
+      param("path", "string")
+    ],
+    "methods": [
       {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
+        "name": "price",
+        "description": "Price the loaded product under the supplied market data. Returns `.price`, `.standard_error`, and `.greeks`.",
+        "returns": "Object",
+        "params": [
+          param("rate", "float", { named: true }),
+          namedOptionalParam("spot", "float"),
+          namedOptionalParam("vol", "float"),
+          namedOptionalParam("spots", "Object"),
+          namedOptionalParam("vols", "Object"),
+          namedOptionalParam("params", "Object"),
+          namedOptionalParam("model_params", "Object"),
+          namedOptionalParam("correlation", "any"),
+          namedOptionalParam("curve", "Object"),
+          namedOptionalParam("paths", "int", 100000),
+          namedOptionalParam("seed", "int", 1),
+          namedOptionalParam("greeks", "string", "full")
+        ]
       }
     ]
   },
   "adf_test": {
     "description": "Augmented Dickey-Fuller unit-root test. Returns a record with `statistic`, `criticalValues`, and `stationary` (true when the statistic is below the critical value).",
     "kind": "quant",
-    "returns": "any",
+    "returns": "Object",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("series", "any"),
+      optionalParam("lags", "int", 0),
+      optionalParam("trend", "string", "constant")
     ]
   },
   "kpss_test": {
     "description": "KPSS stationarity test (null hypothesis: the series is stationary). Returns `statistic`, `criticalValues`, `stationary`. Complements `adf_test`.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "Object",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("series", "any"),
+      optionalParam("trend", "string", "constant"),
+      optionalParam("lags", "int")
     ]
   },
   "hurst_exponent": {
     "description": "Hurst exponent from rescaled-range analysis. `< 0.5` mean-reverting, `~0.5` random walk, `> 0.5` trending.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("series", "any"),
+      optionalParam("min_window", "int", 10),
+      optionalParam("max_window", "int"),
+      optionalParam("growth", "float", 1.5)
     ]
   },
   "half_life": {
     "description": "Ornstein-Uhlenbeck mean-reversion half-life (in periods) estimated by regressing the change on the lagged level.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("series", "any")
     ]
   },
   "engle_granger": {
     "description": "Engle-Granger two-step cointegration test: regress `dependent` on `regressors`, then ADF-test the residual. Returns `statistic`, `criticalValues`, `cointegrated`, `hedgeRatio`, and `spread`.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "Object",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("dependent", "any"),
+      param("regressors", "any"),
+      optionalParam("lags", "int", 0)
     ]
   },
   "johansen": {
     "description": "Johansen cointegration test on a matrix of price levels. Returns `eigenvalues`, `traceStatistics`, `maxEigenStatistics`, and the estimated cointegration `rank`.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "Object",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("levels", "any"),
+      optionalParam("lags", "int", 1)
     ]
   },
   "cusum_events": {
     "description": "Symmetric CUSUM filter — returns the indices where the cumulative deviation exceeds `threshold`, used to sample structural-shift events.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "int[]",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("series", "any"),
+      param("threshold", "float"),
+      optionalParam("drift", "float", 0)
     ]
   },
   "sadf": {
     "description": "Supremum ADF statistic — the max ADF over expanding windows, a test for explosive (bubble) behavior.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("series", "any"),
+      optionalParam("min_window", "int", 20),
+      optionalParam("lags", "int", 0),
+      optionalParam("trend", "string", "constant")
     ]
   },
   "bsadf": {
     "description": "Backward-SADF series — the running SADF at each point, for dating the start/end of explosive regimes.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float[]",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("series", "any"),
+      optionalParam("min_window", "int", 20),
+      optionalParam("lags", "int", 0),
+      optionalParam("trend", "string", "constant")
     ]
   },
   "kalman_filter": {
     "description": "Linear Kalman filter over a state-space `spec` (transition, observation, process/measurement noise). Returns filtered `states`, `covariances`, and one-step innovations.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "Object",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("observations", "any"),
+      param("observation_vectors", "any"),
+      param("spec", "Object")
     ]
   },
   "kalman_smoother": {
     "description": "Rauch-Tung-Striebel smoother — the full-sample smoothed state matrix for the same state-space `spec` as `kalman_filter`.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "Array",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("observations", "any"),
+      param("observation_vectors", "any"),
+      param("spec", "Object")
     ]
   },
   "dynamic_beta": {
     "description": "Time-varying hedge ratio / beta via a Kalman filter (random-walk coefficients). Returns the per-period `states` (betas) — the workhorse for dynamic pairs trading.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "Object",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("dependent", "any"),
+      param("regressors", "any"),
+      namedOptionalParam("process_noise", "float", 0.0001),
+      namedOptionalParam("observation_noise", "float", 0.01),
+      namedOptionalParam("initial_variance", "float", 1)
     ]
   },
   "fit_garch": {
     "description": "Fit a GARCH(1,1) volatility model by maximum likelihood. Returns a record with `params` (`omega`, `alpha`, `beta`), `log_likelihood`, and fitted `variances`.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "Object",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("returns", "any"),
+      namedOptionalParam("variance_targeting", "bool", true),
+      namedOptionalParam("seed", "int", 1),
+      namedOptionalParam("alpha_range", "[float, float]", [0.0001, 0.4]),
+      namedOptionalParam("beta_range", "[float, float]", [0.3, 0.999]),
+      namedOptionalParam("omega_scale_range", "[float, float]", [0.001, 2]),
+      namedOptionalParam("stationarity_margin", "float", 0.0001)
     ]
   },
   "garch_forecast": {
     "description": "Forecast conditional variance `horizon` steps ahead from GARCH `params` (as returned by `fit_garch`).",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float[]",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("returns", "any"),
+      param("params", "Object"),
+      param("horizon", "int"),
+      optionalParam("initial_variance", "float")
     ]
   },
   "garch_volatility": {
     "description": "In-sample conditional volatility path (standard deviation per period) for the given GARCH `params`.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float[]",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("returns", "any"),
+      param("params", "Object"),
+      optionalParam("initial_variance", "float")
     ]
   },
   "tick_bars": {
     "description": "Aggregate a `ticks` DataFrame (`price`, `volume`) into OHLC bars of fixed tick count. Returns a bar `DataFrame`.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "DataFrame",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("ticks", "any"),
+      param("ticks_per_bar", "int")
     ]
   },
   "volume_bars": {
     "description": "Information-driven bars sampled every fixed traded `volume_per_bar`. Returns a bar `DataFrame`.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "DataFrame",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("ticks", "any"),
+      param("volume_per_bar", "float")
     ]
   },
   "dollar_bars": {
     "description": "Bars sampled every fixed traded dollar value — the most sample-stationary bar type. Returns a bar `DataFrame`.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "DataFrame",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("ticks", "any"),
+      param("dollar_per_bar", "float")
     ]
   },
   "tick_rule": {
     "description": "Lee-Ready tick rule — signs each trade `+1`/`-1` by price change to infer aggressor side.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "int[]",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("prices", "any")
     ]
   },
   "roll_spread": {
     "description": "Roll's implied effective bid-ask spread from the serial covariance of price changes.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("prices", "any")
     ]
   },
   "amihud": {
     "description": "Amihud illiquidity — average of `|return| / dollar_volume`, a price-impact-per-dollar measure.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("returns", "any"),
+      param("dollar_volumes", "any")
     ]
   },
   "kyle_lambda": {
     "description": "Kyle's lambda — price impact per signed volume, estimated by regressing price changes on signed order flow.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("prices", "any"),
+      param("volumes", "any")
     ]
   },
   "vpin": {
     "description": "Volume-synchronized Probability of Informed Trading — order-flow-toxicity series over volume buckets.",
     "kind": "quant",
-    "returns": "any",
+    "returns": "float[]",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("ticks", "any"),
+      param("bucket_volume", "float"),
+      optionalParam("window", "int", 50)
     ]
   },
   "EarlyStopping": {
