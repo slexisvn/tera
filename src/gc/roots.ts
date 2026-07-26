@@ -1,4 +1,5 @@
 import { getPayload, getHeapId } from "../core/value/index.js";
+import { visitExternalRoots } from "./external-roots.js";
 import type { HeapPayload, TaggedValue } from "../core/value/index.js";
 import type { GCObject } from "./incremental-marker.js";
 import type { RegisterValue } from "../bytecode/register/interpreter/frame.js";
@@ -16,10 +17,12 @@ type FrameLike = {
   closureEnv?: { cells?: UpvalueLike[] } | null;
   openUpvalues?: Map<number, UpvalueLike> | null;
   compiledFn?: { constants?: RegisterConstant[] };
+  readLocals?: () => TaggedValue[];
 };
 type InterpreterLike = {
   activeFrames?: FrameLike[];
   baselineFrames?: FrameLike[];
+  transientRoots?: TaggedValue[];
 };
 
 function forEachRootFrame(
@@ -28,6 +31,13 @@ function forEachRootFrame(
 ): void {
   for (const frame of interpreter.activeFrames ?? []) visit(frame);
   for (const frame of interpreter.baselineFrames ?? []) visit(frame);
+}
+
+export function visitTransientRoots(
+  interpreter: InterpreterLike,
+  visit: (value: RootSlotValue) => void,
+): void {
+  for (const value of interpreter.transientRoots ?? []) visit(value);
 }
 type CellLike = Pick<GlobalCell, "value" | "read">;
 type CellCollection = Map<string, CellLike> | Iterable<[string, CellLike]>;
@@ -66,6 +76,7 @@ export function visitFrameRoots(
   if (registers) for (const value of registers) visit(value);
   if (frame.stack) for (const value of frame.stack) visit(value);
   if (frame.acc !== undefined) visit(frame.acc);
+  if (frame.readLocals) for (const value of frame.readLocals()) visit(value);
   const cells = frame.closureEnv?.cells;
   if (cells) {
     for (const cell of cells) {
@@ -130,7 +141,11 @@ export function markReachableHeapIds(
         if (value !== null) seedTagged(value);
       });
     });
+    visitTransientRoots(interpreter, (value) => {
+      if (value !== null) seedTagged(value);
+    });
   }
+  visitExternalRoots((value) => seedTagged(value));
 
   if (globalCells) {
     const cellsMap = getCellsCollection(globalCells);
@@ -226,7 +241,15 @@ export function enumerateRoots(
         if (obj) roots.push(obj);
       });
     });
+    visitTransientRoots(interpreter, (value) => {
+      const obj = extractHeapObject(value);
+      if (obj) roots.push(obj);
+    });
   }
+  visitExternalRoots((value) => {
+    const obj = extractHeapObject(value);
+    if (obj) roots.push(obj);
+  });
 
   if (globalCells) {
     const cellsMap = getCellsCollection(globalCells);
@@ -275,7 +298,13 @@ export function collectLiveHeapIds(
         }
       }
     });
+    visitTransientRoots(interpreter, (value) => {
+      if (typeof value === "number") trackValue(value);
+    });
   }
+  visitExternalRoots((value) => {
+    if (typeof value === "number") trackValue(value);
+  });
 
   if (globalCells) {
     const cellsMap = getCellsCollection(globalCells);

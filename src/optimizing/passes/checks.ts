@@ -434,6 +434,21 @@ export function rangeAnalysisAndBoundsCheckElimination(graph: IRGraphLike): numb
     }
   }
 
+  const nonNegative = (r: Range): boolean => r.min >= 0;
+  const nonZero = (r: Range): boolean => r.min > 0 || r.max < 0;
+
+  const mayBeMinusZero = (node: IRNodeLike): boolean => {
+    if (node.type !== ir.IR_INT32_MUL) return false;
+    const left = node.inputs[0];
+    const right = node.inputs[1];
+    if (!left || !right) return true;
+    const a = getRange(left.id);
+    const b = getRange(right.id);
+    if (nonNegative(a) && nonNegative(b)) return false;
+    if (nonZero(a) && nonZero(b)) return false;
+    return true;
+  };
+
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
       if (
@@ -446,7 +461,8 @@ export function rangeAnalysisAndBoundsCheckElimination(graph: IRGraphLike): numb
           r.min >= NEG_INF &&
           r.max <= INF &&
           r.min > -2147483648 &&
-          r.max < 2147483647
+          r.max < 2147483647 &&
+          !mayBeMinusZero(node)
         ) {
           if (!node.props) node.props = {};
           node.props.noOverflow = true;

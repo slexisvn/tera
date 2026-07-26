@@ -128,7 +128,7 @@ export class BaselineCompiler {
     if (hasClosures) {
       c += `var _ouv=new Map(),_ce=null;\n`;
     }
-    c += `$.enter(r);\ntry{\n`;
+    c += `$.enter(r,function(){return[acc,t,t2,t3,t4];});\ntry{\n`;
     c += `L:while(1){switch(pc){\n`;
 
     for (let i = 0; i < instrs.length; i++) {
@@ -199,7 +199,7 @@ export class BaselineCompiler {
         return `t=r[${o[0]}];if((acc&15)===0&&(t&15)===0){t2=acc-t;if(t2>=-17179869184&&t2<=17179869168)acc=t2;else acc=$.sub(acc,t,${o[1]});}else{acc=$.sub(acc,t,${o[1]});}`;
 
       case bytecode.ROP_MUL:
-        return `t=r[${o[0]}];if((acc&15)===0&&(t&15)===0){t2=(acc/16)*(t/16);if((t2|0)===t2&&t2>=-1073741824&&t2<=1073741823)acc=t2*16;else acc=$.mul(acc,t,${o[1]});}else{acc=$.mul(acc,t,${o[1]});}`;
+        return `t=r[${o[0]}];if((acc&15)===0&&(t&15)===0){t2=(acc/16)*(t/16);if((t2|0)===t2&&t2>=-1073741824&&t2<=1073741823&&(t2!==0||1/t2>0))acc=t2*16;else acc=$.mul(acc,t,${o[1]});}else{acc=$.mul(acc,t,${o[1]});}`;
 
       case bytecode.ROP_DIV:
         return `acc=$.div(acc,r[${o[0]}],${o[1]});`;

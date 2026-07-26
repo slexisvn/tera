@@ -244,6 +244,7 @@ export class CFGInstruction {
   _deadForSelfRecursion?: boolean;
   _speculativeType?: string;
   _constPtrIndex?: number;
+  _inlineNumericStore?: boolean;
 
   constructor(opcode: string, metadata: IRMetadata = {}) {
     this.id = nextNodeId++;

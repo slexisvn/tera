@@ -26,6 +26,19 @@ function nodeFromIr(value: ir.CFGInstruction): LoopNode {
   return value;
 }
 
+const GLOBAL_REASSIGN_HAZARDS = new Set<string>([
+  ir.IR_GENERIC_CALL,
+  ir.IR_CALL_KNOWN_FUNCTION,
+  ir.IR_CALL_BUILTIN,
+  ir.IR_GENERIC_GET_PROP,
+  ir.IR_GENERIC_SET_PROP,
+  ir.IR_GENERIC_GET_INDEX,
+  ir.IR_GENERIC_SET_INDEX,
+  ir.IR_DISPATCH_MAP,
+  ir.IR_MEGAMORPHIC_LOAD,
+  ir.IR_MEGAMORPHIC_STORE,
+]);
+
 export function hoistLoopInvariants(
   graph: LoopGraph,
   findLoopsFn: FindLoopsFn,
@@ -46,6 +59,8 @@ export function hoistLoopInvariants(
     }
 
     const storeTargets = new Map<number, Set<ir.IRMetadataValue>>();
+    const storedGlobals = new Set<string>();
+    let loopHasGlobalHazard = false;
     for (const b of bodyBlocks) {
       for (const n of b.nodes) {
         if (n.type === ir.IR_STORE_FIELD && n.inputs[0]) {
@@ -53,6 +68,12 @@ export function hoistLoopInvariants(
           const offset = n.props && n.props.offset;
           if (!storeTargets.has(objId)) storeTargets.set(objId, new Set());
           storeTargets.get(objId)!.add(offset);
+        }
+        if (n.type === ir.IR_STORE_GLOBAL) {
+          storedGlobals.add(String(n.props.name));
+        }
+        if (GLOBAL_REASSIGN_HAZARDS.has(n.type)) {
+          loopHasGlobalHazard = true;
         }
       }
     }
@@ -62,6 +83,7 @@ export function hoistLoopInvariants(
       ir.IR_CHECK_SMI,
       ir.IR_CHECK_NUMBER,
       ir.IR_LOAD_FIELD,
+      ir.IR_LOAD_GLOBAL,
       ir.IR_CONSTANT,
     ]);
 
@@ -96,6 +118,10 @@ export function hoistLoopInvariants(
         if (!HOISTABLE.has(node.type)) continue;
         if (node.frameState) continue;
         if (node.type === ir.IR_LOAD_FIELD && loadAliasesStore(node)) continue;
+        if (node.type === ir.IR_LOAD_GLOBAL) {
+          if (loopHasGlobalHazard) continue;
+          if (storedGlobals.has(String(node.props.name))) continue;
+        }
         candidates.push({ node, block });
       }
     }

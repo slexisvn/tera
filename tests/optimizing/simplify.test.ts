@@ -33,6 +33,7 @@ import {
   IR_INT32_AND,
   IR_INT32_ADD,
   IR_INT32_SUB,
+  IR_INT32_MUL,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
 
@@ -88,7 +89,7 @@ describe("constantFolding", () => {
       expect(ret.inputs[0].props.value).toBe(42);
     });
 
-    it("folds Int32Mul with imul semantics", () => {
+    it("folds Int32Mul to the exact product, not wrapped imul semantics", () => {
       const { graph, block } = makeGraph();
       const a = irConstant(0x7FFFFFFF);
       const b = irConstant(2);
@@ -99,7 +100,22 @@ describe("constantFolding", () => {
       const ret = irReturn(mul);
       block.addNode(ret);
       constantFolding(graph);
-      expect(ret.inputs[0].props.value).toBe(Math.imul(0x7FFFFFFF, 2));
+      expect(ret.inputs[0].props.value).toBe(0x7FFFFFFF * 2);
+      expect(ret.inputs[0].props.value).not.toBe(Math.imul(0x7FFFFFFF, 2));
+    });
+
+    it("folds Int32Mul of opposite signs to negative zero", () => {
+      const { graph, block } = makeGraph();
+      const a = irConstant(0);
+      const b = irConstant(-3);
+      block.addNode(a);
+      block.addNode(b);
+      const mul = irInt32Mul(a, b);
+      block.addNode(mul);
+      const ret = irReturn(mul);
+      block.addNode(ret);
+      constantFolding(graph);
+      expect(Object.is(ret.inputs[0].props.value, -0)).toBe(true);
     });
 
     it("folds Int32Div (avoids div by zero)", () => {
@@ -351,7 +367,7 @@ describe("constantFolding", () => {
       expect(ret.inputs[0]).toBe(p);
     });
 
-    it("x * 0 => 0", () => {
+    it("does NOT reduce x * 0 to 0 (unsound: negative x yields -0, NaN and Infinity yield NaN)", () => {
       const { graph, block } = makeGraph();
       const p = graph.addParameter(0);
       const zero = irConstant(0);
@@ -361,8 +377,20 @@ describe("constantFolding", () => {
       const ret = irReturn(mul);
       block.addNode(ret);
       constantFolding(graph);
-      expect(ret.inputs[0].type).toBe(IR_CONSTANT);
-      expect(ret.inputs[0].props.value).toBe(0);
+      expect(ret.inputs[0].type).toBe(IR_INT32_MUL);
+    });
+
+    it("still reduces x * 1 to x", () => {
+      const { graph, block } = makeGraph();
+      const p = graph.addParameter(0);
+      const one = irConstant(1);
+      block.addNode(one);
+      const mul = irInt32Mul(p, one);
+      block.addNode(mul);
+      const ret = irReturn(mul);
+      block.addNode(ret);
+      constantFolding(graph);
+      expect(ret.inputs[0]).toBe(p);
     });
   });
 

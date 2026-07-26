@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Engine } from "../../src/index.js";
+import { Engine } from "../../../src/index.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 

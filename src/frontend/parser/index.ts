@@ -113,6 +113,15 @@ const MODULE_METHODS = ["parameters", "eval", "train", "training", "to", "save",
 
 const LOGICAL_OPS = new Set(["&&", "||"]);
 
+const TYPE_ARGUMENT_PUNCTUATORS = new Set<TokenValue>([
+  "<",
+  ">",
+  ",",
+  ".",
+  "[",
+  "]",
+]);
+
 const BINARY_OPS = new Set([
   "==",
   "!=",
@@ -984,7 +993,7 @@ export class Parser {
         if (depth === 0) {
           return this.tokens[i + 1]?.type === TokenType.Punctuator && this.tokens[i + 1]?.value === "(";
         }
-      } else if (depth === 0 || tok.value === ";" || tok.value === "{") {
+      } else if (depth === 0 || !TYPE_ARGUMENT_PUNCTUATORS.has(tok.value)) {
         return false;
       }
     }

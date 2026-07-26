@@ -63,6 +63,7 @@ import {
   REP_FLOAT64,
   REP_TAGGED_NUMBER,
   REP_HANDLE,
+  REP_TAGGED,
   REP_BOOL,
 } from "../passes/repr-selection.js";
 import { TYPE_I32, TYPE_F64 } from "./wasm-format.js";
@@ -170,9 +171,7 @@ function taggedInt32Result(value: number) {
 }
 
 function taggedNumericResult(value: number) {
-  return Number.isInteger(value) && value === (value | 0)
-    ? mkSmi(value)
-    : mkDouble(value);
+  return mkNumber(value);
 }
 
 function runtimeInt32Result(value: number, runtime: RuntimeLike, outputRep: string) {
@@ -218,6 +217,9 @@ export function runtimeArg(
   if (rep === REP_HANDLE) {
     return runtime.getTagged(raw);
   }
+  if (rep === REP_TAGGED) {
+    return (isTaggedValue(raw) ? raw : mkNumber(raw)) as TaggedValue;
+  }
   if (rep === REP_BOOL) return mkBool(Math.trunc(raw) !== 0);
   if (type === TYPE_I32) return mkSmi(Math.trunc(raw));
   if (type === TYPE_F64) return mkNumber(raw);
@@ -231,6 +233,12 @@ export function runtimeReturn(
 ) {
   if (outputRep === REP_BOOL)
     return typeof value === "number" ? (toBool(value) ? 1 : 0) : value ? 1 : 0;
+  if (outputRep === REP_TAGGED) {
+    if (typeof value === "boolean") return mkBool(value);
+    if (typeof value === "number")
+      return isTaggedValue(value) ? value : mkNumber(value);
+    return value === undefined ? mkUndefined() : value;
+  }
   const asNumber =
     typeof value === "number"
       ? value
@@ -352,6 +360,9 @@ function getRuntimeIndex(
   interpreter: RuntimeInterpreterLike | null = null,
 ): TaggedValue {
   const key = isString(index) ? getPayload(index) : toDisplayString(index);
+  if (isString(obj)) {
+    return getRuntimeProperty(obj, key, interpreter);
+  }
   return proxyRuntimeGetProperty(obj, key, interpreter);
 }
 
@@ -905,6 +916,23 @@ export function executeRuntimeStub(
       );
       runtime.syncTagged?.(rawArgs[0]);
       return runtimeReturn(val, runtime, stub.outputRep);
+    }
+    case ir.IR_LOAD_FIELD: {
+      const target = objectPayloadByOffset(args[0]);
+      const offset = numberFromMetadata(node.props.offset);
+      let val: TaggedValue = mkUndefined();
+      if (target && offset >= 0 && offset < target.slots.length) {
+        const slot = target.slots[offset];
+        if (typeof slot === "number") val = slot;
+      }
+      return runtimeReturn(val, runtime, stub.outputRep);
+    }
+    case ir.IR_STORE_FIELD: {
+      const target = objectPayloadByOffset(args[0]);
+      const offset = numberFromMetadata(node.props.offset);
+      if (target && offset >= 0 && offset < target.slots.length)
+        target.slots[offset] = args[1];
+      return runtimeReturn(args[1], runtime, stub.outputRep);
     }
     default:
       throw new Error("Unsupported runtime stub: " + node.type);

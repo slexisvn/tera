@@ -71,6 +71,7 @@ import {
   runtimeOwnKeys,
   runtimeHasProperty,
 } from "../../../objects/exotic/proxy-ops.js";
+import { functionMemberValue } from "../../../objects/exotic/function-members.js";
 import { RegisterException, runGeneratorFrame } from "./helpers.js";
 import { RegisterFrame } from "./frame.js";
 import { isNull, isUndefined as isUndefinedVal, typeOf } from "../../../core/value/index.js";
@@ -111,65 +112,6 @@ function constantPropertyName(
   constantIndex: number,
 ): string {
   return String(compiledFn.constants[constantIndex]);
-}
-
-function spreadArrayArg(arrVal: TaggedValue): TaggedValue[] {
-  const out: TaggedValue[] = [];
-  if (isArray(arrVal)) {
-    const arr = getPayload(arrVal);
-    for (let i = 0; i < arr.getLength(); i++) {
-      const v = arr.getIndex(i);
-      out.push(v === undefined ? mkUndefined() : v);
-    }
-  }
-  return out;
-}
-
-function makeFunctionMethod(targetFn: TaggedValue, kind: string): TaggedValue {
-  if (kind === "call") {
-    return mkFunction({
-      name: "call",
-      call(callArgs: TaggedValue[], _t: RuntimeValue, interp: InterpreterLike) {
-        const thisArg = callArgs.length > 0 ? callArgs[0] : mkUndefined();
-        return interp.callFunctionValue(targetFn, callArgs.slice(1), thisArg);
-      },
-    });
-  }
-  if (kind === "apply") {
-    return mkFunction({
-      name: "apply",
-      call(callArgs: TaggedValue[], _t: RuntimeValue, interp: InterpreterLike) {
-        const thisArg = callArgs.length > 0 ? callArgs[0] : mkUndefined();
-        const applyArgs =
-          callArgs.length > 1 ? spreadArrayArg(callArgs[1]) : [];
-        return interp.callFunctionValue(targetFn, applyArgs, thisArg);
-      },
-    });
-  }
-  return mkFunction({
-    name: "bind",
-    call(bindArgs: TaggedValue[], _t: RuntimeValue, interp: InterpreterLike) {
-      const boundThis = bindArgs.length > 0 ? bindArgs[0] : mkUndefined();
-      const partial = bindArgs.slice(1);
-      return mkFunction({
-        name: "bound",
-        call(callArgs: TaggedValue[], _t2: RuntimeValue, ip: InterpreterLike) {
-          return ip.callFunctionValue(
-            targetFn,
-            partial.concat(callArgs),
-            boundThis,
-          );
-        },
-        construct(callArgs: TaggedValue[], ip: InterpreterLike) {
-          return ip.callFunctionValue(
-            targetFn,
-            partial.concat(callArgs),
-            mkUndefined(),
-          );
-        },
-      });
-    },
-  });
 }
 
 type PropertyFeedbackSlot = {
@@ -235,6 +177,24 @@ function throwIfNullishKey(
     const key = isString(index) ? getPayload(index) : toDisplayString(index);
     throwNullishAccess(isNull(obj), key, write);
   }
+}
+
+function lookupStringMember(
+  interp: InterpreterLike,
+  obj: TaggedValue,
+  propName: string,
+): TaggedValue {
+  const text = getPayload(obj) as string;
+  if (propName === "length") return mkSmi(text.length);
+  const idx = Number(propName);
+  if (Number.isInteger(idx)) {
+    const ch = stringCharAt(text, idx);
+    return ch !== undefined ? mkString(ch) : mkUndefined();
+  }
+  return interp._lookupBuiltinPrototype(
+    interp.builtinPrototypes.stringPrototype,
+    propName,
+  );
 }
 
 export function handleLdaProp(
@@ -363,20 +323,7 @@ export function handleLdaProp(
       }
     }
   } else if (isString(obj)) {
-    if (propName === "length") {
-      return mkSmi(getPayload(obj).length);
-    } else {
-      const idx = Number(propName);
-      if (Number.isInteger(idx)) {
-        const ch = stringCharAt(getPayload(obj), idx);
-        return ch !== undefined ? mkString(ch) : mkUndefined();
-      } else {
-        return interp._lookupBuiltinPrototype(
-          interp.builtinPrototypes.stringPrototype,
-          propName,
-        );
-      }
-    }
+    return lookupStringMember(interp, obj, propName);
   } else if (isRegex(obj)) {
     const rv = getPayload(obj);
     const regexProp = getRegexProperty(propName, rv);
@@ -393,30 +340,8 @@ export function handleLdaProp(
   } else if (isPromise(obj)) {
     return handlePromiseProp(interp, obj, propName);
   } else if (isFunction(obj)) {
-    const fn = getPayload(obj);
-    if (fn.properties && fn.properties[propName]) {
-      return fn.properties[propName];
-    } else if (propName === "call" || propName === "apply" || propName === "bind") {
-      return makeFunctionMethod(obj, propName);
-    } else if (propName === "name") {
-      return mkString(fn.name || "");
-    } else if (propName === "length") {
-      return mkSmi(
-        typeof fn.paramCount === "number"
-          ? fn.paramCount
-          : fn.compiled && typeof fn.compiled.paramCount === "number"
-            ? fn.compiled.paramCount
-            : 0,
-      );
-    } else if (propName === "prototype") {
-      if (!fn.prototypeObj) {
-        fn.prototypeObj = createJSObject();
-        fn.prototypeObj.constructorRef = fn;
-      }
-      return mkObject(fn.prototypeObj);
-    } else {
-      return mkUndefined();
-    }
+    const member = functionMemberValue(obj, propName);
+    return member !== null ? member : mkUndefined();
   } else if (isSmi(obj) || isDouble(obj)) {
     return interp._lookupBuiltinPrototype(
       interp.builtinPrototypes.numberPrototype,
@@ -693,9 +618,13 @@ export function handleLdaIndex(
       !(typeof resultValue === "object" && resultValue instanceof AccessorPair)
       ? resultValue
       : mkUndefined();
-  } else if (isString(obj) && isNumber(index)) {
-    const ch = stringCharAt(getPayload(obj), toNumber(index));
-    return ch !== undefined ? mkString(ch) : mkUndefined();
+  } else if (isString(obj)) {
+    if (isNumber(index)) {
+      const ch = stringCharAt(getPayload(obj), toNumber(index));
+      return ch !== undefined ? mkString(ch) : mkUndefined();
+    }
+    const key = isString(index) ? getPayload(index) : toDisplayString(index);
+    return lookupStringMember(interp, obj, key);
   } else if (isObject(obj)) {
     const key = isString(index) ? getPayload(index) : toDisplayString(index);
     return runtimeGetProperty(obj, key, interp);

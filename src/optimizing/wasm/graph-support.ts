@@ -806,7 +806,7 @@ export class RuntimeStubTable {
       blockId: node.block ? node.block.id : -1,
       opcode: node.type,
       bytecodeOffset: node.frameState ? node.frameState.bytecodeOffset : -1,
-      frameStateId: node.frameState ? node.frameState.id : 0,
+      frameStateId: node.frameState ? node.frameState.id : -1,
       inputReps: node.inputs.map((input) => repForNode(input)),
       outputRep: repForNode(node),
       sideEffect: runtimeStubHasSideEffect(node),

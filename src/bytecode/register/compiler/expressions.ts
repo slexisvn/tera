@@ -584,7 +584,13 @@ export const expressionMethods: ExpressionMethodMap = {
       return;
     }
 
-    if (node.callee.type === NodeType.MemberExpression) {
+    if (
+      node.callee.type === NodeType.MemberExpression ||
+      node.callee.type === NodeType.OptionalMemberExpression
+    ) {
+      const calleeIsOptional =
+        node.callee.type === NodeType.OptionalMemberExpression;
+      let optionalPatch = -1;
       const recvReg = this.temps.alloc();
       if (node.callee.object.type === NodeType.SuperExpression) {
         if (node.callee.computed) throw new Error("[RegCompiler] Computed super methods are not supported");
@@ -594,6 +600,10 @@ export const expressionMethods: ExpressionMethodMap = {
       } else {
         this.compileExpression(node.callee.object);
         this.func.emit(bytecode.ROP_STAR, recvReg);
+        if (calleeIsOptional) {
+          this.func.emit(bytecode.ROP_IS_NULLISH);
+          optionalPatch = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0);
+        }
       }
 
       if (node.callee.computed && node.callee.object.type !== NodeType.SuperExpression) {
@@ -652,6 +662,13 @@ export const expressionMethods: ExpressionMethodMap = {
           argCount,
           fbSlot,
         );
+      }
+
+      if (optionalPatch >= 0) {
+        const jumpToEnd = this.func.emit(bytecode.ROP_JUMP, 0);
+        this.func.patchJump(optionalPatch, this.func.instructions.length);
+        this.func.emit(bytecode.ROP_LDA_UNDEFINED);
+        this.func.patchJump(jumpToEnd, this.func.instructions.length);
       }
 
       for (let i = argCount - 1; i >= 0; i--) this.temps.free(firstArgReg + i);
@@ -1001,35 +1018,83 @@ export const expressionMethods: ExpressionMethodMap = {
   },
 
   compileOptionalCall(node: CompilerNode) {
-    this.compileExpression(node.callee);
+    const callee = node.callee;
+    const isMemberCallee =
+      callee.type === NodeType.MemberExpression ||
+      callee.type === NodeType.OptionalMemberExpression;
+    const receiverIsOptional =
+      callee.type === NodeType.OptionalMemberExpression;
+
+    let recvReg = -1;
+    const shortCircuits: number[] = [];
+
+    if (isMemberCallee && callee.object.type !== NodeType.SuperExpression) {
+      this.compileExpression(callee.object);
+      recvReg = this.temps.alloc();
+      this.func.emit(bytecode.ROP_STAR, recvReg);
+      if (receiverIsOptional) {
+        this.func.emit(bytecode.ROP_IS_NULLISH);
+        shortCircuits.push(this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0));
+      }
+      if (callee.computed || typeof callee.property !== "string") {
+        this.compileExpression(
+          requirePropertyExpression(callee.property, "optional call"),
+        );
+        const idxReg = this.temps.alloc();
+        this.func.emit(bytecode.ROP_STAR, idxReg);
+        const idxFbSlot = this.func.allocFeedbackSlot();
+        this.func.emit(bytecode.ROP_LDA_INDEX, recvReg, idxReg, idxFbSlot);
+        this.temps.free(idxReg);
+      } else {
+        const propIdx = this.func.addConstant(callee.property);
+        const propFbSlot = this.func.allocFeedbackSlot();
+        this.func.emit(bytecode.ROP_LDA_PROP, recvReg, propIdx, propFbSlot);
+      }
+    } else {
+      this.compileExpression(callee);
+    }
+
     const calleeReg = this.temps.alloc();
     this.func.emit(bytecode.ROP_STAR, calleeReg);
     this.func.emit(bytecode.ROP_IS_NULLISH);
-    const jumpToUndef = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0);
+    shortCircuits.push(this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0));
 
-    const argRegs: number[] = [];
-    const firstArgReg = node.args.length > 0 ? this.temps.alloc() : 0;
-    for (let i = 0; i < node.args.length; i++) {
-      const reg = i === 0 ? firstArgReg : this.temps.alloc();
-      argRegs.push(reg);
+    const argCount = node.args.length;
+    const firstArgReg = argCount > 0 ? this.temps.allocContiguous(argCount) : 0;
+    for (let i = 0; i < argCount; i++) {
       this.compileExpression(node.args[i]!);
-      this.func.emit(bytecode.ROP_STAR, reg);
+      this.func.emit(bytecode.ROP_STAR, firstArgReg + i);
     }
+
     const fbSlot = this.func.allocFeedbackSlot();
-    this.func.emit(
-      bytecode.ROP_CALL,
-      calleeReg,
-      firstArgReg,
-      node.args.length,
-      fbSlot,
-    );
-    for (let i = argRegs.length - 1; i >= 0; i--) this.temps.free(argRegs[i]);
+    if (recvReg >= 0) {
+      this.func.emit(bytecode.ROP_LDA_REG, calleeReg);
+      this.func.emit(
+        bytecode.ROP_CALL_METHOD,
+        recvReg,
+        firstArgReg,
+        argCount,
+        fbSlot,
+      );
+    } else {
+      this.func.emit(
+        bytecode.ROP_CALL,
+        calleeReg,
+        firstArgReg,
+        argCount,
+        fbSlot,
+      );
+    }
+    for (let i = argCount - 1; i >= 0; i--) this.temps.free(firstArgReg + i);
 
     const jumpToEnd = this.func.emit(bytecode.ROP_JUMP, 0);
-    this.func.patchJump(jumpToUndef, this.func.instructions.length);
+    for (const patch of shortCircuits) {
+      this.func.patchJump(patch, this.func.instructions.length);
+    }
     this.func.emit(bytecode.ROP_LDA_UNDEFINED);
     this.func.patchJump(jumpToEnd, this.func.instructions.length);
     this.temps.free(calleeReg);
+    if (recvReg >= 0) this.temps.free(recvReg);
   },
 
   compileUpdateExpression(node: CompilerNode) {

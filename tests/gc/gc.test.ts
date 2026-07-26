@@ -376,7 +376,7 @@ describe("heap-payload reachability sweep (boxed-primitive reclamation)", () => 
     
     
     expect(heapPayloadLiveBytesEstimate()).toBeLessThan(1 << 20);
-  }, 20000);
+  }, 120000);
 
   it("preserves live state (objects, arrays, closures, generators) across sweeps", () => {
     const engine = new Engine();

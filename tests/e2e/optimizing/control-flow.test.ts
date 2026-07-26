@@ -1,34 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Engine } from "../../src/index.js";
-
-const src = (...lines: string[]) => lines.join("\n");
-
-const withoutJit = () =>
-  new Engine({
-    typecheck: "off",
-    osr: false,
-    tieringPolicy: { jitThreshold: 1e12, baselineThreshold: 1e12 },
-  });
-
-const withJit = () =>
-  new Engine({
-    typecheck: "off",
-    osr: false,
-    tieringPolicy: { jitThreshold: 30, baselineThreshold: 3 },
-  });
-
-const withOsr = () =>
-  new Engine({
-    typecheck: "off",
-    tieringPolicy: { jitThreshold: 30, baselineThreshold: 3 },
-  });
-
-const differential = (source: string) => {
-  const expected = withoutJit().runNative(source);
-  expect(withJit().runNative(source)).toEqual(expected);
-  expect(withOsr().runNative(source)).toEqual(expected);
-  return expected;
-};
+import { differential, src } from "./_tiers.js";
 
 const called = (...body: string[]) =>
   src(

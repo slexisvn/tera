@@ -25,6 +25,7 @@ import {
   isObject,
   isFunction,
   isArray,
+  isSymbol,
   isUndefined,
   isNull,
   isBool,
@@ -53,6 +54,7 @@ import {
   runtimeHasProperty,
   runtimeSetProperty,
 } from "../../objects/exotic/proxy-ops.js";
+import { functionMemberValue } from "../../objects/exotic/function-members.js";
 
 export type BaselineInterpreter = {
   globalCells: {
@@ -80,7 +82,10 @@ export type BaselineInterpreter = {
   baselineFrames?: BaselineFrameRoots[];
 };
 
-export type BaselineFrameRoots = { registers: TaggedValue[] };
+export type BaselineFrameRoots = {
+  registers: TaggedValue[];
+  readLocals?: () => TaggedValue[];
+};
 
 const MAX_CALL_DEPTH = 1000;
 let globalCallDepth = 0;
@@ -344,18 +349,8 @@ export class BaselineRuntime {
       );
     }
     if (isFunction(obj)) {
-      const fn = getPayload(obj);
-      if (fn.properties && fn.properties[propName] !== undefined) {
-        return fn.properties[propName];
-      }
-      if (propName === "prototype") {
-        if (!fn.prototypeObj) {
-          fn.prototypeObj = createJSObject();
-          fn.prototypeObj.constructorRef = fn;
-        }
-        return mkObject(fn.prototypeObj);
-      }
-      return this.u;
+      const member = functionMemberValue(obj, propName);
+      return member !== null ? member : this.u;
     }
     if (isNumber(obj)) {
       return this.interp._lookupBuiltinPrototype(
@@ -428,8 +423,8 @@ export class BaselineRuntime {
     }
   }
 
-  enter(registers: TaggedValue[]): void {
-    this.interp.baselineFrames?.push({ registers });
+  enter(registers: TaggedValue[], readLocals?: () => TaggedValue[]): void {
+    this.interp.baselineFrames?.push({ registers, readLocals });
   }
 
   leave(): void {
@@ -461,9 +456,23 @@ export class BaselineRuntime {
       const val = result.value;
       return val !== undefined ? val : this.u;
     }
-    if (isString(obj) && isSmi(index)) {
-      const ch = getPayload(obj)[getPayload(index)];
-      return ch !== undefined ? mkString(ch) : this.u;
+    if (isString(obj)) {
+      const text = getPayload(obj) as string;
+      if (isSmi(index)) {
+        const ch = stringCharAt(text, getPayload(index) as number);
+        return ch !== undefined ? mkString(ch) : this.u;
+      }
+      const key = isString(index) ? getPayload(index) : toDisplayString(index);
+      if (key === "length") return mkSmi(text.length);
+      const idx = Number(key);
+      if (Number.isInteger(idx)) {
+        const ch = stringCharAt(text, idx);
+        return ch !== undefined ? mkString(ch) : this.u;
+      }
+      return this.interp._lookupBuiltinPrototype(
+        this.interp.builtinPrototypes.stringPrototype,
+        key,
+      );
     }
     if (isObject(obj)) {
       const key = isString(index) ? getPayload(index) : toDisplayString(index);
@@ -542,10 +551,7 @@ export class BaselineRuntime {
 
   mul(l: TaggedValue, r: TaggedValue, fbSlot: number) {
     this.rfb(fbSlot, l, r);
-    if (isSmi(l) && isSmi(r)) {
-      const res = getPayload(l) * getPayload(r);
-      return res === (res | 0) ? mkSmi(res) : mkDouble(res);
-    }
+    if (isSmi(l) && isSmi(r)) return mkNumber(getPayload(l) * getPayload(r));
     return applyBinaryOverload("mul", l, r, this.interp)
       ?? mkDouble(toNumber(l) * toNumber(r));
   }
@@ -554,16 +560,13 @@ export class BaselineRuntime {
     this.rfb(fbSlot, l, r);
     const overloaded = applyBinaryOverload("div", l, r, this.interp);
     if (overloaded !== null) return overloaded;
-    const res = toNumber(l) / toNumber(r);
-    return Number.isInteger(res) && res === (res | 0)
-      ? mkSmi(res)
-      : mkDouble(res);
+    return mkNumber(toNumber(l) / toNumber(r));
   }
 
   mod(l: TaggedValue, r: TaggedValue, fbSlot: number) {
     this.rfb(fbSlot, l, r);
     if (isSmi(l) && isSmi(r) && getPayload(r) !== 0)
-      return mkSmi(getPayload(l) % getPayload(r));
+      return mkNumber(getPayload(l) % getPayload(r));
     return mkDouble(toNumber(l) % toNumber(r));
   }
 
@@ -576,8 +579,13 @@ export class BaselineRuntime {
     if (isBool(l) && isBool(r)) return mkBool(getPayload(l) === getPayload(r));
     if (isNull(l) && isNull(r)) return this.t;
     if (isUndefined(l) && isUndefined(r)) return this.t;
-    if ((isNull(l) || isUndefined(l)) && (isNull(r) || isUndefined(r)))
-      return this.t;
+    if (isSymbol(l) && isSymbol(r))
+      return mkBool(getPayload(l) === getPayload(r));
+    if (
+      (isObject(l) || isArray(l) || isFunction(l)) &&
+      (isObject(r) || isArray(r) || isFunction(r))
+    )
+      return mkBool(getPayload(l) === getPayload(r));
     return this.f;
   }
 
@@ -588,8 +596,15 @@ export class BaselineRuntime {
     if (isString(l) && isString(r))
       return mkBool(getPayload(l) !== getPayload(r));
     if (isBool(l) && isBool(r)) return mkBool(getPayload(l) !== getPayload(r));
-    if ((isNull(l) || isUndefined(l)) && (isNull(r) || isUndefined(r)))
-      return this.f;
+    if (isNull(l) && isNull(r)) return this.f;
+    if (isUndefined(l) && isUndefined(r)) return this.f;
+    if (isSymbol(l) && isSymbol(r))
+      return mkBool(getPayload(l) !== getPayload(r));
+    if (
+      (isObject(l) || isArray(l) || isFunction(l)) &&
+      (isObject(r) || isArray(r) || isFunction(r))
+    )
+      return mkBool(getPayload(l) !== getPayload(r));
     return this.t;
   }
 
@@ -683,10 +698,7 @@ export class BaselineRuntime {
     this._recordBinaryFb(left, right, fbSlot);
     const overloaded = applyBinaryOverload("pow", left, right, this.interp);
     if (overloaded !== null) return overloaded;
-    const result = toNumber(left) ** toNumber(right);
-    return Number.isInteger(result) && result === (result | 0)
-      ? mkSmi(result)
-      : mkDouble(result);
+    return mkNumber(toNumber(left) ** toNumber(right));
   }
   bitnot(val: TaggedValue, fbSlot: number) {
     if (fbSlot >= 0 && this.fv) {

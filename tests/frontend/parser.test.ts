@@ -908,4 +908,34 @@ describe("Parser", () => {
       expect(() => parse("a[0:2] = [1, 2]")).toThrow(/Invalid assignment/);
     });
   });
+
+  describe("generic call disambiguation", () => {
+    it("parses a comparison chain that ends in a parenthesised operand", () => {
+      const expr = parseExpr("(a < b) > (c)");
+      expect(expr.type).toBe(NodeType.BinaryExpression);
+      expect(expr.op).toBe(">");
+      expect(expr.left.type).toBe(NodeType.BinaryExpression);
+      expect(expr.left.op).toBe("<");
+    });
+
+    it("parses a conditional whose branch compares parenthesised operands", () => {
+      const expr = parseExpr("((i < 9) ? ((i) > (acc)) : 1)");
+      expect(expr.type).toBe(NodeType.ConditionalExpression);
+      expect(expr.consequent.type).toBe(NodeType.BinaryExpression);
+      expect(expr.consequent.op).toBe(">");
+    });
+
+    it("still treats an identifier followed by type arguments as a call", () => {
+      const expr = parseExpr("f<T>(x)");
+      expect(expr.type).toBe(NodeType.CallExpression);
+      expect(expr.callee.type).toBe(NodeType.Identifier);
+      expect(expr.callee.name).toBe("f");
+    });
+
+    it("still treats a multi-argument type list as a call", () => {
+      const expr = parseExpr("f<A, B>(x)");
+      expect(expr.type).toBe(NodeType.CallExpression);
+      expect(expr.callee.name).toBe("f");
+    });
+  });
 });

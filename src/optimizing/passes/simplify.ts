@@ -51,10 +51,10 @@ function rewireUses(
 
 export function constantFolding(graph: SimplifyGraph): number {
   const ARITH_OPS: Record<string, BinaryNumberFolder> = {
-    [ir.IR_INT32_ADD]: (a, b) => (a + b) | 0,
-    [ir.IR_INT32_SUB]: (a, b) => (a - b) | 0,
-    [ir.IR_INT32_MUL]: (a, b) => Math.imul(a, b),
-    [ir.IR_INT32_DIV]: (a, b) => (b !== 0 ? (a / b) | 0 : a / b),
+    [ir.IR_INT32_ADD]: (a, b) => a + b,
+    [ir.IR_INT32_SUB]: (a, b) => a - b,
+    [ir.IR_INT32_MUL]: (a, b) => a * b,
+    [ir.IR_INT32_DIV]: (a, b) => a / b,
     [ir.IR_INT32_MOD]: (a, b) => a % b,
     [ir.IR_INT32_SHL]: (a, b) => (a << b) | 0,
     [ir.IR_INT32_SHR]: (a, b) => (a >> b) | 0,
@@ -212,16 +212,6 @@ export function constantFolding(graph: SimplifyGraph): number {
             node.inputs[0].props.value === 1
           ) {
             bypassWith(node, node.inputs[1]);
-            changed = true;
-            continue;
-          }
-          if (
-            (node.inputs[0]?.type === ir.IR_CONSTANT &&
-              node.inputs[0].props.value === 0) ||
-            (node.inputs[1]?.type === ir.IR_CONSTANT &&
-              node.inputs[1].props.value === 0)
-          ) {
-            replaceInPlace(node, nodeFromIr(ir.irConstant(0)), block, i);
             changed = true;
             continue;
           }

@@ -602,7 +602,12 @@ function callFunction(
     const { capability, value } = mkPromiseCapability(interpreter.microtaskQueue);
     const asyncFrame = new RegisterFrame(compiled, args, thisValue, fn.closure);
     if (!compiled.feedbackVector) interpreter.initFeedbackVector(compiled);
-    runAsyncWithSuspension(interpreter, asyncFrame, capability);
+    interpreter.transientRoots.push(value);
+    try {
+      runAsyncWithSuspension(interpreter, asyncFrame, capability);
+    } finally {
+      interpreter.transientRoots.pop();
+    }
     recordReturnFeedback(slot, value);
     return value;
   }
@@ -629,7 +634,11 @@ export class RegisterInterpreter {
   globalCells: GlobalCellMap;
   callStack: string[];
   activeFrames: RegisterFrame[];
-  baselineFrames: Array<{ registers: TaggedValue[] }>;
+  baselineFrames: Array<{
+    registers: TaggedValue[];
+    readLocals?: () => TaggedValue[];
+  }>;
+  transientRoots: TaggedValue[];
   _sweepTick: number;
   _heapSweepThreshold: number;
   icManager: InlineCacheManager;
@@ -642,6 +651,7 @@ export class RegisterInterpreter {
     this.callStack = [];
     this.activeFrames = [];
     this.baselineFrames = [];
+    this.transientRoots = [];
     this._sweepTick = 0;
     this._heapSweepThreshold = 1 << 18;
     this.icManager = new InlineCacheManager();
@@ -1475,11 +1485,7 @@ export class RegisterInterpreter {
                 compiledFn,
               );
               if (areBothSmi(left, right)) {
-                const result = smiPayload(left) * smiPayload(right);
-                frame.acc =
-                  result >= SMI_MIN && result <= SMI_MAX
-                    ? mkSmi(result)
-                    : mkDouble(result);
+                frame.acc = mkNumber(smiPayload(left) * smiPayload(right));
               } else {
                 const overloaded = applyBinaryOverload("mul", left, right, this);
                 frame.acc = overloaded
@@ -1509,13 +1515,9 @@ export class RegisterInterpreter {
                 frame.acc = overloaded;
                 break;
               }
-              const result = this.toNumberValue(left) / this.toNumberValue(right);
-              frame.acc =
-                Number.isInteger(result) &&
-                result >= SMI_MIN &&
-                result <= SMI_MAX
-                  ? mkSmi(result)
-                  : mkDouble(result);
+              frame.acc = mkNumber(
+                this.toNumberValue(left) / this.toNumberValue(right),
+              );
               break;
             }
 
@@ -1526,7 +1528,7 @@ export class RegisterInterpreter {
                 compiledFn,
               );
               if (areBothSmi(left, right) && smiPayload(right) !== 0) {
-                frame.acc = mkSmi(smiPayload(left) % smiPayload(right));
+                frame.acc = mkNumber(smiPayload(left) % smiPayload(right));
               } else {
                 frame.acc = mkDouble(this.toNumberValue(left) % this.toNumberValue(right));
               }
@@ -2241,11 +2243,9 @@ export class RegisterInterpreter {
                 frame.acc = overloaded;
                 break;
               }
-              const result = this.toNumberValue(left) ** this.toNumberValue(right);
-              frame.acc =
-                Number.isInteger(result) && result === (result | 0)
-                  ? mkSmi(result)
-                  : mkDouble(result);
+              frame.acc = mkNumber(
+                this.toNumberValue(left) ** this.toNumberValue(right),
+              );
               break;
             }
 

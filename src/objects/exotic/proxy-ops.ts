@@ -34,6 +34,7 @@ import {
   createJSProxy,
 } from "../heap/factory.js";
 import { isJSProxyObject } from "./js-proxy.js";
+import { functionMemberValue } from "./function-members.js";
 
 function sameValue(a: TaggedValue, b: TaggedValue): boolean {
   const ta = getTag(a);
@@ -137,10 +138,6 @@ function arrayPayload(value: TaggedValue): RuntimeArray {
 
 function proxyPayload(value: TaggedValue): RuntimeProxy {
   return getPayload(value) as RuntimeProxy;
-}
-
-function functionPayload(value: TaggedValue): RuntimeFunctionPayload {
-  return getPayload(value) as RuntimeFunctionPayload;
 }
 
 export function isJSProxyValue(value: TaggedValue): boolean {
@@ -465,16 +462,8 @@ export function runtimeGetProperty(
     }
   }
   if (isFunction(receiver)) {
-    const fn = functionPayload(receiver);
-    if (fn.properties && fn.properties[propName])
-      return fn.properties[propName];
-    if (propName === "prototype") {
-      if (!fn.prototypeObj) {
-        fn.prototypeObj = createJSObject();
-        fn.prototypeObj.constructorRef = receiver;
-      }
-      return mkObject(fn.prototypeObj);
-    }
+    const member = functionMemberValue(receiver, propName);
+    if (member !== null) return member;
   }
   return mkUndefined();
 }

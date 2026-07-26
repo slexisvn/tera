@@ -93,6 +93,16 @@ const CASES = {
     "  return s",
     "run(400000)",
   ),
+  doubleToInt32: src(
+    "fn run(n):",
+    "  acc = 0",
+    "  i = 0",
+    "  while i < n:",
+    "    acc = ((acc + (i * 1.5)) | 0) % 1000003",
+    "    i = i + 1",
+    "  return acc",
+    "run(4000000)",
+  ),
   recursion: src(
     "fn fib(k):",
     "  if k < 2:",

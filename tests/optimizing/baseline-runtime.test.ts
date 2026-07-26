@@ -145,10 +145,30 @@ describe("BaselineRuntime", () => {
       expect(getPayload(rt.eq(a, b, -1))).toBe(true);
     });
 
-    it("eq: null == undefined → true", () => {
+    it("eq: null === undefined → false (strict equality does not conflate them)", () => {
       const rt = makeRuntime();
-      expect(getPayload(rt.eq(mkNull(), mkUndefined(), -1))).toBe(true);
+      expect(getPayload(rt.eq(mkNull(), mkUndefined(), -1))).toBe(false);
+      expect(getPayload(rt.neq(mkNull(), mkUndefined(), -1))).toBe(true);
       expect(getPayload(rt.eq(mkNull(), mkNull(), -1))).toBe(true);
+      expect(getPayload(rt.eq(mkUndefined(), mkUndefined(), -1))).toBe(true);
+    });
+
+    it("eq: the same object, array or function is strictly equal to itself", () => {
+      const rt = makeRuntime();
+      const obj = mkObject(createJSObject());
+      const arr = mkArray(createJSArray([mkSmi(1)]));
+      expect(getPayload(rt.eq(obj, obj, -1))).toBe(true);
+      expect(getPayload(rt.neq(obj, obj, -1))).toBe(false);
+      expect(getPayload(rt.eq(arr, arr, -1))).toBe(true);
+      expect(getPayload(rt.neq(arr, arr, -1))).toBe(false);
+    });
+
+    it("eq: distinct objects with the same shape are not strictly equal", () => {
+      const rt = makeRuntime();
+      const a = mkObject(createJSObject());
+      const b = mkObject(createJSObject());
+      expect(getPayload(rt.eq(a, b, -1))).toBe(false);
+      expect(getPayload(rt.neq(a, b, -1))).toBe(true);
     });
 
     it("neq: different values → true", () => {

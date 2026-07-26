@@ -44,6 +44,7 @@ export const DEOPT_ELEMENTS_KIND_CHECK_FAILED = "elements-kind-check-failed";
 export const DEOPT_BOUNDS_CHECK_FAILED = "bounds-check-failed";
 export const DEOPT_OVERFLOW = "integer-overflow";
 export const DEOPT_DIVISION_BY_ZERO = "division-by-zero";
+export const DEOPT_MINUS_ZERO = "minus-zero";
 export const DEOPT_WRONG_CALL_TARGET = "wrong-call-target";
 export const DEOPT_GUARD_FAILURE = "guard-failure";
 export const DEOPT_RUNTIME_STUB_FAILURE = "runtime-stub-failure";
