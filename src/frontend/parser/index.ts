@@ -439,50 +439,24 @@ export class Parser {
 
   isTypedAssignmentStart(): boolean {
     if (!this.check(TokenType.Identifier) || this.peek().value !== ":") return false;
-    let depth = 0;
-    for (let i = this.pos + 2; i < this.tokens.length; i++) {
-      const tok = this.tokens[i];
-      if (tok.type === TokenType.Punctuator) {
-        if (tok.value === "(" || tok.value === "[" || tok.value === "{") depth++;
-        else if (tok.value === ")" || tok.value === "]" || tok.value === "}") {
-          if (depth === 0) return false;
-          depth--;
-        } else if (depth === 0 && tok.value === "=") {
-          return true;
-        } else if (depth === 0 && (tok.value === ";" || tok.value === ",")) {
-          return false;
-        }
-      }
-    }
-    return false;
+    const saved = this.pos;
+    this.advance();
+    this.advance();
+    this.skipType();
+    const isAssignment = this.check(TokenType.Punctuator, "=");
+    this.pos = saved;
+    return isAssignment;
   }
 
   parseTypedAssignment(): ASTNode {
     const name = this.expectString(TokenType.Identifier);
-    this.skipVariableTypeAnnotation();
+    this.skipTypeAnnotation();
     let init = null;
     if (this.match(TokenType.Punctuator, "=")) {
       init = this.parseExpression();
     }
     this.consumeSemicolon();
     return LetDeclaration(name, init);
-  }
-
-  skipVariableTypeAnnotation(): void {
-    if (!this.match(TokenType.Punctuator, ":")) return;
-    let depth = 0;
-    while (!this.isAtEnd()) {
-      const tok = this.current();
-      if (tok.type === TokenType.Punctuator) {
-        if (tok.value === "(" || tok.value === "[" || tok.value === "{") depth++;
-        else if (tok.value === ")" || tok.value === "]" || tok.value === "}") {
-          if (depth > 0) depth--;
-        } else if (depth === 0 && (tok.value === "=" || tok.value === ";")) {
-          break;
-        }
-      }
-      this.advance();
-    }
   }
 
   isDestructuringAssignmentStart(): boolean {
@@ -541,35 +515,72 @@ export class Parser {
     return ObjectDestructuring(pattern, init, "let");
   }
 
-  skipTypeAnnotation(stopValues = new Set<TokenValue>([",", ")", "=", "{"])): void {
+  skipTypeAnnotation(): void {
     if (!this.match(TokenType.Punctuator, ":")) return;
-    let depth = 0;
-    while (!this.isAtEnd()) {
+    this.skipType();
+  }
+
+  skipReturnType(): void {
+    if (!this.match(TokenType.Punctuator, "->")) return;
+    this.skipType();
+  }
+
+  skipType(): void {
+    this.skipTypePrimary();
+    while (
+      this.check(TokenType.Punctuator, "|") ||
+      this.check(TokenType.Punctuator, "&") ||
+      this.check(TokenType.Punctuator, "->")
+    ) {
+      this.advance();
+      this.skipTypePrimary();
+    }
+  }
+
+  skipTypePrimary(): void {
+    const tok = this.current();
+    if (tok.type === TokenType.Punctuator) {
+      if (tok.value === "{" || tok.value === "(" || tok.value === "[") this.skipBracketed();
+      else return;
+    } else {
+      this.advance();
+      while (this.check(TokenType.Punctuator, ".") && this.peek().type === TokenType.Identifier) {
+        this.advance();
+        this.advance();
+      }
+      if (this.check(TokenType.Punctuator, "<")) this.skipTypeArguments();
+    }
+    while (this.check(TokenType.Punctuator, "[")) this.skipBracketed();
+  }
+
+  skipTypeArguments(): void {
+    this.advance();
+    let depth = 1;
+    while (depth > 0 && !this.isAtEnd()) {
       const tok = this.current();
       if (tok.type === TokenType.Punctuator) {
-        if (tok.value === "(" || tok.value === "[" || tok.value === "{") depth++;
-        else if (tok.value === ")" || tok.value === "]" || tok.value === "}") {
-          if (depth === 0 && stopValues.has(tok.value)) break;
-          depth--;
+        if (tok.value === "(" || tok.value === "[" || tok.value === "{") {
+          this.skipBracketed();
+          continue;
         }
-        if (depth === 0 && stopValues.has(tok.value)) break;
+        if (tok.value === "<") depth++;
+        else if (tok.value === ">") depth--;
+        else if (tok.value === ">>") depth -= 2;
+        else if (tok.value === ">>>") depth -= 3;
       }
       this.advance();
     }
   }
 
-  skipReturnType(): void {
-    if (!this.match(TokenType.Punctuator, "->")) return;
+  skipBracketed(): void {
     let depth = 0;
-    while (!this.isAtEnd()) {
-      const tok = this.current();
+    do {
+      const tok = this.advance();
       if (tok.type === TokenType.Punctuator) {
-        if (depth <= 0 && tok.value === "{") break;
         if (tok.value === "(" || tok.value === "[" || tok.value === "{") depth++;
         else if (tok.value === ")" || tok.value === "]" || tok.value === "}") depth--;
       }
-      this.advance();
-    }
+    } while (depth > 0 && !this.isAtEnd());
   }
 
   parseGenericArguments(): string[] {
@@ -1533,7 +1544,7 @@ export class Parser {
         methods.push({ name, func: funcNode, kind: null });
         methodNames.add(name);
       } else {
-        this.skipTypeAnnotation(new Set<TokenValue>(["="]));
+        this.skipTypeAnnotation();
         this.expect(TokenType.Punctuator, "=");
         const init = this.parseExpression();
         this.consumeSemicolon();

@@ -44,24 +44,29 @@ export class DocumentAnalyzer {
 
 function analyze(text: string, env: BuiltinEnv): AnalyzedDocument {
   const lines = splitLines(text);
+  const inferred = inferTypesSafely(text);
   return {
     text,
     lines,
     tokens: analyzeTokens(text),
     ast: parseSafely(text),
-    symbols: buildSymbolTable(lines, env, inferTypesSafely(text)),
+    symbols: buildSymbolTable(lines, env, inferred.types, inferred.members),
     errors: analyzeDiagnostics(text),
   };
 }
 
-function inferTypesSafely(text: string): Map<string, string> {
+function inferTypesSafely(text: string): { types: Map<string, string>; members: Map<string, string> } {
   const types = new Map<string, string>();
+  const members = new Map<string, string>();
   try {
-    for (const symbol of inferSymbolTypes(text)) types.set(`${symbol.name}:${symbol.line}`, symbol.type);
+    for (const symbol of inferSymbolTypes(text)) {
+      if (symbol.name.includes(".")) members.set(symbol.name, symbol.type);
+      else types.set(`${symbol.name}:${symbol.line}`, symbol.type);
+    }
   } catch {
-    return types;
+    return { types, members };
   }
-  return types;
+  return { types, members };
 }
 
 function parseSafely(text: string): unknown {

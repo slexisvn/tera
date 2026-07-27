@@ -1,6 +1,7 @@
 import type { SemanticNode, SemanticProgram } from "./semantic-ast.js";
 import {
   BUILTIN_SIGNATURES,
+  GLOBAL_NAMESPACE_BINDINGS,
   cleanType,
   createTypeEnv,
   instantiateShapeForType,
@@ -84,6 +85,24 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
     for (const stmt of node.body) bindNode(stmt, bound, isModelSection(stmt) ? section : child);
     return;
   }
+  if (node.kind === "Class") {
+    const constructor = node.members.find((member) => member.memberKind === "constructor");
+    const sig = signatureFromParams(node.name, [], constructor?.fn.params ?? [], node.name);
+    scope.signatures.set(node.name, sig);
+    if (node.parent) bound.env.nominalFamilies.set(node.name, node.parent);
+    const classScope = createScope(scope, sig);
+    bound.scopes.set(node, classScope);
+    classScope.locals.set(node.name, { type: node.name, optional: false });
+    for (const member of node.members) {
+      const memberSig = signatureFromParams(member.fn.name, member.fn.typeParams, member.fn.params, member.fn.returns);
+      const child = createScope(classScope, memberSig);
+      bound.scopes.set(member.fn, child);
+      child.locals.set("this", { type: node.name, optional: false, declared: true });
+      for (const [name, binding] of memberSig.params) child.locals.set(name, { ...binding, declared: true });
+      for (const stmt of member.fn.body) bindNode(stmt, bound, child);
+    }
+    return;
+  }
   if (node.kind === "Block") {
     const child = createScope(scope, scope.signature);
     bound.scopes.set(node, child);
@@ -118,6 +137,7 @@ function createScope(parent: Scope | null, signature?: Signature): Scope {
 export function bindProgram(program: SemanticProgram): BoundProgram {
   const root = createScope(null);
   for (const [name, sig] of BUILTIN_SIGNATURES) root.signatures.set(name, sig);
+  for (const [name, type] of GLOBAL_NAMESPACE_BINDINGS) root.locals.set(name, { type, optional: false, declared: true });
   const bound: BoundProgram = {
     program,
     env: createTypeEnv(),

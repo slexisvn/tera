@@ -51,6 +51,8 @@ export function inferExpression(
       const sig = lookupSignature(scope, name);
       return lookup(scope, name)?.type ?? (sig ? signatureType(sig) : "unknown");
     }
+    case NodeType.ThisExpression:
+      return lookup(scope, "this")?.type ?? "unknown";
     case NodeType.ArrayExpression:
       return inferArray(node, bound, scope, expectedType);
     case NodeType.ObjectExpression:
@@ -254,24 +256,54 @@ export function instantiateForCall(sig: Signature, args: ASTNode[], bound: Bound
     substitutions.set(sig.typeParams[i], cleanType(explicitTypeArgs[i]));
   }
   let positional = 0;
+  const pairs: Array<{ type: TypeName; value: ASTNode; name: string }> = [];
   for (const rawArg of args) {
     const isNamed = rawArg.type === NodeType.NamedArgument;
     const paramName = isNamed ? String(rawArg.name) : sig.positional[positional++];
     if (!paramName) continue;
     const param = sig.params.get(paramName);
     if (!param) continue;
-    const value = isNamed ? rawArg.value as ASTNode : rawArg;
-    const actual = inferExpression(value, bound, scope);
-    for (const typeParam of sig.typeParams) {
-      if (!substitutions.has(typeParam) && new RegExp(`\\b${typeParam}\\b`).test(param.type)) {
-        substitutions.set(typeParam, actual);
-      }
+    pairs.push({ type: param.type, value: isNamed ? rawArg.value as ASTNode : rawArg, name: paramName });
+  }
+  for (const pass of [false, true]) {
+    for (const pair of pairs) {
+      if ((parseFunctionType(pair.type) !== null) !== pass) continue;
+      const resolved = substituteType(pair.type, substitutions);
+      const expectedSig = functionSignatureForType(pair.name, resolved);
+      const actual = inferExpression(pair.value, bound, scope, expectedSig, resolved);
+      unifyTypeParams(pair.type, actual, sig.typeParams, substitutions);
     }
   }
   for (const typeParam of sig.typeParams) {
     if (!substitutions.has(typeParam)) substitutions.set(typeParam, "unknown");
   }
   return instantiateSignature(sig, substitutions);
+}
+
+function unifyTypeParams(paramType: TypeName, actualType: TypeName, typeParams: string[], subs: Map<string, TypeName>): void {
+  const param = cleanType(paramType);
+  if (typeParams.includes(param)) {
+    if (!subs.has(param)) subs.set(param, actualType);
+    return;
+  }
+  const paramFn = parseFunctionType(param);
+  const actualFn = parseFunctionType(actualType);
+  if (paramFn && actualFn) {
+    for (let i = 0; i < paramFn.positional.length && i < actualFn.positional.length; i++) {
+      unifyTypeParams(paramFn.params.get(paramFn.positional[i])!.type, actualFn.params.get(actualFn.positional[i])!.type, typeParams, subs);
+    }
+    unifyTypeParams(paramFn.returns, actualFn.returns, typeParams, subs);
+    return;
+  }
+  const paramElement = arrayElementType(param);
+  const actualElement = arrayElementType(actualType);
+  if (paramElement && actualElement) {
+    unifyTypeParams(paramElement, actualElement, typeParams, subs);
+    return;
+  }
+  for (const typeParam of typeParams) {
+    if (!subs.has(typeParam) && new RegExp(`\\b${typeParam}\\b`).test(param)) subs.set(typeParam, actualType);
+  }
 }
 
 function inferCall(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
@@ -380,7 +412,14 @@ function arrowSignature(name: string, node: ASTNode, bound: BoundProgram, scope:
   return { name, typeParams: [], params, positional, required, returns };
 }
 
-function arrayComprehensionType(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName | null {
+export type Comprehension = {
+  variable: string;
+  variableNode: ASTNode;
+  iterable: ASTNode;
+  projection: ASTNode | null;
+};
+
+export function comprehensionOf(node: ASTNode): Comprehension | null {
   if (node.type !== NodeType.CallExpression || (node.args as ASTNode[]).length !== 0) return null;
   const callee = node.callee as ASTNode;
   if (callee.type !== NodeType.ArrowFunctionExpression) return null;
@@ -395,15 +434,27 @@ function arrayComprehensionType(node: ASTNode, bound: BoundProgram, scope: Scope
   const name = typeof declaration.name === "string" ? declaration.name : "";
   const argument = ret.argument;
   if (!name || !isAstNode(argument) || argument.type !== NodeType.Identifier || argument.name !== name) return null;
-  const loopScope: Scope = { parent: scope, locals: new Map(), signatures: new Map(), signature: scope.signature };
   const variable = loop.variable;
-  if (isBindingIdentifier(variable)) {
-    const iterable = inferExpression(loop.iterable as ASTNode, bound, scope);
-    loopScope.locals.set(String(variable.name), { type: iterableBindingType(iterable, "of", bound.env), optional: false });
-  }
-  const loopBody = loop.body as ASTNode;
-  const projection = comprehensionProjection(loopBody, name);
-  const element = projection ? inferExpression(projection, bound, loopScope) : "any";
+  if (!isBindingIdentifier(variable)) return null;
+  return {
+    variable: String(variable.name),
+    variableNode: variable as unknown as ASTNode,
+    iterable: loop.iterable as ASTNode,
+    projection: comprehensionProjection(loop.body as ASTNode, name),
+  };
+}
+
+export function comprehensionElementType(comp: Comprehension, bound: BoundProgram, scope: Scope): TypeName {
+  const iterable = inferExpression(comp.iterable, bound, scope);
+  return iterableBindingType(iterable, "of", bound.env);
+}
+
+function arrayComprehensionType(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName | null {
+  const comp = comprehensionOf(node);
+  if (!comp) return null;
+  const loopScope: Scope = { parent: scope, locals: new Map(), signatures: new Map(), signature: scope.signature };
+  loopScope.locals.set(comp.variable, { type: comprehensionElementType(comp, bound, scope), optional: false });
+  const element = comp.projection ? inferExpression(comp.projection, bound, loopScope) : "any";
   return `${element}[]`;
 }
 
@@ -466,7 +517,22 @@ function arrayMethodSignature(type: TypeName, property: string, env: TypeEnv): S
     const rest: Signature["rest"] = { name: "arrays", type: unionType([element, `${element}[]`]), optional: true, named: false };
     return { name: `${owner}.concat`, typeParams: [], params: new Map(), required: new Set(), positional: [], returns: `${element}[]`, rest };
   }
+  if (property === "map") return withTypeParams(signature(`${owner}.map`, [["fn", `(${element}) -> U`]], "U[]"), ["U"]);
+  if (property === "flatMap") return withTypeParams(signature(`${owner}.flatMap`, [["fn", `(${element}) -> U[]`]], "U[]"), ["U"]);
+  if (property === "filter") return signature(`${owner}.filter`, [["fn", `(${element}) -> bool`]], `${element}[]`);
+  if (property === "find") return signature(`${owner}.find`, [["fn", `(${element}) -> bool`]], unionType([element, "undefined"]));
+  if (property === "findIndex" || property === "indexOf") return signature(`${owner}.${property}`, [["fn", `(${element}) -> bool`]], "int");
+  if (property === "forEach") return signature(`${owner}.forEach`, [["fn", `(${element}) -> void`]], "void");
+  if (property === "some" || property === "every") return signature(`${owner}.${property}`, [["fn", `(${element}) -> bool`]], "bool");
+  if (property === "sort") return signature(`${owner}.sort`, [["fn", `(${element}, ${element}) -> int`, true]], `${element}[]`);
+  if (property === "reduce" || property === "reduceRight") {
+    return withTypeParams(signature(`${owner}.${property}`, [["fn", `(U, ${element}) -> U`], ["initial", "U", true]], "U"), ["U"]);
+  }
   return null;
+}
+
+function withTypeParams(sig: Signature, typeParams: string[]): Signature {
+  return { ...sig, typeParams };
 }
 
 function typedArrayElement(type: TypeName, env: TypeEnv): TypeName | null {

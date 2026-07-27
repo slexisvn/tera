@@ -1,6 +1,7 @@
 import type { Hover, HoverParams } from "vscode-languageserver/node.js";
-import type { AnalyzedDocument, Position } from "../analyzer/index.ts";
+import type { AnalyzedDocument } from "../analyzer/index.ts";
 import { wordRangeAt } from "../analyzer/position.ts";
+import { isMemberAccess, resolveReceiverType } from "../language/members.ts";
 import type { MethodLookup } from "../language/type-resolver.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
@@ -26,12 +27,12 @@ export function computeHover(context: ProviderContext, params: HoverParams): Hov
   if (!word) return null;
 
   if (isMemberAccess(document, params.position)) {
-    const receiver = readReceiver(document, params.position);
-    const hover = receiver
-      ? memberHover(context, document, receiver, word.text, params.position)
+    const receiverType = resolveReceiverType(context, document, params.position);
+    const hover = receiverType
+      ? memberHover(context, document, receiverType, word.text)
       : uniqueMethodHover(context, word.text);
     if (hover) return { ...hover, range: word.range };
-    if (receiver) return null;
+    if (receiverType) return null;
   }
 
   const builtin = context.types.builtin(word.text);
@@ -65,24 +66,27 @@ export function computeHover(context: ProviderContext, params: HoverParams): Hov
 function memberHover(
   context: ProviderContext,
   document: AnalyzedDocument,
-  receiver: string,
+  receiverType: string,
   name: string,
-  position: Position,
 ): Hover | null {
-  const receiverType = document.symbols.resolve(receiver, position)?.typeName ?? receiver;
-
-  const lookup = context.types.lookupMethod(receiverType, name);
+  const element = arrayElement(receiverType);
+  const lookup = context.types.lookupMethod(element ? "Array" : receiverType, name) ?? context.types.lookupMethod(receiverType, name);
   if (lookup) return methodHover(lookup);
 
   const field = document.symbols.resolveField(receiverType, name);
   if (!field) return null;
 
-  const lines = [`\`${receiverType}.${field.name}\` — *field of ${receiverType}*`];
+  const role = field.kind === "method" ? "method" : field.kind === "property" ? "property" : "field";
+  const lines = [`\`${receiverType}.${field.name}\` — *${role} of ${receiverType}*`];
   if (field.typeName) lines.push("", `type: \`${field.typeName}\``);
   const builtin = field.typeName ? context.types.builtin(field.typeName) : null;
   if (builtin?.signature) lines.push("", "```tera", builtin.signature.display, "```");
   if (builtin?.description) lines.push("", builtin.description);
   return markdown(lines);
+}
+
+function arrayElement(type: string): string | null {
+  return type.endsWith("[]") ? type.slice(0, -2) : null;
 }
 
 function uniqueMethodHover(context: ProviderContext, name: string): Hover | null {
@@ -101,17 +105,6 @@ function methodHover(lookup: MethodLookup): Hover {
   if (lookup.method.returns) lines.push("", `${lookup.method.isGetter ? "type" : "returns"}: \`${lookup.method.returns}\``);
   if (lookup.method.description) lines.push("", lookup.method.description);
   return markdown(lines);
-}
-
-function isMemberAccess(document: AnalyzedDocument, position: Position): boolean {
-  const line = document.lines[position.line] ?? "";
-  return /\.\s*[A-Za-z0-9_$]*$/.test(line.slice(0, position.character));
-}
-
-function readReceiver(document: AnalyzedDocument, position: Position): string | null {
-  const line = document.lines[position.line] ?? "";
-  const before = line.slice(0, position.character);
-  return before.match(/([A-Za-z_$][\w$]*)\s*\.\s*[A-Za-z0-9_$]*$/)?.[1] ?? null;
 }
 
 function markdown(lines: string[], range?: Hover["range"]): Hover {

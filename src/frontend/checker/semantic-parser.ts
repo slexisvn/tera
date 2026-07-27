@@ -3,6 +3,9 @@ import { Lexer, TokenType, type Token } from "../lexer/index.js";
 import type { ASTNode } from "../ast/index.js";
 import type {
   BlockNode,
+  ClassMemberKind,
+  ClassMemberNode,
+  ClassNode,
   FunctionNode,
   ForNode,
   InterfaceFieldNode,
@@ -57,6 +60,11 @@ function delimiterDelta(tokens: Token[]): number {
 
 function tokenText(tokens: Token[]): string {
   return tokens.map((tok) => String(tok.value)).join(" ");
+}
+
+function startsMemberChain(tokens: Token[]): boolean {
+  const first = tokens[0];
+  return first?.type === TokenType.Punctuator && (first.value === "." || first.value === "?.");
 }
 
 function findTopLevel(tokens: Token[], value: string, start = 0): number {
@@ -202,7 +210,7 @@ class SemanticParser {
     for (let i = 0; i < physical.length; i++) {
       const current = physical[i];
       let depth = delimiterDelta(current.tokens);
-      while (depth > 0 && i + 1 < physical.length) {
+      while (i + 1 < physical.length && (depth > 0 || startsMemberChain(physical[i + 1].tokens))) {
         const next = physical[++i];
         current.text += `\n${next.text}`;
         current.tokens.push(...next.tokens);
@@ -221,7 +229,12 @@ class SemanticParser {
     while (this.index < this.lines.length) {
       const line = this.lines[this.index];
       if (line.indent <= parentIndent) break;
-      body.push(this.parseNode(line));
+      const before = this.index;
+      try {
+        body.push(this.parseNode(line));
+      } catch {
+        if (this.index === before) this.index++;
+      }
     }
     return body;
   }
@@ -236,7 +249,7 @@ class SemanticParser {
     if (first === "model") return this.parseModel(line);
     if (first === "if") return this.parseControlBlock(line, 1);
     if (first === "for") return this.parseFor(line);
-    if (first === "class") return this.parseControlBlock(line, line.tokens.length);
+    if (first === "class") return this.parseClass(line);
     if (["else", "while", "try", "catch", "finally"].includes(String(first)) || line.tokens.at(-1)?.value === ":") return this.parseControlBlock(line, 1);
     if (first === "return") return this.parseReturn(line);
     return this.parseSimple(line);
@@ -281,6 +294,40 @@ class SemanticParser {
     const close = open >= 0 ? findTopLevel(line.tokens, ")", open) : -1;
     const params = open >= 0 && close >= 0 ? parseParams(line.tokens.slice(open + 1, close)) : [];
     return { kind: "Model", name, params, body: this.parseBlock(line.indent), span: { line: line.line, column: line.indent + 1 } };
+  }
+
+  parseClass(line: Line): ClassNode {
+    this.index++;
+    const name = String(line.tokens[1]?.value ?? "");
+    const extendsIndex = line.tokens.findIndex((tok) => tok.value === "extends");
+    const parent = extendsIndex >= 0 && line.tokens[extendsIndex + 1]?.type === TokenType.Identifier
+      ? String(line.tokens[extendsIndex + 1].value)
+      : undefined;
+    const members: ClassMemberNode[] = [];
+    while (this.index < this.lines.length && this.lines[this.index].indent > line.indent) {
+      const member = this.parseClassMember(this.lines[this.index]);
+      if (member) members.push(member);
+      else this.parseNode(this.lines[this.index]);
+    }
+    return { kind: "Class", name, parent, members, span: { line: line.line, column: line.indent + 1 } };
+  }
+
+  parseClassMember(line: Line): ClassMemberNode | null {
+    const first = line.tokens[0]?.value;
+    const accessor = (first === "get" || first === "set") && line.tokens[1]?.type === TokenType.Identifier;
+    const offset = accessor ? 1 : 0;
+    const signature = parseSignature(line, offset);
+    if (!signature) return null;
+    let memberKind: ClassMemberKind = accessor ? (first as "get" | "set") === "get" ? "getter" : "setter" : "method";
+    if (!accessor && signature.name === "constructor") memberKind = "constructor";
+    this.index++;
+    const fn: FunctionNode = {
+      kind: "Function",
+      ...signature,
+      body: this.parseBlock(line.indent),
+      span: { line: line.line, column: line.indent + 1 },
+    };
+    return { memberKind, fn };
   }
 
   parseControlBlock(line: Line, exprStart: number): BlockNode {

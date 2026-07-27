@@ -1,6 +1,6 @@
 import type { DefinitionParams, Location } from "vscode-languageserver/node.js";
-import type { AnalyzedDocument, Position } from "../analyzer/index.ts";
 import { wordRangeAt } from "../analyzer/position.ts";
+import { isMemberAccess, resolveReceiverType } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
 export default defineProvider({
@@ -25,11 +25,10 @@ export function computeDefinition(context: ProviderContext, params: DefinitionPa
   if (!word) return null;
 
   if (isMemberAccess(document, params.position)) {
-    const receiver = readReceiver(document, params.position);
-    if (!receiver) return null;
-    const receiverType = document.symbols.resolve(receiver, params.position)?.typeName ?? receiver;
+    const receiverType = resolveReceiverType(context, document, params.position);
+    if (!receiverType) return null;
     const field = document.symbols.resolveField(receiverType, word.text);
-    return field ? location(params.textDocument.uri, field.name, field.line, field.column) : null;
+    return field && field.line > 0 ? location(params.textDocument.uri, field.name, field.line, field.column) : null;
   }
 
   const symbol = document.symbols.resolve(word.text, params.position);
@@ -48,13 +47,3 @@ function location(uri: string, name: string, lineOneBased: number, columnOneBase
   };
 }
 
-function isMemberAccess(document: AnalyzedDocument, position: Position): boolean {
-  const line = document.lines[position.line] ?? "";
-  return /\.\s*[A-Za-z0-9_$]*$/.test(line.slice(0, position.character));
-}
-
-function readReceiver(document: AnalyzedDocument, position: Position): string | null {
-  const line = document.lines[position.line] ?? "";
-  const before = line.slice(0, position.character);
-  return before.match(/([A-Za-z_$][\w$]*)\s*\.\s*[A-Za-z0-9_$]*$/)?.[1] ?? null;
-}

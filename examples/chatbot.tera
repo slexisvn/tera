@@ -8,10 +8,10 @@ interface ChatRow:
   question: string
   answer: string
 
-train_rows: ChatRow[] = load_csv("examples/chat_train.csv").to_array<ChatRow>()
+train_rows = load_csv("examples/chat_train.csv").to_array<ChatRow>()
 
-train_q_text = [r.question for r in train_rows]
-train_a_text = [r.answer for r in train_rows]
+train_q_text = [r.question for r of train_rows]
+train_a_text = [r.answer for r of train_rows]
 
 tok = Tokenizer(mode="bpe", lowercase=true, num_merges=800)
 tok.fit(train_q_text.concat(train_a_text))

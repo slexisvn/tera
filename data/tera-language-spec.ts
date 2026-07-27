@@ -238,6 +238,8 @@ export const TERA_KEYWORD_GROUPS = {
     "fn",
     "model",
     "class",
+    "interface",
+    "type",
     "let",
     "const",
     "var",
@@ -299,6 +301,7 @@ export const TERA_PRIMITIVE_TYPES = [
   "Set",
   "Array",
   "Object",
+  "Promise",
   "Tensor",
   "IndexTensor",
   "Module",
@@ -996,6 +999,42 @@ export const TERA_BUILTINS = {
         "rest": true
       }
     ]
+  },
+  "Number": {
+    "description": "Convert a value to a number.",
+    "kind": "function",
+    "returns": "float",
+    "params": [param("value", "any")]
+  },
+  "String": {
+    "description": "Convert a value to its string representation.",
+    "kind": "function",
+    "returns": "string",
+    "params": [param("value", "any")]
+  },
+  "parseInt": {
+    "description": "Parse an integer from a string with an optional radix.",
+    "kind": "function",
+    "returns": "int",
+    "params": [param("text", "string"), optionalParam("radix", "int")]
+  },
+  "parseFloat": {
+    "description": "Parse a floating-point number from a string.",
+    "kind": "function",
+    "returns": "float",
+    "params": [param("text", "string")]
+  },
+  "isNaN": {
+    "description": "True when the value is NaN after numeric conversion.",
+    "kind": "function",
+    "returns": "bool",
+    "params": [param("value", "any")]
+  },
+  "isFinite": {
+    "description": "True when the value is a finite number.",
+    "kind": "function",
+    "returns": "bool",
+    "params": [param("value", "any")]
   },
   "compile": {
     "description": "Compile a model or function to a backend (`cpu`/`gpu`/`wasm`/`webgpu`). `input` provides an example for shape inference and tuning.",
@@ -4520,6 +4559,59 @@ export const TERA_KIND_METHODS = {
 } satisfies Record<string, TeraMethodSpec[]>;
 
 export const TERA_PSEUDO_TYPES = {
+  "Math": {
+    "methods": [
+      { "name": "abs", "params": [param("x", "float")], "returns": "float" },
+      { "name": "floor", "params": [param("x", "float")], "returns": "float" },
+      { "name": "ceil", "params": [param("x", "float")], "returns": "float" },
+      { "name": "round", "params": [param("x", "float")], "returns": "float" },
+      { "name": "trunc", "params": [param("x", "float")], "returns": "float" },
+      { "name": "sign", "params": [param("x", "float")], "returns": "float" },
+      { "name": "sqrt", "params": [param("x", "float")], "returns": "float" },
+      { "name": "log", "params": [param("x", "float")], "returns": "float" },
+      { "name": "pow", "params": [param("base", "float"), param("exponent", "float")], "returns": "float" },
+      { "name": "min", "params": [param("values", "float", { rest: true })], "returns": "float" },
+      { "name": "max", "params": [param("values", "float", { rest: true })], "returns": "float" },
+      { "name": "random", "params": [], "returns": "float" },
+      { "name": "PI", "params": [], "returns": "float", "isGetter": true },
+      { "name": "E", "params": [], "returns": "float", "isGetter": true }
+    ]
+  },
+  "JSON": {
+    "methods": [
+      { "name": "stringify", "params": [param("value", "any"), optionalParam("replacer", "any"), optionalParam("indent", "int")], "returns": "string" },
+      { "name": "parse", "params": [param("text", "string"), optionalParam("reviver", "any")], "returns": "any" }
+    ]
+  },
+  "Promise": {
+    "methods": [
+      { "name": "then", "params": [param("on_fulfilled", "any"), optionalParam("on_rejected", "any")], "returns": "Promise" },
+      { "name": "catch", "params": [param("on_rejected", "any")], "returns": "Promise" },
+      { "name": "finally", "params": [param("on_finally", "any")], "returns": "Promise" }
+    ]
+  },
+  "PromiseConstructor": {
+    "methods": [
+      { "name": "resolve", "params": [optionalParam("value", "any")], "returns": "Promise" },
+      { "name": "reject", "params": [optionalParam("reason", "any")], "returns": "Promise" },
+      { "name": "all", "params": [param("values", "any")], "returns": "Promise" },
+      { "name": "all_settled", "params": [param("values", "any")], "returns": "Promise" },
+      { "name": "race", "params": [param("values", "any")], "returns": "Promise" },
+      { "name": "any", "params": [param("values", "any")], "returns": "Promise" }
+    ]
+  },
+  "ObjectConstructor": {
+    "methods": [
+      { "name": "keys", "params": [param("target", "Object")], "returns": "string[]" },
+      { "name": "values", "params": [param("target", "Object")], "returns": "any[]" },
+      { "name": "entries", "params": [param("target", "Object")], "returns": "[string, any][]" },
+      { "name": "assign", "params": [param("target", "Object"), param("sources", "Object", { rest: true })], "returns": "Object" },
+      { "name": "freeze", "params": [param("target", "Object")], "returns": "Object" },
+      { "name": "isFrozen", "params": [param("target", "Object")], "returns": "bool" },
+      { "name": "seal", "params": [param("target", "Object")], "returns": "Object" },
+      { "name": "isSealed", "params": [param("target", "Object")], "returns": "bool" }
+    ]
+  },
   "IndexTensor": {
     "methods": [
       {
@@ -6849,6 +6941,13 @@ export const TERA_PSEUDO_TYPES = {
     ]
   }
 } satisfies Record<string, TeraPseudoTypeSpec>;
+
+export const TERA_GLOBAL_NAMESPACES = {
+  "Math": "Math",
+  "JSON": "JSON",
+  "Object": "ObjectConstructor",
+  "Promise": "PromiseConstructor"
+} satisfies Record<string, string>;
 
 export const TERA_CHART_METHODS = {
   "line": {

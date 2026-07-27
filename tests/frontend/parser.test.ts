@@ -948,4 +948,42 @@ describe("Parser", () => {
       expect(expr.callee.typeArgs).toEqual(["A", "B"]);
     });
   });
+
+  describe("type annotations", () => {
+    it("skips generic type arguments containing commas", () => {
+      const stmt = parseStmt("counts: Map<string, int> = m");
+      expect(stmt).toMatchObject({ type: NodeType.LetDeclaration, name: "counts" });
+      expect(stmt.init.type).toBe(NodeType.Identifier);
+    });
+
+    it("skips nested generic type arguments", () => {
+      const stmt = parseStmt("let m: Map<string, Array<int>> = source");
+      expect(stmt).toMatchObject({ type: NodeType.LetDeclaration, name: "m" });
+      expect(stmt.init.type).toBe(NodeType.Identifier);
+    });
+
+    it("skips an object type in return position", () => {
+      const stmt = parseStmt("function f() -> { id: int, name: string } { return x }");
+      expect(stmt).toMatchObject({ type: NodeType.FunctionDeclaration, name: "f" });
+      expect(stmt.body.body).toHaveLength(1);
+    });
+
+    it("skips a function type in return position", () => {
+      const stmt = parseStmt("function f() -> (int) -> bool { return g }");
+      expect(stmt).toMatchObject({ type: NodeType.FunctionDeclaration, name: "f" });
+    });
+
+    it("accepts a return type annotation on a class getter", () => {
+      const stmt = parseStmt("class C { get value() -> int { return 1 } }");
+      const accessor = stmt.methods.find((m) => m.name === "value");
+      expect(accessor).toMatchObject({ kind: "get" });
+    });
+
+    it("accepts a typed parameter on a class setter", () => {
+      const stmt = parseStmt("class C { set value(v: int) { } }");
+      const accessor = stmt.methods.find((m) => m.name === "value");
+      expect(accessor).toMatchObject({ kind: "set" });
+      expect(accessor.func.params).toEqual(["v"]);
+    });
+  });
 });

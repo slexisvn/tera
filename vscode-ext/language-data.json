@@ -22,6 +22,7 @@
     "if",
     "in",
     "instanceof",
+    "interface",
     "let",
     "model",
     "new",
@@ -36,6 +37,7 @@
     "throw",
     "true",
     "try",
+    "type",
     "typeof",
     "undefined",
     "var",
@@ -48,6 +50,8 @@
       "fn",
       "model",
       "class",
+      "interface",
+      "type",
       "let",
       "const",
       "var",
@@ -105,17 +109,22 @@
     "Dataset",
     "GroupedData",
     "IndexTensor",
+    "JSON",
     "LRScheduler",
     "Logger",
     "MLModel",
     "MLTransform",
     "Map",
+    "Math",
     "Metric",
     "MetricCollection",
     "Model",
     "Module",
     "Object",
+    "ObjectConstructor",
     "Optimizer",
+    "Promise",
+    "PromiseConstructor",
     "QuillProduct",
     "Set",
     "String",
@@ -195,6 +204,661 @@
     ]
   },
   "pseudoTypes": {
+    "Math": [
+      {
+        "name": "abs",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "abs(x: float) -> float"
+        }
+      },
+      {
+        "name": "floor",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "floor(x: float) -> float"
+        }
+      },
+      {
+        "name": "ceil",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "ceil(x: float) -> float"
+        }
+      },
+      {
+        "name": "round",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "round(x: float) -> float"
+        }
+      },
+      {
+        "name": "trunc",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "trunc(x: float) -> float"
+        }
+      },
+      {
+        "name": "sign",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "sign(x: float) -> float"
+        }
+      },
+      {
+        "name": "sqrt",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "sqrt(x: float) -> float"
+        }
+      },
+      {
+        "name": "log",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "log(x: float) -> float"
+        }
+      },
+      {
+        "name": "pow",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "base",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "exponent",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "pow(base: float, exponent: float) -> float"
+        }
+      },
+      {
+        "name": "min",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "values",
+              "type": "float",
+              "optional": false,
+              "rest": true,
+              "defaultValue": null
+            }
+          ],
+          "display": "min(...values: float) -> float"
+        }
+      },
+      {
+        "name": "max",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "values",
+              "type": "float",
+              "optional": false,
+              "rest": true,
+              "defaultValue": null
+            }
+          ],
+          "display": "max(...values: float) -> float"
+        }
+      },
+      {
+        "name": "random",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "random() -> float"
+        }
+      },
+      {
+        "name": "PI",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": true,
+        "signature": {
+          "params": [],
+          "display": "PI"
+        }
+      },
+      {
+        "name": "E",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": true,
+        "signature": {
+          "params": [],
+          "display": "E"
+        }
+      }
+    ],
+    "JSON": [
+      {
+        "name": "stringify",
+        "description": null,
+        "returns": "string",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "value",
+              "type": "any",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "replacer",
+              "type": "any",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "indent",
+              "type": "int",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "stringify(value: any, replacer?: any, indent?: int) -> string"
+        }
+      },
+      {
+        "name": "parse",
+        "description": null,
+        "returns": "any",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "text",
+              "type": "string",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "reviver",
+              "type": "any",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "parse(text: string, reviver?: any) -> any"
+        }
+      }
+    ],
+    "Promise": [
+      {
+        "name": "then",
+        "description": null,
+        "returns": "Promise",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "on_fulfilled",
+              "type": "any",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "on_rejected",
+              "type": "any",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "then(on_fulfilled: any, on_rejected?: any) -> Promise"
+        }
+      },
+      {
+        "name": "catch",
+        "description": null,
+        "returns": "Promise",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "on_rejected",
+              "type": "any",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "catch(on_rejected: any) -> Promise"
+        }
+      },
+      {
+        "name": "finally",
+        "description": null,
+        "returns": "Promise",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "on_finally",
+              "type": "any",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "finally(on_finally: any) -> Promise"
+        }
+      }
+    ],
+    "PromiseConstructor": [
+      {
+        "name": "resolve",
+        "description": null,
+        "returns": "Promise",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "value",
+              "type": "any",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "resolve(value?: any) -> Promise"
+        }
+      },
+      {
+        "name": "reject",
+        "description": null,
+        "returns": "Promise",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "reason",
+              "type": "any",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "reject(reason?: any) -> Promise"
+        }
+      },
+      {
+        "name": "all",
+        "description": null,
+        "returns": "Promise",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "values",
+              "type": "any",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "all(values: any) -> Promise"
+        }
+      },
+      {
+        "name": "all_settled",
+        "description": null,
+        "returns": "Promise",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "values",
+              "type": "any",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "all_settled(values: any) -> Promise"
+        }
+      },
+      {
+        "name": "race",
+        "description": null,
+        "returns": "Promise",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "values",
+              "type": "any",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "race(values: any) -> Promise"
+        }
+      },
+      {
+        "name": "any",
+        "description": null,
+        "returns": "Promise",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "values",
+              "type": "any",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "any(values: any) -> Promise"
+        }
+      }
+    ],
+    "ObjectConstructor": [
+      {
+        "name": "keys",
+        "description": null,
+        "returns": "string[]",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "target",
+              "type": "Object",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "keys(target: Object) -> string[]"
+        }
+      },
+      {
+        "name": "values",
+        "description": null,
+        "returns": "any[]",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "target",
+              "type": "Object",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "values(target: Object) -> any[]"
+        }
+      },
+      {
+        "name": "entries",
+        "description": null,
+        "returns": "[string, any][]",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "target",
+              "type": "Object",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "entries(target: Object) -> [string, any][]"
+        }
+      },
+      {
+        "name": "assign",
+        "description": null,
+        "returns": "Object",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "target",
+              "type": "Object",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "sources",
+              "type": "Object",
+              "optional": false,
+              "rest": true,
+              "defaultValue": null
+            }
+          ],
+          "display": "assign(target: Object, ...sources: Object) -> Object"
+        }
+      },
+      {
+        "name": "freeze",
+        "description": null,
+        "returns": "Object",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "target",
+              "type": "Object",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "freeze(target: Object) -> Object"
+        }
+      },
+      {
+        "name": "isFrozen",
+        "description": null,
+        "returns": "bool",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "target",
+              "type": "Object",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "isFrozen(target: Object) -> bool"
+        }
+      },
+      {
+        "name": "seal",
+        "description": null,
+        "returns": "Object",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "target",
+              "type": "Object",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "seal(target: Object) -> Object"
+        }
+      },
+      {
+        "name": "isSealed",
+        "description": null,
+        "returns": "bool",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "target",
+              "type": "Object",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "isSealed(target: Object) -> bool"
+        }
+      }
+    ],
     "IndexTensor": [
       {
         "name": "item",
@@ -3292,6 +3956,12 @@
       }
     ]
   },
+  "globalNamespaces": {
+    "Math": "Math",
+    "JSON": "JSON",
+    "Object": "ObjectConstructor",
+    "Promise": "PromiseConstructor"
+  },
   "builtins": [
     {
       "name": "tensor",
@@ -4540,6 +5210,133 @@
           }
         ],
         "display": "print(...values)"
+      },
+      "methods": []
+    },
+    {
+      "name": "Number",
+      "kind": "function",
+      "description": "Convert a value to a number.",
+      "returns": "float",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "value",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "Number(value: any) -> float"
+      },
+      "methods": []
+    },
+    {
+      "name": "String",
+      "kind": "function",
+      "description": "Convert a value to its string representation.",
+      "returns": "string",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "value",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "String(value: any) -> string"
+      },
+      "methods": []
+    },
+    {
+      "name": "parseInt",
+      "kind": "function",
+      "description": "Parse an integer from a string with an optional radix.",
+      "returns": "int",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "text",
+            "type": "string",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "radix",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "parseInt(text: string, radix?: int) -> int"
+      },
+      "methods": []
+    },
+    {
+      "name": "parseFloat",
+      "kind": "function",
+      "description": "Parse a floating-point number from a string.",
+      "returns": "float",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "text",
+            "type": "string",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "parseFloat(text: string) -> float"
+      },
+      "methods": []
+    },
+    {
+      "name": "isNaN",
+      "kind": "function",
+      "description": "True when the value is NaN after numeric conversion.",
+      "returns": "bool",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "value",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "isNaN(value: any) -> bool"
+      },
+      "methods": []
+    },
+    {
+      "name": "isFinite",
+      "kind": "function",
+      "description": "True when the value is a finite number.",
+      "returns": "bool",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "value",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "isFinite(value: any) -> bool"
       },
       "methods": []
     },

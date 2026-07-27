@@ -28,6 +28,7 @@ export function buildLanguageData(config: {
   operators: Operators;
   builtins: BuiltinSource[];
   pseudoTypes: PseudoTypeSource;
+  globalNamespaces: Record<string, string>;
 }): LanguageData {
   return {
     version: 2,
@@ -36,6 +37,7 @@ export function buildLanguageData(config: {
     types: config.types,
     operators: config.operators,
     pseudoTypes: buildPseudoTypes(config.pseudoTypes),
+    globalNamespaces: config.globalNamespaces,
     builtins: config.builtins.map(buildBuiltin),
   };
 }

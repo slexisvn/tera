@@ -193,7 +193,7 @@
           }
         },
         {
-          "match": "\\b(model|class)\\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+          "match": "\\b(model|class|interface|type)\\s+([A-Za-z_$][A-Za-z0-9_$]*)",
           "captures": {
             "1": {
               "name": "keyword.other.declaration.tera"
@@ -213,13 +213,24 @@
               "name": "entity.other.inherited-class.tera"
             }
           }
+        },
+        {
+          "match": "\\b(get|set)\\s+([A-Za-z_$][A-Za-z0-9_$]*)\\s*(?=\\()",
+          "captures": {
+            "1": {
+              "name": "keyword.other.declaration.tera"
+            },
+            "2": {
+              "name": "entity.name.function.tera"
+            }
+          }
         }
       ]
     },
     "annotations": {
       "patterns": [
         {
-          "match": "(->)\\s*(?!(?:instanceof|undefined|continue|default|extends|finally|delete|return|switch|typeof|async|await|break|catch|class|const|false|model|super|throw|while|yield|case|else|null|this|true|void|and|for|let|new|not|try|var|do|fn|if|in|of|or)\\b)([A-Za-z_$][A-Za-z0-9_$]*)",
+          "match": "(->)\\s*(?!(?:instanceof|interface|undefined|continue|default|extends|finally|delete|return|switch|typeof|async|await|break|catch|class|const|false|model|super|throw|while|yield|case|else|null|this|true|type|void|and|for|let|new|not|try|var|do|fn|if|in|of|or)\\b)([A-Za-z_$][A-Za-z0-9_$]*)",
           "captures": {
             "1": {
               "name": "keyword.operator.arrow.tera"
@@ -235,7 +246,7 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.tera",
-          "match": "\\b(?:extends|class|const|model|let|var|fn)\\b"
+          "match": "\\b(?:interface|extends|class|const|model|type|let|var|fn)\\b"
         },
         {
           "name": "keyword.control.tera",
@@ -259,7 +270,7 @@
       "patterns": [
         {
           "name": "storage.type.tera",
-          "match": "\\b(?:MetricCollection|QuillProduct|GroupedData|IndexTensor|LRScheduler|MLTransform|DataLoader|DataFrame|Optimizer|Tokenizer|Callback|boolean|Dataset|MLModel|Trainer|unknown|Column|Logger|Metric|Module|Object|string|String|Tensor|Array|float|Model|bool|any|int|Map|Set)\\b"
+          "match": "\\b(?:PromiseConstructor|ObjectConstructor|MetricCollection|QuillProduct|GroupedData|IndexTensor|LRScheduler|MLTransform|DataLoader|DataFrame|Optimizer|Tokenizer|Callback|boolean|Dataset|MLModel|Promise|Trainer|unknown|Column|Logger|Metric|Module|Object|string|String|Tensor|Array|float|Model|bool|JSON|Math|any|int|Map|Set)\\b"
         }
       ]
     },
@@ -271,7 +282,7 @@
         },
         {
           "name": "support.function.tera",
-          "match": "\\b(?:optim_config|count_star|compile|count|range|stack|where|expr|avg|cat|col|lit|max|min|sum)\\b(?=\\s*(?:\\(|\\.))"
+          "match": "\\b(?:optim_config|count_star|parseFloat|isFinite|parseInt|compile|Number|String|count|isNaN|range|stack|where|expr|avg|cat|col|lit|max|min|sum)\\b(?=\\s*(?:\\(|\\.))"
         },
         {
           "name": "support.function.tera",

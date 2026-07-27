@@ -9,6 +9,7 @@ import {
   TERA_OPERATORS,
   TERA_PRIMITIVE_TYPES,
   TERA_PSEUDO_TYPES,
+  TERA_GLOBAL_NAMESPACES,
   type TeraBuiltinSpec,
   type TeraChartMethodSpec,
   type TeraKeywordGroup,
@@ -44,7 +45,7 @@ export async function generate(outputs = OUTPUTS) {
   const types = collectTypes(pseudoTypes);
 
   const grammar = buildGrammar({ keywordGroups: KEYWORD_GROUPS, types, operators: TERA_OPERATORS, builtins: toGrammarBuiltins(builtins) });
-  const languageData = buildLanguageData({ keywords, keywordGroups: KEYWORD_GROUPS, types, operators: TERA_OPERATORS, builtins, pseudoTypes });
+  const languageData = buildLanguageData({ keywords, keywordGroups: KEYWORD_GROUPS, types, operators: TERA_OPERATORS, builtins, pseudoTypes, globalNamespaces: TERA_GLOBAL_NAMESPACES });
   const snippets = buildSnippets({ builtins });
 
   writeJson(outputs.grammar, grammar);
@@ -142,7 +143,7 @@ function toPseudoTypeSource(): PseudoTypeSource {
   const out: PseudoTypeSource = {};
   for (const [name, entry] of Object.entries(TERA_PSEUDO_TYPES)) {
     out[name] = {
-      methods: entry.methods.map((method) => ({
+      methods: (entry.methods as TeraMethodSpec[]).map((method) => ({
         name: method.name,
         description: method.description ?? undefined,
         returns: method.returns ?? undefined,

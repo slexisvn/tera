@@ -1,9 +1,9 @@
 import { NodeType, type ASTNode, type ObjectPropertyNode } from "../ast/index.js";
 import { lookup, type BoundProgram, type Scope } from "./binder.js";
 import { diagnostic, type Diagnostic } from "./diagnostics.js";
-import { callSignatureForCallee, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf } from "./infer.js";
+import { callSignatureForCallee, comprehensionElementType, comprehensionOf, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf } from "./infer.js";
 import { acceptsTensorLeftArithmetic, acceptsTensorRightArithmetic, binaryOperatorSemantics, isTensorType } from "./operator-types.js";
-import type { SemanticNode } from "./semantic-ast.js";
+import type { ClassMemberNode, SemanticNode } from "./semantic-ast.js";
 import { arrayElementType, cleanType, compatible, indexKeyAssignable, indexedAccessType, indexKeyType, instantiateShapeForType, isIndexableType, isTupleType, iterableBindingType, leastUpperBound, removeNullish, resolveType, tupleTypes, unionParts, unionType, type ObjectShape, type Signature, type TypeName } from "./type-system.js";
 
 export type SymbolType = {
@@ -37,8 +37,18 @@ export class TypeChecker {
         const child = this.bound.scopes.get(node) ?? scope;
         if (node.kind === "Model") this.registerModelShape(node, child);
         for (const stmt of node.body) this.checkNode(stmt, child);
+        if (node.kind === "Function") this.inferReturnType(node.body, child);
         break;
       }
+      case "Class": {
+        const child = this.bound.scopes.get(node) ?? scope;
+        this.registerClassShape(node, child);
+        for (const member of node.members) this.checkNode(member.fn, child);
+        break;
+      }
+      case "Interface":
+        this.emitMembers(node.name, this.bound.env.interfaces.get(node.name), node.span);
+        break;
       case "Block": {
         const child = narrowScope(node.test, this.bound, scope, this.bound.scopes.get(node));
         if (node.test) {
@@ -92,6 +102,95 @@ export class TypeChecker {
     const shape: ObjectShape = { typeParams: current?.typeParams, fields: new Map(current?.fields) };
     for (const [name, binding] of fields) shape.fields.set(name, binding);
     this.bound.env.interfaces.set(node.name, shape);
+  }
+
+  registerClassShape(node: Extract<SemanticNode, { kind: "Class" }>, classScope: Scope): void {
+    const shape: ObjectShape = { fields: new Map() };
+    if (node.parent) {
+      const parentShape = instantiateShapeForType(node.parent, this.bound.env);
+      if (parentShape) for (const [name, binding] of parentShape.fields) shape.fields.set(name, binding);
+    }
+    this.bound.env.interfaces.set(node.name, shape);
+    const constructorFirst = (member: ClassMemberNode): number => (member.memberKind === "constructor" ? 0 : 1);
+    const ordered = [...node.members].sort((left, right) => constructorFirst(left) - constructorFirst(right));
+    for (const member of ordered) {
+      const memberScope = this.bound.scopes.get(member.fn) ?? classScope;
+      this.collectThisFields(member.fn.body, memberScope, shape);
+    }
+    for (const member of node.members) {
+      if (member.memberKind !== "method" && member.memberKind !== "getter") continue;
+      const memberScope = this.bound.scopes.get(member.fn) ?? classScope;
+      const returns = this.memberReturnType(member.fn, memberScope);
+      if (member.fn.returns === "any" && memberScope.signature) memberScope.signature.returns = returns;
+      const type = member.memberKind === "getter" ? returns : classMethodType(member.fn, returns);
+      shape.fields.set(member.fn.name, { type, optional: false });
+    }
+    this.emitMembers(node.name, shape, node.span);
+  }
+
+  emitMembers(typeName: string, shape: ObjectShape | null | undefined, span: { line: number; column: number }): void {
+    if (!this.onDeclare || !shape) return;
+    for (const [name, binding] of shape.fields) {
+      this.onDeclare({ name: `${typeName}.${name}`, line: span.line, column: span.column, type: binding.type });
+    }
+  }
+
+  checkComprehension(comp: ReturnType<typeof comprehensionOf> & object, scope: Scope, line: number, column: number): void {
+    this.checkExpression(comp.iterable, scope, line, column);
+    const elementType = comprehensionElementType(comp, this.bound, scope);
+    const loopScope: Scope = { parent: scope, locals: new Map(), signatures: new Map(), signature: scope.signature };
+    loopScope.locals.set(comp.variable, { type: elementType, optional: false, declared: true });
+    const at = nodePosition(comp.variableNode, line, column);
+    this.onDeclare?.({ name: comp.variable, line: at.line, column: at.column, type: elementType });
+    if (comp.projection) this.checkExpression(comp.projection, loopScope, at.line, at.column);
+  }
+
+  memberReturnType(fn: Extract<SemanticNode, { kind: "Function" }>, scope: Scope): TypeName {
+    if (fn.returns !== "any") return cleanType(fn.returns);
+    const types: TypeName[] = [];
+    this.collectReturnTypes(fn.body, scope, types);
+    if (!types.length) return "any";
+    const known = types.filter((type) => !this.isUnknownish(type));
+    const pool = known.length ? known : types;
+    return leastUpperBound(pool, this.bound.env) ?? unionType(pool);
+  }
+
+  collectThisFields(statements: SemanticNode[], scope: Scope, shape: ObjectShape): void {
+    for (const stmt of statements) {
+      if (stmt.kind === "Expr") this.recordThisAssignment(stmt.value, scope, shape);
+      else if (stmt.kind === "Block" || stmt.kind === "For") this.collectThisFields(stmt.body, scope, shape);
+    }
+  }
+
+  recordThisAssignment(expr: ASTNode, scope: Scope, shape: ObjectShape): void {
+    if (expr.type !== NodeType.AssignmentExpression) return;
+    const target = expr.target as ASTNode | undefined;
+    if (!target || target.type !== NodeType.MemberExpression || target.computed) return;
+    if ((target.object as ASTNode)?.type !== NodeType.ThisExpression) return;
+    const field = typeof target.property === "string" ? target.property : String((target.property as ASTNode)?.name ?? "");
+    if (!field || shape.fields.has(field)) return;
+    shape.fields.set(field, { type: inferExpression(expr.value as ASTNode, this.bound, scope), optional: false });
+  }
+
+  inferReturnType(body: SemanticNode[], scope: Scope): void {
+    const sig = scope.signature;
+    if (!sig || sig.returns !== "any") return;
+    const types: TypeName[] = [];
+    this.collectReturnTypes(body, scope, types);
+    if (!types.length) return;
+    const known = types.filter((type) => !this.isUnknownish(type));
+    const pool = known.length ? known : types;
+    sig.returns = leastUpperBound(pool, this.bound.env) ?? unionType(pool);
+  }
+
+  collectReturnTypes(statements: SemanticNode[], scope: Scope, out: TypeName[]): void {
+    for (const stmt of statements) {
+      if (stmt.kind === "Return") {
+        if (stmt.value) out.push(inferExpression(stmt.value, this.bound, scope));
+      } else if (stmt.kind === "Block" || stmt.kind === "For") {
+        this.collectReturnTypes(stmt.body, this.bound.scopes.get(stmt) ?? scope, out);
+      }
+    }
   }
 
   checkForIterable(node: Extract<SemanticNode, { kind: "For" }>, iterableType: TypeName): void {
@@ -170,6 +269,11 @@ export class TypeChecker {
   }
 
   checkExpression(node: ASTNode, scope: Scope, line: number, column: number, expected?: Signature | null, expectedType?: TypeName | null): void {
+    const comprehension = comprehensionOf(node);
+    if (comprehension) {
+      this.checkComprehension(comprehension, scope, line, column);
+      return;
+    }
     if (node.type === NodeType.ArrowFunctionExpression) {
       this.checkArrow(node, scope, expected ?? null, line, column);
       return;
@@ -322,6 +426,8 @@ export class TypeChecker {
       const name = typeof params[i] === "string" ? params[i] as string : String((params[i] as { name?: string }).name ?? `arg${i}`);
       const expectedType = expected?.params.get(expected.positional[i])?.type ?? "any";
       child.locals.set(name, { type: expectedType, optional: false, declared: true });
+      const at = nodePosition(node, line, column);
+      this.onDeclare?.({ name, line: at.line, column: at.column, type: expectedType });
     }
     const body = node.body as ASTNode | ASTNode[];
     if (Array.isArray(body) || body.type === NodeType.BlockStatement) return;
@@ -682,6 +788,11 @@ export class TypeChecker {
     if (this.isUnknownish(right)) return left;
     return leastUpperBound([left, right], this.bound.env) ?? unionType([left, right]);
   }
+}
+
+function classMethodType(fn: Extract<SemanticNode, { kind: "Function" }>, returns: TypeName): TypeName {
+  const params = fn.params.map((param) => param.type).join(", ");
+  return cleanType(`(${params}) -> ${returns}`);
 }
 
 function nodePosition(node: ASTNode, fallbackLine: number, fallbackColumn: number): { line: number; column: number } {

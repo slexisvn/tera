@@ -50,6 +50,7 @@ export type LanguageData = {
   types: string[];
   operators: Operators;
   pseudoTypes: Record<string, Method[]>;
+  globalNamespaces: Record<string, string>;
   builtins: Builtin[];
 };
 

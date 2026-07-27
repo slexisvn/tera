@@ -726,4 +726,139 @@ describe("checker pipeline", () => {
       ]);
     });
   });
+
+  describe("string concatenation coercion", () => {
+    it("allows string + int and string + float", () => {
+      const source = [
+        'b: string = "n=" + 5',
+        "c: float = 3.0",
+        'd: string = "area " + c',
+        'e: string = 5 + "x"',
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+
+    it("still rejects a non-string result assigned to a stricter type", () => {
+      expect(messages('b: int = "n=" + 5')).toEqual([
+        "Type 'string' is not assignable to 'int'",
+      ]);
+    });
+
+    it("still rejects string arithmetic other than concatenation", () => {
+      expect(messages('x: string = "a" * 2')).toEqual([
+        "Operator '*' cannot be applied to 'string' and 'int'",
+      ]);
+    });
+  });
+
+  describe("global namespaces", () => {
+    it("types Math members and constants", () => {
+      const source = [
+        "r: float = Math.sqrt(2.0)",
+        "p: float = Math.PI",
+        "m: float = Math.max(3, 7, 2)",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+
+    it("types JSON and Object members", () => {
+      const source = [
+        "s: string = JSON.stringify(1)",
+        "k: string[] = Object.keys({ a: 1 })",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+
+    it("reports a mismatch against a namespace member's return type", () => {
+      expect(messages("bad: string = Math.sqrt(2.0)")).toEqual([
+        "Type 'float' is not assignable to 'string'",
+      ]);
+    });
+  });
+
+  describe("user-defined classes", () => {
+    it("models a constructor call and instance fields", () => {
+      const source = [
+        "class Point:",
+        "  constructor(x: float, y: float):",
+        "    this.x = x",
+        "    this.y = y",
+        "p: Point = Point(3.0, 4.0)",
+        "dx: float = p.x",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+
+    it("types this, methods returning this, and getters", () => {
+      const source = [
+        "class Account:",
+        "  constructor(owner: string, balance: float = 0.0):",
+        "    this.owner = owner",
+        "    this.balance = balance",
+        "  deposit(amount: float) -> Account:",
+        "    this.balance += amount",
+        "    return this",
+        "  get summary() -> string:",
+        "    return `${this.owner}: ${this.balance}`",
+        'acc: Account = Account("alice")',
+        "s: string = acc.deposit(100.0).summary",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+
+    it("checks a field member accessed through this against a return type", () => {
+      const source = [
+        "class Counter:",
+        "  constructor():",
+        "    this.n = 0",
+        "  inc() -> int:",
+        "    this.n += 1",
+        "    return this.n",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+
+    it("inherits members from a parent class via extends", () => {
+      const source = [
+        "class Shape:",
+        "  constructor(name: string):",
+        "    this.name = name",
+        "  area() -> float:",
+        "    return 0.0",
+        "class Circle extends Shape:",
+        "  constructor(r: float):",
+        '    super(name="circle")',
+        "    this.r = r",
+        "  area() -> float:",
+        "    return 3.14 * this.r * this.r",
+        "c: Circle = Circle(2.0)",
+        "n: string = c.name",
+        "a: float = c.area()",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+
+    it("reports an argument mismatch on a constructor call", () => {
+      const source = [
+        "class Point:",
+        "  constructor(x: float, y: float):",
+        "    this.x = x",
+        'Point("a", 4.0)',
+      ].join("\n");
+      expect(messages(source)).toEqual([
+        "Type 'string' is not assignable to parameter 'x: float'",
+      ]);
+    });
+  });
+
+  describe("member-chain continuation lines", () => {
+    it("checks a call chain that continues with a leading dot", () => {
+      const source = [
+        "doubled: int[] = [1, 2, 3]",
+        "  .map(x => x * 2)",
+        "  .filter(x => x > 2)",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+  });
 });

@@ -19,6 +19,14 @@ function isBlankOrComment(line: string): boolean {
   return trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith("//");
 }
 
+function continuesMemberChain(lines: string[], from: number): boolean {
+  for (let j = from + 1; j < lines.length; j++) {
+    if (isBlankOrComment(lines[j])) continue;
+    return /^(\?\.|\.)\s*[A-Za-z_$]/.test(lines[j].trim());
+  }
+  return false;
+}
+
 function delimiterDelta(tokens: Token[]): number {
   let delta = 0;
   for (const tok of tokens) {
@@ -78,7 +86,7 @@ export function tokenize(source: string): Token[] {
 
     if (endsBlock) {
       pendingBlock = punct("{", lineNo, raw.length + 1);
-    } else if (delimiterDepth === 0) {
+    } else if (delimiterDepth === 0 && !continuesMemberChain(lines, i)) {
       out.push(punct(";", lineNo, raw.length + 1));
     }
     if (delimiterDepth < 0) delimiterDepth = 0;

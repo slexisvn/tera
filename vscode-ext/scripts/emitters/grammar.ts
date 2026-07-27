@@ -163,7 +163,7 @@ function declarationPatterns(groups: Record<KeywordGroup, string[]>): Pattern[] 
     });
   }
 
-  const typeLike = ["model", "class"].filter((k) => declarations.has(k));
+  const typeLike = ["model", "class", "interface", "type"].filter((k) => declarations.has(k));
   if (typeLike.length) {
     patterns.push({
       match: `\\b(${typeLike.join("|")})\\s+(${IDENT})`,
@@ -183,6 +183,14 @@ function declarationPatterns(groups: Record<KeywordGroup, string[]>): Pattern[] 
       },
     });
   }
+
+  patterns.push({
+    match: `\\b(get|set)\\s+(${IDENT})\\s*(?=\\()`,
+    captures: {
+      1: { name: "keyword.other.declaration.tera" },
+      2: { name: "entity.name.function.tera" },
+    },
+  });
 
   return patterns;
 }

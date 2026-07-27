@@ -653,6 +653,8 @@ describe("checker fuzz invariants", () => {
       "ok_add_int = 1 + 2",
       "ok_add_float = 1 + 2.5",
       "ok_add_string = \"a\" + \"b\"",
+      "ok_concat_int = 1 + \"x\"",
+      "ok_concat_string_float = \"area \" + 2.5",
       "ok_eq_number = 1 == 2.0",
       "ok_eq_null = null == undefined",
       "ok_bitwise = 1 << 2",
@@ -673,7 +675,6 @@ describe("checker fuzz invariants", () => {
     }
 
     const bad = [
-      { label: "bad-plus", source: "value = 1 + \"x\"", message: "Operator '+' cannot be applied to 'int' and 'string'" },
       { label: "bad-equality", source: "value = true == 1", message: "Operator '==' cannot be applied to 'bool' and 'int'" },
       { label: "bad-bitwise", source: "value = 1 & 2.5", message: "Operator '&' cannot be applied to 'int' and 'float'" },
       { label: "bad-in-key", source: "value = true in [1, 2]", message: "Type 'bool' is not assignable to index type 'int'" },
@@ -845,7 +846,7 @@ describe("checker fuzz invariants", () => {
       { label: "logical-and", source: "x = true && 1", line: 1, column: 13, message: "Type 'int' is not assignable to logical operand type 'bool'" },
       { label: "logical-or", source: "x = false || \"x\"", line: 1, column: 14, message: "Type 'string' is not assignable to logical operand type 'bool'" },
       { label: "reassign", source: ["x: int = 1", "x = \"bad\""].join("\n"), line: 2, column: 5, message: "Type 'string' is not assignable to 'int'" },
-      { label: "compound-type", source: ["x: int = 1", "x += \"bad\""].join("\n"), line: 2, column: 6, message: "Operator '+=' cannot assign 'string' to 'int'" },
+      { label: "compound-type", source: ["x: int = 1", "x += \"bad\""].join("\n"), line: 2, column: 6, message: "Operator '+=' produces 'string' which is not assignable to 'int'" },
       { label: "compound-result", source: ["x: int = 1", "x /= 2"].join("\n"), line: 2, column: 6, message: "Operator '/=' produces 'float' which is not assignable to 'int'" },
       { label: "update", source: ["x: string = \"a\"", "x++"].join("\n"), line: 2, column: 1, message: "Operator '++' cannot be applied to 'string'" },
     ];

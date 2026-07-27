@@ -3,6 +3,7 @@ import {
   TERA_BUILTIN_INTERFACES,
   TERA_BUILTINS,
   TERA_CHART_METHODS,
+  TERA_GLOBAL_NAMESPACES,
   TERA_KIND_METHODS,
   TERA_PRIMITIVE_TYPES,
   TERA_PSEUDO_TYPES,
@@ -95,6 +96,8 @@ const BUILTIN_FAMILIES = new Map<string, TypeName>([
 
 export const BUILTIN_SIGNATURES = new Map<string, Signature>();
 
+export const GLOBAL_NAMESPACE_BINDINGS = new Map<string, TypeName>(Object.entries(TERA_GLOBAL_NAMESPACES));
+
 function registerMethodOwner(name: string): void {
   METHOD_OWNER_NAMES.set(name, name);
   METHOD_OWNER_NAMES.set(name.toLowerCase(), name);
@@ -136,7 +139,7 @@ export function cleanType(type: string | undefined | null): TypeName {
     .replace(/\s+/g, " ");
   const fn = parseFunctionTypeSource(normalized);
   if (!fn) return normalized;
-  const params = splitTopLevel(fn.params, ",").map((param) => cleanType(param)).filter(Boolean).join(", ");
+  const params = splitTopLevel(fn.params, ",").map((param) => param.trim()).filter(Boolean).map((param) => cleanType(param)).join(", ");
   return `(${params}) -> ${cleanType(fn.returns)}`;
 }
 

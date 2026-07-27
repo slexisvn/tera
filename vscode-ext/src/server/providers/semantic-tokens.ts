@@ -46,6 +46,8 @@ const TYPE_BY_KIND: Record<string, TokenTypeName> = {
   parameter: "parameter",
   variable: "variable",
   field: "variable",
+  method: "method",
+  property: "variable",
   device: "enumMember",
   dtype: "enumMember",
   constant: "enumMember",
@@ -99,7 +101,12 @@ function resolve(
   types: Set<string>,
 ): TokenTypeName | null {
   if (callDepth > 0 && tokens[index + 1]?.value === "=") return "parameter";
-  if (tokens[index - 1]?.value === ".") return tokens[index + 1]?.value === "(" ? "method" : null;
+  if (tokens[index - 1]?.value === ".") {
+    const next = tokens[index + 1]?.value;
+    if (next === "(") return "method";
+    if (next === "<" && genericCallAhead(tokens, index + 1)) return "method";
+    return null;
+  }
 
   const name = tokens[index].value;
   if (types.has(name)) return "type";
@@ -109,4 +116,18 @@ function resolve(
 
   const symbol = symbolByName.get(name);
   return symbol ? TYPE_BY_KIND[symbol.kind] ?? null : null;
+}
+
+function genericCallAhead(tokens: AnalyzedToken[], start: number): boolean {
+  let depth = 0;
+  for (let i = start; i < tokens.length; i++) {
+    const value = tokens[i].value;
+    if (value === "<") depth++;
+    else if (value === ">") depth--;
+    else if (value === ">>") depth -= 2;
+    else if (value === ">>>") depth -= 3;
+    else continue;
+    if (depth <= 0) return tokens[i + 1]?.value === "(";
+  }
+  return false;
 }

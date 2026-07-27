@@ -5,6 +5,7 @@ import {
 import type { Method, Param } from "../../shared/language-data.ts";
 import type { AnalyzedDocument, Position, Scope, TeraSymbol } from "../analyzer/index.ts";
 import { buildSnippet } from "../../shared/snippet.ts";
+import { isMemberAccess, resolveReceiverType } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
 const KIND_BY_SYMBOL: Record<string, CompletionItemKind> = {
@@ -14,6 +15,8 @@ const KIND_BY_SYMBOL: Record<string, CompletionItemKind> = {
   parameter: CompletionItemKind.Variable,
   variable: CompletionItemKind.Variable,
   field: CompletionItemKind.Field,
+  method: CompletionItemKind.Method,
+  property: CompletionItemKind.Property,
 };
 
 const KIND_BY_BUILTIN: Record<string, CompletionItemKind> = {
@@ -70,9 +73,9 @@ export default defineProvider({
 });
 
 function collect(context: ProviderContext, document: AnalyzedDocument, position: Position): CompletionList {
-  const receiver = readReceiver(document, position);
-  if (receiver) {
-    return { isIncomplete: false, items: memberItems(context, document, receiver, position) };
+  if (isMemberAccess(document, position)) {
+    const typeName = resolveReceiverType(context, document, position);
+    return { isIncomplete: false, items: typeName ? memberItems(context, document, typeName) : [] };
   }
 
   const items: CompletionItem[] = [
@@ -148,32 +151,19 @@ function symbolItems(document: AnalyzedDocument, position: Position): Completion
 function memberItems(
   context: ProviderContext,
   document: AnalyzedDocument,
-  receiver: string,
-  position: Position,
+  typeName: string,
 ): CompletionItem[] {
-  const typeName = document.symbols.resolve(receiver, position)?.typeName ?? receiver;
-  const declaringScope = document.symbols.scopes.find(
-    (scope) => scope.name === typeName && (scope.kind === "model" || scope.kind === "class"),
-  );
-
-  const methods = declaringScope
-    ? context.types.pseudoType("Model") ?? []
-    : context.types.methodsOf(typeName);
-
-  const items = methods.map((method) => methodItem(method));
-
-  if (declaringScope) {
-    for (const field of declaringScope.symbols) {
-      if (field.kind !== "variable" && field.kind !== "field") continue;
-      items.push({
-        label: field.name,
-        kind: CompletionItemKind.Field,
-        detail: field.typeName ? `${field.name}: ${field.typeName}` : "field",
-        sortText: `0_${field.name}`,
-      });
-    }
+  const members = document.symbols.membersOf(typeName);
+  if (members.length) {
+    return members.map((member) => ({
+      label: member.name,
+      kind: member.kind === "method" ? CompletionItemKind.Method : member.kind === "property" ? CompletionItemKind.Property : CompletionItemKind.Field,
+      detail: member.typeName ? `${member.name}: ${member.typeName}` : member.kind,
+      sortText: `0_${member.name}`,
+    }));
   }
-  return items;
+  const element = typeName.endsWith("[]") ? "Array" : typeName;
+  return context.types.methodsOf(element).map((method) => methodItem(method));
 }
 
 function methodItem(method: Method): CompletionItem {
@@ -197,12 +187,6 @@ function visibleSymbols(scope: Scope | null): TeraSymbol[] {
   const out: TeraSymbol[] = [];
   for (let cursor = scope; cursor; cursor = cursor.parent) out.push(...cursor.symbols);
   return out;
-}
-
-function readReceiver(document: AnalyzedDocument, position: Position): string | null {
-  const line = document.lines[position.line] ?? "";
-  const before = line.slice(0, position.character);
-  return before.match(/([A-Za-z_$][\w$]*)\s*\.\s*[A-Za-z0-9_$]*$/)?.[1] ?? null;
 }
 
 function paramHint(param: Param): string {

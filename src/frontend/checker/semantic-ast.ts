@@ -58,6 +58,21 @@ export type ModelNode = {
   span: SourceSpan;
 };
 
+export type ClassMemberKind = "constructor" | "method" | "getter" | "setter";
+
+export type ClassMemberNode = {
+  memberKind: ClassMemberKind;
+  fn: FunctionNode;
+};
+
+export type ClassNode = {
+  kind: "Class";
+  name: string;
+  parent?: string;
+  members: ClassMemberNode[];
+  span: SourceSpan;
+};
+
 export type BlockNode = {
   kind: "Block";
   test?: ASTNode;
@@ -108,6 +123,7 @@ export type SemanticNode =
   | InterfaceNode
   | FunctionNode
   | ModelNode
+  | ClassNode
   | BlockNode
   | ForNode
   | VarNode

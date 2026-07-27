@@ -20,7 +20,9 @@ export function binaryOperatorSemantics(op: string, left: TypeName, right: TypeN
     const valid = isTensorType(left, env) && isTensorType(right, env);
     return { result: valid ? "Tensor" : "any", valid };
   }
-  if (op === "+" && left === "string" && right === "string") return { result: "string", valid: true };
+  if (op === "+" && (isStringType(left, env) || isStringType(right, env)) && !isTensorType(left, env) && !isTensorType(right, env)) {
+    return { result: "string", valid: true };
+  }
   if (resolveType(left, env) === "any" || resolveType(right, env) === "any") return { result: "any", valid: true };
   if (tensorArithmeticResult(op, left, right, env)) return { result: "Tensor", valid: true };
   if (BITWISE_OPERATORS.has(op)) return { result: "int", valid: compatible(left, "int", env) && compatible(right, "int", env) };
@@ -32,6 +34,10 @@ export function binaryOperatorSemantics(op: string, left: TypeName, right: TypeN
 
 export function isTensorType(type: TypeName, env: TypeEnv): boolean {
   return resolveType(type, env) === "Tensor";
+}
+
+function isStringType(type: TypeName, env: TypeEnv): boolean {
+  return compatible(type, "string", env);
 }
 
 export function acceptsTensorLeftArithmetic(op: string, right: TypeName, env: TypeEnv): boolean {

@@ -13,9 +13,9 @@ export type AnalyzedToken = {
   endColumn: number;
 };
 
-export type SymbolKind = "function" | "model" | "module" | "variable" | "parameter" | "field";
+export type SymbolKind = "function" | "model" | "module" | "variable" | "parameter" | "field" | "method" | "property";
 
-export type ScopeKind = "scope" | "function" | "class" | "model";
+export type ScopeKind = "scope" | "function" | "class" | "model" | "interface";
 
 export type TeraSymbol = {
   name: string;
@@ -44,6 +44,7 @@ export type SymbolTable = {
   findScopeAt(position: Position): Scope;
   resolve(name: string, position: Position): TeraSymbol | null;
   resolveField(typeName: string | null, fieldName: string): TeraSymbol | null;
+  membersOf(typeName: string | null): TeraSymbol[];
 };
 
 export type AnalyzedError = {
