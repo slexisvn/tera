@@ -259,7 +259,7 @@
       "patterns": [
         {
           "name": "storage.type.tera",
-          "match": "\\b(?:MetricCollection|GroupedData|IndexTensor|LRScheduler|MLTransform|DataLoader|DataFrame|Optimizer|Tokenizer|Callback|boolean|Dataset|MLModel|Trainer|unknown|Column|Logger|Metric|Module|Object|string|String|Tensor|Array|float|Model|bool|any|int|Map|Set)\\b"
+          "match": "\\b(?:MetricCollection|QuillProduct|GroupedData|IndexTensor|LRScheduler|MLTransform|DataLoader|DataFrame|Optimizer|Tokenizer|Callback|boolean|Dataset|MLModel|Trainer|unknown|Column|Logger|Metric|Module|Object|string|String|Tensor|Array|float|Model|bool|any|int|Map|Set)\\b"
         }
       ]
     },

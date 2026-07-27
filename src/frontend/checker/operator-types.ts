@@ -21,6 +21,7 @@ export function binaryOperatorSemantics(op: string, left: TypeName, right: TypeN
     return { result: valid ? "Tensor" : "any", valid };
   }
   if (op === "+" && left === "string" && right === "string") return { result: "string", valid: true };
+  if (resolveType(left, env) === "any" || resolveType(right, env) === "any") return { result: "any", valid: true };
   if (tensorArithmeticResult(op, left, right, env)) return { result: "Tensor", valid: true };
   if (BITWISE_OPERATORS.has(op)) return { result: "int", valid: compatible(left, "int", env) && compatible(right, "int", env) };
   if (NUMERIC_OPERATORS.has(op) && compatible(left, "float", env) && compatible(right, "float", env)) {

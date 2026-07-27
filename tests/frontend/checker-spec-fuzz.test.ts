@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkSource, inferSymbolTypes, type Diagnostic } from "../../src/index.js";
-import { cleanType } from "../../src/frontend/checker/type-system.js";
+import { cleanType, createTypeEnv, resolveType } from "../../src/frontend/checker/type-system.js";
 import {
   TERA_BUILTIN_ALIASES,
   TERA_BUILTIN_INTERFACES,
@@ -164,6 +164,8 @@ function objectExprForInterface(name: string): string {
   if (name === "LogOptions") return "{ on_step: true }";
   if (name === "SchedulerConfig") return "{ scheduler: StepLR(SGD([tensor([1.0], grad=true)]), 1) }";
   if (name === "OptimizerStateDict") return "{ state: Map(), paramGroups: [{}] }";
+  if (name === "GarchParams") return "{ omega: 0.1, alpha: 0.1, beta: 0.8 }";
+  if (name === "CriticalValues") return "{ one: 1.0, five: 1.0, ten: 1.0 }";
   return "{}";
 }
 
@@ -1291,6 +1293,156 @@ describe("checker fuzz invariants", () => {
     if (covered.extraPositional !== covered.possibleExtraPositional) pushFailure(failures, "extra-coverage", "", JSON.stringify(covered));
     if (covered.unknownNamed !== covered.possibleUnknownNamed) pushFailure(failures, "unknown-coverage", "", JSON.stringify(covered));
 
+    expect(failures).toEqual([]);
+  });
+
+  // The passes above cover call sites, arity, and return *types*. The passes below add the
+  // surface they do not: member/field access on returned records, indexer access, method
+  // chains on returned handles, and function-typed handles threaded back into other builtins.
+  // These are exercised through the quantc builtins, which are the spec's richest record shapes.
+
+  function firstType(source: string, name: string): string | undefined {
+    return inferSymbolTypes(source).find((symbol) => symbol.name === name)?.type;
+  }
+  function expectType(failures: Failure[], label: string, source: string, name: string, want: string): void {
+    const got = firstType(source, name);
+    if (got !== want) pushFailure(failures, label, source, `got ${got}, want ${want}`);
+  }
+
+  // A statically valid call for each record/handle-returning builtin (argument values are
+  // irrelevant to the checker; only declared parameter types must be satisfied).
+  const RESULT_CALLS: Record<string, string> = {
+    adf_test: "adf_test([1.5, 2.5, 3.5, 2.0])",
+    kpss_test: "kpss_test([1.5, 2.5, 3.5, 2.0])",
+    engle_granger: "engle_granger([1.5, 2.5, 3.5], [[1.5], [2.5], [3.5]])",
+    johansen: "johansen([[1.5, 2.5], [2.5, 3.5], [3.5, 4.5]])",
+    kalman_filter: "kalman_filter([1.5, 2.5], [[1.0], [1.0]], { transition: [[1.0]] })",
+    dynamic_beta: "dynamic_beta([1.5, 2.5, 3.5], [[1.5], [2.5], [3.5]])",
+    fit_garch: "fit_garch([1.5, 2.5, 3.5, 2.0])",
+    backtest: "backtest(DataFrame(a=[1.5, 2.0, 1.8]))",
+  };
+  const RESULT_TYPE: Record<string, string> = {
+    adf_test: "UnitRootTest", kpss_test: "UnitRootTest", engle_granger: "EngleGrangerResult",
+    johansen: "JohansenResult", kalman_filter: "KalmanResult", dynamic_beta: "KalmanResult",
+    fit_garch: "GarchFit", backtest: "QuantBacktestResult",
+  };
+
+  it("resolves every declared field of record-returning builtins (nested + array element)", () => {
+    const failures: Failure[] = [];
+    const env = createTypeEnv();
+    for (const [name, call] of Object.entries(RESULT_CALLS)) {
+      const callSource = `__any: any = 1\nr = ${call}`;
+      expectNoDiagnostics(failures, `record-call-${name}`, callSource);
+      expectType(failures, `record-return-${name}`, callSource, "r", RESULT_TYPE[name]);
+
+      const iface = TERA_BUILTIN_INTERFACES[RESULT_TYPE[name] as keyof typeof TERA_BUILTIN_INTERFACES] as
+        { fields: Record<string, { type: string; optional?: boolean }> };
+      for (const [fieldName, field] of Object.entries(iface.fields)) {
+        const declared = cleanType(field.type);
+        const src = `__any: any = 1\nv = ${call}.${fieldName}`;
+        expectNoDiagnostics(failures, `record-field-${name}.${fieldName}`, src);
+        if (!field.optional) expectType(failures, `record-field-type-${name}.${fieldName}`, src, "v", declared);
+
+        if (declared.endsWith("[]")) {
+          const elem = cleanType(declared.slice(0, -2));
+          const isrc = `__any: any = 1\nv = ${call}.${fieldName}[0]`;
+          expectNoDiagnostics(failures, `record-index-${name}.${fieldName}`, isrc);
+          expectType(failures, `record-index-type-${name}.${fieldName}`, isrc, "v", elem);
+        }
+        const nested = TERA_BUILTIN_INTERFACES[resolveType(declared, env) as keyof typeof TERA_BUILTIN_INTERFACES] as
+          { fields: Record<string, { type: string }> } | undefined;
+        if (nested && !declared.endsWith("[]")) {
+          for (const [nn, nf] of Object.entries(nested.fields)) {
+            const nsrc = `__any: any = 1\nv = ${call}.${fieldName}.${nn}`;
+            expectNoDiagnostics(failures, `record-nested-${name}.${fieldName}.${nn}`, nsrc);
+            expectType(failures, `record-nested-type-${name}.${fieldName}.${nn}`, nsrc, "v", cleanType(nf.type));
+          }
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("fuzzes random valid field access and keeps unknown record fields non-concrete", () => {
+    const failures: Failure[] = [];
+    const names = Object.keys(RESULT_CALLS);
+    for (let i = 0; i < 400; i++) {
+      const name = pick(names);
+      const iface = TERA_BUILTIN_INTERFACES[RESULT_TYPE[name] as keyof typeof TERA_BUILTIN_INTERFACES] as { fields: Record<string, unknown> };
+      const field = pick(Object.keys(iface.fields));
+      expectNoDiagnostics(failures, `rand-field-${name}.${field}`, `__any: any = 1\nv = ${RESULT_CALLS[name]}.${field}`);
+      const got = firstType(`__any: any = 1\nv = ${RESULT_CALLS[name]}.no_such_field_${i}`, "v");
+      if (got !== "unknown") pushFailure(failures, `rand-bogus-${name}`, RESULT_CALLS[name], `unknown field inferred as ${got}`);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("threads Signal/Portfolio handles into backtest and walk_forward", () => {
+    const failures: Failure[] = [];
+    for (const factory of ["momentum(20)", "mean_reversion(10)", "zscore(30)"]) {
+      expectType(failures, `signal-${factory}`, `sig = ${factory}`, "sig", "Signal");
+    }
+    for (const factory of ["equal_weight()", "cross_sectional()", "long_short(0.3)"]) {
+      expectType(failures, `portfolio-${factory}`, `p = ${factory}`, "p", "Portfolio");
+    }
+    for (const bt of ["backtest", "walk_forward"]) {
+      expectNoDiagnostics(failures, `${bt}-string-handles`, `r = ${bt}(DataFrame(a=[1.5]), signal="momentum", portfolio="long_short")`);
+      expectNoDiagnostics(failures, `${bt}-fn-handles`, `r = ${bt}(DataFrame(a=[1.5]), signal=momentum(10), portfolio=long_short(0.2))`);
+      expectDiagnostic(failures, `${bt}-bad-signal`, `r = ${bt}(DataFrame(a=[1.5]), signal=42)`, {
+        message: "Type 'int' is not assignable to parameter 'signal: string | Signal'",
+      });
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("checks the quill product handle and its .price(...) method chain", () => {
+    const failures: Failure[] = [];
+    const base = `p = quill("product Foo { }")`;
+    expectType(failures, "quill-handle", base, "p", "QuillProduct");
+    expectType(failures, "quill-name", `${base}\nn = p.name`, "n", "string | null");
+    const priced = `${base}\npr = p.price(rate=0.03, spot=100.0, vol=0.2)`;
+    expectNoDiagnostics(failures, "quill-price-call", priced);
+    expectType(failures, "quill-price-return", priced, "pr", "QuillPriceResult");
+    expectType(failures, "quill-price-field", `${priced}\nx = pr.price`, "x", "float");
+    expectType(failures, "quill-greeks-index", `${priced}\ng = pr.greeks["delta"]`, "g", "float");
+    expectDiagnostic(failures, "quill-price-missing-rate", `${base}\np.price()`, { message: "Missing required argument 'rate' for QuillProduct.price()" });
+    expect(failures).toEqual([]);
+  });
+
+  it("types quant weight vectors, smoothed matrices, and scalar/array returns precisely", () => {
+    const failures: Failure[] = [];
+    const cov = "[[1.0, 0.5], [0.5, 1.0]]";
+    for (const call of [`risk_parity(${cov})`, `hrp(${cov})`, `mean_variance([0.1, 0.2], ${cov})`]) {
+      expectType(failures, `weights-${call}`, `w = ${call}`, "w", "float[]");
+      expectType(failures, `weights-index-${call}`, `w = ${call}\nx = w[0]`, "x", "float");
+    }
+    const ks = `m = kalman_smoother([1.5, 2.5], [[1.0], [1.0]], { transition: [[1.0]] })`;
+    expectType(failures, "kalman-smoother", ks, "m", "float[][]");
+    expectType(failures, "kalman-smoother-cell", `${ks}\nx = m[0][0]`, "x", "float");
+
+    const scalars: Array<[string, string]> = [
+      ["hurst_exponent([1.5, 2.5])", "float"], ["half_life([1.5, 2.5])", "float"],
+      ["roll_spread([1.5, 2.5])", "float"], ["sharpe([0.1, 0.2])", "float"],
+      ["cusum_events([1.5, 2.5], 0.1)", "int[]"], ["bsadf([1.5, 2.5])", "float[]"],
+      ["tick_rule([1.5, 2.5])", "int[]"], ["vpin([{price: 1.0, volume: 2.0}], 1.0)", "float[]"],
+      ["garch_volatility([0.1, 0.2], { omega: 0.1, alpha: 0.1, beta: 0.8 })", "float[]"],
+    ];
+    for (const [call, want] of scalars) {
+      const src = `__any: any = 1\nv = ${call}`;
+      expectNoDiagnostics(failures, `scalar-call-${call}`, src);
+      expectType(failures, `scalar-type-${call}`, src, "v", want);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("rejects bad params on quant builtins with a precise parameter diagnostic", () => {
+    const failures: Failure[] = [];
+    expectDiagnostic(failures, "garch-bad-params", `garch_volatility([0.1, 0.2], "bad")`, {
+      message: "Type 'string' is not assignable to parameter 'params: GarchParams'",
+    });
+    expectDiagnostic(failures, "adf-bad-lags", `adf_test([1.5, 2.5], lags=true)`, {
+      message: "Type 'bool' is not assignable to parameter 'lags: int'",
+    });
     expect(failures).toEqual([]);
   });
 });

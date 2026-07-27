@@ -116,6 +116,7 @@
     "Module",
     "Object",
     "Optimizer",
+    "QuillProduct",
     "Set",
     "String",
     "Tensor",
@@ -204,6 +205,104 @@
         "signature": {
           "params": [],
           "display": "item() -> int"
+        }
+      }
+    ],
+    "QuillProduct": [
+      {
+        "name": "price",
+        "description": "Price the checked product under the supplied market data. Returns `.price`, `.standard_error`, and a `.greeks` map.",
+        "returns": "QuillPriceResult",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "rate",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "spot",
+              "type": "float",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "vol",
+              "type": "float",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "spots",
+              "type": "Object",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "vols",
+              "type": "Object",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "params",
+              "type": "Object",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "model_params",
+              "type": "Object",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "correlation",
+              "type": "float[][]",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "curve",
+              "type": "Object",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            },
+            {
+              "name": "paths",
+              "type": "int",
+              "optional": true,
+              "rest": false,
+              "defaultValue": "100000"
+            },
+            {
+              "name": "seed",
+              "type": "int",
+              "optional": true,
+              "rest": false,
+              "defaultValue": "1"
+            },
+            {
+              "name": "greeks",
+              "type": "string",
+              "optional": true,
+              "rest": false,
+              "defaultValue": "full"
+            }
+          ],
+          "display": "price(rate: float, spot?: float, vol?: float, spots?: Object, vols?: Object, params?: Object, model_params?: Object, correlation?: float[][], curve?: Object, paths: int = 100000, seed: int = 1, greeks: string = full) -> QuillPriceResult"
         }
       }
     ],
@@ -10544,7 +10643,7 @@
       "name": "backtest",
       "kind": "quant",
       "description": "Run a vectorized cross-sectional backtest over a price `DataFrame` shaped time × asset (numeric columns are the assets; a date/index column is dropped automatically). `signal` selects a trading signal (`\"momentum\"`, `\"mean_reversion\"`, `\"zscore\"`) and `portfolio` a position rule (`\"equal_weight\"`, `\"cross_sectional\"`, `\"long_short\"`); either may instead be a handle from `momentum(...)`, `long_short(...)`, etc. Returns a record with `.metrics` (a map of `sharpe`, `sortino`, `maxDrawdown`, `calmar`, `hitRate`, `turnover`), `.equity` and `.port_returns` (DataFrames), and `.weights`.",
-      "returns": "Object",
+      "returns": "QuantBacktestResult",
       "effect": "async",
       "signature": {
         "params": [
@@ -10557,14 +10656,14 @@
           },
           {
             "name": "signal",
-            "type": "string | Function",
+            "type": "string | Signal",
             "optional": true,
             "rest": false,
             "defaultValue": "momentum"
           },
           {
             "name": "portfolio",
-            "type": "string | Function",
+            "type": "string | Portfolio",
             "optional": true,
             "rest": false,
             "defaultValue": "long_short"
@@ -10619,7 +10718,7 @@
             "defaultValue": null
           }
         ],
-        "display": "backtest(prices: any, signal: string | Function = momentum, portfolio: string | Function = long_short, lookback: int = 20, fraction: float = 0.5, cost: float = 0, max_leverage: float = Infinity, start: int = 0, periods_per_year: int = 252, asset_columns?: string[]) -> Object"
+        "display": "backtest(prices: any, signal: string | Signal = momentum, portfolio: string | Portfolio = long_short, lookback: int = 20, fraction: float = 0.5, cost: float = 0, max_leverage: float = Infinity, start: int = 0, periods_per_year: int = 252, asset_columns?: string[]) -> QuantBacktestResult"
       },
       "methods": []
     },
@@ -10627,7 +10726,7 @@
       "name": "walk_forward",
       "kind": "quant",
       "description": "Walk-forward (out-of-sample) backtest: split the series into `folds` segments after an initial `min_train_fraction` training window and stitch the per-fold out-of-sample returns. Same arguments and result shape as `backtest`.",
-      "returns": "Object",
+      "returns": "QuantBacktestResult",
       "effect": "async",
       "signature": {
         "params": [
@@ -10640,14 +10739,14 @@
           },
           {
             "name": "signal",
-            "type": "string | Function",
+            "type": "string | Signal",
             "optional": true,
             "rest": false,
             "defaultValue": "momentum"
           },
           {
             "name": "portfolio",
-            "type": "string | Function",
+            "type": "string | Portfolio",
             "optional": true,
             "rest": false,
             "defaultValue": "long_short"
@@ -10709,7 +10808,7 @@
             "defaultValue": null
           }
         ],
-        "display": "walk_forward(prices: any, signal: string | Function = momentum, portfolio: string | Function = long_short, lookback: int = 20, fraction: float = 0.5, cost: float = 0, max_leverage: float = Infinity, folds: int = 4, min_train_fraction: float = 0.5, periods_per_year: int = 252, asset_columns?: string[]) -> Object"
+        "display": "walk_forward(prices: any, signal: string | Signal = momentum, portfolio: string | Portfolio = long_short, lookback: int = 20, fraction: float = 0.5, cost: float = 0, max_leverage: float = Infinity, folds: int = 4, min_train_fraction: float = 0.5, periods_per_year: int = 252, asset_columns?: string[]) -> QuantBacktestResult"
       },
       "methods": []
     },
@@ -10717,7 +10816,7 @@
       "name": "momentum",
       "kind": "quant",
       "description": "Build a momentum signal handle (trailing return over `lookback` periods) to pass to `backtest`/`walk_forward` as `signal=`.",
-      "returns": "Function",
+      "returns": "Signal",
       "effect": "sync",
       "signature": {
         "params": [
@@ -10729,7 +10828,7 @@
             "defaultValue": "20"
           }
         ],
-        "display": "momentum(lookback: int = 20) -> Function"
+        "display": "momentum(lookback: int = 20) -> Signal"
       },
       "methods": []
     },
@@ -10737,7 +10836,7 @@
       "name": "mean_reversion",
       "kind": "quant",
       "description": "Build a mean-reversion signal handle (the negated `lookback` momentum) for use as `signal=`.",
-      "returns": "Function",
+      "returns": "Signal",
       "effect": "sync",
       "signature": {
         "params": [
@@ -10749,7 +10848,7 @@
             "defaultValue": "20"
           }
         ],
-        "display": "mean_reversion(lookback: int = 20) -> Function"
+        "display": "mean_reversion(lookback: int = 20) -> Signal"
       },
       "methods": []
     },
@@ -10757,7 +10856,7 @@
       "name": "zscore",
       "kind": "quant",
       "description": "Build a z-score signal handle (rolling standardized price over `window`) for use as `signal=`.",
-      "returns": "Function",
+      "returns": "Signal",
       "effect": "sync",
       "signature": {
         "params": [
@@ -10769,7 +10868,7 @@
             "defaultValue": "20"
           }
         ],
-        "display": "zscore(window: int = 20) -> Function"
+        "display": "zscore(window: int = 20) -> Signal"
       },
       "methods": []
     },
@@ -10777,11 +10876,11 @@
       "name": "equal_weight",
       "kind": "quant",
       "description": "Portfolio handle weighting every active asset equally by sign, for use as `portfolio=`.",
-      "returns": "Function",
+      "returns": "Portfolio",
       "effect": "sync",
       "signature": {
         "params": [],
-        "display": "equal_weight() -> Function"
+        "display": "equal_weight() -> Portfolio"
       },
       "methods": []
     },
@@ -10789,11 +10888,11 @@
       "name": "cross_sectional",
       "kind": "quant",
       "description": "Portfolio handle that demeans the signal across assets and scales to unit gross exposure, for use as `portfolio=`.",
-      "returns": "Function",
+      "returns": "Portfolio",
       "effect": "sync",
       "signature": {
         "params": [],
-        "display": "cross_sectional() -> Function"
+        "display": "cross_sectional() -> Portfolio"
       },
       "methods": []
     },
@@ -10801,7 +10900,7 @@
       "name": "long_short",
       "kind": "quant",
       "description": "Portfolio handle going long the top `fraction` and short the bottom `fraction` of ranked assets, for use as `portfolio=`.",
-      "returns": "Function",
+      "returns": "Portfolio",
       "effect": "sync",
       "signature": {
         "params": [
@@ -10813,7 +10912,7 @@
             "defaultValue": "0.5"
           }
         ],
-        "display": "long_short(fraction: float = 0.5) -> Function"
+        "display": "long_short(fraction: float = 0.5) -> Portfolio"
       },
       "methods": []
     },
@@ -10936,7 +11035,7 @@
       "name": "risk_parity",
       "kind": "quant",
       "description": "Equal-risk-contribution portfolio weights for a covariance matrix. Passing a returns `DataFrame` estimates the sample covariance first. Returns a weight array.",
-      "returns": "Array",
+      "returns": "float[]",
       "effect": "async",
       "signature": {
         "params": [
@@ -10948,7 +11047,7 @@
             "defaultValue": null
           }
         ],
-        "display": "risk_parity(cov: any) -> Array"
+        "display": "risk_parity(cov: any) -> float[]"
       },
       "methods": []
     },
@@ -10956,7 +11055,7 @@
       "name": "hrp",
       "kind": "quant",
       "description": "Hierarchical Risk Parity weights — cluster assets by correlation and allocate by recursive bisection. Accepts a covariance matrix or a returns `DataFrame`.",
-      "returns": "Array",
+      "returns": "float[]",
       "effect": "async",
       "signature": {
         "params": [
@@ -10968,7 +11067,7 @@
             "defaultValue": null
           }
         ],
-        "display": "hrp(cov: any) -> Array"
+        "display": "hrp(cov: any) -> float[]"
       },
       "methods": []
     },
@@ -10976,7 +11075,7 @@
       "name": "mean_variance",
       "kind": "quant",
       "description": "Mean-variance optimal weights for expected returns `mu` and covariance `cov` (a matrix or a returns `DataFrame`), normalized to unit gross exposure.",
-      "returns": "Array",
+      "returns": "float[]",
       "effect": "async",
       "signature": {
         "params": [
@@ -10995,7 +11094,7 @@
             "defaultValue": null
           }
         ],
-        "display": "mean_variance(mu: any, cov: any) -> Array"
+        "display": "mean_variance(mu: any, cov: any) -> float[]"
       },
       "methods": []
     },
@@ -11003,7 +11102,7 @@
       "name": "quill",
       "kind": "quant",
       "description": "Parse and type-check a Quill product definition from a source string and return a product handle. Call `.price(rate=..., spot=..., vol=..., paths?=..., seed?=..., greeks?=...)` on it to run the Monte-Carlo pricer; the result has `.price`, `.standard_error`, and a `.greeks` map (`delta`, `vega`, `rho`, …). `greeks` is `\"price-only\"`, `\"first-order\"`, or `\"full\"`.",
-      "returns": "Object",
+      "returns": "QuillProduct",
       "effect": "sync",
       "signature": {
         "params": [
@@ -11015,112 +11114,15 @@
             "defaultValue": null
           }
         ],
-        "display": "quill(source: string) -> Object"
+        "display": "quill(source: string) -> QuillProduct"
       },
-      "methods": [
-        {
-          "name": "price",
-          "description": "Price the checked product under the supplied market data. Returns `.price`, `.standard_error`, and `.greeks`.",
-          "returns": "Object",
-          "effect": "sync",
-          "isGetter": false,
-          "signature": {
-            "params": [
-              {
-                "name": "rate",
-                "type": "float",
-                "optional": false,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "spot",
-                "type": "float",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "vol",
-                "type": "float",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "spots",
-                "type": "Object",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "vols",
-                "type": "Object",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "params",
-                "type": "Object",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "model_params",
-                "type": "Object",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "correlation",
-                "type": "any",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "curve",
-                "type": "Object",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "paths",
-                "type": "int",
-                "optional": true,
-                "rest": false,
-                "defaultValue": "100000"
-              },
-              {
-                "name": "seed",
-                "type": "int",
-                "optional": true,
-                "rest": false,
-                "defaultValue": "1"
-              },
-              {
-                "name": "greeks",
-                "type": "string",
-                "optional": true,
-                "rest": false,
-                "defaultValue": "full"
-              }
-            ],
-            "display": "price(rate: float, spot?: float, vol?: float, spots?: Object, vols?: Object, params?: Object, model_params?: Object, correlation?: any, curve?: Object, paths: int = 100000, seed: int = 1, greeks: string = full) -> Object"
-          }
-        }
-      ]
+      "methods": []
     },
     {
       "name": "load_quill",
       "kind": "quant",
       "description": "Like `quill`, but read the Quill product definition from a file `path`. Returns the same product handle with a `.price(...)` method and a `.name` field.",
-      "returns": "Object",
+      "returns": "QuillProduct",
       "effect": "sync",
       "signature": {
         "params": [
@@ -11132,112 +11134,15 @@
             "defaultValue": null
           }
         ],
-        "display": "load_quill(path: string) -> Object"
+        "display": "load_quill(path: string) -> QuillProduct"
       },
-      "methods": [
-        {
-          "name": "price",
-          "description": "Price the loaded product under the supplied market data. Returns `.price`, `.standard_error`, and `.greeks`.",
-          "returns": "Object",
-          "effect": "sync",
-          "isGetter": false,
-          "signature": {
-            "params": [
-              {
-                "name": "rate",
-                "type": "float",
-                "optional": false,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "spot",
-                "type": "float",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "vol",
-                "type": "float",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "spots",
-                "type": "Object",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "vols",
-                "type": "Object",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "params",
-                "type": "Object",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "model_params",
-                "type": "Object",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "correlation",
-                "type": "any",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "curve",
-                "type": "Object",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "paths",
-                "type": "int",
-                "optional": true,
-                "rest": false,
-                "defaultValue": "100000"
-              },
-              {
-                "name": "seed",
-                "type": "int",
-                "optional": true,
-                "rest": false,
-                "defaultValue": "1"
-              },
-              {
-                "name": "greeks",
-                "type": "string",
-                "optional": true,
-                "rest": false,
-                "defaultValue": "full"
-              }
-            ],
-            "display": "price(rate: float, spot?: float, vol?: float, spots?: Object, vols?: Object, params?: Object, model_params?: Object, correlation?: any, curve?: Object, paths: int = 100000, seed: int = 1, greeks: string = full) -> Object"
-          }
-        }
-      ]
+      "methods": []
     },
     {
       "name": "adf_test",
       "kind": "quant",
-      "description": "Augmented Dickey-Fuller unit-root test. Returns a record with `statistic`, `criticalValues`, and `stationary` (true when the statistic is below the critical value).",
-      "returns": "Object",
+      "description": "Augmented Dickey-Fuller unit-root test. Returns a record with `statistic`, `critical_values` (`.one`/`.five`/`.ten`), and `stationary` (true when the statistic is below the critical value).",
+      "returns": "UnitRootTest",
       "effect": "sync",
       "signature": {
         "params": [
@@ -11263,15 +11168,15 @@
             "defaultValue": "constant"
           }
         ],
-        "display": "adf_test(series: any, lags: int = 0, trend: string = constant) -> Object"
+        "display": "adf_test(series: any, lags: int = 0, trend: string = constant) -> UnitRootTest"
       },
       "methods": []
     },
     {
       "name": "kpss_test",
       "kind": "quant",
-      "description": "KPSS stationarity test (null hypothesis: the series is stationary). Returns `statistic`, `criticalValues`, `stationary`. Complements `adf_test`.",
-      "returns": "Object",
+      "description": "KPSS stationarity test (null hypothesis: the series is stationary). Returns `statistic`, `critical_values`, `stationary`. Complements `adf_test`.",
+      "returns": "UnitRootTest",
       "effect": "sync",
       "signature": {
         "params": [
@@ -11297,7 +11202,7 @@
             "defaultValue": null
           }
         ],
-        "display": "kpss_test(series: any, trend: string = constant, lags?: int) -> Object"
+        "display": "kpss_test(series: any, trend: string = constant, lags?: int) -> UnitRootTest"
       },
       "methods": []
     },
@@ -11365,8 +11270,8 @@
     {
       "name": "engle_granger",
       "kind": "quant",
-      "description": "Engle-Granger two-step cointegration test: regress `dependent` on `regressors`, then ADF-test the residual. Returns `statistic`, `criticalValues`, `cointegrated`, `hedgeRatio`, and `spread`.",
-      "returns": "Object",
+      "description": "Engle-Granger two-step cointegration test: regress `dependent` on `regressors`, then ADF-test the residual. Returns `statistic`, `critical_values`, `cointegrated`, `hedge_ratio`, and `spread`.",
+      "returns": "EngleGrangerResult",
       "effect": "sync",
       "signature": {
         "params": [
@@ -11392,15 +11297,15 @@
             "defaultValue": "0"
           }
         ],
-        "display": "engle_granger(dependent: any, regressors: any, lags: int = 0) -> Object"
+        "display": "engle_granger(dependent: any, regressors: any, lags: int = 0) -> EngleGrangerResult"
       },
       "methods": []
     },
     {
       "name": "johansen",
       "kind": "quant",
-      "description": "Johansen cointegration test on a matrix of price levels. Returns `eigenvalues`, `traceStatistics`, `maxEigenStatistics`, and the estimated cointegration `rank`.",
-      "returns": "Object",
+      "description": "Johansen cointegration test on a matrix of price levels. Returns `eigenvalues`, `vectors`, `trace_statistics`, `max_eigen_statistics`, and the estimated cointegration `rank`.",
+      "returns": "JohansenResult",
       "effect": "sync",
       "signature": {
         "params": [
@@ -11419,7 +11324,7 @@
             "defaultValue": "1"
           }
         ],
-        "display": "johansen(levels: any, lags: int = 1) -> Object"
+        "display": "johansen(levels: any, lags: int = 1) -> JohansenResult"
       },
       "methods": []
     },
@@ -11542,8 +11447,8 @@
     {
       "name": "kalman_filter",
       "kind": "quant",
-      "description": "Linear Kalman filter over a state-space `spec` (transition, observation, process/measurement noise). Returns filtered `states`, `covariances`, and one-step innovations.",
-      "returns": "Object",
+      "description": "Linear Kalman filter over a state-space `spec` (transition, observation, process/measurement noise). Returns filtered `states`, `covariances`, `innovations`, and `innovation_variances`.",
+      "returns": "KalmanResult",
       "effect": "sync",
       "signature": {
         "params": [
@@ -11569,7 +11474,7 @@
             "defaultValue": null
           }
         ],
-        "display": "kalman_filter(observations: any, observation_vectors: any, spec: Object) -> Object"
+        "display": "kalman_filter(observations: any, observation_vectors: any, spec: Object) -> KalmanResult"
       },
       "methods": []
     },
@@ -11577,7 +11482,7 @@
       "name": "kalman_smoother",
       "kind": "quant",
       "description": "Rauch-Tung-Striebel smoother — the full-sample smoothed state matrix for the same state-space `spec` as `kalman_filter`.",
-      "returns": "Array",
+      "returns": "float[][]",
       "effect": "sync",
       "signature": {
         "params": [
@@ -11603,7 +11508,7 @@
             "defaultValue": null
           }
         ],
-        "display": "kalman_smoother(observations: any, observation_vectors: any, spec: Object) -> Array"
+        "display": "kalman_smoother(observations: any, observation_vectors: any, spec: Object) -> float[][]"
       },
       "methods": []
     },
@@ -11611,7 +11516,7 @@
       "name": "dynamic_beta",
       "kind": "quant",
       "description": "Time-varying hedge ratio / beta via a Kalman filter (random-walk coefficients). Returns the per-period `states` (betas) — the workhorse for dynamic pairs trading.",
-      "returns": "Object",
+      "returns": "KalmanResult",
       "effect": "sync",
       "signature": {
         "params": [
@@ -11651,15 +11556,15 @@
             "defaultValue": "1"
           }
         ],
-        "display": "dynamic_beta(dependent: any, regressors: any, process_noise: float = 0.0001, observation_noise: float = 0.01, initial_variance: float = 1) -> Object"
+        "display": "dynamic_beta(dependent: any, regressors: any, process_noise: float = 0.0001, observation_noise: float = 0.01, initial_variance: float = 1) -> KalmanResult"
       },
       "methods": []
     },
     {
       "name": "fit_garch",
       "kind": "quant",
-      "description": "Fit a GARCH(1,1) volatility model by maximum likelihood. Returns a record with `params` (`omega`, `alpha`, `beta`), `log_likelihood`, and fitted `variances`.",
-      "returns": "Object",
+      "description": "Fit a GARCH(1,1) volatility model by maximum likelihood. Returns a record with `params` (`omega`, `alpha`, `beta`), `log_likelihood`, `persistence`, `unconditional_variance`, and fitted `variances`.",
+      "returns": "GarchFit",
       "effect": "sync",
       "signature": {
         "params": [
@@ -11713,7 +11618,7 @@
             "defaultValue": "0.0001"
           }
         ],
-        "display": "fit_garch(returns: any, variance_targeting: bool = true, seed: int = 1, alpha_range: [float, float] = [0.0001, 0.4], beta_range: [float, float] = [0.3, 0.999], omega_scale_range: [float, float] = [0.001, 2], stationarity_margin: float = 0.0001) -> Object"
+        "display": "fit_garch(returns: any, variance_targeting: bool = true, seed: int = 1, alpha_range: [float, float] = [0.0001, 0.4], beta_range: [float, float] = [0.3, 0.999], omega_scale_range: [float, float] = [0.001, 2], stationarity_margin: float = 0.0001) -> GarchFit"
       },
       "methods": []
     },
@@ -11734,7 +11639,7 @@
           },
           {
             "name": "params",
-            "type": "Object",
+            "type": "GarchParams",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -11754,7 +11659,7 @@
             "defaultValue": null
           }
         ],
-        "display": "garch_forecast(returns: any, params: Object, horizon: int, initial_variance?: float) -> float[]"
+        "display": "garch_forecast(returns: any, params: GarchParams, horizon: int, initial_variance?: float) -> float[]"
       },
       "methods": []
     },
@@ -11775,7 +11680,7 @@
           },
           {
             "name": "params",
-            "type": "Object",
+            "type": "GarchParams",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -11788,7 +11693,7 @@
             "defaultValue": null
           }
         ],
-        "display": "garch_volatility(returns: any, params: Object, initial_variance?: float) -> float[]"
+        "display": "garch_volatility(returns: any, params: GarchParams, initial_variance?: float) -> float[]"
       },
       "methods": []
     },

@@ -367,7 +367,9 @@ export const TERA_BUILTIN_ALIASES = {
   "Bounds": { "type": "[float, float][]" },
   "OptimizerStateValue": { "type": "NumericScalar | bool | string | NumericScalar[] | undefined" },
   "MinimizeResult": { "type": "OptimizationResult" },
-  "KsTestResult": { "type": "TestResultNoDf" }
+  "KsTestResult": { "type": "TestResultNoDf" },
+  "Signal": { "type": "(float[][]) -> float[][]" },
+  "Portfolio": { "type": "(float[][]) -> float[][]" }
 } satisfies Record<string, TeraTypeAliasSpec>;
 
 export const TERA_BUILTIN_INTERFACES = {
@@ -555,6 +557,99 @@ export const TERA_BUILTIN_INTERFACES = {
     "fields": {
       "state": field("Map"),
       "paramGroups": field("OptimizerParamState[]")
+    }
+  },
+  "CriticalValues": {
+    "fields": {
+      "one": field("float"),
+      "five": field("float"),
+      "ten": field("float")
+    }
+  },
+  "UnitRootTest": {
+    "fields": {
+      "statistic": field("float"),
+      "critical_values": field("CriticalValues"),
+      "stationary": field("bool")
+    }
+  },
+  "EngleGrangerResult": {
+    "fields": {
+      "statistic": field("float"),
+      "critical_values": field("CriticalValues"),
+      "cointegrated": field("bool"),
+      "hedge_ratio": field("float[]"),
+      "spread": field("float[]")
+    }
+  },
+  "JohansenResult": {
+    "fields": {
+      "eigenvalues": field("float[]"),
+      "vectors": field("float[][]"),
+      "trace_statistics": field("float[]"),
+      "max_eigen_statistics": field("float[]"),
+      "rank": field("int")
+    }
+  },
+  "KalmanResult": {
+    "fields": {
+      "states": field("float[][]"),
+      "covariances": field("float[][][]"),
+      "innovations": field("float[]"),
+      "innovation_variances": field("float[]")
+    }
+  },
+  "GarchParams": {
+    "fields": {
+      "omega": field("float"),
+      "alpha": field("float"),
+      "beta": field("float")
+    }
+  },
+  "GarchFit": {
+    "fields": {
+      "params": field("GarchParams"),
+      "log_likelihood": field("float"),
+      "persistence": field("float"),
+      "unconditional_variance": field("float"),
+      "variances": field("float[]")
+    }
+  },
+  "QuantMetrics": {
+    "fields": {
+      "sharpe": field("float"),
+      "sortino": field("float"),
+      "calmar": field("float"),
+      "turnover": field("float"),
+      "maxDrawdown": field("float"),
+      "max_drawdown": field("float"),
+      "hitRate": field("float"),
+      "hit_rate": field("float")
+    },
+    "indexers": [{ "keyType": "string", "valueType": "float" }]
+  },
+  "QuantBacktestResult": {
+    "fields": {
+      "metrics": field("QuantMetrics"),
+      "equity": field("DataFrame"),
+      "port_returns": field("DataFrame"),
+      "weights": field("float[][]")
+    }
+  },
+  "QuantGreeks": {
+    "fields": {},
+    "indexers": [{ "keyType": "string", "valueType": "float" }]
+  },
+  "QuillPriceResult": {
+    "fields": {
+      "price": field("float"),
+      "standard_error": field("float"),
+      "greeks": field("QuantGreeks")
+    }
+  },
+  "QuillProduct": {
+    "fields": {
+      "name": field("string | null")
     }
   }
 } satisfies Record<string, TeraInterfaceSpec>;
@@ -2175,12 +2270,12 @@ export const TERA_BUILTINS = {
   "backtest": {
     "description": "Run a vectorized cross-sectional backtest over a price `DataFrame` shaped time × asset (numeric columns are the assets; a date/index column is dropped automatically). `signal` selects a trading signal (`\"momentum\"`, `\"mean_reversion\"`, `\"zscore\"`) and `portfolio` a position rule (`\"equal_weight\"`, `\"cross_sectional\"`, `\"long_short\"`); either may instead be a handle from `momentum(...)`, `long_short(...)`, etc. Returns a record with `.metrics` (a map of `sharpe`, `sortino`, `maxDrawdown`, `calmar`, `hitRate`, `turnover`), `.equity` and `.port_returns` (DataFrames), and `.weights`.",
     "kind": "quant",
-    "returns": "Object",
+    "returns": "QuantBacktestResult",
     "effect": "async",
     "params": [
       param("prices", "any"),
-      namedOptionalParam("signal", "string | Function", "momentum"),
-      namedOptionalParam("portfolio", "string | Function", "long_short"),
+      namedOptionalParam("signal", "string | Signal", "momentum"),
+      namedOptionalParam("portfolio", "string | Portfolio", "long_short"),
       namedOptionalParam("lookback", "int", 20),
       namedOptionalParam("fraction", "float", 0.5),
       namedOptionalParam("cost", "float", 0),
@@ -2193,12 +2288,12 @@ export const TERA_BUILTINS = {
   "walk_forward": {
     "description": "Walk-forward (out-of-sample) backtest: split the series into `folds` segments after an initial `min_train_fraction` training window and stitch the per-fold out-of-sample returns. Same arguments and result shape as `backtest`.",
     "kind": "quant",
-    "returns": "Object",
+    "returns": "QuantBacktestResult",
     "effect": "async",
     "params": [
       param("prices", "any"),
-      namedOptionalParam("signal", "string | Function", "momentum"),
-      namedOptionalParam("portfolio", "string | Function", "long_short"),
+      namedOptionalParam("signal", "string | Signal", "momentum"),
+      namedOptionalParam("portfolio", "string | Portfolio", "long_short"),
       namedOptionalParam("lookback", "int", 20),
       namedOptionalParam("fraction", "float", 0.5),
       namedOptionalParam("cost", "float", 0),
@@ -2212,7 +2307,7 @@ export const TERA_BUILTINS = {
   "momentum": {
     "description": "Build a momentum signal handle (trailing return over `lookback` periods) to pass to `backtest`/`walk_forward` as `signal=`.",
     "kind": "quant",
-    "returns": "Function",
+    "returns": "Signal",
     "params": [
       {
         "name": "lookback",
@@ -2225,7 +2320,7 @@ export const TERA_BUILTINS = {
   "mean_reversion": {
     "description": "Build a mean-reversion signal handle (the negated `lookback` momentum) for use as `signal=`.",
     "kind": "quant",
-    "returns": "Function",
+    "returns": "Signal",
     "params": [
       {
         "name": "lookback",
@@ -2238,7 +2333,7 @@ export const TERA_BUILTINS = {
   "zscore": {
     "description": "Build a z-score signal handle (rolling standardized price over `window`) for use as `signal=`.",
     "kind": "quant",
-    "returns": "Function",
+    "returns": "Signal",
     "params": [
       {
         "name": "window",
@@ -2251,19 +2346,19 @@ export const TERA_BUILTINS = {
   "equal_weight": {
     "description": "Portfolio handle weighting every active asset equally by sign, for use as `portfolio=`.",
     "kind": "quant",
-    "returns": "Function",
+    "returns": "Portfolio",
     "params": []
   },
   "cross_sectional": {
     "description": "Portfolio handle that demeans the signal across assets and scales to unit gross exposure, for use as `portfolio=`.",
     "kind": "quant",
-    "returns": "Function",
+    "returns": "Portfolio",
     "params": []
   },
   "long_short": {
     "description": "Portfolio handle going long the top `fraction` and short the bottom `fraction` of ranked assets, for use as `portfolio=`.",
     "kind": "quant",
-    "returns": "Function",
+    "returns": "Portfolio",
     "params": [
       {
         "name": "fraction",
@@ -2320,7 +2415,7 @@ export const TERA_BUILTINS = {
   "risk_parity": {
     "description": "Equal-risk-contribution portfolio weights for a covariance matrix. Passing a returns `DataFrame` estimates the sample covariance first. Returns a weight array.",
     "kind": "quant",
-    "returns": "Array",
+    "returns": "float[]",
     "effect": "async",
     "params": [
       {
@@ -2332,7 +2427,7 @@ export const TERA_BUILTINS = {
   "hrp": {
     "description": "Hierarchical Risk Parity weights — cluster assets by correlation and allocate by recursive bisection. Accepts a covariance matrix or a returns `DataFrame`.",
     "kind": "quant",
-    "returns": "Array",
+    "returns": "float[]",
     "effect": "async",
     "params": [
       {
@@ -2344,7 +2439,7 @@ export const TERA_BUILTINS = {
   "mean_variance": {
     "description": "Mean-variance optimal weights for expected returns `mu` and covariance `cov` (a matrix or a returns `DataFrame`), normalized to unit gross exposure.",
     "kind": "quant",
-    "returns": "Array",
+    "returns": "float[]",
     "effect": "async",
     "params": [
       {
@@ -2360,65 +2455,23 @@ export const TERA_BUILTINS = {
   "quill": {
     "description": "Parse and type-check a Quill product definition from a source string and return a product handle. Call `.price(rate=..., spot=..., vol=..., paths?=..., seed?=..., greeks?=...)` on it to run the Monte-Carlo pricer; the result has `.price`, `.standard_error`, and a `.greeks` map (`delta`, `vega`, `rho`, …). `greeks` is `\"price-only\"`, `\"first-order\"`, or `\"full\"`.",
     "kind": "quant",
-    "returns": "Object",
+    "returns": "QuillProduct",
     "params": [
       param("source", "string")
-    ],
-    "methods": [
-      {
-        "name": "price",
-        "description": "Price the checked product under the supplied market data. Returns `.price`, `.standard_error`, and `.greeks`.",
-        "returns": "Object",
-        "params": [
-          param("rate", "float", { named: true }),
-          namedOptionalParam("spot", "float"),
-          namedOptionalParam("vol", "float"),
-          namedOptionalParam("spots", "Object"),
-          namedOptionalParam("vols", "Object"),
-          namedOptionalParam("params", "Object"),
-          namedOptionalParam("model_params", "Object"),
-          namedOptionalParam("correlation", "any"),
-          namedOptionalParam("curve", "Object"),
-          namedOptionalParam("paths", "int", 100000),
-          namedOptionalParam("seed", "int", 1),
-          namedOptionalParam("greeks", "string", "full")
-        ]
-      }
     ]
   },
   "load_quill": {
     "description": "Like `quill`, but read the Quill product definition from a file `path`. Returns the same product handle with a `.price(...)` method and a `.name` field.",
     "kind": "quant",
-    "returns": "Object",
+    "returns": "QuillProduct",
     "params": [
       param("path", "string")
-    ],
-    "methods": [
-      {
-        "name": "price",
-        "description": "Price the loaded product under the supplied market data. Returns `.price`, `.standard_error`, and `.greeks`.",
-        "returns": "Object",
-        "params": [
-          param("rate", "float", { named: true }),
-          namedOptionalParam("spot", "float"),
-          namedOptionalParam("vol", "float"),
-          namedOptionalParam("spots", "Object"),
-          namedOptionalParam("vols", "Object"),
-          namedOptionalParam("params", "Object"),
-          namedOptionalParam("model_params", "Object"),
-          namedOptionalParam("correlation", "any"),
-          namedOptionalParam("curve", "Object"),
-          namedOptionalParam("paths", "int", 100000),
-          namedOptionalParam("seed", "int", 1),
-          namedOptionalParam("greeks", "string", "full")
-        ]
-      }
     ]
   },
   "adf_test": {
-    "description": "Augmented Dickey-Fuller unit-root test. Returns a record with `statistic`, `criticalValues`, and `stationary` (true when the statistic is below the critical value).",
+    "description": "Augmented Dickey-Fuller unit-root test. Returns a record with `statistic`, `critical_values` (`.one`/`.five`/`.ten`), and `stationary` (true when the statistic is below the critical value).",
     "kind": "quant",
-    "returns": "Object",
+    "returns": "UnitRootTest",
     "params": [
       param("series", "any"),
       optionalParam("lags", "int", 0),
@@ -2426,9 +2479,9 @@ export const TERA_BUILTINS = {
     ]
   },
   "kpss_test": {
-    "description": "KPSS stationarity test (null hypothesis: the series is stationary). Returns `statistic`, `criticalValues`, `stationary`. Complements `adf_test`.",
+    "description": "KPSS stationarity test (null hypothesis: the series is stationary). Returns `statistic`, `critical_values`, `stationary`. Complements `adf_test`.",
     "kind": "quant",
-    "returns": "Object",
+    "returns": "UnitRootTest",
     "params": [
       param("series", "any"),
       optionalParam("trend", "string", "constant"),
@@ -2455,9 +2508,9 @@ export const TERA_BUILTINS = {
     ]
   },
   "engle_granger": {
-    "description": "Engle-Granger two-step cointegration test: regress `dependent` on `regressors`, then ADF-test the residual. Returns `statistic`, `criticalValues`, `cointegrated`, `hedgeRatio`, and `spread`.",
+    "description": "Engle-Granger two-step cointegration test: regress `dependent` on `regressors`, then ADF-test the residual. Returns `statistic`, `critical_values`, `cointegrated`, `hedge_ratio`, and `spread`.",
     "kind": "quant",
-    "returns": "Object",
+    "returns": "EngleGrangerResult",
     "params": [
       param("dependent", "any"),
       param("regressors", "any"),
@@ -2465,9 +2518,9 @@ export const TERA_BUILTINS = {
     ]
   },
   "johansen": {
-    "description": "Johansen cointegration test on a matrix of price levels. Returns `eigenvalues`, `traceStatistics`, `maxEigenStatistics`, and the estimated cointegration `rank`.",
+    "description": "Johansen cointegration test on a matrix of price levels. Returns `eigenvalues`, `vectors`, `trace_statistics`, `max_eigen_statistics`, and the estimated cointegration `rank`.",
     "kind": "quant",
-    "returns": "Object",
+    "returns": "JohansenResult",
     "params": [
       param("levels", "any"),
       optionalParam("lags", "int", 1)
@@ -2506,9 +2559,9 @@ export const TERA_BUILTINS = {
     ]
   },
   "kalman_filter": {
-    "description": "Linear Kalman filter over a state-space `spec` (transition, observation, process/measurement noise). Returns filtered `states`, `covariances`, and one-step innovations.",
+    "description": "Linear Kalman filter over a state-space `spec` (transition, observation, process/measurement noise). Returns filtered `states`, `covariances`, `innovations`, and `innovation_variances`.",
     "kind": "quant",
-    "returns": "Object",
+    "returns": "KalmanResult",
     "params": [
       param("observations", "any"),
       param("observation_vectors", "any"),
@@ -2518,7 +2571,7 @@ export const TERA_BUILTINS = {
   "kalman_smoother": {
     "description": "Rauch-Tung-Striebel smoother — the full-sample smoothed state matrix for the same state-space `spec` as `kalman_filter`.",
     "kind": "quant",
-    "returns": "Array",
+    "returns": "float[][]",
     "params": [
       param("observations", "any"),
       param("observation_vectors", "any"),
@@ -2528,7 +2581,7 @@ export const TERA_BUILTINS = {
   "dynamic_beta": {
     "description": "Time-varying hedge ratio / beta via a Kalman filter (random-walk coefficients). Returns the per-period `states` (betas) — the workhorse for dynamic pairs trading.",
     "kind": "quant",
-    "returns": "Object",
+    "returns": "KalmanResult",
     "params": [
       param("dependent", "any"),
       param("regressors", "any"),
@@ -2538,9 +2591,9 @@ export const TERA_BUILTINS = {
     ]
   },
   "fit_garch": {
-    "description": "Fit a GARCH(1,1) volatility model by maximum likelihood. Returns a record with `params` (`omega`, `alpha`, `beta`), `log_likelihood`, and fitted `variances`.",
+    "description": "Fit a GARCH(1,1) volatility model by maximum likelihood. Returns a record with `params` (`omega`, `alpha`, `beta`), `log_likelihood`, `persistence`, `unconditional_variance`, and fitted `variances`.",
     "kind": "quant",
-    "returns": "Object",
+    "returns": "GarchFit",
     "params": [
       param("returns", "any"),
       namedOptionalParam("variance_targeting", "bool", true),
@@ -2557,7 +2610,7 @@ export const TERA_BUILTINS = {
     "returns": "float[]",
     "params": [
       param("returns", "any"),
-      param("params", "Object"),
+      param("params", "GarchParams"),
       param("horizon", "int"),
       optionalParam("initial_variance", "float")
     ]
@@ -2568,7 +2621,7 @@ export const TERA_BUILTINS = {
     "returns": "float[]",
     "params": [
       param("returns", "any"),
-      param("params", "Object"),
+      param("params", "GarchParams"),
       optionalParam("initial_variance", "float")
     ]
   },
@@ -4475,6 +4528,29 @@ export const TERA_PSEUDO_TYPES = {
         "returns": "int",
         "isGetter": false,
         "description": "Return the scalar index value."
+      }
+    ]
+  },
+  "QuillProduct": {
+    "methods": [
+      {
+        "name": "price",
+        "description": "Price the checked product under the supplied market data. Returns `.price`, `.standard_error`, and a `.greeks` map.",
+        "returns": "QuillPriceResult",
+        "params": [
+          param("rate", "float", { named: true }),
+          namedOptionalParam("spot", "float"),
+          namedOptionalParam("vol", "float"),
+          namedOptionalParam("spots", "Object"),
+          namedOptionalParam("vols", "Object"),
+          namedOptionalParam("params", "Object"),
+          namedOptionalParam("model_params", "Object"),
+          namedOptionalParam("correlation", "float[][]"),
+          namedOptionalParam("curve", "Object"),
+          namedOptionalParam("paths", "int", 100000),
+          namedOptionalParam("seed", "int", 1),
+          namedOptionalParam("greeks", "string", "full")
+        ]
       }
     ]
   },

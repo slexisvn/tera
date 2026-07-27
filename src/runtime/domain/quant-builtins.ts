@@ -98,6 +98,23 @@ function argValue(param: AlphaArg, index: number, values: unknown[], options: Re
   return param.defaultValue;
 }
 
+const BAR_COLUMNS: Array<[string, string]> = [
+  ["open", "open"],
+  ["high", "high"],
+  ["low", "low"],
+  ["close", "close"],
+  ["volume", "volume"],
+  ["dollar_volume", "dollarVolume"],
+  ["ticks", "ticks"],
+];
+
+function barsToFrame(result: unknown): unknown {
+  const bars = Array.isArray(result) ? (result as Array<Record<string, unknown>>) : [];
+  const columns: Record<string, unknown[]> = {};
+  for (const [column, field] of BAR_COLUMNS) columns[column] = bars.map((bar) => bar[field]);
+  return dataframeFromColumns(columns);
+}
+
 function alpha(name: string): NativeFn {
   const spec = ALPHA[name]!;
   return (...args) => {
@@ -105,6 +122,7 @@ function alpha(name: string): NativeFn {
     const callArgs = spec.args.map((param, index) => coerce(param.kind, argValue(param, index, values, options), options));
     const result = spec.fn(...callArgs);
     if (spec.returns === "record") return recordValue(result);
+    if (spec.returns === "bars") return barsToFrame(result);
     return result;
   };
 }
