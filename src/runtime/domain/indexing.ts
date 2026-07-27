@@ -10,13 +10,17 @@ type TensorLike = Tensor & {
   select(dim: number, index: number): TensorLike;
 };
 
+function tensorScalar(value: number | bigint): number {
+  return typeof value === "bigint" ? Number(value) : value;
+}
+
 function selectAxis(tensor: TensorLike, axis: number, raw: number): TensorLike | number | undefined {
   if (!Number.isInteger(raw)) throw new RangeError("Tensor index must be an integer");
   const size = tensor.shape[axis]!;
   const index = raw < 0 ? raw + size : raw;
   if (index < 0 || index >= size) return undefined;
   const next = tensor.select(axis, index);
-  return next.ndim === 0 ? next.item() : next;
+  return next.ndim === 0 ? tensorScalar(next.item()) : next;
 }
 
 function indexTensor(tensor: TensorLike, dims: readonly IndexDim[]): TensorLike | number {

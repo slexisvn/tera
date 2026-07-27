@@ -12,6 +12,7 @@ export type TeraParam = {
 export type TeraMethodSpec = {
   name: string;
   params: TeraParam[];
+  typeParams?: string[];
   returns?: string | null;
   effect?: "sync" | "async" | "io";
   isGetter?: boolean;
@@ -21,6 +22,7 @@ export type TeraMethodSpec = {
 export type TeraBuiltinSpec = {
   description?: string | null;
   kind?: string | null;
+  typeParams?: string[];
   returns?: string | null;
   effect?: "sync" | "async" | "io";
   callConvention?: "positional" | "named" | "positional_named" | "namespace";
@@ -36,6 +38,27 @@ export type TeraOperators = {
 
 export type TeraPseudoTypeSpec = {
   methods: TeraMethodSpec[];
+};
+
+export type TeraTypeAliasSpec = {
+  typeParams?: string[];
+  type: string;
+};
+
+export type TeraInterfaceFieldSpec = {
+  type: string;
+  optional?: boolean;
+};
+
+export type TeraInterfaceSpec = {
+  typeParams?: string[];
+  fields: Record<string, TeraInterfaceFieldSpec>;
+  indexers?: TeraInterfaceIndexSpec[];
+};
+
+export type TeraInterfaceIndexSpec = {
+  keyType: string;
+  valueType: string;
 };
 
 export type TeraChartMethodSpec = {
@@ -59,6 +82,155 @@ function namedOptionalParam(name: string, type: string, defaultValue?: unknown):
   return defaultValue === undefined
     ? param(name, type, { optional: true, named: true })
     : param(name, type, { optional: true, named: true, defaultValue });
+}
+
+function namedOptionalAliases(name: string, type: string, aliases: string[] = [], defaultValue?: unknown): TeraParam[] {
+  return [name, ...aliases].map((alias) => namedOptionalParam(alias, type, defaultValue));
+}
+
+function namedRestParam(name: string, type: string): TeraParam {
+  return param(name, type, { optional: true, rest: true, named: true });
+}
+
+function namedParam(name: string, type: string): TeraParam {
+  return param(name, type, { named: true });
+}
+
+function tensorOptions(): TeraParam[] {
+  return [
+    namedOptionalParam("dtype", "DType"),
+    namedOptionalParam("device", "DeviceLike"),
+    namedOptionalParam("offset", "int"),
+    namedOptionalParam("grad", "bool"),
+    namedOptionalParam("requires_grad", "bool"),
+    namedOptionalParam("requiresGrad", "bool")
+  ];
+}
+
+function tensorDataOptions(): TeraParam[] {
+  return [
+    namedOptionalParam("dtype", "DType"),
+    namedOptionalParam("device", "DeviceLike")
+  ];
+}
+
+function tensorShapeParam(name = "shape"): TeraParam {
+  return param(name, "NumericShape");
+}
+
+function tensorScalarParam(name: string): TeraParam {
+  return param(name, "NumericScalar");
+}
+
+function numericElementParam(name: string): TeraParam {
+  return param(name, "NumericElementInput");
+}
+
+function numericVectorParam(name: string): TeraParam {
+  return param(name, "NumericVectorInput");
+}
+
+function numericMatrixParam(name: string): TeraParam {
+  return param(name, "NumericMatrixInput");
+}
+
+function mlTensorParam(name: string): TeraParam {
+  return param(name, "MLTensor");
+}
+
+function boolOption(name: string, aliases: string[] = [], defaultValue?: boolean): TeraParam[] {
+  return namedOptionalAliases(name, "bool", aliases, defaultValue);
+}
+
+function floatOption(name: string, aliases: string[] = [], defaultValue?: number): TeraParam[] {
+  return namedOptionalAliases(name, "float", aliases, defaultValue);
+}
+
+function intOption(name: string, aliases: string[] = [], defaultValue?: number): TeraParam[] {
+  return namedOptionalAliases(name, "int", aliases, defaultValue);
+}
+
+function fitInterceptOptions(): TeraParam[] {
+  return boolOption("fit_intercept", ["fitIntercept"], true);
+}
+
+function treeOptions(): TeraParam[] {
+  return [
+    ...intOption("max_depth", ["maxDepth"]),
+    ...intOption("min_samples_split", ["minSamplesSplit"]),
+    ...intOption("min_samples_leaf", ["minSamplesLeaf"]),
+    ...intOption("max_features", ["maxFeatures"]),
+    ...intOption("random_state", ["randomState"])
+  ];
+}
+
+function forestOptions(): TeraParam[] {
+  return [
+    ...intOption("n_estimators", ["nEstimators"]),
+    ...treeOptions()
+  ];
+}
+
+function boostingOptions(): TeraParam[] {
+  return [
+    ...intOption("n_estimators", ["nEstimators"]),
+    ...floatOption("learning_rate", ["learningRate"]),
+    ...treeOptions()
+  ];
+}
+
+function distOptions(): TeraParam[] {
+  return [
+    ...floatOption("loc"),
+    ...floatOption("scale"),
+    ...intOption("refine_steps", ["refineSteps"]),
+    ...floatOption("tol"),
+    ...floatOption("lower_limit", ["lowerLimit"])
+  ];
+}
+
+function randomOptions(extra: TeraParam[] = []): TeraParam[] {
+  return [
+    ...tensorDataOptions(),
+    ...intOption("seed"),
+    ...floatOption("low"),
+    ...floatOption("high"),
+    ...floatOption("loc"),
+    ...floatOption("scale"),
+    ...extra
+  ];
+}
+
+function moduleForwardMethod(params: TeraParam[], returns = "Tensor"): TeraMethodSpec {
+  return {
+    name: "forward",
+    params,
+    returns,
+  };
+}
+
+function lossForwardMethod(owner: string): TeraMethodSpec {
+  return {
+    name: "forward",
+    params: [param("input", "Tensor"), param("target", "Tensor")],
+    returns: "Tensor",
+    description: `${owner} forward pass.`,
+  };
+}
+
+function tensorMaterializeMethod(name: string): TeraMethodSpec {
+  return {
+    name,
+    params: [],
+    typeParams: ["T"],
+    returns: "T",
+    isGetter: false,
+    description: "Materialize the tensor as a scalar or nested numeric array.",
+  };
+}
+
+function field(type: string, optional = false): TeraInterfaceFieldSpec {
+  return optional ? { type, optional } : { type };
 }
 
 export const TERA_KEYWORD_GROUPS = {
@@ -126,13 +298,266 @@ export const TERA_PRIMITIVE_TYPES = [
   "Map",
   "Set",
   "Array",
-  "Object"
+  "Object",
+  "Tensor",
+  "IndexTensor",
+  "Module",
+  "Optimizer",
+  "LRScheduler",
+  "Metric",
+  "MLModel",
+  "MLTransform",
+  "MetricCollection",
+  "Callback",
+  "Logger",
+  "Dataset",
+  "DataLoader",
+  "Tokenizer",
+  "DataFrame",
+  "Column",
+  "GroupedData",
+  "Trainer"
 ];
 
 export const TERA_ASYNC_DOMAIN_TYPES = [
   "DataFrame",
   "Trainer"
 ];
+
+export const TERA_BUILTIN_ALIASES = {
+  "DType": { "type": "string" },
+  "DeviceLike": { "type": "string | Device" },
+  "NumericScalar": { "type": "int | float" },
+  "NumericShape": { "type": "int | int[]" },
+  "Pair2": { "type": "[int, int]" },
+  "PairPadding2d": { "type": "[Pair2, Pair2] | Pair2" },
+  "ConvSize2d": { "type": "int | Pair2" },
+  "ConvPadding2d": { "type": "int | PairPadding2d" },
+  "Conv1dSize": { "type": "int | int[]" },
+  "Conv1dPadding": { "type": "int | Pair2" },
+  "Pool2dSize": { "type": "int | Pair2" },
+  "Pool2dPadding": { "type": "int | PairPadding2d" },
+  "LossReduction": { "type": "string" },
+  "TokenizerSpecialTokens": { "type": "string[] | TokenizerSpecialTokenMap" },
+  "LoggerConfig": { "type": "bool | Logger | Logger[] | null" },
+  "OptimizerParams": { "type": "Tensor[] | OptimizerParamGroupInput[]" },
+  "TensorInput": { "type": "Tensor | NumericScalar" },
+  "TensorDataInput": { "type": "NumericScalar | TensorDataInput[]" },
+  "TensorData": { "type": "TensorDataInput" },
+  "DynamicShapeSpec": { "type": "bool | Set | null | undefined" },
+  "DynamicShapes": { "type": "DynamicShapeSpec[] | null" },
+  "NumericElementInput": { "type": "Tensor | NumericScalar" },
+  "NumericArrayInput": { "type": "Tensor | NumericScalar[]" },
+  "NumericVectorInput": { "type": "Tensor | NumericScalar | NumericScalar[]" },
+  "NumericMatrixInput": { "type": "Tensor | NumericScalar[][]" },
+  "NumericDistResult": { "type": "float | Tensor" },
+  "MLTensor": { "type": "Tensor" },
+  "MetricValue": { "type": "NumericScalar | Tensor" },
+  "MetricResult": { "type": "float | float[] | float[][]" },
+  "EstimatorFactory": { "type": "(ParamGrid | null) -> MLModel" },
+  "ScoringFn": { "type": "(MLTensor, MLTensor) -> float" },
+  "FoldArray": { "type": "Fold[]" },
+  "TrainTestSplitResult": { "type": "[MLTensor, MLTensor] | [MLTensor, MLTensor, MLTensor, MLTensor]" },
+  "LinearInterpResult": { "type": "float | float[]" },
+  "ScalarFn": { "type": "(float) -> float" },
+  "VectorFn": { "type": "(float[]) -> float" },
+  "GradientFn": { "type": "(float[]) -> float[]" },
+  "ResidualFn": { "type": "(float[]) -> float[]" },
+  "JacobianFn": { "type": "(float[], int) -> float[][]" },
+  "Bounds": { "type": "[float, float][]" },
+  "OptimizerStateValue": { "type": "NumericScalar | bool | string | NumericScalar[] | undefined" },
+  "MinimizeResult": { "type": "OptimizationResult" },
+  "KsTestResult": { "type": "TestResultNoDf" }
+} satisfies Record<string, TeraTypeAliasSpec>;
+
+export const TERA_BUILTIN_INTERFACES = {
+  "TensorOptions": {
+    "fields": {
+      "shape": field("int[]", true),
+      "dtype": field("DType", true),
+      "device": field("DeviceLike", true),
+      "requiresGrad": field("bool", true),
+      "requires_grad": field("bool", true),
+      "grad": field("bool", true),
+      "offset": field("int", true)
+    }
+  },
+  "OptimizerConfig": {
+    "fields": {
+      "optimizer": field("Optimizer"),
+      "lrScheduler": field("LRScheduler | ReduceLROnPlateau", true),
+      "lr_scheduler": field("LRScheduler | ReduceLROnPlateau", true)
+    }
+  },
+  "OptimizerParamGroupInput": {
+    "fields": {
+      "params": field("Tensor[]")
+    }
+  },
+  "OptimizerParamState": {
+    "fields": {}
+  },
+  "CompileOptions": {
+    "fields": {
+      "name": field("string", true),
+      "mode": field("string", true),
+      "foldWeights": field("bool", true),
+      "fold_weights": field("bool", true),
+      "dynamicShapes": field("DynamicShapes", true),
+      "dynamic_shapes": field("DynamicShapes", true),
+      "shapeBuckets": field("int[][][]", true),
+      "shape_buckets": field("int[][][]", true),
+      "backward": field("unknown", true),
+      "target": field("unknown", true),
+      "rematPolicy": field("unknown", true),
+      "remat_policy": field("unknown", true),
+      "remat": field("ParamGrid", true)
+    }
+  },
+  "SVDResult": {
+    "fields": {
+      "U": field("Tensor"),
+      "S": field("Tensor"),
+      "V": field("Tensor")
+    }
+  },
+  "EighResult": {
+    "fields": {
+      "values": field("Tensor"),
+      "vectors": field("Tensor")
+    }
+  },
+  "QRResult": {
+    "fields": {
+      "Q": field("Tensor"),
+      "R": field("Tensor")
+    }
+  },
+  "TestResult": {
+    "fields": {
+      "statistic": field("float"),
+      "pvalue": field("float"),
+      "df": field("float", true)
+    }
+  },
+  "TestResultNoDf": {
+    "fields": {
+      "statistic": field("float"),
+      "pvalue": field("float")
+    }
+  },
+  "CubicSpline": {
+    "fields": {
+      "xs": field("float[]"),
+      "ys": field("float[]"),
+      "coefficients": field("float[]"),
+      "evaluate": field("(NumericScalar | NumericScalar[]) -> float | float[]")
+    }
+  },
+  "OptimizationResult": {
+    "fields": {
+      "point": field("float[]"),
+      "value": field("float"),
+      "iterations": field("int"),
+      "converged": field("bool")
+    }
+  },
+  "RootResult": {
+    "fields": {
+      "root": field("float"),
+      "iterations": field("int"),
+      "converged": field("bool")
+    }
+  },
+  "Fold": {
+    "fields": {
+      "train": field("int[]"),
+      "test": field("int[]")
+    }
+  },
+  "TokenizerSpecialTokenMap": {
+    "fields": {
+      "pad": field("string", true),
+      "unk": field("string", true),
+      "bos": field("string", true),
+      "eos": field("string", true)
+    }
+  },
+  "TokenizerStrategyData": {
+    "fields": {
+      "lowercase": field("bool", true),
+      "numMerges": field("int", true),
+      "num_merges": field("int", true),
+      "endOfWord": field("string", true),
+      "end_of_word": field("string", true),
+      "merges": field("[string, string][]", true)
+    }
+  },
+  "TokenizerConfig": {
+    "fields": {
+      "lowercase": field("bool", true),
+      "numMerges": field("int", true),
+      "num_merges": field("int", true),
+      "endOfWord": field("string", true),
+      "end_of_word": field("string", true),
+      "merges": field("[string, string][]", true),
+      "vocabSize": field("int | null", true),
+      "vocab_size": field("int | null", true)
+    }
+  },
+  "TokenizerJSON": {
+    "fields": {
+      "format": field("string"),
+      "version": field("int"),
+      "mode": field("string"),
+      "config": field("TokenizerConfig"),
+      "specialTokens": field("TokenizerSpecialTokenMap"),
+      "vocab": field("string[]"),
+      "strategy": field("TokenizerStrategyData")
+    }
+  },
+  "MetricRecord": {
+    "fields": {}
+  },
+  "MetricMap": {
+    "fields": {}
+  },
+  "ParamGrid": {
+    "fields": {}
+  },
+  "GradientAccumulationSchedule": {
+    "fields": {}
+  },
+  "NumericMetricRecord": {
+    "fields": {}
+  },
+  "LogOptions": {
+    "fields": {
+      "onStep": field("bool | null", true),
+      "on_step": field("bool | null", true),
+      "onEpoch": field("bool | null", true),
+      "on_epoch": field("bool | null", true),
+      "reduceFx": field("string", true),
+      "reduce_fx": field("string", true),
+      "progBar": field("bool", true),
+      "prog_bar": field("bool", true)
+    }
+  },
+  "SchedulerConfig": {
+    "fields": {
+      "scheduler": field("LRScheduler | ReduceLROnPlateau"),
+      "interval": field("string", true),
+      "frequency": field("int", true),
+      "monitor": field("string | null", true)
+    }
+  },
+  "OptimizerStateDict": {
+    "fields": {
+      "state": field("Map"),
+      "paramGroups": field("OptimizerParamState[]")
+    }
+  }
+} satisfies Record<string, TeraInterfaceSpec>;
 
 export const TERA_RESULT_FIELD_TYPES = {
   "backtest": {
@@ -216,17 +641,9 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "data",
-        "type": "any"
-      },
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("data", "TensorDataInput"),
+      namedOptionalParam("shape", "int[]"),
+      ...tensorOptions()
     ]
   },
   "zeros": {
@@ -234,17 +651,8 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "shape",
-        "type": "Array"
-      },
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      tensorShapeParam(),
+      ...tensorOptions()
     ]
   },
   "ones": {
@@ -252,17 +660,8 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "shape",
-        "type": "Array"
-      },
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      tensorShapeParam(),
+      ...tensorOptions()
     ]
   },
   "empty": {
@@ -270,17 +669,8 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "shape",
-        "type": "Array"
-      },
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      tensorShapeParam(),
+      ...tensorOptions()
     ]
   },
   "full": {
@@ -288,21 +678,9 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "shape",
-        "type": "Array"
-      },
-      {
-        "name": "value",
-        "type": "float"
-      },
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      tensorShapeParam(),
+      tensorScalarParam("value"),
+      ...tensorOptions()
     ]
   },
   "randn": {
@@ -310,17 +688,8 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "shape",
-        "type": "Array"
-      },
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      tensorShapeParam(),
+      ...tensorOptions()
     ]
   },
   "arange": {
@@ -328,27 +697,10 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "start",
-        "type": "int"
-      },
-      {
-        "name": "end",
-        "type": "int",
-        "optional": true
-      },
-      {
-        "name": "step",
-        "type": "int",
-        "optional": true
-      },
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      tensorScalarParam("start"),
+      optionalParam("end", "int | float"),
+      optionalParam("step", "int | float"),
+      ...tensorOptions()
     ]
   },
   "eye": {
@@ -356,22 +708,9 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "n",
-        "type": "int"
-      },
-      {
-        "name": "m",
-        "type": "int",
-        "optional": true
-      },
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("n", "int"),
+      optionalParam("m", "int"),
+      ...tensorOptions()
     ]
   },
   "linspace": {
@@ -379,25 +718,10 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "start",
-        "type": "float"
-      },
-      {
-        "name": "end",
-        "type": "float"
-      },
-      {
-        "name": "steps",
-        "type": "int"
-      },
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      tensorScalarParam("start"),
+      tensorScalarParam("end"),
+      param("steps", "int"),
+      ...tensorOptions()
     ]
   },
   "randperm": {
@@ -405,17 +729,17 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "n",
-        "type": "int"
-      },
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      param("n", "int"),
+      ...tensorOptions()
+    ]
+  },
+  "scalar": {
+    "description": "Create a scalar tensor from a numeric value.",
+    "kind": "factory",
+    "returns": "Tensor",
+    "params": [
+      tensorScalarParam("value"),
+      ...tensorOptions()
     ]
   },
   "zeros_like": {
@@ -423,10 +747,8 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "tensor",
-        "type": "Tensor"
-      }
+      param("tensor", "Tensor"),
+      ...tensorOptions()
     ]
   },
   "ones_like": {
@@ -434,10 +756,8 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "tensor",
-        "type": "Tensor"
-      }
+      param("tensor", "Tensor"),
+      ...tensorOptions()
     ]
   },
   "empty_like": {
@@ -445,10 +765,8 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "tensor",
-        "type": "Tensor"
-      }
+      param("tensor", "Tensor"),
+      ...tensorOptions()
     ]
   },
   "full_like": {
@@ -456,14 +774,9 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "tensor",
-        "type": "Tensor"
-      },
-      {
-        "name": "value",
-        "type": "float"
-      }
+      param("tensor", "Tensor"),
+      tensorScalarParam("value"),
+      ...tensorOptions()
     ]
   },
   "randn_like": {
@@ -471,10 +784,8 @@ export const TERA_BUILTINS = {
     "kind": "factory",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "tensor",
-        "type": "Tensor"
-      }
+      param("tensor", "Tensor"),
+      ...tensorOptions()
     ]
   },
   "where": {
@@ -501,10 +812,7 @@ export const TERA_BUILTINS = {
     "kind": "function",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "tensors",
-        "type": "Array"
-      },
+      param("tensors", "Tensor[]"),
       {
         "name": "axis",
         "type": "int",
@@ -518,10 +826,7 @@ export const TERA_BUILTINS = {
     "kind": "function",
     "returns": "Tensor",
     "params": [
-      {
-        "name": "tensors",
-        "type": "Array"
-      },
+      param("tensors", "Tensor[]"),
       {
         "name": "axis",
         "type": "int",
@@ -600,37 +905,27 @@ export const TERA_BUILTINS = {
   "compile": {
     "description": "Compile a model or function to a backend (`cpu`/`gpu`/`wasm`/`webgpu`). `input` provides an example for shape inference and tuning.",
     "kind": "function",
-    "returns": "Object",
+    "returns": "unknown",
     "params": [
-      {
-        "name": "model",
-        "type": "any"
-      },
-      {
-        "name": "input",
-        "type": "any",
-        "optional": true,
-        "named": true
-      }
+      param("model", "Module"),
+      namedOptionalParam("input", "Tensor | Tensor[]"),
+      namedOptionalParam("example_inputs", "Tensor[]"),
+      namedOptionalParam("exampleInputs", "Tensor[]"),
+      namedOptionalParam("options", "CompileOptions")
     ]
   },
   "Sequential": {
     "description": "Compose modules into a feed-forward pipeline. The output of each module is fed to the next.",
     "kind": "sequential",
-    "returns": "Object",
+    "returns": "Sequential",
     "params": [
-      {
-        "name": "modules",
-        "type": "any",
-        "optional": true,
-        "rest": true
-      }
+      param("modules", "Module", { optional: true, rest: true })
     ]
   },
   "Linear": {
     "description": "Fully-connected layer `y = x @ Wᵀ + b`. Set `bias=false` to disable the bias term.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "Linear",
     "params": [
       {
         "name": "in",
@@ -646,42 +941,60 @@ export const TERA_BUILTINS = {
         "optional": true,
         "defaultValue": true
       }
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "ReLU": {
     "description": "Rectified Linear Unit activation module: `max(0, x)`.",
     "kind": "module",
-    "returns": "Object",
-    "params": []
+    "returns": "ReLU",
+    "params": [],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
+    ]
   },
   "GELU": {
     "description": "Gaussian Error Linear Unit activation module — commonly used in Transformers.",
     "kind": "module",
-    "returns": "Object",
-    "params": []
+    "returns": "GELU",
+    "params": [],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
+    ]
   },
   "SiLU": {
     "description": "SiLU/Swish activation module: `x * sigmoid(x)`.",
     "kind": "module",
-    "returns": "Object",
-    "params": []
+    "returns": "SiLU",
+    "params": [],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
+    ]
   },
   "Sigmoid": {
     "description": "Logistic sigmoid activation module.",
     "kind": "module",
-    "returns": "Object",
-    "params": []
+    "returns": "Sigmoid",
+    "params": [],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
+    ]
   },
   "Tanh": {
     "description": "Hyperbolic tangent activation module.",
     "kind": "module",
-    "returns": "Object",
-    "params": []
+    "returns": "Tanh",
+    "params": [],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
+    ]
   },
   "LeakyReLU": {
     "description": "Leaky ReLU activation; negative inputs are scaled by `negative_slope` instead of zeroed.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "LeakyReLU",
     "params": [
       {
         "name": "negative_slope",
@@ -689,12 +1002,15 @@ export const TERA_BUILTINS = {
         "optional": true,
         "defaultValue": 0.01
       }
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "ELU": {
     "description": "Exponential Linear Unit activation. Smooth alternative to ReLU for negative values.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "ELU",
     "params": [
       {
         "name": "alpha",
@@ -702,12 +1018,15 @@ export const TERA_BUILTINS = {
         "optional": true,
         "defaultValue": 1
       }
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "Softmax": {
     "description": "Softmax module over the specified dimension.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "Softmax",
     "params": [
       {
         "name": "dim",
@@ -715,12 +1034,15 @@ export const TERA_BUILTINS = {
         "optional": true,
         "defaultValue": -1
       }
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "LogSoftmax": {
     "description": "LogSoftmax module — numerically stable log of softmax.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "LogSoftmax",
     "params": [
       {
         "name": "dim",
@@ -728,12 +1050,15 @@ export const TERA_BUILTINS = {
         "optional": true,
         "defaultValue": -1
       }
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "Flatten": {
     "description": "Flatten a contiguous range of dimensions into one. Typical use: between conv blocks and a Linear head.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "Flatten",
     "params": [
       {
         "name": "start_dim",
@@ -747,12 +1072,15 @@ export const TERA_BUILTINS = {
         "optional": true,
         "defaultValue": -1
       }
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "Dropout": {
     "description": "Randomly zero elements with probability `p` during training. Inactive at eval time.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "Dropout",
     "params": [
       {
         "name": "p",
@@ -760,192 +1088,127 @@ export const TERA_BUILTINS = {
         "optional": true,
         "defaultValue": 0.5
       }
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "LayerNorm": {
     "description": "Layer normalization over the given trailing shape. Stabilizes activations independent of batch.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "LayerNorm",
     "params": [
-      {
-        "name": "shape",
-        "type": "Array"
-      },
-      {
-        "name": "eps",
-        "type": "float",
-        "optional": true,
-        "defaultValue": 0.00001
-      }
+      param("shape", "NumericShape"),
+      optionalParam("eps", "float", 0.00001),
+      optionalParam("elementwise_affine", "bool", true)
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "BatchNorm1d": {
     "description": "Batch normalization for 2-D `(N, C)` or 3-D `(N, C, L)` inputs.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "BatchNorm1d",
     "params": [
-      {
-        "name": "features",
-        "type": "int"
-      },
-      {
-        "name": "eps",
-        "type": "float",
-        "optional": true,
-        "defaultValue": 0.00001
-      },
-      {
-        "name": "momentum",
-        "type": "float",
-        "optional": true,
-        "defaultValue": 0.1
-      }
+      param("features", "int"),
+      optionalParam("eps", "float", 0.00001),
+      optionalParam("affine", "bool", true)
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "BatchNorm2d": {
     "description": "Batch normalization for 4-D `(N, C, H, W)` image-like inputs.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "BatchNorm2d",
     "params": [
-      {
-        "name": "features",
-        "type": "int"
-      },
-      {
-        "name": "eps",
-        "type": "float",
-        "optional": true,
-        "defaultValue": 0.00001
-      },
-      {
-        "name": "momentum",
-        "type": "float",
-        "optional": true,
-        "defaultValue": 0.1
-      }
+      param("features", "int"),
+      optionalParam("eps", "float", 0.00001),
+      optionalParam("affine", "bool", true)
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "Conv1d": {
     "description": "1-D convolution over an input with `in` channels, producing `out` channels.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "Conv1d",
     "params": [
-      {
-        "name": "in",
-        "type": "int"
-      },
-      {
-        "name": "out",
-        "type": "int"
-      },
-      {
-        "name": "kernel",
-        "type": "int"
-      },
-      {
-        "name": "stride",
-        "type": "int",
-        "optional": true,
-        "defaultValue": 1
-      },
-      {
-        "name": "padding",
-        "type": "int",
-        "optional": true,
-        "defaultValue": 0
-      }
+      param("in", "int"),
+      param("out", "int"),
+      param("kernel", "Conv1dSize"),
+      ...namedOptionalAliases("stride", "Conv1dSize", [], 1),
+      ...namedOptionalAliases("padding", "Conv1dPadding", [], 0),
+      ...namedOptionalAliases("dilation", "Conv1dSize", [], 1),
+      ...intOption("groups", [], 1),
+      ...boolOption("bias", [], true)
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "Conv2d": {
     "description": "2-D convolution. Use `padding` to preserve spatial dimensions.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "Conv2d",
     "params": [
-      {
-        "name": "in",
-        "type": "int"
-      },
-      {
-        "name": "out",
-        "type": "int"
-      },
-      {
-        "name": "kernel",
-        "type": "int"
-      },
-      {
-        "name": "stride",
-        "type": "int",
-        "optional": true,
-        "defaultValue": 1
-      },
-      {
-        "name": "padding",
-        "type": "int",
-        "optional": true,
-        "defaultValue": 0
-      }
+      param("in", "int"),
+      param("out", "int"),
+      param("kernel", "ConvSize2d"),
+      ...namedOptionalAliases("stride", "ConvSize2d", [], 1),
+      ...namedOptionalAliases("padding", "ConvPadding2d", [], 0),
+      ...namedOptionalAliases("dilation", "ConvSize2d", [], 1),
+      ...intOption("groups", [], 1),
+      ...boolOption("bias", [], true)
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "MaxPool2d": {
     "description": "2-D max pooling. Downsamples spatial dimensions taking the per-window max.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "MaxPool2d",
     "params": [
-      {
-        "name": "kernel",
-        "type": "int"
-      },
-      {
-        "name": "stride",
-        "type": "int",
-        "optional": true
-      },
-      {
-        "name": "padding",
-        "type": "int",
-        "optional": true,
-        "defaultValue": 0
-      }
+      param("kernel", "Pool2dSize"),
+      optionalParam("stride", "Pool2dSize | null"),
+      optionalParam("padding", "Pool2dPadding", 0)
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "AvgPool2d": {
     "description": "2-D average pooling. Downsamples spatial dimensions averaging per window.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "AvgPool2d",
     "params": [
-      {
-        "name": "kernel",
-        "type": "int"
-      },
-      {
-        "name": "stride",
-        "type": "int",
-        "optional": true
-      },
-      {
-        "name": "padding",
-        "type": "int",
-        "optional": true,
-        "defaultValue": 0
-      }
+      param("kernel", "Pool2dSize"),
+      optionalParam("stride", "Pool2dSize | null"),
+      optionalParam("padding", "Pool2dPadding", 0)
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "AdaptiveAvgPool2d": {
     "description": "2-D adaptive average pooling to a target output spatial shape, independent of input size.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "AdaptiveAvgPool2d",
     "params": [
-      {
-        "name": "output_size",
-        "type": "Array"
-      }
+      param("output_size", "Pool2dSize")
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor")])
     ]
   },
   "Embedding": {
     "description": "Lookup table mapping integer ids to dense vectors of size `dim`.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "Embedding",
     "params": [
       {
         "name": "num",
@@ -954,18 +1217,16 @@ export const TERA_BUILTINS = {
       {
         "name": "dim",
         "type": "int"
-      },
-      {
-        "name": "padding_idx",
-        "type": "int",
-        "optional": true
       }
+    ],
+    "methods": [
+      moduleForwardMethod([param("indices", "Tensor")])
     ]
   },
   "GRU": {
     "description": "Multi-layer Gated Recurrent Unit. Call `out, h_n = gru(x, h0?)` — returns the output sequence and the final hidden state. Set `batch_first=true` for `(N, T, input)` inputs.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "GRU",
     "params": [
       {
         "name": "input",
@@ -993,12 +1254,15 @@ export const TERA_BUILTINS = {
         "optional": true,
         "defaultValue": true
       }
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor"), optionalParam("h0", "Tensor | null")], "[Tensor, Tensor]")
     ]
   },
   "GRUCell": {
     "description": "Single GRU time-step. `h_next = cell(x, h)` — apply manually to step a sequence one element at a time.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "GRUCell",
     "params": [
       {
         "name": "input",
@@ -1014,12 +1278,15 @@ export const TERA_BUILTINS = {
         "optional": true,
         "defaultValue": true
       }
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor"), optionalParam("hidden", "Tensor | null")])
     ]
   },
   "LSTM": {
     "description": "Multi-layer Long Short-Term Memory. Call `out, state = lstm(x, [h0, c0]?)` — returns the output sequence and `state = [h_n, c_n]` (final hidden and cell states). Set `batch_first=true` for `(N, T, input)` inputs.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "LSTM",
     "params": [
       {
         "name": "input",
@@ -1047,12 +1314,15 @@ export const TERA_BUILTINS = {
         "optional": true,
         "defaultValue": true
       }
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor"), optionalParam("state", "[Tensor, Tensor] | null")], "[Tensor, [Tensor, Tensor]]")
     ]
   },
   "LSTMCell": {
     "description": "Single LSTM time-step. `h_next, c_next = cell(x, [h, c])` — carries both hidden and cell state for O(T) autoregressive stepping.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "LSTMCell",
     "params": [
       {
         "name": "input",
@@ -1068,16 +1338,19 @@ export const TERA_BUILTINS = {
         "optional": true,
         "defaultValue": true
       }
+    ],
+    "methods": [
+      moduleForwardMethod([param("input", "Tensor"), optionalParam("state", "[Tensor, Tensor] | null")], "[Tensor, Tensor]")
     ]
   },
   "CrossEntropyLoss": {
     "description": "Combined LogSoftmax + NLL loss — standard for multiclass classification. Pass `ignore_index` (e.g. a padding id) to exclude those target positions from the loss — useful for seq2seq with padded sequences.",
     "kind": "module",
-    "returns": "Object",
+    "returns": "CrossEntropyLoss",
     "params": [
       {
         "name": "reduction",
-        "type": "string",
+        "type": "LossReduction",
         "optional": true,
         "defaultValue": "mean"
       },
@@ -1086,192 +1359,122 @@ export const TERA_BUILTINS = {
         "type": "int",
         "optional": true
       }
+    ],
+    "methods": [
+      lossForwardMethod("CrossEntropyLoss")
     ]
   },
   "MSELoss": {
     "description": "Mean squared error loss — standard for regression.",
     "kind": "module",
-    "returns": "Object",
-    "params": []
+    "returns": "MSELoss",
+    "params": [
+      optionalParam("reduction", "LossReduction", "mean")
+    ],
+    "methods": [
+      lossForwardMethod("MSELoss")
+    ]
   },
   "NLLLoss": {
     "description": "Negative log-likelihood loss. Pair with LogSoftmax outputs.",
     "kind": "module",
-    "returns": "Object",
-    "params": []
+    "returns": "NLLLoss",
+    "params": [
+      optionalParam("reduction", "LossReduction", "mean"),
+      optionalParam("ignore_index", "int")
+    ],
+    "methods": [
+      lossForwardMethod("NLLLoss")
+    ]
   },
   "BCELoss": {
     "description": "Binary cross-entropy loss for sigmoid-activated outputs.",
     "kind": "module",
-    "returns": "Object",
-    "params": []
+    "returns": "BCELoss",
+    "params": [
+      optionalParam("reduction", "LossReduction", "mean")
+    ],
+    "methods": [
+      lossForwardMethod("BCELoss")
+    ]
   },
   "SGD": {
     "description": "Stochastic gradient descent with optional `momentum` and `weight_decay`.",
     "kind": "optimizer",
-    "returns": "Object",
+    "returns": "SGD",
     "params": [
-      {
-        "name": "params",
-        "type": "any"
-      },
-      {
-        "name": "lr",
-        "type": "float",
-        "optional": true,
-        "named": true,
-        "defaultValue": 0.01
-      },
-      {
-        "name": "momentum",
-        "type": "float",
-        "optional": true,
-        "named": true,
-        "defaultValue": 0
-      },
-      {
-        "name": "weight_decay",
-        "type": "float",
-        "optional": true,
-        "named": true,
-        "defaultValue": 0
-      }
+      param("params", "OptimizerParams"),
+      ...floatOption("lr", [], 0.01),
+      ...floatOption("momentum", [], 0),
+      ...floatOption("dampening", [], 0),
+      ...floatOption("weight_decay", ["weightDecay"], 0),
+      ...boolOption("nesterov", [], false)
     ]
   },
   "Adam": {
     "description": "Adaptive moment estimation optimizer. Standard default for deep learning.",
     "kind": "optimizer",
-    "returns": "Object",
+    "returns": "Adam",
     "params": [
-      {
-        "name": "params",
-        "type": "any"
-      },
-      {
-        "name": "lr",
-        "type": "float",
-        "optional": true,
-        "named": true,
-        "defaultValue": 0.001
-      },
-      {
-        "name": "betas",
-        "type": "Array",
-        "optional": true,
-        "named": true
-      },
-      {
-        "name": "weight_decay",
-        "type": "float",
-        "optional": true,
-        "named": true,
-        "defaultValue": 0
-      }
+      param("params", "OptimizerParams"),
+      ...floatOption("lr", [], 0.001),
+      namedOptionalParam("betas", "float[]"),
+      ...floatOption("eps", [], 0.00000001),
+      ...floatOption("weight_decay", ["weightDecay"], 0),
+      ...boolOption("amsgrad", [], false)
     ]
   },
   "AdamW": {
     "description": "Adam variant with decoupled weight decay — preferred for transformer-style models.",
     "kind": "optimizer",
-    "returns": "Object",
+    "returns": "AdamW",
     "params": [
-      {
-        "name": "params",
-        "type": "any"
-      },
-      {
-        "name": "lr",
-        "type": "float",
-        "optional": true,
-        "named": true,
-        "defaultValue": 0.001
-      },
-      {
-        "name": "betas",
-        "type": "Array",
-        "optional": true,
-        "named": true
-      },
-      {
-        "name": "weight_decay",
-        "type": "float",
-        "optional": true,
-        "named": true,
-        "defaultValue": 0.01
-      }
+      param("params", "OptimizerParams"),
+      ...floatOption("lr", [], 0.001),
+      namedOptionalParam("betas", "float[]"),
+      ...floatOption("eps", [], 0.00000001),
+      ...floatOption("weight_decay", ["weightDecay"], 0.01),
+      ...boolOption("amsgrad", [], false)
     ]
   },
   "StepLR": {
     "description": "Decay the learning rate by `gamma` every `step_size` epochs.",
     "kind": "scheduler",
-    "returns": "Object",
+    "returns": "StepLR",
     "params": [
-      {
-        "name": "optimizer",
-        "type": "any"
-      },
-      {
-        "name": "step_size",
-        "type": "int"
-      },
-      {
-        "name": "gamma",
-        "type": "float",
-        "optional": true,
-        "defaultValue": 0.1
-      }
+      param("optimizer", "Optimizer"),
+      param("step_size", "int"),
+      optionalParam("gamma", "float", 0.1),
+      optionalParam("last_epoch", "int", -1)
     ]
   },
   "CosineAnnealingLR": {
     "description": "Cosine schedule decaying the learning rate to `eta_min` over `t_max` epochs.",
     "kind": "scheduler",
-    "returns": "Object",
+    "returns": "CosineAnnealingLR",
     "params": [
-      {
-        "name": "optimizer",
-        "type": "any"
-      },
-      {
-        "name": "t_max",
-        "type": "int"
-      },
-      {
-        "name": "eta_min",
-        "type": "float",
-        "optional": true,
-        "defaultValue": 0
-      }
+      param("optimizer", "Optimizer"),
+      param("t_max", "int"),
+      optionalParam("eta_min", "float", 0),
+      optionalParam("last_epoch", "int", -1)
     ]
   },
   "ReduceLROnPlateau": {
     "description": "Reduce learning rate when a monitored metric stops improving.",
     "kind": "scheduler",
-    "returns": "Object",
+    "returns": "ReduceLROnPlateau",
     "params": [
-      {
-        "name": "optimizer",
-        "type": "any"
-      },
-      {
-        "name": "mode",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "min"
-      },
-      {
-        "name": "patience",
-        "type": "int",
-        "optional": true,
-        "named": true,
-        "defaultValue": 10
-      },
-      {
-        "name": "factor",
-        "type": "float",
-        "optional": true,
-        "named": true,
-        "defaultValue": 0.1
-      }
+      param("optimizer", "Optimizer"),
+      namedOptionalParam("mode", "string", "min"),
+      namedOptionalParam("factor", "float", 0.1),
+      namedOptionalParam("patience", "int", 10),
+      namedOptionalParam("threshold", "float", 0.0001),
+      namedOptionalParam("threshold_mode", "string", "rel"),
+      namedOptionalParam("thresholdMode", "string", "rel"),
+      namedOptionalParam("cooldown", "int", 0),
+      namedOptionalParam("min_lr", "float", 0),
+      namedOptionalParam("minLR", "float", 0),
+      namedOptionalParam("eps", "float", 0.00000001)
     ]
   },
   "Trainer": {
@@ -1279,67 +1482,37 @@ export const TERA_BUILTINS = {
     "kind": "trainer",
     "returns": "Trainer",
     "params": [
-      {
-        "name": "max_epochs",
-        "type": "int",
-        "optional": true,
-        "named": true,
-        "defaultValue": 20
-      },
-      {
-        "name": "accelerator",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "cpu"
-      },
-      {
-        "name": "logger",
-        "type": "any",
-        "optional": true,
-        "named": true,
-        "defaultValue": true
-      },
-      {
-        "name": "enable_checkpointing",
-        "type": "bool",
-        "optional": true,
-        "named": true,
-        "defaultValue": false
-      },
-      {
-        "name": "enable_progress",
-        "type": "bool",
-        "optional": true,
-        "named": true,
-        "defaultValue": true
-      },
-      {
-        "name": "callbacks",
-        "type": "any",
-        "optional": true,
-        "named": true
-      },
-      {
-        "name": "fast_dev_run",
-        "type": "bool",
-        "optional": true,
-        "named": true,
-        "defaultValue": false
-      },
-      {
-        "name": "gradient_clip_val",
-        "type": "float",
-        "optional": true,
-        "named": true
-      },
-      {
-        "name": "log_every_n_steps",
-        "type": "int",
-        "optional": true,
-        "named": true,
-        "defaultValue": 50
-      }
+      ...intOption("max_epochs", ["maxEpochs"], 20),
+      ...intOption("max_steps", ["maxSteps"]),
+      namedOptionalParam("accelerator", "string", "cpu"),
+      namedOptionalParam("precision", "string"),
+      namedOptionalParam("callbacks", "Callback[]"),
+      namedOptionalParam("logger", "LoggerConfig", true),
+      ...boolOption("enable_checkpointing", ["enableCheckpointing"], false),
+      ...boolOption("enable_progress", ["enableProgress"], true),
+      ...floatOption("gradient_clip_val", ["gradientClipVal"]),
+      namedOptionalParam("gradient_clip_algorithm", "string"),
+      namedOptionalParam("gradientClipAlgorithm", "string"),
+      ...intOption("accumulate_grad_batches", ["accumulateGradBatches"], 1),
+      namedOptionalParam("limit_train_batches", "int | null"),
+      namedOptionalParam("limitTrainBatches", "int | null"),
+      namedOptionalParam("limit_val_batches", "int | null"),
+      namedOptionalParam("limitValBatches", "int | null"),
+      namedOptionalParam("limit_test_batches", "int | null"),
+      namedOptionalParam("limitTestBatches", "int | null"),
+      ...floatOption("val_check_interval", ["valCheckInterval"]),
+      ...intOption("check_val_every_n_epoch", ["checkValEveryNEpoch"], 1),
+      ...intOption("log_every_n_steps", ["logEveryNSteps"], 50),
+      ...boolOption("deterministic"),
+      namedOptionalParam("fast_dev_run", "bool | int", false),
+      namedOptionalParam("fastDevRun", "bool | int", false),
+      namedOptionalParam("default_root_dir", "string"),
+      namedOptionalParam("defaultRootDir", "string"),
+      ...boolOption("compile", [], false),
+      namedOptionalParam("compile_mode", "string"),
+      namedOptionalParam("compileMode", "string"),
+      ...boolOption("cuda_graph", ["cudaGraph"], false),
+      ...intOption("cuda_graph_warmup_steps", ["cudaGraphWarmupSteps"])
     ],
     "methods": [
       {
@@ -1367,7 +1540,7 @@ export const TERA_BUILTINS = {
             "defaultValue": null
           }
         ],
-        "returns": null,
+        "returns": "undefined",
         "isGetter": false,
         "description": "Run the training loop. Iterates `max_epochs` over `train_loader`, optionally validating on `val_loader` each epoch."
       },
@@ -1389,7 +1562,7 @@ export const TERA_BUILTINS = {
             "defaultValue": null
           }
         ],
-        "returns": null,
+        "returns": "NumericMetricRecord",
         "isGetter": false,
         "description": "Run validation only (no gradient updates). Returns logged metrics."
       },
@@ -1411,7 +1584,7 @@ export const TERA_BUILTINS = {
             "defaultValue": null
           }
         ],
-        "returns": null,
+        "returns": "NumericMetricRecord",
         "isGetter": false,
         "description": "Run the model in eval mode over `loader`. Returns logged metrics."
       },
@@ -1433,7 +1606,7 @@ export const TERA_BUILTINS = {
             "defaultValue": null
           }
         ],
-        "returns": null,
+        "returns": "unknown[]",
         "isGetter": false,
         "description": "Run the model in eval mode and collect outputs into an array."
       }
@@ -1449,7 +1622,7 @@ export const TERA_BUILTINS = {
       },
       {
         "name": "value",
-        "type": "Tensor"
+        "type": "Tensor | Metric | float | int"
       },
       {
         "name": "on_step",
@@ -1478,28 +1651,21 @@ export const TERA_BUILTINS = {
   "optim_config": {
     "description": "Wrap an optimizer (and optionally an LR scheduler) for return from an `optimizer:` block.",
     "kind": "function",
-    "returns": "Object",
+    "returns": "OptimizerConfig",
     "params": [
-      {
-        "name": "optimizer",
-        "type": "any"
-      },
-      {
-        "name": "lr_scheduler",
-        "type": "Object",
-        "optional": true,
-        "named": true
-      }
+      param("optimizer", "Optimizer"),
+      namedOptionalParam("lr_scheduler", "LRScheduler | ReduceLROnPlateau"),
+      namedOptionalParam("lrScheduler", "LRScheduler | ReduceLROnPlateau")
     ]
   },
   "TensorDataset": {
     "description": "In-memory dataset zipping one or more tensors along their first dimension.",
     "kind": "data",
-    "returns": "Object",
+    "returns": "TensorDataset",
     "params": [
       {
         "name": "tensors",
-        "type": "any",
+        "type": "Tensor",
         "optional": true,
         "rest": true
       }
@@ -1512,7 +1678,7 @@ export const TERA_BUILTINS = {
     "params": [
       {
         "name": "dataset",
-        "type": "any"
+        "type": "Dataset"
       },
       {
         "name": "batch_size",
@@ -1579,7 +1745,8 @@ export const TERA_BUILTINS = {
   "load_json": {
     "description": "Read a JSON file and return it as nested dicts/arrays.",
     "kind": "data",
-    "returns": "any",
+    "typeParams": ["T"],
+    "returns": "T",
     "effect": "io",
     "params": [
       {
@@ -1591,13 +1758,10 @@ export const TERA_BUILTINS = {
   "load_model": {
     "description": "Load weights from a checkpoint `path` into an existing `model` (in place) and return it. Save the model first with `model.save(path)`, rebuild it with the same architecture, then `load_model(model, path)`.",
     "kind": "data",
-    "returns": "Object",
+    "returns": "Module",
     "effect": "io",
     "params": [
-      {
-        "name": "model",
-        "type": "any"
-      },
+      param("model", "Module"),
       {
         "name": "path",
         "type": "string"
@@ -1635,6 +1799,12 @@ export const TERA_BUILTINS = {
         "named": true
       },
       {
+        "name": "vocabSize",
+        "type": "int",
+        "optional": true,
+        "named": true
+      },
+      {
         "name": "lowercase",
         "type": "bool",
         "optional": true,
@@ -1649,8 +1819,33 @@ export const TERA_BUILTINS = {
         "defaultValue": 1000
       },
       {
+        "name": "numMerges",
+        "type": "int",
+        "optional": true,
+        "named": true,
+        "defaultValue": 1000
+      },
+      {
         "name": "special_tokens",
-        "type": "Array",
+        "type": "TokenizerSpecialTokens",
+        "optional": true,
+        "named": true
+      },
+      {
+        "name": "specialTokens",
+        "type": "TokenizerSpecialTokens",
+        "optional": true,
+        "named": true
+      },
+      {
+        "name": "end_of_word",
+        "type": "string",
+        "optional": true,
+        "named": true
+      },
+      {
+        "name": "endOfWord",
+        "type": "string",
         "optional": true,
         "named": true
       }
@@ -1661,13 +1856,13 @@ export const TERA_BUILTINS = {
         "params": [
           {
             "name": "texts",
-            "type": "string[]",
+            "type": "string | string[]",
             "optional": false,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "returns": "Tokenizer",
+        "returns": "this",
         "isGetter": false,
         "description": "Learn the vocabulary (and BPE merges) from a array of strings. Returns the tokenizer."
       },
@@ -1682,9 +1877,16 @@ export const TERA_BUILTINS = {
             "defaultValue": null
           }
         ],
-        "returns": "none",
+        "returns": "undefined",
         "isGetter": false,
         "description": "Save the fitted tokenizer as a compact artifact. Reload it with the global `load_tokenizer(path)`."
+      },
+      {
+        "name": "to_json",
+        "params": [],
+        "returns": "TokenizerJSON",
+        "isGetter": false,
+        "description": "Serialize the tokenizer configuration, vocabulary, and learned strategy."
       },
       {
         "name": "encode",
@@ -1700,6 +1902,15 @@ export const TERA_BUILTINS = {
             "name": "add_bos",
             "type": "boolean",
             "optional": true,
+            "named": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "addBos",
+            "type": "boolean",
+            "optional": true,
+            "named": true,
             "rest": false,
             "defaultValue": null
           },
@@ -1707,6 +1918,15 @@ export const TERA_BUILTINS = {
             "name": "add_eos",
             "type": "boolean",
             "optional": true,
+            "named": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "addEos",
+            "type": "boolean",
+            "optional": true,
+            "named": true,
             "rest": false,
             "defaultValue": null
           }
@@ -1729,6 +1949,15 @@ export const TERA_BUILTINS = {
             "name": "skip_special",
             "type": "boolean",
             "optional": true,
+            "named": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "skipSpecial",
+            "type": "boolean",
+            "optional": true,
+            "named": true,
             "rest": false,
             "defaultValue": null
           }
@@ -1742,7 +1971,7 @@ export const TERA_BUILTINS = {
         "params": [
           {
             "name": "texts",
-            "type": "string[]",
+            "type": "string | string[]",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -1751,6 +1980,15 @@ export const TERA_BUILTINS = {
             "name": "max_len",
             "type": "int",
             "optional": true,
+            "named": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "maxLen",
+            "type": "int",
+            "optional": true,
+            "named": true,
             "rest": false,
             "defaultValue": null
           },
@@ -1758,6 +1996,15 @@ export const TERA_BUILTINS = {
             "name": "pad_id",
             "type": "int",
             "optional": true,
+            "named": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "padId",
+            "type": "int",
+            "optional": true,
+            "named": true,
             "rest": false,
             "defaultValue": null
           },
@@ -1765,6 +2012,15 @@ export const TERA_BUILTINS = {
             "name": "add_bos",
             "type": "boolean",
             "optional": true,
+            "named": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "addBos",
+            "type": "boolean",
+            "optional": true,
+            "named": true,
             "rest": false,
             "defaultValue": null
           },
@@ -1772,6 +2028,15 @@ export const TERA_BUILTINS = {
             "name": "add_eos",
             "type": "boolean",
             "optional": true,
+            "named": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "addEos",
+            "type": "boolean",
+            "optional": true,
+            "named": true,
             "rest": false,
             "defaultValue": null
           }
@@ -2381,509 +2646,412 @@ export const TERA_BUILTINS = {
   "EarlyStopping": {
     "description": "Stop training when a monitored metric stops improving for `patience` evaluations.",
     "kind": "callback",
-    "returns": "Object",
+    "returns": "EarlyStopping",
     "params": [
-      {
-        "name": "monitor",
-        "type": "string",
-        "named": true
-      },
-      {
-        "name": "patience",
-        "type": "int",
-        "optional": true,
-        "named": true,
-        "defaultValue": 3
-      },
-      {
-        "name": "mode",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "min"
-      }
+      namedOptionalParam("monitor", "string"),
+      namedOptionalParam("patience", "int", 3),
+      namedOptionalParam("mode", "string", "min"),
+      ...floatOption("min_delta", ["minDelta"], 0),
+      ...boolOption("check_on_train_epoch_end", ["checkOnTrainEpochEnd"])
     ]
   },
   "ModelCheckpoint": {
     "description": "Save the best model(s) according to a monitored metric.",
     "kind": "callback",
-    "returns": "Object",
+    "returns": "ModelCheckpoint",
     "params": [
-      {
-        "name": "monitor",
-        "type": "string",
-        "named": true
-      },
-      {
-        "name": "save_top_k",
-        "type": "int",
-        "optional": true,
-        "named": true,
-        "defaultValue": 1
-      },
-      {
-        "name": "mode",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "min"
-      }
+      namedOptionalParam("dirpath", "string"),
+      namedOptionalParam("filename", "string"),
+      namedOptionalParam("monitor", "string | null"),
+      namedOptionalParam("mode", "string", "min"),
+      ...intOption("save_top_k", ["saveTopK"], 1),
+      ...boolOption("save_last", ["saveLast"]),
+      ...intOption("every_n_epochs", ["everyNEpochs"])
     ]
   },
   "ProgressCallback": {
     "description": "Lightweight progress bar callback for the Trainer.",
     "kind": "callback",
-    "returns": "Object",
-    "params": []
+    "returns": "ProgressCallback",
+    "params": [
+      ...intOption("bar_length", ["barLength"])
+    ]
   },
   "LearningRateMonitor": {
     "description": "Log the current learning rate at each step.",
     "kind": "callback",
-    "returns": "Object",
-    "params": []
+    "returns": "LearningRateMonitor",
+    "params": [
+      ...boolOption("log_momentum", ["logMomentum"])
+    ]
   },
   "Timer": {
     "description": "Measure and log wall-clock time per epoch and total.",
     "kind": "callback",
-    "returns": "Object",
+    "returns": "Timer",
     "params": []
   },
   "GradientAccumulationScheduler": {
     "description": "Accumulate gradients across multiple steps before updating, on a per-epoch schedule.",
     "kind": "callback",
-    "returns": "Object",
+    "returns": "GradientAccumulationScheduler",
     "params": [
-      {
-        "name": "scheduling",
-        "type": "Object",
-        "named": true
-      }
+      namedParam("scheduling", "GradientAccumulationSchedule")
     ]
   },
   "ConsoleLogger": {
     "description": "Send log records to stdout.",
     "kind": "logger",
-    "returns": "Object",
-    "params": []
+    "returns": "ConsoleLogger",
+    "params": [
+      namedOptionalParam("name", "string"),
+      namedOptionalParam("version", "int | null"),
+      ...intOption("log_frequency", ["logFrequency"])
+    ]
   },
   "CSVLogger": {
     "description": "Append log records to a CSV file under `save_dir/name`.",
     "kind": "logger",
-    "returns": "Object",
+    "returns": "CSVLogger",
     "params": [
-      {
-        "name": "save_dir",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "logs"
-      },
-      {
-        "name": "name",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "experiment"
-      }
+      namedOptionalParam("save_dir", "string", "logs"),
+      namedOptionalParam("saveDir", "string", "logs"),
+      namedOptionalParam("name", "string", "experiment"),
+      namedOptionalParam("version", "int | null"),
+      ...intOption("flush_interval", ["flushInterval"])
     ]
   },
   "Accuracy": {
     "description": "Classification accuracy metric. Configure with `task` (`binary`/`multiclass`/`multilabel`).",
     "kind": "metric",
-    "returns": "Object",
+    "returns": "Accuracy",
     "params": [
-      {
-        "name": "task",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "binary"
-      },
-      {
-        "name": "num_classes",
-        "type": "int",
-        "optional": true,
-        "named": true
-      },
-      {
-        "name": "top_k",
-        "type": "int",
-        "optional": true,
-        "named": true,
-        "defaultValue": 1
-      }
+      namedOptionalParam("task", "string", "binary"),
+      namedOptionalParam("num_classes", "int | null"),
+      namedOptionalParam("numClasses", "int | null"),
+      ...intOption("top_k", ["topK"], 1),
+      ...floatOption("threshold")
     ]
   },
   "Precision": {
     "description": "Precision metric — fraction of positive predictions that are correct.",
     "kind": "metric",
-    "returns": "Object",
+    "returns": "Precision",
     "params": [
-      {
-        "name": "task",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "binary"
-      },
-      {
-        "name": "num_classes",
-        "type": "int",
-        "optional": true,
-        "named": true
-      },
-      {
-        "name": "average",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "macro"
-      }
+      namedOptionalParam("task", "string", "binary"),
+      namedOptionalParam("num_classes", "int"),
+      namedOptionalParam("numClasses", "int"),
+      namedOptionalParam("average", "string", "macro")
     ]
   },
   "Recall": {
     "description": "Recall metric — fraction of actual positives that are predicted positive.",
     "kind": "metric",
-    "returns": "Object",
+    "returns": "Recall",
     "params": [
-      {
-        "name": "task",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "binary"
-      },
-      {
-        "name": "num_classes",
-        "type": "int",
-        "optional": true,
-        "named": true
-      },
-      {
-        "name": "average",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "macro"
-      }
+      namedOptionalParam("task", "string", "binary"),
+      namedOptionalParam("num_classes", "int"),
+      namedOptionalParam("numClasses", "int"),
+      namedOptionalParam("average", "string", "macro")
     ]
   },
   "F1Score": {
     "description": "Harmonic mean of precision and recall.",
     "kind": "metric",
-    "returns": "Object",
+    "returns": "F1Score",
     "params": [
-      {
-        "name": "task",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "binary"
-      },
-      {
-        "name": "num_classes",
-        "type": "int",
-        "optional": true,
-        "named": true
-      },
-      {
-        "name": "average",
-        "type": "string",
-        "optional": true,
-        "named": true,
-        "defaultValue": "macro"
-      }
+      namedOptionalParam("task", "string", "binary"),
+      namedOptionalParam("num_classes", "int"),
+      namedOptionalParam("numClasses", "int"),
+      namedOptionalParam("average", "string", "macro")
     ]
   },
   "ConfusionMatrix": {
     "description": "Cumulative confusion matrix over `num_classes`.",
     "kind": "metric",
-    "returns": "Object",
+    "returns": "ConfusionMatrix",
     "params": [
-      {
-        "name": "num_classes",
-        "type": "int",
-        "named": true
-      }
+      namedParam("num_classes", "int")
     ]
   },
   "MetricCollection": {
     "description": "Group multiple metrics into one callable for convenience.",
-    "kind": "metric",
-    "returns": "Object",
+    "kind": "metric_collection",
+    "returns": "MetricCollection",
     "params": [
+      optionalParam("metrics", "MetricMap")
+    ],
+    "methods": [
       {
-        "name": "metrics",
-        "type": "any",
-        "optional": true,
-        "rest": true
+        "name": "add",
+        "params": [
+          param("name", "string"),
+          param("metric", "Metric")
+        ],
+        "returns": "this",
+        "isGetter": false,
+        "description": "Add a named metric to the collection."
+      },
+      {
+        "name": "update",
+        "params": [
+          param("preds", "Tensor"),
+          param("target", "Tensor")
+        ],
+        "returns": "undefined",
+        "isGetter": false,
+        "description": "Update all metrics with one prediction/target batch."
+      },
+      {
+        "name": "compute",
+        "params": [],
+        "returns": "MetricRecord",
+        "isGetter": false,
+        "description": "Return a record of metric names to computed results."
+      },
+      {
+        "name": "reset",
+        "params": [],
+        "returns": "undefined",
+        "isGetter": false,
+        "description": "Clear every metric in the collection."
+      },
+      {
+        "name": "forward",
+        "params": [
+          param("preds", "Tensor"),
+          param("target", "Tensor")
+        ],
+        "returns": "MetricRecord",
+        "isGetter": false,
+        "description": "Update all metrics and return computed results."
       }
     ]
   },
   "LinearRegression": {
     "description": "Ordinary least-squares linear regression (solved via `lstsq`).",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "LinearRegression",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...fitInterceptOptions()
     ]
   },
   "Ridge": {
     "description": "L2-regularized linear regression, closed-form via `solve`.",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "Ridge",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...floatOption("alpha", [], 1),
+      ...fitInterceptOptions()
     ]
   },
   "Lasso": {
     "description": "L1-regularized linear regression via coordinate descent (sparse coefficients).",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "Lasso",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...floatOption("alpha", [], 1),
+      ...fitInterceptOptions(),
+      ...intOption("max_iter", ["maxIter"]),
+      ...floatOption("tol")
     ]
   },
   "ElasticNet": {
     "description": "Combined L1/L2 linear regression via coordinate descent.",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "ElasticNet",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...floatOption("alpha", [], 1),
+      ...floatOption("l1_ratio", ["l1Ratio"]),
+      ...fitInterceptOptions(),
+      ...intOption("max_iter", ["maxIter"]),
+      ...floatOption("tol")
     ]
   },
   "LogisticRegression": {
     "description": "Multinomial logistic regression (softmax) trained by gradient descent. Also exposes `predict_proba(X) -> Tensor`.",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "LogisticRegression",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...floatOption("C"),
+      ...floatOption("lr"),
+      ...intOption("max_iter", ["maxIter"])
     ]
   },
   "KNeighborsClassifier": {
     "description": "k-nearest-neighbors classifier (majority vote over Euclidean neighbors).",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "KNeighborsClassifier",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...intOption("n_neighbors", ["nNeighbors"])
     ]
   },
   "KNeighborsRegressor": {
     "description": "k-nearest-neighbors regressor (mean of neighbor targets).",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "KNeighborsRegressor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...intOption("n_neighbors", ["nNeighbors"])
     ]
   },
   "GaussianNB": {
     "description": "Gaussian Naive Bayes classifier.",
     "kind": "ml_model",
-    "returns": "Object",
-    "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
-    ]
+    "returns": "GaussianNB",
+    "params": []
   },
   "DecisionTreeClassifier": {
     "description": "CART decision-tree classifier (Gini impurity).",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "DecisionTreeClassifier",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...treeOptions()
     ]
   },
   "DecisionTreeRegressor": {
     "description": "CART decision-tree regressor (variance reduction).",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "DecisionTreeRegressor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...treeOptions()
     ]
   },
   "RandomForestClassifier": {
     "description": "Bagged ensemble of decision trees (majority vote).",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "RandomForestClassifier",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...forestOptions()
     ]
   },
   "RandomForestRegressor": {
     "description": "Bagged ensemble of decision trees (mean prediction).",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "RandomForestRegressor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...forestOptions()
     ]
   },
   "GradientBoostingClassifier": {
     "description": "Stage-wise gradient boosting for classification (multinomial deviance).",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "GradientBoostingClassifier",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...boostingOptions()
     ]
   },
   "GradientBoostingRegressor": {
     "description": "Stage-wise gradient boosting for regression (squared-error residuals).",
     "kind": "ml_model",
-    "returns": "Object",
+    "returns": "GradientBoostingRegressor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...boostingOptions()
     ]
   },
   "StandardScaler": {
     "description": "Standardize features to zero mean and unit variance per column.",
     "kind": "ml_transform",
-    "returns": "Object",
+    "returns": "StandardScaler",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...boolOption("with_mean", ["withMean"], true),
+      ...boolOption("with_std", ["withStd"], true)
     ]
   },
   "MinMaxScaler": {
     "description": "Scale features to a given range per column.",
     "kind": "ml_transform",
-    "returns": "Object",
+    "returns": "MinMaxScaler",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      namedOptionalParam("feature_range", "[float, float]"),
+      namedOptionalParam("featureRange", "[float, float]")
     ]
   },
   "LabelEncoder": {
     "description": "Encode categorical labels to integer ids. `inverse_transform` returns the original labels.",
-    "kind": "ml_transform",
-    "returns": "Object",
-    "params": [
+    "kind": "label_encoder",
+    "returns": "LabelEncoder",
+    "params": [],
+    "methods": [
       {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
+        "name": "fit",
+        "params": [
+          mlTensorParam("y")
+        ],
+        "returns": "this",
+        "isGetter": false,
+        "description": "Learn label classes from `y`."
+      },
+      {
+        "name": "transform",
+        "params": [
+          mlTensorParam("y")
+        ],
+        "returns": "MLTensor",
+        "isGetter": false,
+        "description": "Encode labels to integer ids."
+      },
+      {
+        "name": "fit_transform",
+        "params": [
+          mlTensorParam("y")
+        ],
+        "returns": "MLTensor",
+        "isGetter": false,
+        "description": "Fit then encode labels in one call."
+      },
+      {
+        "name": "inverse_transform",
+        "params": [
+          mlTensorParam("y")
+        ],
+        "returns": "float[]",
+        "isGetter": false,
+        "description": "Decode integer ids to the original numeric labels."
       }
     ]
   },
   "OneHotEncoder": {
     "description": "Encode categorical labels to one-hot rows.",
-    "kind": "ml_transform",
-    "returns": "Object",
-    "params": [
+    "kind": "one_hot_encoder",
+    "returns": "OneHotEncoder",
+    "params": [],
+    "methods": [
       {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
+        "name": "fit",
+        "params": [
+          mlTensorParam("y")
+        ],
+        "returns": "this",
+        "isGetter": false,
+        "description": "Learn label classes from `y`."
+      },
+      {
+        "name": "transform",
+        "params": [
+          mlTensorParam("y")
+        ],
+        "returns": "MLTensor",
+        "isGetter": false,
+        "description": "Encode labels into one-hot rows."
+      },
+      {
+        "name": "fit_transform",
+        "params": [
+          mlTensorParam("y")
+        ],
+        "returns": "MLTensor",
+        "isGetter": false,
+        "description": "Fit then one-hot encode labels in one call."
       }
     ]
   },
   "PCA": {
     "description": "Principal component analysis (via `svd`). Exposes `components_`, `explainedVariance_`, `explainedVarianceRatio_`.",
     "kind": "ml_transform",
-    "returns": "Object",
+    "returns": "PCA",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      namedOptionalParam("n_components", "int | null"),
+      namedOptionalParam("nComponents", "int | null")
     ]
   },
   "KMeans": {
@@ -2891,13 +3059,10 @@ export const TERA_BUILTINS = {
     "kind": "ml_cluster",
     "returns": "KMeans",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...intOption("n_clusters", ["nClusters"]),
+      ...intOption("max_iter", ["maxIter"]),
+      ...intOption("n_init", ["nInit"]),
+      ...intOption("random_state", ["randomState"])
     ],
     "methods": [
       {
@@ -2905,13 +3070,13 @@ export const TERA_BUILTINS = {
         "params": [
           {
             "name": "X",
-            "type": "Tensor",
+            "type": "MLTensor",
             "optional": false,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "returns": "KMeans",
+        "returns": "this",
         "isGetter": false,
         "description": "Compute cluster centers from `X`."
       },
@@ -2920,13 +3085,13 @@ export const TERA_BUILTINS = {
         "params": [
           {
             "name": "X",
-            "type": "Tensor",
+            "type": "MLTensor",
             "optional": false,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "returns": "Tensor",
+        "returns": "MLTensor",
         "isGetter": false,
         "description": "Assign each row of `X` to its nearest cluster."
       },
@@ -2935,13 +3100,13 @@ export const TERA_BUILTINS = {
         "params": [
           {
             "name": "X",
-            "type": "Tensor",
+            "type": "MLTensor",
             "optional": false,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "returns": "Tensor",
+        "returns": "MLTensor | null",
         "isGetter": false,
         "description": "Fit then return the training labels."
       }
@@ -2952,13 +3117,9 @@ export const TERA_BUILTINS = {
     "kind": "ml_split",
     "returns": "KFold",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...intOption("n_splits", ["nSplits"]),
+      ...boolOption("shuffle"),
+      ...intOption("random_state", ["randomState"])
     ],
     "methods": [
       {
@@ -2972,7 +3133,7 @@ export const TERA_BUILTINS = {
             "defaultValue": null
           }
         ],
-        "returns": "Record[]",
+        "returns": "FoldArray",
         "isGetter": false,
         "description": "Return `n_splits` `{train, test}` index partitions for `n` samples."
       }
@@ -2983,13 +3144,7 @@ export const TERA_BUILTINS = {
     "kind": "ml_split",
     "returns": "TimeSeriesSplit",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      ...intOption("n_splits", ["nSplits"])
     ],
     "methods": [
       {
@@ -3003,7 +3158,7 @@ export const TERA_BUILTINS = {
             "defaultValue": null
           }
         ],
-        "returns": "Record[]",
+        "returns": "FoldArray",
         "isGetter": false,
         "description": "Return forward-chaining `{train, test}` index partitions."
       }
@@ -3014,20 +3169,10 @@ export const TERA_BUILTINS = {
     "kind": "grid_search",
     "returns": "GridSearchCV",
     "params": [
-      {
-        "name": "estimator",
-        "type": "any"
-      },
-      {
-        "name": "param_grid",
-        "type": "any"
-      },
-      {
-        "name": "cv",
-        "type": "int",
-        "optional": true,
-        "named": true
-      }
+      param("estimator", "EstimatorFactory"),
+      param("param_grid", "ParamGrid"),
+      namedOptionalParam("cv", "int"),
+      namedOptionalParam("scoring", "ScoringFn | null")
     ],
     "methods": [
       {
@@ -3035,14 +3180,14 @@ export const TERA_BUILTINS = {
         "params": [
           {
             "name": "X",
-            "type": "Tensor",
+            "type": "MLTensor",
             "optional": false,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "y",
-            "type": "Tensor",
+            "type": "MLTensor",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -3057,13 +3202,13 @@ export const TERA_BUILTINS = {
         "params": [
           {
             "name": "X",
-            "type": "Tensor",
+            "type": "MLTensor",
             "optional": false,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "returns": "Tensor",
+        "returns": "MLTensor",
         "isGetter": false,
         "description": "Predict using the best found estimator."
       }
@@ -3072,505 +3217,349 @@ export const TERA_BUILTINS = {
   "train_test_split": {
     "description": "Split data into train/test partitions. With `y`, returns `[X_train, X_test, y_train, y_test]`; with only `X`, returns `[X_train, X_test]`.",
     "kind": "ml_function",
-    "returns": "Array",
+    "returns": "TrainTestSplitResult",
     "params": [
-      {
-        "name": "X",
-        "type": "any"
-      },
-      {
-        "name": "y",
-        "type": "any",
-        "optional": true
-      },
-      {
-        "name": "test_size",
-        "type": "float",
-        "optional": true,
-        "named": true
-      },
-      {
-        "name": "shuffle",
-        "type": "bool",
-        "optional": true,
-        "named": true
-      },
-      {
-        "name": "random_state",
-        "type": "int",
-        "optional": true,
-        "named": true
-      }
+      mlTensorParam("X"),
+      optionalParam("y", "MLTensor"),
+      ...floatOption("test_size", ["testSize"]),
+      ...boolOption("shuffle"),
+      ...intOption("random_state", ["randomState"])
     ]
   },
   "cross_val_score": {
     "description": "Cross-validated scores for an estimator constructor over `cv` folds.",
     "kind": "ml_function",
-    "returns": "Array",
+    "returns": "float[]",
     "params": [
-      {
-        "name": "estimator",
-        "type": "any"
-      },
-      {
-        "name": "X",
-        "type": "any"
-      },
-      {
-        "name": "y",
-        "type": "any"
-      },
-      {
-        "name": "cv",
-        "type": "int",
-        "optional": true,
-        "named": true
-      }
+      param("estimator", "EstimatorFactory"),
+      mlTensorParam("X"),
+      mlTensorParam("y"),
+      namedOptionalParam("cv", "int"),
+      namedOptionalParam("scoring", "ScoringFn | null"),
+      ...boolOption("shuffle"),
+      ...intOption("random_state", ["randomState"])
     ]
   },
   "r2_score": {
     "description": "Coefficient of determination (R²).",
     "kind": "ml_metric",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "y_true",
-        "type": "any"
-      },
-      {
-        "name": "y_pred",
-        "type": "any"
-      }
+      mlTensorParam("y_true"),
+      mlTensorParam("y_pred")
     ]
   },
   "mean_squared_error": {
     "description": "Mean squared error.",
     "kind": "ml_metric",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "y_true",
-        "type": "any"
-      },
-      {
-        "name": "y_pred",
-        "type": "any"
-      }
+      mlTensorParam("y_true"),
+      mlTensorParam("y_pred")
     ]
   },
   "mean_absolute_error": {
     "description": "Mean absolute error.",
     "kind": "ml_metric",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "y_true",
-        "type": "any"
-      },
-      {
-        "name": "y_pred",
-        "type": "any"
-      }
+      mlTensorParam("y_true"),
+      mlTensorParam("y_pred")
     ]
   },
   "accuracy_score": {
     "description": "Classification accuracy.",
     "kind": "ml_metric",
-    "returns": "any",
+    "returns": "float",
     "params": [
-      {
-        "name": "y_true",
-        "type": "any"
-      },
-      {
-        "name": "y_pred",
-        "type": "any"
-      }
+      mlTensorParam("y_true"),
+      mlTensorParam("y_pred")
     ]
   },
   "confusion_matrix": {
     "description": "Confusion matrix as a nested array.",
     "kind": "ml_metric",
-    "returns": "any",
+    "returns": "float[][]",
     "params": [
-      {
-        "name": "y_true",
-        "type": "any"
-      },
-      {
-        "name": "y_pred",
-        "type": "any"
-      }
+      mlTensorParam("y_true"),
+      mlTensorParam("y_pred")
     ]
   },
   "svd": {
     "description": "Reduced singular value decomposition. Returns `{U, S, V}` with `input ≈ U diag(S) Vᵀ`.",
     "kind": "linalg",
-    "returns": "any",
+    "returns": "SVDResult",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "eigh": {
     "description": "Symmetric eigendecomposition. Returns `{values, vectors}` (ascending eigenvalues).",
     "kind": "linalg",
-    "returns": "any",
+    "returns": "EighResult",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "cholesky": {
     "description": "Cholesky factor `L` (lower-triangular) of a symmetric positive-definite matrix.",
     "kind": "linalg",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "solve": {
     "description": "Solve the linear system `a @ x = b` for `x`.",
     "kind": "linalg",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("a", "Tensor"),
+      param("b", "Tensor")
     ]
   },
   "lstsq": {
     "description": "Least-squares solution to `a @ x ≈ b` (via pseudo-inverse).",
     "kind": "linalg",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("a", "Tensor"),
+      param("b", "Tensor")
     ]
   },
   "inv": {
     "description": "Matrix inverse.",
     "kind": "linalg",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "pinv": {
     "description": "Moore-Penrose pseudo-inverse.",
     "kind": "linalg",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "det": {
     "description": "Determinant (scalar).",
     "kind": "linalg",
-    "returns": "any",
+    "returns": "NumericScalar",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "cov": {
     "description": "Covariance matrix of the columns of `input`.",
     "kind": "linalg",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "normal_cdf": {
     "description": "Normal distribution cumulative distribution function, applied elementwise.",
     "kind": "numeric_dist",
-    "returns": "float",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericElementParam("x"),
+      ...distOptions()
     ]
   },
   "normal_ppf": {
     "description": "Normal distribution quantile function (inverse CDF), applied elementwise.",
     "kind": "numeric_dist",
-    "returns": "float",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericElementParam("p"),
+      ...distOptions()
     ]
   },
   "normal_pdf": {
     "description": "Normal distribution probability density function, applied elementwise.",
     "kind": "numeric_dist",
-    "returns": "float",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericElementParam("x"),
+      ...distOptions()
     ]
   },
   "t_cdf": {
     "description": "Student's t cumulative distribution function with `df` degrees of freedom, applied elementwise.",
     "kind": "numeric_dist",
-    "returns": "float",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericElementParam("x"),
+      optionalParam("df", "float"),
+      ...distOptions()
     ]
   },
   "t_ppf": {
     "description": "Student's t quantile function (inverse CDF) with `df` degrees of freedom, applied elementwise.",
     "kind": "numeric_dist",
-    "returns": "float",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericElementParam("p"),
+      optionalParam("df", "float"),
+      ...distOptions()
     ]
   },
   "t_pdf": {
     "description": "Student's t probability density function with `df` degrees of freedom, applied elementwise.",
     "kind": "numeric_dist",
-    "returns": "float",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericElementParam("x"),
+      optionalParam("df", "float"),
+      ...distOptions()
     ]
   },
   "chi2_cdf": {
     "description": "Chi-squared cumulative distribution function with `df` degrees of freedom, applied elementwise.",
     "kind": "numeric_dist",
-    "returns": "float",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericElementParam("x"),
+      optionalParam("df", "float"),
+      ...distOptions()
     ]
   },
   "chi2_ppf": {
     "description": "Chi-squared quantile function (inverse CDF) with `df` degrees of freedom, applied elementwise.",
     "kind": "numeric_dist",
-    "returns": "float",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericElementParam("p"),
+      optionalParam("df", "float"),
+      ...distOptions()
     ]
   },
   "chi2_pdf": {
     "description": "Chi-squared probability density function with `df` degrees of freedom, applied elementwise.",
     "kind": "numeric_dist",
-    "returns": "float",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericElementParam("x"),
+      optionalParam("df", "float"),
+      ...distOptions()
     ]
   },
   "f_cdf": {
     "description": "F distribution cumulative distribution function with `d1` and `d2` degrees of freedom, applied elementwise.",
     "kind": "numeric_dist",
-    "returns": "float",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericElementParam("x"),
+      optionalParam("d1", "float"),
+      optionalParam("d2", "float"),
+      ...distOptions()
     ]
   },
   "f_ppf": {
     "description": "F distribution quantile function (inverse CDF) with `d1` and `d2` degrees of freedom, applied elementwise.",
     "kind": "numeric_dist",
-    "returns": "float",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericElementParam("p"),
+      optionalParam("d1", "float"),
+      optionalParam("d2", "float"),
+      ...distOptions()
     ]
   },
   "f_pdf": {
     "description": "F distribution probability density function with `d1` and `d2` degrees of freedom, applied elementwise.",
     "kind": "numeric_dist",
-    "returns": "float",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericElementParam("x"),
+      optionalParam("d1", "float"),
+      optionalParam("d2", "float"),
+      ...distOptions()
     ]
   },
   "erf": {
     "description": "Error function, applied elementwise.",
     "kind": "numeric_func",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "erfc": {
     "description": "Complementary error function, applied elementwise.",
     "kind": "numeric_func",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "lgamma": {
     "description": "Natural logarithm of the absolute value of the gamma function, applied elementwise.",
     "kind": "numeric_func",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "gamma": {
     "description": "Gamma function, applied elementwise.",
     "kind": "numeric_func",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "fft": {
     "description": "Discrete Fourier transform of a 1-D real or `[n, 2]` complex signal. Returns an `[n, 2]` Tensor of real/imaginary pairs.",
     "kind": "numeric_transform",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "ifft": {
     "description": "Inverse discrete Fourier transform of a 1-D real or `[n, 2]` complex signal. Returns an `[n, 2]` Tensor of real/imaginary pairs.",
     "kind": "numeric_transform",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "qr": {
     "description": "QR decomposition. Returns `{Q, R}` with `input = Q @ R`.",
     "kind": "numeric_transform",
-    "returns": "any",
+    "returns": "QRResult",
     "params": [
-      {
-        "name": "input",
-        "type": "any"
-      }
+      param("input", "Tensor")
     ]
   },
   "linear_interp": {
     "description": "Piecewise-linear interpolation of the points `(xs, ys)` evaluated at `xq` (an int, float, or array of numeric values).",
     "kind": "numeric_func",
-    "returns": "any",
-    "params": []
+    "returns": "LinearInterpResult",
+    "params": [
+      param("xs", "NumericScalar[]"),
+      param("ys", "NumericScalar[]"),
+      param("xq", "NumericScalar | NumericScalar[]")
+    ]
   },
   "cubic_spline": {
     "description": "Natural cubic spline interpolant through the points `(xs, ys)`.",
     "kind": "numeric_func",
     "returns": "CubicSpline",
-    "params": [],
+    "params": [
+      param("xs", "NumericScalar[]"),
+      param("ys", "NumericScalar[]")
+    ],
     "methods": [
       {
         "name": "evaluate",
         "params": [
-          {
-            "name": "xq",
-            "type": null,
-            "optional": false,
-            "rest": false,
-            "defaultValue": null
-          }
+          param("xq", "NumericScalar | NumericScalar[]")
         ],
-        "returns": "float",
+        "returns": "LinearInterpResult",
         "isGetter": false,
         "description": "Evaluate the spline at a query point or a array of query points."
       }
@@ -3579,449 +3568,301 @@ export const TERA_BUILTINS = {
   "t_test_1samp": {
     "description": "One-sample t-test of the mean of `x` against `popmean`. Returns a record with `statistic`, `pvalue`, `df`.",
     "kind": "numeric_stats_test",
-    "returns": "Object",
+    "returns": "TestResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      namedOptionalParam("popmean", "float")
     ]
   },
   "t_test_ind": {
     "description": "Two-sample independent t-test. `equal_var=true` pools variances; `equal_var=false` uses the Welch unequal-variance form. Returns a record with `statistic`, `pvalue`, `df`.",
     "kind": "numeric_stats_test",
-    "returns": "Object",
+    "returns": "TestResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      numericVectorParam("y"),
+      namedOptionalParam("popmean", "float"),
+      namedOptionalParam("equal_var", "bool"),
+      namedOptionalParam("equalVar", "bool")
     ]
   },
   "t_test_paired": {
     "description": "Paired t-test on matched samples `x` and `y`. Returns a record with `statistic`, `pvalue`, `df`.",
     "kind": "numeric_stats_test",
-    "returns": "Object",
+    "returns": "TestResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      numericVectorParam("y"),
+      namedOptionalParam("popmean", "float")
     ]
   },
   "chi2_gof": {
     "description": "Chi-square goodness-of-fit test of `observed` counts against `expected` counts (uniform when omitted). Returns a record with `statistic`, `pvalue`, `df`.",
     "kind": "numeric_stats_test",
-    "returns": "Object",
+    "returns": "TestResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("observed"),
+      optionalParam("expected", "NumericVectorInput | null"),
+      namedOptionalParam("ddof", "int")
     ]
   },
   "chi2_independence": {
     "description": "Chi-square test of independence on a 2-D contingency `table`. Returns a record with `statistic`, `pvalue`, `df`.",
     "kind": "numeric_stats_test",
-    "returns": "Object",
+    "returns": "TestResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericMatrixParam("table")
     ]
   },
   "ks_test_1samp": {
     "description": "One-sample Kolmogorov-Smirnov test of `x` against a reference CDF (normal with `loc`/`scale` by default). Returns a record with `statistic`, `pvalue`.",
     "kind": "numeric_stats_test",
-    "returns": "Object",
+    "returns": "TestResultNoDf",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      optionalParam("cdf", "ScalarFn"),
+      namedOptionalParam("loc", "float"),
+      namedOptionalParam("scale", "float")
     ]
   },
   "ks_test_2samp": {
     "description": "Two-sample Kolmogorov-Smirnov test comparing the empirical distributions of `x` and `y`. Returns a record with `statistic`, `pvalue`.",
     "kind": "numeric_stats_test",
-    "returns": "Object",
+    "returns": "TestResultNoDf",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      numericVectorParam("y")
     ]
   },
   "jarque_bera": {
     "description": "Jarque-Bera normality test built from sample skewness and kurtosis. Returns a record with `statistic`, `pvalue`, `df`.",
     "kind": "numeric_stats_test",
-    "returns": "Object",
+    "returns": "TestResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x")
     ]
   },
   "dagostino_k2": {
     "description": "D'Agostino K-squared normality test combining skewness and kurtosis z-scores. Returns a record with `statistic`, `pvalue`, `df`.",
     "kind": "numeric_stats_test",
-    "returns": "Object",
+    "returns": "TestResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x")
     ]
   },
   "anderson_darling": {
     "description": "Anderson-Darling normality test with the small-sample corrected p-value. Returns a record with `statistic`, `pvalue`.",
     "kind": "numeric_stats_test",
-    "returns": "Object",
+    "returns": "TestResultNoDf",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x")
     ]
   },
   "mann_whitney_u": {
     "description": "Mann-Whitney U rank-sum test with normal approximation, tie correction, and continuity correction. Returns a record with `statistic`, `pvalue`.",
     "kind": "numeric_stats_test",
-    "returns": "Object",
+    "returns": "TestResultNoDf",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      numericVectorParam("y")
     ]
   },
   "acf": {
     "description": "Sample autocorrelation function of `x` up to `nlags` (FFT-based). Returns a Tensor of length `nlags + 1` with lag 0 equal to 1.",
     "kind": "numeric_timeseries",
-    "returns": "Object",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      namedOptionalParam("nlags", "int")
     ]
   },
   "pacf": {
     "description": "Partial autocorrelation function of `x` via Levinson-Durbin recursion. Returns a Tensor of length `nlags + 1` with lag 0 equal to 1.",
     "kind": "numeric_timeseries",
-    "returns": "Object",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      namedOptionalParam("nlags", "int")
     ]
   },
   "ljung_box": {
     "description": "Ljung-Box test for autocorrelation up to `lags`. Returns a record with `statistic`, `pvalue`, `df`.",
     "kind": "numeric_timeseries",
-    "returns": "Object",
+    "returns": "TestResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      namedOptionalParam("lags", "int"),
+      namedOptionalParam("model_df", "int"),
+      namedOptionalParam("modelDf", "int")
     ]
   },
   "durbin_watson": {
     "description": "Durbin-Watson statistic of a residual series; values near 2 indicate no first-order autocorrelation.",
     "kind": "numeric_timeseries",
-    "returns": "Object",
+    "returns": "float",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x")
     ]
   },
   "periodogram": {
     "description": "Power spectrum of `x` at frequencies `k / n` for `k = 0..n/2`. Returns a Tensor of length `n/2 + 1`.",
     "kind": "numeric_timeseries",
-    "returns": "Object",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      namedOptionalParam("detrend", "bool")
     ]
   },
   "convolve": {
     "description": "FFT-based linear convolution of two 1-D signals. `mode` is `\"full\"`, `\"same\"`, or `\"valid\"`.",
     "kind": "numeric_array_op",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("a"),
+      numericVectorParam("b"),
+      namedOptionalParam("mode", "string")
     ]
   },
   "correlate": {
     "description": "FFT-based cross-correlation of two 1-D signals. `mode` is `\"full\"`, `\"same\"`, or `\"valid\"`.",
     "kind": "numeric_array_op",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("a"),
+      numericVectorParam("b"),
+      namedOptionalParam("mode", "string")
     ]
   },
   "rolling_mean": {
     "description": "Rolling mean over each length-`window` slice of `x`. Returns a Tensor of length `n - window + 1`.",
     "kind": "numeric_array_op",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      param("window", "int")
     ]
   },
   "rolling_std": {
     "description": "Rolling standard deviation over each length-`window` slice of `x`. Returns a Tensor of length `n - window + 1`.",
     "kind": "numeric_array_op",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      param("window", "int"),
+      namedOptionalParam("ddof", "int")
     ]
   },
   "rolling_sum": {
     "description": "Rolling sum over each length-`window` slice of `x`. Returns a Tensor of length `n - window + 1`.",
     "kind": "numeric_array_op",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      param("window", "int")
     ]
   },
   "rolling_min": {
     "description": "Rolling minimum over each length-`window` slice of `x`. Returns a Tensor of length `n - window + 1`.",
     "kind": "numeric_array_op",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      param("window", "int")
     ]
   },
   "rolling_max": {
     "description": "Rolling maximum over each length-`window` slice of `x`. Returns a Tensor of length `n - window + 1`.",
     "kind": "numeric_array_op",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      param("window", "int")
     ]
   },
   "polyfit": {
     "description": "Least-squares polynomial fit of degree `deg` to the points `(x, y)`. Returns coefficients ordered from the highest degree down.",
     "kind": "numeric_array_op",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("x"),
+      numericVectorParam("y"),
+      param("deg", "int")
     ]
   },
   "polyval": {
     "description": "Evaluate a polynomial with coefficients ordered from the highest degree down at `x` (an int, float, array, or Tensor).",
     "kind": "numeric_array_op",
-    "returns": "any",
+    "returns": "NumericDistResult",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("coeffs"),
+      param("x", "NumericElementInput | NumericArrayInput")
     ]
   },
   "polyroots": {
     "description": "All complex roots of a polynomial via Durand-Kerner iteration. Returns a `[deg, 2]` Tensor of real/imaginary pairs.",
     "kind": "numeric_array_op",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("coeffs")
     ]
   },
   "random_uniform": {
     "description": "Seeded uniform samples on `[low, high)` with the given shape.",
     "kind": "numeric_random",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      tensorShapeParam(),
+      ...randomOptions()
     ]
   },
   "random_normal": {
     "description": "Seeded normal samples with mean `loc` and standard deviation `scale`.",
     "kind": "numeric_random",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      tensorShapeParam(),
+      ...randomOptions()
     ]
   },
   "random_t": {
     "description": "Seeded Student t samples with `df` degrees of freedom.",
     "kind": "numeric_random",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      tensorShapeParam(),
+      optionalParam("df", "float"),
+      ...randomOptions()
     ]
   },
   "random_chi2": {
     "description": "Seeded chi-square samples with `df` degrees of freedom.",
     "kind": "numeric_random",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      tensorShapeParam(),
+      optionalParam("df", "float"),
+      ...randomOptions()
     ]
   },
   "random_exponential": {
     "description": "Seeded exponential samples with the given `scale` (mean).",
     "kind": "numeric_random",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      tensorShapeParam(),
+      ...randomOptions()
     ]
   },
   "multivariate_normal": {
     "description": "Seeded multivariate normal samples via the Cholesky factor of `cov`. Returns an `[n, d]` Tensor.",
     "kind": "numeric_random",
-    "returns": "any",
+    "returns": "Tensor",
     "params": [
-      {
-        "name": "options",
-        "type": "Object",
-        "optional": true,
-        "rest": true,
-        "named": true
-      }
+      numericVectorParam("mean"),
+      numericMatrixParam("cov"),
+      optionalParam("n", "int"),
+      ...tensorDataOptions(),
+      ...intOption("seed")
     ]
   }
 } satisfies Record<string, TeraBuiltinSpec>;
@@ -4033,13 +3874,13 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "x",
-          "type": null,
+          "type": "unknown",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "unknown",
       "isGetter": false,
       "description": "Run the module's forward pass. Calling the module directly (`module(x)`) is equivalent to `module.forward(x)`."
     },
@@ -4053,14 +3894,14 @@ export const TERA_KIND_METHODS = {
     {
       "name": "train",
       "params": [],
-      "returns": null,
+      "returns": "this",
       "isGetter": false,
       "description": "Set the module to training mode (enables Dropout, updates BatchNorm running stats)."
     },
     {
       "name": "eval",
       "params": [],
-      "returns": null,
+      "returns": "this",
       "isGetter": false,
       "description": "Set the module to evaluation mode (disables Dropout, freezes BatchNorm stats)."
     },
@@ -4075,9 +3916,32 @@ export const TERA_KIND_METHODS = {
           "defaultValue": null
         }
       ],
-      "returns": "Module",
+      "returns": "this",
       "isGetter": false,
       "description": "Move the module's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it."
+    },
+    {
+      "name": "state_dict",
+      "params": [],
+      "returns": "Map",
+      "isGetter": false,
+      "description": "Return a map of parameter and buffer tensors."
+    },
+    {
+      "name": "load_state_dict",
+      "params": [
+        param("state", "Map")
+      ],
+      "returns": "undefined",
+      "isGetter": false,
+      "description": "Load parameter and buffer tensors from a state dictionary."
+    },
+    {
+      "name": "zero_grad",
+      "params": [],
+      "returns": "this",
+      "isGetter": false,
+      "description": "Clear gradients on all parameters and return the module."
     }
   ],
   "sequential": [
@@ -4086,57 +3950,82 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "x",
-          "type": null,
+          "type": "Tensor",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "Tensor",
       "isGetter": false,
       "description": "Run inputs sequentially through each contained module."
     },
     {
       "name": "parameters",
       "params": [],
-      "returns": null,
+      "returns": "Tensor[]",
       "isGetter": false,
       "description": "Return parameters of all contained modules concatenated."
     },
     {
       "name": "train",
       "params": [],
-      "returns": null,
+      "returns": "this",
       "isGetter": false,
       "description": "Switch all submodules to training mode."
     },
     {
       "name": "eval",
       "params": [],
-      "returns": null,
+      "returns": "this",
       "isGetter": false,
       "description": "Switch all submodules to evaluation mode."
+    },
+    {
+      "name": "state_dict",
+      "params": [],
+      "returns": "Map",
+      "isGetter": false,
+      "description": "Return a map of parameter and buffer tensors."
+    },
+    {
+      "name": "load_state_dict",
+      "params": [
+        param("state", "Map")
+      ],
+      "returns": "undefined",
+      "isGetter": false,
+      "description": "Load parameter and buffer tensors from a state dictionary."
+    },
+    {
+      "name": "zero_grad",
+      "params": [],
+      "returns": "this",
+      "isGetter": false,
+      "description": "Clear gradients on all parameters and return the module."
     }
   ],
   "optimizer": [
     {
       "name": "step",
       "params": [],
-      "returns": null,
+      "returns": "undefined",
       "isGetter": false,
       "description": "Apply one optimizer update step using the current gradients."
     },
     {
       "name": "zero_grad",
-      "params": [],
-      "returns": null,
+      "params": [
+        optionalParam("set_to_none", "bool")
+      ],
+      "returns": "undefined",
       "isGetter": false,
       "description": "Zero out gradients of all tracked parameters before the next backward pass."
     },
     {
       "name": "param_groups",
       "params": [],
-      "returns": null,
+      "returns": "Object[]",
       "isGetter": false,
       "description": "Return the array of parameter groups (each with its own learning rate, weight decay, etc.)."
     }
@@ -4147,58 +4036,80 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "metric",
-          "type": null,
+          "type": "float",
           "optional": true,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "undefined",
       "isGetter": false,
       "description": "Advance the scheduler by one step. Some schedulers (`ReduceLROnPlateau`) require a monitored metric."
     },
     {
       "name": "get_last_lr",
       "params": [],
-      "returns": null,
+      "returns": "float[] | null",
       "isGetter": false,
       "description": "Return the most recently computed learning rate(s)."
     }
   ],
   "metric": [
     {
-      "name": "update",
+      "name": "forward",
       "params": [
         {
           "name": "preds",
-          "type": null,
+          "type": "unknown",
           "optional": false,
           "rest": false,
           "defaultValue": null
         },
         {
           "name": "target",
-          "type": null,
+          "type": "unknown",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "MetricResult",
+      "isGetter": false,
+      "description": "Update the metric and return its current value."
+    },
+    {
+      "name": "update",
+      "params": [
+        {
+          "name": "preds",
+          "type": "unknown",
+          "optional": false,
+          "rest": false,
+          "defaultValue": null
+        },
+        {
+          "name": "target",
+          "type": "unknown",
+          "optional": false,
+          "rest": false,
+          "defaultValue": null
+        }
+      ],
+      "returns": "undefined",
       "isGetter": false,
       "description": "Update internal state with a new batch of predictions and ground-truth labels."
     },
     {
       "name": "compute",
       "params": [],
-      "returns": null,
+      "returns": "MetricResult",
       "isGetter": false,
       "description": "Compute the current metric value across all accumulated updates."
     },
     {
       "name": "reset",
       "params": [],
-      "returns": null,
+      "returns": "undefined",
       "isGetter": false,
       "description": "Clear accumulated state so the next epoch starts fresh."
     }
@@ -4209,20 +4120,20 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "trainer",
-          "type": null,
+          "type": "unknown",
           "optional": false,
           "rest": false,
           "defaultValue": null
         },
         {
           "name": "model",
-          "type": null,
+          "type": "unknown",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "undefined",
       "isGetter": false,
       "description": "Hook fired at the start of training."
     },
@@ -4231,20 +4142,20 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "trainer",
-          "type": null,
+          "type": "unknown",
           "optional": false,
           "rest": false,
           "defaultValue": null
         },
         {
           "name": "model",
-          "type": null,
+          "type": "unknown",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "undefined",
       "isGetter": false,
       "description": "Hook fired at the end of training."
     },
@@ -4253,20 +4164,20 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "trainer",
-          "type": null,
+          "type": "unknown",
           "optional": false,
           "rest": false,
           "defaultValue": null
         },
         {
           "name": "model",
-          "type": null,
+          "type": "unknown",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "undefined",
       "isGetter": false,
       "description": "Hook fired at the start of each epoch."
     },
@@ -4275,60 +4186,62 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "trainer",
-          "type": null,
+          "type": "unknown",
           "optional": false,
           "rest": false,
           "defaultValue": null
         },
         {
           "name": "model",
-          "type": null,
+          "type": "unknown",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "undefined",
       "isGetter": false,
       "description": "Hook fired at the end of each epoch."
     }
   ],
   "logger": [
     {
-      "name": "log",
+      "name": "log_metrics",
       "params": [
         {
-          "name": "name",
-          "type": null,
-          "optional": false,
-          "rest": false,
-          "defaultValue": null
-        },
-        {
-          "name": "value",
-          "type": null,
+          "name": "metrics",
+          "type": "NumericMetricRecord",
           "optional": false,
           "rest": false,
           "defaultValue": null
         },
         {
           "name": "step",
-          "type": null,
-          "optional": true,
+          "type": "int",
+          "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "undefined",
       "isGetter": false,
-      "description": "Record a scalar metric value."
+      "description": "Record numeric metric values at a step."
     },
     {
-      "name": "flush",
-      "params": [],
-      "returns": null,
+      "name": "log_hyperparams",
+      "params": [
+        param("params", "Object")
+      ],
+      "returns": "undefined",
       "isGetter": false,
-      "description": "Flush buffered records to the underlying sink."
+      "description": "Record hyperparameters."
+    },
+    {
+      "name": "finalize",
+      "params": [],
+      "returns": "undefined",
+      "isGetter": false,
+      "description": "Finalize and close logger resources."
     }
   ],
   "trainer": [
@@ -4357,7 +4270,7 @@ export const TERA_KIND_METHODS = {
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "undefined",
       "isGetter": false,
       "description": "Run the full training loop."
     },
@@ -4379,7 +4292,7 @@ export const TERA_KIND_METHODS = {
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "NumericMetricRecord",
       "isGetter": false,
       "description": "Run validation only."
     },
@@ -4401,7 +4314,7 @@ export const TERA_KIND_METHODS = {
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "NumericMetricRecord",
       "isGetter": false,
       "description": "Run the model in eval mode and report logged metrics."
     },
@@ -4423,9 +4336,9 @@ export const TERA_KIND_METHODS = {
           "defaultValue": null
         }
       ],
-      "returns": null,
+      "returns": "unknown[]",
       "isGetter": false,
-      "description": "Run the model in eval mode and return collected outputs.\n\n# Pseudo-types\n\nThese don't correspond to a builtin call but capture the type of common results."
+      "description": "Run the model in eval mode and return collected outputs."
     }
   ],
   "ml_model": [
@@ -4434,20 +4347,20 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "X",
-          "type": "Tensor",
+          "type": "MLTensor",
           "optional": false,
           "rest": false,
           "defaultValue": null
         },
         {
           "name": "y",
-          "type": "Tensor",
+          "type": "MLTensor",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": "Model",
+      "returns": "this",
       "isGetter": false,
       "description": "Fit the estimator to training features `X` and targets `y`. Returns the fitted model."
     },
@@ -4456,13 +4369,13 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "X",
-          "type": "Tensor",
+          "type": "MLTensor",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": "Tensor",
+      "returns": "MLTensor",
       "isGetter": false,
       "description": "Predict targets/labels for the rows of `X`."
     },
@@ -4471,14 +4384,14 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "X",
-          "type": "Tensor",
+          "type": "MLTensor",
           "optional": false,
           "rest": false,
           "defaultValue": null
         },
         {
           "name": "y",
-          "type": "Tensor",
+          "type": "MLTensor",
           "optional": false,
           "rest": false,
           "defaultValue": null
@@ -4495,13 +4408,13 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "X",
-          "type": "Tensor",
+          "type": "MLTensor",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": "Transformer",
+      "returns": "this",
       "isGetter": false,
       "description": "Learn the transform parameters from `X`."
     },
@@ -4510,13 +4423,13 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "X",
-          "type": "Tensor",
+          "type": "MLTensor",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": "Tensor",
+      "returns": "MLTensor",
       "isGetter": false,
       "description": "Apply the learned transform to `X`."
     },
@@ -4525,13 +4438,13 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "X",
-          "type": "Tensor",
+          "type": "MLTensor",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": "Tensor",
+      "returns": "MLTensor",
       "isGetter": false,
       "description": "Fit then transform `X` in one call."
     },
@@ -4540,13 +4453,13 @@ export const TERA_KIND_METHODS = {
       "params": [
         {
           "name": "X",
-          "type": "Tensor",
+          "type": "MLTensor",
           "optional": false,
           "rest": false,
           "defaultValue": null
         }
       ],
-      "returns": "Tensor",
+      "returns": "MLTensor",
       "isGetter": false,
       "description": "Map transformed data back to the original space (where supported)."
     }
@@ -4554,6 +4467,17 @@ export const TERA_KIND_METHODS = {
 } satisfies Record<string, TeraMethodSpec[]>;
 
 export const TERA_PSEUDO_TYPES = {
+  "IndexTensor": {
+    "methods": [
+      {
+        "name": "item",
+        "params": [],
+        "returns": "int",
+        "isGetter": false,
+        "description": "Return the scalar index value."
+      }
+    ]
+  },
   "Tensor": {
     "methods": [
       {
@@ -4571,11 +4495,67 @@ export const TERA_PSEUDO_TYPES = {
         "description": "Return the dtype string of the tensor."
       },
       {
+        "name": "device",
+        "params": [],
+        "returns": "Device",
+        "isGetter": true,
+        "description": "Return the tensor's device."
+      },
+      {
+        "name": "strides",
+        "params": [],
+        "returns": "int[]",
+        "isGetter": true,
+        "description": "Return the tensor strides."
+      },
+      {
+        "name": "ndim",
+        "params": [],
+        "returns": "int",
+        "isGetter": true,
+        "description": "Return the tensor rank."
+      },
+      {
+        "name": "rank",
+        "params": [],
+        "returns": "int",
+        "isGetter": true,
+        "description": "Return the tensor rank."
+      },
+      {
+        "name": "numel",
+        "params": [],
+        "returns": "int",
+        "isGetter": true,
+        "description": "Return the total number of elements."
+      },
+      {
+        "name": "is_contiguous",
+        "params": [],
+        "returns": "bool",
+        "isGetter": true,
+        "description": "True when the tensor is stored contiguously."
+      },
+      {
+        "name": "is_leaf",
+        "params": [],
+        "returns": "bool",
+        "isGetter": true,
+        "description": "True when the tensor is an autograd leaf."
+      },
+      {
+        "name": "version",
+        "params": [],
+        "returns": "int",
+        "isGetter": true,
+        "description": "Return the tensor mutation version."
+      },
+      {
         "name": "reshape",
         "params": [
           {
             "name": "shape",
-            "type": null,
+            "type": "int[]",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -4590,14 +4570,14 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "dim0",
-            "type": null,
+            "type": "int",
             "optional": false,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "dim1",
-            "type": null,
+            "type": "int",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -4612,7 +4592,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "dims",
-            "type": null,
+            "type": "int[]",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -4627,7 +4607,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "shape",
-            "type": null,
+            "type": "int[]",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -4642,28 +4622,28 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "dim",
-            "type": null,
+            "type": "int",
             "optional": false,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "start",
-            "type": null,
+            "type": "int",
             "optional": false,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "end",
-            "type": null,
-            "optional": false,
+            "type": "int",
+            "optional": true,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "step",
-            "type": null,
+            "type": "int",
             "optional": true,
             "rest": false,
             "defaultValue": "1"
@@ -4678,7 +4658,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "dim",
-            "type": null,
+            "type": "int",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -4693,8 +4673,8 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "dim",
-            "type": null,
-            "optional": false,
+            "type": "int",
+            "optional": true,
             "rest": false,
             "defaultValue": null
           }
@@ -4708,21 +4688,21 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "dim",
-            "type": null,
+            "type": "int",
             "optional": false,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "start",
-            "type": null,
+            "type": "int",
             "optional": false,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "length",
-            "type": null,
+            "type": "int",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -4737,14 +4717,14 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "dim",
-            "type": null,
+            "type": "int",
             "optional": false,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "index",
-            "type": null,
+            "type": "int",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -4769,17 +4749,31 @@ export const TERA_PSEUDO_TYPES = {
         "description": "Return a copy detached from the autograd graph."
       },
       {
+        "name": "retain_grad",
+        "params": [],
+        "returns": "Tensor",
+        "isGetter": false,
+        "description": "Retain gradients for a non-leaf tensor and return it."
+      },
+      {
+        "name": "item",
+        "params": [],
+        "returns": "NumericScalar",
+        "isGetter": false,
+        "description": "Return the tensor scalar value."
+      },
+      {
         "name": "backward",
         "params": [
           {
             "name": "gradient",
-            "type": null,
+            "type": "MLTensor",
             "optional": true,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "returns": "Tensor",
+        "returns": "undefined",
         "isGetter": false,
         "description": "Propagate gradients backward from this tensor."
       },
@@ -4788,13 +4782,13 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "flag",
-            "type": null,
+            "type": "bool",
             "optional": true,
             "rest": false,
             "defaultValue": "true"
           }
         ],
-        "returns": "Tensor",
+        "returns": "this",
         "isGetter": false,
         "description": "Enable or disable gradient tracking on this tensor."
       },
@@ -4805,6 +4799,8 @@ export const TERA_PSEUDO_TYPES = {
         "isGetter": true,
         "description": "Read the accumulated gradient of this leaf tensor."
       },
+      tensorMaterializeMethod("to_array"),
+      tensorMaterializeMethod("toArray"),
       {
         "name": "length",
         "params": [],
@@ -4936,7 +4932,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -4951,7 +4947,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -4966,7 +4962,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -4981,7 +4977,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -4996,7 +4992,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "exponent",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -5011,7 +5007,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -5026,7 +5022,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -5041,7 +5037,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -5056,7 +5052,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -5071,7 +5067,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -5086,7 +5082,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -5101,7 +5097,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -5116,7 +5112,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -5131,7 +5127,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "Tensor | int | float",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -5146,7 +5142,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "MLTensor",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -5161,7 +5157,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "other",
-            "type": null,
+            "type": "MLTensor",
             "optional": false,
             "rest": false,
             "defaultValue": null
@@ -5176,14 +5172,14 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "axis",
-            "type": null,
+            "type": "int | int[]",
             "optional": true,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "keep",
-            "type": null,
+            "type": "bool",
             "optional": true,
             "rest": false,
             "defaultValue": null
@@ -5198,14 +5194,14 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "axis",
-            "type": null,
+            "type": "int | int[]",
             "optional": true,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "keep",
-            "type": null,
+            "type": "bool",
             "optional": true,
             "rest": false,
             "defaultValue": null
@@ -5220,14 +5216,14 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "axis",
-            "type": null,
+            "type": "int | int[]",
             "optional": true,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "keep",
-            "type": null,
+            "type": "bool",
             "optional": true,
             "rest": false,
             "defaultValue": null
@@ -5242,14 +5238,14 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "axis",
-            "type": null,
+            "type": "int | int[]",
             "optional": true,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "keep",
-            "type": null,
+            "type": "bool",
             "optional": true,
             "rest": false,
             "defaultValue": null
@@ -5264,20 +5260,20 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "axis",
-            "type": null,
+            "type": "int",
             "optional": true,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "keep",
-            "type": null,
+            "type": "bool",
             "optional": true,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "returns": "Tensor",
+        "returns": "IndexTensor",
         "isGetter": false,
         "description": "Index of the maximum along `axis`; `keep` retains reduced dims."
       },
@@ -5286,20 +5282,20 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "axis",
-            "type": null,
+            "type": "int",
             "optional": true,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "keep",
-            "type": null,
+            "type": "bool",
             "optional": true,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "returns": "Tensor",
+        "returns": "IndexTensor",
         "isGetter": false,
         "description": "Index of the minimum along `axis`; `keep` retains reduced dims."
       },
@@ -5308,14 +5304,14 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "axis",
-            "type": null,
+            "type": "int | int[]",
             "optional": true,
             "rest": false,
             "defaultValue": null
           },
           {
             "name": "keep",
-            "type": null,
+            "type": "bool",
             "optional": true,
             "rest": false,
             "defaultValue": null
@@ -5330,7 +5326,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "axis",
-            "type": null,
+            "type": "int",
             "optional": true,
             "rest": false,
             "defaultValue": "-1"
@@ -5345,7 +5341,7 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "axis",
-            "type": null,
+            "type": "int",
             "optional": true,
             "rest": false,
             "defaultValue": "-1"
@@ -5369,29 +5365,23 @@ export const TERA_PSEUDO_TYPES = {
       {
         "name": "forward",
         "params": [
-          {
-            "name": "*args",
-            "type": null,
-            "optional": false,
-            "rest": false,
-            "defaultValue": null
-          }
+          param("args", "unknown", { optional: true, rest: true })
         ],
-        "returns": null,
+        "returns": "unknown",
         "isGetter": false,
         "description": "Run the model's forward block. Calling the model directly is equivalent."
       },
       {
         "name": "train",
         "params": [],
-        "returns": "Model",
+        "returns": "this",
         "isGetter": false,
         "description": "Set training mode."
       },
       {
         "name": "eval",
         "params": [],
-        "returns": "Model",
+        "returns": "this",
         "isGetter": false,
         "description": "Set evaluation mode."
       },
@@ -5406,14 +5396,14 @@ export const TERA_PSEUDO_TYPES = {
             "defaultValue": null
           }
         ],
-        "returns": "Model",
+        "returns": "this",
         "isGetter": false,
         "description": "Move the model's parameters to a device (`\"cpu\"`, `\"gpu\"`, `\"webgpu\"`) and return it."
       },
       {
         "name": "state_dict",
         "params": [],
-        "returns": null,
+        "returns": "Map",
         "isGetter": false,
         "description": "Return a serializable object of parameter tensors."
       },
@@ -5422,13 +5412,13 @@ export const TERA_PSEUDO_TYPES = {
         "params": [
           {
             "name": "state",
-            "type": null,
+            "type": "Map",
             "optional": false,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "returns": null,
+        "returns": "undefined",
         "isGetter": false,
         "description": "Load parameter tensors from a previously saved object."
       },
@@ -5443,7 +5433,7 @@ export const TERA_PSEUDO_TYPES = {
             "defaultValue": null
           }
         ],
-        "returns": "none",
+        "returns": "undefined",
         "isGetter": false,
         "description": "Save the model's weights to `path` (compact binary checkpoint). Reload into a same-architecture model with `load_model(model, path)`."
       }
@@ -5454,21 +5444,21 @@ export const TERA_PSEUDO_TYPES = {
       {
         "name": "columns",
         "params": [],
-        "returns": null,
+        "returns": "string[]",
         "isGetter": false,
         "description": "Return the column names as an array of strings."
       },
       {
         "name": "schema",
         "params": [],
-        "returns": null,
+        "returns": "any",
         "isGetter": false,
         "description": "Return the frame's schema (fields with names and data types)."
       },
       {
         "name": "explain",
         "params": [],
-        "returns": null,
+        "returns": "string",
         "isGetter": false,
         "description": "Return the logical query plan as a human-readable string."
       },
@@ -5705,21 +5695,23 @@ export const TERA_PSEUDO_TYPES = {
       {
         "name": "collect",
         "params": [],
-        "returns": null,
+        "typeParams": ["T"],
+        "returns": "T[]",
         "isGetter": false,
         "description": "Execute the plan and return all rows as an array of objects."
       },
       {
         "name": "to_array",
         "params": [],
-        "returns": null,
+        "typeParams": ["T"],
+        "returns": "T[]",
         "isGetter": false,
         "description": "Alias for `collect`."
       },
       {
         "name": "count",
         "params": [],
-        "returns": null,
+        "returns": "int",
         "isGetter": false,
         "description": "Execute the plan and return the row count."
       },
@@ -5734,14 +5726,14 @@ export const TERA_PSEUDO_TYPES = {
             "defaultValue": "20"
           }
         ],
-        "returns": null,
+        "returns": "string",
         "isGetter": false,
         "description": "Execute and print the first `n` rows as a formatted table; returns the text."
       },
       {
         "name": "chunks",
         "params": [],
-        "returns": null,
+        "returns": "any",
         "isGetter": false,
         "description": "Execute and stream results as an async iterator of data chunks."
       },
@@ -5756,14 +5748,15 @@ export const TERA_PSEUDO_TYPES = {
             "defaultValue": null
           }
         ],
-        "returns": null,
+        "returns": "MLTensor",
         "isGetter": false,
         "description": "Materialize the (optionally selected) numeric columns into a 2-D tensor of\nshape `[rows, columns]`. Non-numeric columns raise — encode them first."
       },
       {
         "name": "to_array",
         "params": [],
-        "returns": null,
+        "typeParams": ["T"],
+        "returns": "T[]",
         "isGetter": false,
         "description": "Alias for `collect` — execute and return rows as an array of objects."
       },
@@ -5785,7 +5778,7 @@ export const TERA_PSEUDO_TYPES = {
             "defaultValue": null
           }
         ],
-        "returns": null,
+        "returns": "[Tensor, string[]]",
         "isGetter": false,
         "description": "Encode a categorical column to integer ids, returning `[encoded_tensor,\nclasses_array]`. Pass `classes=` to reuse ids fitted on another frame."
       }

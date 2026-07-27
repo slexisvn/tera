@@ -10,7 +10,7 @@ describe("checker pipeline", () => {
     expect(diagnostics).toEqual([
       expect.objectContaining({
         line: 1,
-        column: 1,
+        column: 16,
         severity: "error",
         message: "Type 'string' is not assignable to 'float'",
       }),
@@ -33,6 +33,62 @@ describe("checker pipeline", () => {
       "Type 'int' is not assignable to field 'name: string'",
       "Missing required field 'name' for 'User'",
     ]);
+  });
+
+  it("checks structural interface assignability by required fields", () => {
+    const source = [
+      "interface Named:",
+      "  name: string",
+      "interface Person:",
+      "  name: string",
+      "  age: int",
+      "interface Point:",
+      "  x: int",
+      "person: Person = { name: \"Ada\", age: 36 }",
+      "ok: Named = person",
+      "point: Point = { x: 1 }",
+      "bad: Named = point",
+    ].join("\n");
+
+    expect(messages(source)).toEqual([
+      "Type 'Point' is not assignable to 'Named'",
+    ]);
+  });
+
+  it("checks object literal fields in their lexical scope", () => {
+    const source = [
+      "interface User:",
+      "  name: string",
+      "fn make(name: int) -> User:",
+      "  user: User = { name: name }",
+      "  return user",
+    ].join("\n");
+
+    expect(messages(source)).toEqual([
+      "Type 'int' is not assignable to field 'name: string'",
+    ]);
+  });
+
+  it("supports interface index signatures with explicit fields", () => {
+    const source = [
+      "interface PricePanel:",
+      "  _dates: string[]",
+      "  [key: string]: float[]",
+      "data: PricePanel = load_json<PricePanel>(\"prices.json\")",
+      "dates = data[\"_dates\"]",
+      "sym = \"FPT\"",
+      "prices = data[sym]",
+      "bad: string[] = data[sym]",
+    ].join("\n");
+
+    expect(messages(source)).toEqual([
+      "Type 'float[]' is not assignable to 'string[]'",
+    ]);
+    expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "data", type: "PricePanel" }),
+      expect.objectContaining({ name: "dates", type: "string[]" }),
+      expect.objectContaining({ name: "prices", type: "float[]" }),
+    ]));
   });
 
   it("instantiates generic interfaces through inherited parents", () => {
@@ -58,11 +114,41 @@ describe("checker pipeline", () => {
       "  return x",
       "ok: float = id<float>(1)",
       "bad: float = id<string>(\"x\")",
+      "bad_arg = id<string>(1)",
     ].join("\n");
 
     expect(messages(source)).toEqual([
       "Type 'float' is not assignable to return type 'string'",
       "Type 'string' is not assignable to 'float'",
+      "Type 'int' is not assignable to parameter 'value: string'",
+    ]);
+  });
+
+  it("normalizes fn-prefixed function return annotations", () => {
+    const source = [
+      "fn adder(base: int) -> fn(int) -> int:",
+      "  fn add(x: int) -> int:",
+      "    return base + x",
+      "  return add",
+      "inc = adder(1)",
+      "value: int = inc(2)",
+    ].join("\n");
+
+    expect(messages(source)).toEqual([]);
+    expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "inc", type: "(int) -> int" }),
+      expect.objectContaining({ name: "value", type: "int" }),
+    ]));
+  });
+
+  it("context-checks fn-prefixed function variable annotations", () => {
+    expect(messages([
+      "adder: fn(int) -> int = x => x + 1",
+      "value: int = adder(2)",
+    ].join("\n"))).toEqual([]);
+
+    expect(messages("bad: fn(int) -> string = x => x + 1")).toEqual([
+      "Type 'int' is not assignable to return type 'string'",
     ]);
   });
 
@@ -100,6 +186,22 @@ describe("checker pipeline", () => {
         line: 4,
         column: 12,
         message: "Type 'string' is not assignable to parameter 'b: int'",
+      }),
+    ]);
+  });
+
+  it("normalizes array suffixes in parameter diagnostics", () => {
+    const diagnostics = checkSource([
+      "fn first_over(values: int[], threshold: int) -> int | null:",
+      "  return null",
+      "first_over('nums', 4)",
+    ].join("\n"), "strict");
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        line: 3,
+        column: 12,
+        message: "Type 'string' is not assignable to parameter 'values: int[]'",
       }),
     ]);
   });
@@ -189,9 +291,24 @@ describe("checker pipeline", () => {
       expect(messages("fn half(n: float) -> float:\n  return n / 2")).toEqual([]);
     });
 
-    it("accepts int and float interchangeably", () => {
+    it("keeps decimal zero literals as floats", () => {
+      const source = [
+        "xs = [0.0, 0.0]",
+        "i = 0",
+        "xs[i] += 1.5",
+      ].join("\n");
+
+      expect(messages(source)).toEqual([]);
+      expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "xs", type: "float[]" }),
+      ]));
+    });
+
+    it("accepts numeric widening but rejects narrowing", () => {
       expect(messages("fn widen(n: int) -> float:\n  return n")).toEqual([]);
-      expect(messages("fn narrow(n: float) -> int:\n  return n")).toEqual([]);
+      expect(messages("fn narrow(n: float) -> int:\n  return n")).toEqual([
+        "Type 'float' is not assignable to return type 'int'",
+      ]);
     });
 
     it("accepts a numeric accumulator declared as int", () => {
@@ -213,7 +330,39 @@ describe("checker pipeline", () => {
         "Type 'bool' is not assignable to return type 'float'",
       ]);
       expect(messages("fn f() -> int:\n  return [1, 2]")).toEqual([
-        "Type '[int, int]' is not assignable to return type 'int'",
+        "Type 'int[]' is not assignable to return type 'int'",
+      ]);
+    });
+  });
+
+  describe("array literal inference", () => {
+    it("collapses homogeneous array literals to element arrays", () => {
+      const symbols = inferSymbolTypes([
+        "ints = [3, 1, 4, 1, 5]",
+        "floats = [1, 2.5]",
+        "names = [\"ada\", \"grace\"]",
+      ].join("\n"));
+
+      expect(symbols).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "ints", type: "int[]" }),
+        expect.objectContaining({ name: "floats", type: "float[]" }),
+        expect.objectContaining({ name: "names", type: "string[]" }),
+      ]));
+    });
+
+    it("keeps heterogeneous array literals as tuples and context-checks tuple targets", () => {
+      const source = [
+        "mixed = [1, \"ok\"]",
+        "pair: [float, string] = [1, \"ok\"]",
+        "bad: [float, string] = [\"x\", 1]",
+      ].join("\n");
+
+      expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "mixed", type: "[int, string]" }),
+        expect.objectContaining({ name: "pair", type: "[float, string]" }),
+      ]));
+      expect(messages(source)).toEqual([
+        "Type '[string, int]' is not assignable to '[float, string]'",
       ]);
     });
   });
@@ -248,6 +397,21 @@ describe("checker pipeline", () => {
         expect.objectContaining({ name: "index", line: 1, column: 5, type: "int" }),
         expect.objectContaining({ name: "key", line: 3, column: 5, type: "string" }),
       ]));
+    });
+  });
+
+  describe("call arity", () => {
+    it("rejects extra positional arguments unless a rest parameter exists", () => {
+      const source = [
+        "fn one(a: int) -> int:",
+        "  return a",
+        "one(1, 2)",
+        "print(1, 2)",
+      ].join("\n");
+
+      expect(messages(source)).toEqual([
+        "Too many positional arguments for one()",
+      ]);
     });
   });
 
@@ -341,7 +505,7 @@ describe("checker pipeline", () => {
         "Type 'int' is not assignable to 'string | float[]'",
       ]);
       expect(messages('x: string | float[] = ["a", "b"]')).toEqual([
-        "Type '[string, string]' is not assignable to 'string | float[]'",
+        "Type 'string[]' is not assignable to 'string | float[]'",
       ]);
     });
   });
@@ -374,12 +538,160 @@ describe("checker pipeline", () => {
 
   describe("train_test_split", () => {
     it("accepts the shuffle option the runtime forwards", () => {
-      expect(messages("parts = train_test_split(x, y, test_size=0.2, shuffle=false)")).toEqual([]);
+      const source = [
+        "x = tensor([[1.0], [2.0]])",
+        "y = tensor([0.0, 1.0])",
+        "parts = train_test_split(x, y, test_size=0.2, shuffle=false)",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
     });
 
     it("still rejects an option the runtime does not take", () => {
-      expect(messages("parts = train_test_split(x, y, stratified=true)")).toEqual([
+      const source = [
+        "x = tensor([[1.0], [2.0]])",
+        "y = tensor([0.0, 1.0])",
+        "parts = train_test_split(x, y, stratified=true)",
+      ].join("\n");
+      expect(messages(source)).toEqual([
         "Unknown named argument 'stratified' for train_test_split()",
+      ]);
+    });
+  });
+
+  describe("mlfw builtin signatures", () => {
+    it("checks tensor options and reports diagnostics at the bad value", () => {
+      const source = 'x = zeros([2], requires_grad="yes")';
+      const diagnostics = checkSource(source, "strict");
+      expect(diagnostics).toEqual([
+        expect.objectContaining({
+          line: 1,
+          column: source.indexOf('"yes"') + 1,
+          message: "Type 'string' is not assignable to parameter 'requires_grad: bool'",
+        }),
+      ]);
+    });
+
+    it("accepts recursive numeric tensor data and rejects non-numeric leaves", () => {
+      expect(messages("x = tensor([[[1, 2], [3, 4]]])")).toEqual([]);
+
+      const source = 'x = tensor([[1], ["bad"]])';
+      const diagnostics = checkSource(source, "strict");
+      expect(diagnostics).toEqual([
+        expect.objectContaining({
+          line: 1,
+          column: source.indexOf("[[1]") + 1,
+          message: "Type '[int[], string[]]' is not assignable to parameter 'data: TensorDataInput'",
+        }),
+      ]);
+    });
+
+    it("checks numeric distribution inputs without falling back to any", () => {
+      const source = 'p = normal_cdf("bad")';
+      const diagnostics = checkSource(source, "strict");
+      expect(diagnostics).toEqual([
+        expect.objectContaining({
+          line: 1,
+          column: source.indexOf('"bad"') + 1,
+          message: "Type 'string' is not assignable to parameter 'x: NumericElementInput'",
+        }),
+      ]);
+    });
+
+    it("types linalg object results structurally", () => {
+      const source = [
+        "a = tensor([[1.0, 0.0], [0.0, 1.0]])",
+        "s = svd(a)",
+        "u: Tensor = s.U",
+        "bad: int = s.S",
+      ].join("\n");
+      expect(messages(source)).toEqual([
+        "Type 'Tensor' is not assignable to 'int'",
+      ]);
+      expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "s", type: "SVDResult" }),
+        expect.objectContaining({ name: "u", type: "Tensor" }),
+      ]));
+    });
+
+    it("checks ml estimator options and methods with concrete types", () => {
+      const ok = [
+        "x = tensor([[1.0], [2.0]])",
+        "y = tensor([0.0, 1.0])",
+        "ridge = Ridge(alpha=1.0, fit_intercept=true)",
+        "fit = ridge.fit(x, y)",
+        "pred: Tensor = fit.predict(x)",
+      ].join("\n");
+      expect(messages(ok)).toEqual([]);
+      expect(inferSymbolTypes(ok)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "ridge", type: "Ridge" }),
+        expect.objectContaining({ name: "fit", type: "Ridge" }),
+      ]));
+
+      expect(messages('bad = Ridge(alpha="x")')).toEqual([
+        "Type 'string' is not assignable to parameter 'alpha: float'",
+      ]);
+    });
+
+    it("calls model fields using the field's concrete module type", () => {
+      const source = [
+        "model Bot(vocab: int, dim: int, hidden: int):",
+        "  embed = Embedding(vocab, dim)",
+        "  encoder = GRU(dim, hidden, 1, true)",
+        "",
+        "fn encode(m: Bot, ids: Tensor) -> Tensor:",
+        "  emb = m.embed(ids)",
+        "  enc, state = m.encoder(emb)",
+        "  return enc",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+      expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "emb", type: "Tensor" }),
+        expect.objectContaining({ name: "enc", type: "Tensor" }),
+        expect.objectContaining({ name: "state", type: "Tensor" }),
+      ]));
+    });
+
+    it("keeps index tensors as tensors while item returns int", () => {
+      const source = [
+        "logits = tensor([0.1, 0.9])",
+        "idx = logits.argmax()",
+        "shape: int[] = idx.shape",
+        "last: int = idx.item()",
+        "bad: float[] = idx.item()",
+      ].join("\n");
+      expect(messages(source)).toEqual([
+        "Type 'int' is not assignable to 'float[]'",
+      ]);
+      expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "idx", type: "IndexTensor" }),
+        expect.objectContaining({ name: "shape", type: "int[]" }),
+        expect.objectContaining({ name: "last", type: "int" }),
+      ]));
+    });
+
+    it("types estimator factories and tokenizer special tokens structurally", () => {
+      const ok = [
+        "x = tensor([[1.0], [2.0]])",
+        "y = tensor([0.0, 1.0])",
+        "scores = cross_val_score(params => Ridge(alpha=1.0), x, y, cv=2)",
+        "search = GridSearchCV(params => Ridge(alpha=1.0), { alpha: [0.1, 1.0] })",
+        "tok = Tokenizer(special_tokens={ pad: \"<pad>\", eos: \"</s>\" })",
+      ].join("\n");
+      expect(messages(ok)).toEqual([]);
+      expect(inferSymbolTypes(ok)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "scores", type: "float[]" }),
+        expect.objectContaining({ name: "search", type: "GridSearchCV" }),
+        expect.objectContaining({ name: "tok", type: "Tokenizer" }),
+      ]));
+
+      expect(messages('tok = Tokenizer(special_tokens={ pad: 1 })')).toEqual([
+        "Type 'int' is not assignable to field 'pad: string'",
+      ]);
+    });
+
+    it("rejects stale constructor surface that is not in the package types", () => {
+      expect(messages("Embedding(10, 4, padding_idx=0)")).toEqual([
+        "Unknown named argument 'padding_idx' for Embedding()",
       ]);
     });
   });

@@ -49,7 +49,7 @@ describe("Tera type checker", () => {
     const messages = checkSource(source, "strict").map((d) => d.message).join("\n");
     expect(messages).toContain("Type 'string' is not assignable to 'float'");
     expect(messages).toContain("Type '[string, int]' is not assignable to '[float, string]'");
-    expect(messages).toContain("Type '(float) -> float' is not assignable to '(float) -> string'");
+    expect(messages).toContain("Type 'float' is not assignable to return type 'string'");
     expect(messages).toContain("field 'value: float'");
   });
 

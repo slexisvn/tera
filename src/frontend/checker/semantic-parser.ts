@@ -6,6 +6,7 @@ import type {
   FunctionNode,
   ForNode,
   InterfaceFieldNode,
+  InterfaceIndexNode,
   InterfaceNode,
   ModelNode,
   ParameterNode,
@@ -25,6 +26,7 @@ type Line = {
 type PositionedNode = ASTNode & {
   __line?: number;
   __column?: number;
+  __raw?: string;
 };
 
 function leadingIndent(line: string): number {
@@ -78,7 +80,10 @@ function sliceType(tokens: Token[]): string {
 function parseExpr(tokens: Token[]): ASTNode {
   const parserTokens = [...tokens, { type: TokenType.EOF, value: "", line: tokens.at(-1)?.line ?? 0, column: tokens.at(-1)?.column ?? 0 }];
   const parser = new Parser(parserTokens);
-  return annotateExpression(parser.parseExpression(), tokens);
+  const expr = parser.parseExpression();
+  while (parser.current().value === ";") parser.advance();
+  if (!parser.isAtEnd()) parser.error(`Unexpected token '${parser.current().value}'`, parser.current());
+  return annotateExpression(expr, tokens);
 }
 
 function parseExprOrNull(tokens: Token[]): ASTNode | null {
@@ -144,7 +149,17 @@ function parseSignature(line: Line, keywordOffset: number): {
   return { name: String(nameToken.value), typeParams: generic.params, params, returns };
 }
 
-function parseInterfaceField(line: Line): InterfaceFieldNode | null {
+function parseInterfaceField(line: Line): InterfaceFieldNode | InterfaceIndexNode | null {
+  if (line.tokens[0]?.value === "[") {
+    const close = findTopLevel(line.tokens, "]");
+    const keyColon = findTopLevel(line.tokens, ":", 1);
+    const valueColon = close >= 0 ? findTopLevel(line.tokens, ":", close + 1) : -1;
+    if (close < 0 || keyColon < 0 || keyColon > close || valueColon < 0) return null;
+    return {
+      keyType: sliceType(line.tokens.slice(keyColon + 1, close)),
+      valueType: sliceType(line.tokens.slice(valueColon + 1)),
+    };
+  }
   let cursor = line.tokens[0]?.value === "readonly" ? 1 : 0;
   const nameToken = line.tokens[cursor];
   if (!nameToken || nameToken.type !== TokenType.Identifier) return null;
@@ -153,6 +168,23 @@ function parseInterfaceField(line: Line): InterfaceFieldNode | null {
   if (optional) cursor++;
   if (line.tokens[cursor]?.value !== ":") return null;
   return { name: String(nameToken.value), optional, type: sliceType(line.tokens.slice(cursor + 1)) };
+}
+
+function parseDestructureNames(tokens: Token[]): { names: string[]; spans: Array<{ line: number; column: number }> } | null {
+  if (tokens.length < 3 || tokens.length % 2 === 0) return null;
+  const names: string[] = [];
+  const spans: Array<{ line: number; column: number }> = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (i % 2 === 1) {
+      if (token.value !== ",") return null;
+      continue;
+    }
+    if (token.type !== TokenType.Identifier) return null;
+    names.push(String(token.value));
+    spans.push({ line: token.line, column: token.column });
+  }
+  return { names, spans };
 }
 
 class SemanticParser {
@@ -204,7 +236,8 @@ class SemanticParser {
     if (first === "model") return this.parseModel(line);
     if (first === "if") return this.parseControlBlock(line, 1);
     if (first === "for") return this.parseFor(line);
-    if (["class", "else", "while", "try", "catch", "finally"].includes(String(first)) || line.tokens.at(-1)?.value === ":") return this.parseControlBlock(line, 1);
+    if (first === "class") return this.parseControlBlock(line, line.tokens.length);
+    if (["else", "while", "try", "catch", "finally"].includes(String(first)) || line.tokens.at(-1)?.value === ":") return this.parseControlBlock(line, 1);
     if (first === "return") return this.parseReturn(line);
     return this.parseSimple(line);
   }
@@ -225,12 +258,14 @@ class SemanticParser {
     const colon = findTopLevel(line.tokens, ":");
     const parents = extendsIndex >= 0 ? splitTopLevel(sliceType(line.tokens.slice(extendsIndex + 1, colon)), ",").map((part) => cleanType(part)) : [];
     const fields: InterfaceFieldNode[] = [];
+    const indexers: InterfaceIndexNode[] = [];
     while (this.index < this.lines.length && this.lines[this.index].indent > line.indent) {
       const field = parseInterfaceField(this.lines[this.index]);
-      if (field) fields.push(field);
+      if (field && "valueType" in field) indexers.push(field);
+      else if (field) fields.push(field);
       this.index++;
     }
-    return { kind: "Interface", name, typeParams: generic.params, parents, fields, span: { line: line.line, column: line.indent + 1 } };
+    return { kind: "Interface", name, typeParams: generic.params, parents, fields, indexers, span: { line: line.line, column: line.indent + 1 } };
   }
 
   parseFunction(line: Line): FunctionNode {
@@ -279,7 +314,12 @@ class SemanticParser {
     }
     const colon = findTopLevel(line.tokens, ":");
     const eq = findTopLevel(line.tokens, "=");
-    if (eq > 0 && line.tokens[0]?.type === TokenType.Identifier) {
+    const destructure = eq > 0 ? parseDestructureNames(line.tokens.slice(0, eq)) : null;
+    if (destructure) {
+      const value = parseExprOrNull(line.tokens.slice(eq + 1));
+      if (value) return { kind: "Destructure", names: destructure.names, value, span: { line: line.line, column: line.indent + 1 }, variableSpans: destructure.spans };
+    }
+    if (eq > 0 && line.tokens[0]?.type === TokenType.Identifier && (eq === 1 || (colon === 1 && colon < eq))) {
       const declaredType = colon > 0 && colon < eq ? sliceType(line.tokens.slice(colon + 1, eq)) : undefined;
       const value = parseExprOrNull(line.tokens.slice(eq + 1));
       if (value) return { kind: "Var", name: String(line.tokens[0].value), declaredType, value, span: { line: line.line, column: line.indent + 1 } };
@@ -329,11 +369,17 @@ function annotateNode(node: ASTNode | null | undefined, tokens: Token[], cursor:
     case "OptionalMemberExpression": {
       annotateNode(node.object as ASTNode, tokens, cursor);
       copySpan(node, node.object as ASTNode);
-      const dot = findNext(tokens, cursor, (tok) => tok.value === "." || tok.value === "?.");
-      if (dot) {
-        cursor.index = tokens.indexOf(dot) + 1;
-        if (typeof node.property === "string") findNext(tokens, cursor, (tok) => tok.value === node.property);
-        else annotateNode(node.property as ASTNode, tokens, cursor);
+      if (node.computed) {
+        findNext(tokens, cursor, (tok) => tok.value === "[");
+        annotateNode(node.property as ASTNode, tokens, cursor);
+        findNext(tokens, cursor, (tok) => tok.value === "]");
+      } else {
+        const dot = findNext(tokens, cursor, (tok) => tok.value === "." || tok.value === "?.");
+        if (dot) {
+          cursor.index = tokens.indexOf(dot) + 1;
+          if (typeof node.property === "string") findNext(tokens, cursor, (tok) => tok.value === node.property);
+          else annotateNode(node.property as ASTNode, tokens, cursor);
+        }
       }
       break;
     }
@@ -365,8 +411,36 @@ function annotateNode(node: ASTNode | null | undefined, tokens: Token[], cursor:
       break;
     case "ObjectExpression":
       markNode(node, findNext(tokens, cursor, (tok) => tok.value === "{"));
-      for (const prop of node.properties as Array<{ value?: ASTNode; argument?: ASTNode }>) {
+      for (const prop of node.properties as Array<{ key?: string | ASTNode; value?: ASTNode; argument?: ASTNode; shorthand?: boolean; spread?: boolean }>) {
+        if (prop.spread) {
+          annotateNode(prop.argument, tokens, cursor);
+          continue;
+        }
+        if (!prop.shorthand && prop.key !== undefined) {
+          if (typeof prop.key === "string") findNext(tokens, cursor, (tok) => tok.value === prop.key);
+          else annotateNode(prop.key, tokens, cursor);
+          findNext(tokens, cursor, (tok) => tok.value === ":");
+        }
         annotateNode(prop.value ?? prop.argument, tokens, cursor);
+      }
+      break;
+    case "IndexExpression":
+      annotateNode(node.object as ASTNode, tokens, cursor);
+      copySpan(node, node.object as ASTNode);
+      findNext(tokens, cursor, (tok) => tok.value === "[");
+      for (const dim of node.dims as ASTNode[]) annotateNode(dim, tokens, cursor);
+      findNext(tokens, cursor, (tok) => tok.value === "]");
+      break;
+    case "IndexElement":
+      if (node.kind === "index") annotateNode(node.value as ASTNode, tokens, cursor);
+      else {
+        annotateNode(node.start as ASTNode | null, tokens, cursor);
+        findNext(tokens, cursor, (tok) => tok.value === ":");
+        annotateNode(node.stop as ASTNode | null, tokens, cursor);
+        if (node.step) {
+          findNext(tokens, cursor, (tok) => tok.value === ":");
+          annotateNode(node.step as ASTNode, tokens, cursor);
+        }
       }
       break;
     case "ConditionalExpression":
@@ -406,6 +480,7 @@ function markNode(node: ASTNode, token: Token | undefined): void {
   const target = node as PositionedNode;
   target.__line = token.line;
   target.__column = token.column;
+  target.__raw = String(token.value);
 }
 
 function copySpan(target: ASTNode, source: ASTNode): void {

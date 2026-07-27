@@ -66,19 +66,30 @@ function isSuppressed(error: AnalyzedError, names: Set<string> | null): boolean 
 export function toDiagnostic(error: AnalyzedError, document: AnalyzedDocument): Diagnostic {
   const line = Math.max(0, error.line - 1);
   const character = Math.max(0, error.column - 1);
+  const span = spanRange(document, error.line, error.column);
   return {
     severity: error.severity === "warning" ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
     range: {
-      start: { line, character },
-      end: spanEnd(document, error.line, error.column) ?? { line, character: character + 1 },
+      start: span?.start ?? { line, character },
+      end: span?.end ?? { line, character: character + 1 },
     },
     message: error.message,
     source: `tera:${error.source}`,
   };
 }
 
-function spanEnd(document: AnalyzedDocument, line: number, column: number) {
-  const token = document.tokens.find((candidate) => candidate.line === line && candidate.column === column);
+function spanRange(document: AnalyzedDocument, line: number, column: number) {
+  const token = document.tokens.find((candidate) => contains(candidate, line, column));
   if (!token) return null;
-  return { line: token.endLine - 1, character: token.endColumn - 1 };
+  return {
+    start: { line: token.line - 1, character: token.column - 1 },
+    end: { line: token.endLine - 1, character: token.endColumn - 1 },
+  };
+}
+
+function contains(token: AnalyzedDocument["tokens"][number], line: number, column: number): boolean {
+  if (line < token.line || line > token.endLine) return false;
+  if (line === token.line && column < token.column) return false;
+  if (line === token.endLine && column >= token.endColumn) return false;
+  return true;
 }

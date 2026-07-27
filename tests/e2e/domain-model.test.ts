@@ -292,7 +292,7 @@ describe("Tera domain builtins and model", () => {
 
   it("uses domain metadata in type checking", () => {
     expect(checkSource("df = DataFrame(a=[1], b=[2])\ndf", "strict")).toEqual([]);
-    expect(checkSource("model Tiny:\n  forward(x):\n    return x\nnet = Tiny()\ncompile(net, input=1)", "strict")).toEqual([]);
+    expect(checkSource("model Tiny:\n  forward(x):\n    return x\nnet = Tiny()\ncompile(net, input=tensor([1]))", "strict")).toEqual([]);
     expect(checkSource("compile(input=1)", "strict").map((d) => d.message).join("\n")).toContain("Missing required argument 'model'");
     expect(checkSource("zscore(window=\"bad\")", "strict").map((d) => d.message).join("\n")).toContain("window: int");
     expect(createDomainBuiltins().zscore.metadata?.params?.[0]?.name).toBe("window");

@@ -273,7 +273,7 @@
     "    hits += 1.0\n",
     "  k += 1\n",
     "acc0 = hits / teY.length\n",
-    "half = (teX.length - teX.length % 2) / 2\n",
+    "half = (teX.length - teX.length % 2) >> 1\n",
     "drops = []\n",
     "fi = 0\n",
     "while fi < 6:\n",

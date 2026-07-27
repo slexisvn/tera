@@ -86,6 +86,14 @@ describe("Parser", () => {
       }
     });
 
+    it("word logical operators normalize to logical nodes", () => {
+      for (const [src, op] of [["a and b", "&&"], ["a or b", "||"]]) {
+        const expr = parseExpr(src);
+        expect(expr.type).toBe(NodeType.LogicalExpression);
+        expect(expr.op).toBe(op);
+      }
+    });
+
     it("nullish coalescing", () => {
       expect(parseExpr("a ?? b").type).toBe(
         NodeType.NullishCoalescingExpression,
@@ -96,7 +104,7 @@ describe("Parser", () => {
   describe("unary expressions", () => {
     it("all unary operators", () => {
       const cases = [
-        ["-x", "-"], ["+x", "+"], ["!x", "!"], ["~x", "~"],
+        ["-x", "-"], ["+x", "+"], ["!x", "!"], ["not x", "!"], ["~x", "~"],
         ["typeof x", "typeof"], ["void 0", "void"], ["delete obj.x", "delete"],
       ];
       for (const [src, op] of cases) {
@@ -930,12 +938,14 @@ describe("Parser", () => {
       expect(expr.type).toBe(NodeType.CallExpression);
       expect(expr.callee.type).toBe(NodeType.Identifier);
       expect(expr.callee.name).toBe("f");
+      expect(expr.callee.typeArgs).toEqual(["T"]);
     });
 
     it("still treats a multi-argument type list as a call", () => {
       const expr = parseExpr("f<A, B>(x)");
       expect(expr.type).toBe(NodeType.CallExpression);
       expect(expr.callee.name).toBe("f");
+      expect(expr.callee.typeArgs).toEqual(["A", "B"]);
     });
   });
 });

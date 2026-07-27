@@ -35,14 +35,6 @@ function tokenizeFragment(source: string, line: number, column: number): Token[]
   return raw.map((tok) => token(tok.type, tok.value, line + tok.line - 1, tok.line === 1 ? column + tok.column - 1 : tok.column));
 }
 
-function mapKeyword(tok: Token): Token {
-  if (tok.type !== TokenType.Keyword) return tok;
-  if (tok.value === "and") return { ...tok, type: TokenType.Punctuator, value: "&&" };
-  if (tok.value === "or") return { ...tok, type: TokenType.Punctuator, value: "||" };
-  if (tok.value === "not") return { ...tok, type: TokenType.Punctuator, value: "!" };
-  return tok;
-}
-
 export function tokenize(source: string): Token[] {
   const out: Token[] = [];
   const indents = [0];
@@ -59,7 +51,7 @@ export function tokenize(source: string): Token[] {
 
     const indent = leadingSpaces(raw);
     const text = raw.slice(indent).trimEnd();
-    const lineTokens = tokenizeFragment(text, lineNo, indent + 1).map(mapKeyword);
+    const lineTokens = tokenizeFragment(text, lineNo, indent + 1);
 
     if (delimiterDepth === 0) {
       if (pendingBlock) {

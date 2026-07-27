@@ -81,7 +81,9 @@ type StatementResult = ASTNode | ASTNode[];
 const PRECEDENCE: Record<string, number> = {
   "??": 1,
   "||": 1,
+  or: 1,
   "&&": 2,
+  and: 2,
   "|": 3,
   "^": 4,
   "&": 5,
@@ -112,6 +114,12 @@ export const MODEL_MARKER = "__model";
 const MODULE_METHODS = ["parameters", "eval", "train", "training", "to", "save", "state_dict", "load_state_dict", "zero_grad"];
 
 const LOGICAL_OPS = new Set(["&&", "||"]);
+
+function canonicalOperator(op: string): string {
+  if (op === "and") return "&&";
+  if (op === "or") return "||";
+  return op;
+}
 
 const TYPE_ARGUMENT_PUNCTUATORS = new Set<TokenValue>([
   "<",
@@ -564,15 +572,31 @@ export class Parser {
     }
   }
 
-  skipGenericParameters(): void {
-    if (!this.match(TokenType.Punctuator, "<")) return;
+  parseGenericArguments(): string[] {
+    if (!this.match(TokenType.Punctuator, "<")) return [];
     let depth = 1;
+    const args: Token[][] = [[]];
     while (depth > 0 && !this.isAtEnd()) {
       const tok = this.advance();
-      if (tok.type !== TokenType.Punctuator) continue;
-      if (tok.value === "<") depth++;
-      else if (tok.value === ">") depth--;
+      if (tok.type !== TokenType.Punctuator) {
+        args[args.length - 1].push(tok);
+      } else if (tok.value === "<") {
+        depth++;
+        args[args.length - 1].push(tok);
+      } else if (tok.value === ">") {
+        depth--;
+        if (depth > 0) args[args.length - 1].push(tok);
+      } else if (tok.value === "," && depth === 1) {
+        args.push([]);
+      } else {
+        args[args.length - 1].push(tok);
+      }
     }
+    return args.map((arg) => arg.map((tok) => String(tok.value)).join(" ").trim()).filter(Boolean);
+  }
+
+  skipGenericParameters(): void {
+    this.parseGenericArguments();
   }
 
   _parseParams(): ParamNode[] {
@@ -1008,7 +1032,7 @@ export class Parser {
 
       if (tok.type === TokenType.Punctuator) {
         if (tok.value === "<" && minPrec <= 12 && this.isGenericCallAhead()) {
-          this.skipGenericParameters();
+          left = { ...left, typeArgs: this.parseGenericArguments() };
           continue;
         }
 
@@ -1107,7 +1131,7 @@ export class Parser {
 
         const prec = typeof tok.value === "string" ? PRECEDENCE[tok.value] : undefined;
         if (prec !== undefined && prec > minPrec) {
-          const op = this.tokenString(tok, "operator");
+          const op = canonicalOperator(this.tokenString(tok, "operator"));
           this.advance();
           const rightPrec = op === "**" ? prec - 1 : prec;
           const right = this.parseExpression(rightPrec);
@@ -1125,10 +1149,10 @@ export class Parser {
       if (tok.type === TokenType.Keyword) {
         const prec = typeof tok.value === "string" ? PRECEDENCE[tok.value] : undefined;
         if (prec !== undefined && prec > minPrec) {
-          const op = this.tokenString(tok, "operator");
+          const op = canonicalOperator(this.tokenString(tok, "operator"));
           this.advance();
           const right = this.parseExpression(prec);
-          left = BinaryExpression(op, left, right);
+          left = LOGICAL_OPS.has(op) ? LogicalExpression(op, left, right) : BinaryExpression(op, left, right);
           continue;
         }
       }
@@ -1198,6 +1222,11 @@ export class Parser {
           this.advance();
           const argument = this.parseExpression(11);
           return UnaryExpression("typeof", argument);
+        }
+        case "not": {
+          this.advance();
+          const argument = this.parseExpression(11);
+          return UnaryExpression("!", argument);
         }
         case "await": {
           this.advance();

@@ -63,8 +63,8 @@ export function buildGrammar(config: {
       { include: "#declarations" },
       { include: "#annotations" },
       { include: "#keywords" },
-      { include: "#types" },
       { include: "#builtins" },
+      { include: "#types" },
       { include: "#calls" },
       { include: "#operators" },
       { include: "#identifiers" },
@@ -232,7 +232,7 @@ function builtinPatterns(builtins: Builtin[]): Pattern[] {
   for (const [kind, names] of byKind) {
     patterns.push({
       name: SCOPE_BY_BUILTIN_KIND[kind] ?? DEFAULT_BUILTIN_SCOPE,
-      match: `\\b(?:${[...names].sort(byLengthDesc).map(escapeRegex).join("|")})\\b`,
+      match: `\\b(?:${[...names].sort(byLengthDesc).map(escapeRegex).join("|")})\\b(?=\\s*(?:\\(|\\.))`,
     });
   }
   return patterns;

@@ -25,12 +25,18 @@ export type InterfaceFieldNode = {
   optional: boolean;
 };
 
+export type InterfaceIndexNode = {
+  keyType: string;
+  valueType: string;
+};
+
 export type InterfaceNode = {
   kind: "Interface";
   name: string;
   typeParams: string[];
   parents: string[];
   fields: InterfaceFieldNode[];
+  indexers: InterfaceIndexNode[];
   span: SourceSpan;
 };
 
@@ -77,6 +83,14 @@ export type VarNode = {
   span: SourceSpan;
 };
 
+export type DestructureNode = {
+  kind: "Destructure";
+  names: string[];
+  value: ASTNode;
+  span: SourceSpan;
+  variableSpans: SourceSpan[];
+};
+
 export type ReturnNode = {
   kind: "Return";
   value?: ASTNode;
@@ -97,6 +111,7 @@ export type SemanticNode =
   | BlockNode
   | ForNode
   | VarNode
+  | DestructureNode
   | ReturnNode
   | ExprNode;
 

@@ -69,6 +69,13 @@
     ],
     "description": "factory: randperm"
   },
+  "scalar": {
+    "prefix": "scalar",
+    "body": [
+      "scalar(${1:value})$0"
+    ],
+    "description": "factory: scalar"
+  },
   "zeros_like": {
     "prefix": "zeros_like",
     "body": [
@@ -296,21 +303,21 @@
   "MSELoss": {
     "prefix": "MSELoss",
     "body": [
-      "MSELoss()"
+      "MSELoss($0)"
     ],
     "description": "module: MSELoss"
   },
   "NLLLoss": {
     "prefix": "NLLLoss",
     "body": [
-      "NLLLoss()"
+      "NLLLoss($0)"
     ],
     "description": "module: NLLLoss"
   },
   "BCELoss": {
     "prefix": "BCELoss",
     "body": [
-      "BCELoss()"
+      "BCELoss($0)"
     ],
     "description": "module: BCELoss"
   },
@@ -436,28 +443,28 @@
   "EarlyStopping": {
     "prefix": "EarlyStopping",
     "body": [
-      "EarlyStopping(${1:monitor})$0"
+      "EarlyStopping($0)"
     ],
     "description": "callback: EarlyStopping"
   },
   "ModelCheckpoint": {
     "prefix": "ModelCheckpoint",
     "body": [
-      "ModelCheckpoint(${1:monitor})$0"
+      "ModelCheckpoint($0)"
     ],
     "description": "callback: ModelCheckpoint"
   },
   "ProgressCallback": {
     "prefix": "ProgressCallback",
     "body": [
-      "ProgressCallback()"
+      "ProgressCallback($0)"
     ],
     "description": "callback: ProgressCallback"
   },
   "LearningRateMonitor": {
     "prefix": "LearningRateMonitor",
     "body": [
-      "LearningRateMonitor()"
+      "LearningRateMonitor($0)"
     ],
     "description": "callback: LearningRateMonitor"
   },
@@ -478,7 +485,7 @@
   "ConsoleLogger": {
     "prefix": "ConsoleLogger",
     "body": [
-      "ConsoleLogger()"
+      "ConsoleLogger($0)"
     ],
     "description": "logger: ConsoleLogger"
   },
@@ -523,13 +530,6 @@
       "ConfusionMatrix(${1:num_classes})$0"
     ],
     "description": "metric: ConfusionMatrix"
-  },
-  "MetricCollection": {
-    "prefix": "MetricCollection",
-    "body": [
-      "MetricCollection($0)"
-    ],
-    "description": "metric: MetricCollection"
   },
   "LinearRegression": {
     "prefix": "LinearRegression",
@@ -583,7 +583,7 @@
   "GaussianNB": {
     "prefix": "GaussianNB",
     "body": [
-      "GaussianNB($0)"
+      "GaussianNB()"
     ],
     "description": "ml_model: GaussianNB"
   },
@@ -642,20 +642,6 @@
       "MinMaxScaler($0)"
     ],
     "description": "ml_transform: MinMaxScaler"
-  },
-  "LabelEncoder": {
-    "prefix": "LabelEncoder",
-    "body": [
-      "LabelEncoder($0)"
-    ],
-    "description": "ml_transform: LabelEncoder"
-  },
-  "OneHotEncoder": {
-    "prefix": "OneHotEncoder",
-    "body": [
-      "OneHotEncoder($0)"
-    ],
-    "description": "ml_transform: OneHotEncoder"
   },
   "PCA": {
     "prefix": "PCA",

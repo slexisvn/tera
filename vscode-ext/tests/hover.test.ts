@@ -43,6 +43,50 @@ describe("hover", () => {
     expect(text).toContain("type: `int[]`");
   });
 
+  it("shows homogeneous array literals as element arrays", () => {
+    const text = hoverText("nums = [3, 1, 4, 1, 5]\nnums", 1, 2);
+    expect(text).toContain("`nums` — *variable*");
+    expect(text).toContain("type: `int[]`");
+  });
+
+  it("shows types inferred through nested indexes", () => {
+    const text = hoverText("matrix = [[1, 2], [3, 4]]\ncell = matrix[0][1]\ncell", 2, 2);
+    expect(text).toContain("`cell` — *variable*");
+    expect(text).toContain("type: `int`");
+  });
+
+  it("shows fn-prefixed returned function types in canonical form", () => {
+    const source = [
+      "fn adder(base: int) -> fn(int) -> int:",
+      "  fn add(x: int) -> int:",
+      "    return base + x",
+      "  return add",
+      "inc = adder(1)",
+      "inc",
+    ].join("\n");
+
+    const text = hoverText(source, 5, 2);
+    expect(text).toContain("`inc` — *variable*");
+    expect(text).toContain("type: `(int) -> int`");
+  });
+
+  it("shows types inferred through callable model fields", () => {
+    const source = [
+      "model Bot(vocab: int, dim: int, hidden: int):",
+      "  embed = Embedding(vocab, dim)",
+      "  encoder = GRU(dim, hidden, 1, true)",
+      "",
+      "fn encode(m: Bot, ids: Tensor) -> Tensor:",
+      "  emb = m.embed(ids)",
+      "  enc, state = m.encoder(emb)",
+      "  enc",
+    ].join("\n");
+
+    const text = hoverText(source, 7, 2);
+    expect(text).toContain("`enc` — *variable*");
+    expect(text).toContain("type: `Tensor`");
+  });
+
   it("does not expose model constructor parameters as model fields", () => {
     const source = [
       "model ChatBotLarge(vocab_size: string, embed_size: int):",

@@ -4,7 +4,11 @@ num_layers = 4
 max_epochs = 10
 batch_size = 64
 
-train_rows = load_csv("examples/chat_train.csv").to_array()
+interface ChatRow:
+  question: string
+  answer: string
+
+train_rows: ChatRow[] = load_csv("examples/chat_train.csv").to_array<ChatRow>()
 
 train_q_text = [r.question for r in train_rows]
 train_a_text = [r.answer for r in train_rows]
@@ -16,14 +20,14 @@ tok.save("examples/chatbot.tok")
 
 questions = tok.encode_batch(train_q_text)
 
-ans_ids = [tok.encode(a) for a in train_a_text]
+ans_ids = [tok.encode(a) for a of train_a_text]
 ans_len = 0
 for ids of ans_ids:
   if ids.length + 1 > ans_len:
     ans_len = ids.length + 1
 
-din_rows = []
-dout_rows = []
+din_rows: int[][] = []
+dout_rows: int[][] = []
 for ids of ans_ids:
   din = [tok.bos_id].concat(ids)
   dout = ids.slice()
@@ -66,16 +70,11 @@ model ChatBotLarge(vocab_size: int, embed_size: int, hidden_size: int, layers: i
     logits = head(flat)
     vocab = logits.shape[1]
     logits3d = logits.reshape([bsz, out_len, vocab])
-    total = null
-    started = false
+    total = tensor(0.0)
     for t of range(out_len):
       step_logits = logits3d.select(1, t)
       step_loss = loss_fn(step_logits, dout.select(1, t))
-      if started:
-        total = total + step_loss
-      else:
-        total = step_loss
-        started = true
+      total = total + step_loss
     loss = total / bsz
     log("train_loss", loss, prog_bar=true)
     return loss
@@ -95,7 +94,7 @@ fn reply(m: ChatBotLarge, tok: Tokenizer, prompt: string, max_len: int) -> strin
   query = tensor([ids], dtype="i32")
   enc, state = m.encoder(m.embed(query))
   last = tok.bos_id
-  out_ids = []
+  out_ids: int[] = []
   for step of range(max_len):
     emb = m.embed(tensor([last], dtype="i32"))
     emb_t = emb.reshape([1, 1, emb.shape[1]])

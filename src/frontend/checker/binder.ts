@@ -4,7 +4,6 @@ import {
   cleanType,
   createTypeEnv,
   instantiateShapeForType,
-  parseFunctionType,
   type Binding,
   type ObjectShape,
   type Signature,
@@ -14,13 +13,13 @@ import {
 export type Scope = {
   parent: Scope | null;
   locals: Map<string, Binding>;
+  signatures: Map<string, Signature>;
   signature?: Signature;
 };
 
 export type BoundProgram = {
   program: SemanticProgram;
   env: TypeEnv;
-  signatures: Map<string, Signature>;
   root: Scope;
   scopes: WeakMap<SemanticNode, Scope>;
 };
@@ -48,28 +47,39 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
       const parentShape = instantiateShapeForType(parent, bound.env);
       if (!parentShape) continue;
       for (const [name, binding] of parentShape.fields) shape.fields.set(name, binding);
+      if (parentShape.indexers?.length) shape.indexers = [...(shape.indexers ?? []), ...parentShape.indexers];
     }
     for (const field of node.fields) {
       shape.fields.set(field.name, { type: cleanType(field.type), optional: field.optional });
+    }
+    if (node.indexers.length) {
+      shape.indexers = [
+        ...(shape.indexers ?? []),
+        ...node.indexers.map((indexer) => ({ keyType: cleanType(indexer.keyType), valueType: cleanType(indexer.valueType) })),
+      ];
     }
     bound.env.interfaces.set(node.name, shape);
     return;
   }
   if (node.kind === "Function") {
     const sig = signatureFromParams(node.name, node.typeParams, node.params, node.returns);
-    bound.signatures.set(node.name, sig);
+    scope.signatures.set(node.name, sig);
     const child = createScope(scope, sig);
     bound.scopes.set(node, child);
-    for (const [name, binding] of sig.params) child.locals.set(name, binding);
+    for (const [name, binding] of sig.params) child.locals.set(name, { ...binding, declared: true });
     for (const stmt of node.body) bindNode(stmt, bound, child);
     return;
   }
   if (node.kind === "Model") {
     const sig = signatureFromParams(node.name, [], node.params, node.name);
-    bound.signatures.set(node.name, sig);
+    scope.signatures.set(node.name, sig);
+    bound.env.nominalFamilies.set(node.name, "Module");
+    const forward = modelForwardSignature(node);
+    if (forward) bound.env.modelForwards.set(node.name, { ...forward, name: node.name });
     const child = createScope(scope, sig);
     bound.scopes.set(node, child);
-    for (const [name, binding] of sig.params) child.locals.set(name, binding);
+    child.locals.set(node.name, { type: node.name, optional: false });
+    for (const [name, binding] of sig.params) child.locals.set(name, { ...binding, declared: true });
     const section = createScope(child, signatureFromParams(node.name, [], [], "any"));
     for (const stmt of node.body) bindNode(stmt, bound, isModelSection(stmt) ? section : child);
     return;
@@ -88,10 +98,7 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
     return;
   }
   if (node.kind === "Var") {
-    const type = cleanType(node.declaredType) || "any";
-    scope.locals.set(node.name, { type, optional: false });
-    const callable = parseFunctionType(type);
-    if (callable) bound.signatures.set(node.name, { ...callable, name: node.name });
+    return;
   }
 }
 
@@ -99,16 +106,21 @@ function isModelSection(node: SemanticNode): boolean {
   return node.kind === "Block" && node.test === undefined;
 }
 
+function modelForwardSignature(node: Extract<SemanticNode, { kind: "Model" }>): Signature | null {
+  const forward = node.body.find((stmt): stmt is Extract<SemanticNode, { kind: "Function" }> => stmt.kind === "Function" && stmt.name === "forward");
+  return forward ? signatureFromParams(node.name, forward.typeParams, forward.params, forward.returns) : null;
+}
+
 function createScope(parent: Scope | null, signature?: Signature): Scope {
-  return { parent, locals: new Map(), signature };
+  return { parent, locals: new Map(), signatures: new Map(), signature };
 }
 
 export function bindProgram(program: SemanticProgram): BoundProgram {
   const root = createScope(null);
+  for (const [name, sig] of BUILTIN_SIGNATURES) root.signatures.set(name, sig);
   const bound: BoundProgram = {
     program,
     env: createTypeEnv(),
-    signatures: new Map(BUILTIN_SIGNATURES),
     root,
     scopes: new WeakMap(),
   };
@@ -121,6 +133,16 @@ export function lookup(scope: Scope, name: string): Binding | undefined {
   while (current) {
     const binding = current.locals.get(name);
     if (binding) return binding;
+    current = current.parent;
+  }
+  return undefined;
+}
+
+export function lookupSignature(scope: Scope, name: string): Signature | undefined {
+  let current: Scope | null = scope;
+  while (current) {
+    const signature = current.signatures.get(name);
+    if (signature) return signature;
     current = current.parent;
   }
   return undefined;

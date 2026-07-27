@@ -10,6 +10,7 @@ const PATTERNS = {
   method: new RegExp(`^(${IDENT})\\s*\\(([^)]*)\\)\\s*(?:->\\s*[^:]+)?\\s*:`),
   blockMethod: new RegExp(`^(${IDENT})\\s*:\\s*$`),
   forEach: new RegExp(`^for\\s+(${IDENT})\\s+(of|in)\\s+(.+):\\s*$`),
+  destructuredVariable: new RegExp(`^(${IDENT}(?:\\s*,\\s*${IDENT})+)\\s*=\\s*(.+)$`),
   variable: new RegExp(`^(${IDENT})\\s*(?::\\s*([^=]+))?\\s*=\\s*(.+)$`),
   field: new RegExp(`^this\\.(${IDENT})\\s*(?::\\s*([^=]+))?\\s*=\\s*(.+)$`),
   param: new RegExp(`^(${IDENT})(?:\\s*:\\s*([^=]+?))?(?:\\s*=.*)?$`),
@@ -90,6 +91,14 @@ export function buildSymbolTable(lines: string[], env: BuiltinEnv, inferredTypes
     const loop = line.match(PATTERNS.forEach);
     if (loop) {
       addSymbol(scope, loop[1], "variable", lineNo, column + line.indexOf(loop[1]) + 1, inferredType(loop[1], lineNo));
+      continue;
+    }
+
+    const destructured = line.match(PATTERNS.destructuredVariable);
+    if (destructured) {
+      for (const name of destructured[1].split(",").map((part) => part.trim())) {
+        addSymbol(scope, name, "variable", lineNo, column + line.indexOf(name) + 1, inferredType(name, lineNo));
+      }
       continue;
     }
 
