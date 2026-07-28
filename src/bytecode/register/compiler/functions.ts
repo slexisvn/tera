@@ -254,6 +254,7 @@ export const functionMethods: FunctionMethodMap = {
       paramCount,
     );
     innerFunc.isAsync = !!node.async;
+    innerFunc.explicitAsync = !!node.explicitAsync;
     innerFunc.isGenerator = !!node.generator;
     if (this._nextFunctionIsClassConstructor) {
       innerFunc.isClassConstructor = true;
@@ -319,6 +320,7 @@ export const functionMethods: FunctionMethodMap = {
     ).length;
     const innerFunc: FunctionCompiledFunction = new bytecode.RegisterCompiledFunction(name, paramCount);
     innerFunc.isAsync = !!node.async;
+    innerFunc.explicitAsync = !!node.explicitAsync;
     innerFunc.isGenerator = !!node.generator;
     const innerScope = new Scope(outerScope);
     innerScope.isFunctionBoundary = true;
@@ -376,6 +378,7 @@ export const functionMethods: FunctionMethodMap = {
     );
     innerFunc.isArrow = true;
     innerFunc.isAsync = !!node.async;
+    innerFunc.explicitAsync = !!node.explicitAsync;
     const innerScope = new Scope(outerScope);
     innerScope.isFunctionBoundary = true;
 
@@ -425,6 +428,7 @@ export const functionMethods: FunctionMethodMap = {
     );
     innerFunc.isLazy = true;
     innerFunc.isAsync = !!node.async;
+    innerFunc.explicitAsync = !!node.explicitAsync;
     innerFunc.lazySource = node.source ?? null;
     innerFunc.lazyBodyStart = node.bodyStart ?? 0;
     innerFunc.lazyBodyEnd = node.bodyEnd ?? 0;

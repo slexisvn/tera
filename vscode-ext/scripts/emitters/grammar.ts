@@ -75,7 +75,7 @@ export function buildGrammar(config: {
       regex: { patterns: regexPatterns() },
       numbers: { patterns: numberPatterns() },
       declarations: { patterns: declarationPatterns(config.keywordGroups) },
-      annotations: { patterns: annotationPatterns(config.keywordGroups) },
+      annotations: { patterns: annotationPatterns(config.keywordGroups, config.types) },
       keywords: { patterns: keywordPatterns(config.keywordGroups) },
       types: { patterns: typePatterns(config.types) },
       builtins: { patterns: builtinPatterns(config.builtins) },
@@ -195,9 +195,17 @@ function declarationPatterns(groups: Record<KeywordGroup, string[]>): Pattern[] 
   return patterns;
 }
 
-function annotationPatterns(groups: Record<KeywordGroup, string[]>): Pattern[] {
-  const keywords = Object.values(groups).flat().sort(byLengthDesc).join("|");
+function annotationPatterns(groups: Record<KeywordGroup, string[]>, types: string[]): Pattern[] {
+  const typeAlternation = [...types].sort(byLengthDesc).map(escapeRegex).join("|");
+  const keywords = Object.values(groups).flat().filter((keyword) => !types.includes(keyword)).sort(byLengthDesc).map(escapeRegex).join("|");
   return [
+    ...(typeAlternation ? [{
+      match: `(->)\\s*(${typeAlternation})\\b`,
+      captures: {
+        1: { name: "keyword.operator.arrow.tera" },
+        2: { name: "storage.type.tera" },
+      },
+    }] : []),
     {
       match: `(->)\\s*(?!(?:${keywords})\\b)(${IDENT})`,
       captures: {

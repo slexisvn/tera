@@ -60,7 +60,6 @@ export const KEYWORDS = new Set([
   "await",
   "yield",
   "delete",
-  "void",
   "fn",
   "model",
   "and",

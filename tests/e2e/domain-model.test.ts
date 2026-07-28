@@ -242,6 +242,50 @@ describe("Tera domain builtins and model", () => {
     expect(String(run(`${model}\ncompile(net, input=randn([3, 2]))(randn([3, 2])).to_string()`))).toContain("Tensor(shape=[3, 1]");
   });
 
+  it("returns generated source text from the compile source option", () => {
+    const model = [
+      "model Tiny(input: int, output: int):",
+      "  fc = Linear(input, output)",
+      "  forward(x: Tensor) -> Tensor:",
+      "    return fc(x)",
+      "net = Tiny(2, 1)",
+    ].join("\n");
+    expect(String(native(`${model}\ncompile(net, input=randn([3, 2]), source=true)`))).toContain("function TeraModel");
+  });
+
+  it("supports explicit compile targets", () => {
+    const model = [
+      "model Tiny(input: int, output: int):",
+      "  fc = Linear(input, output)",
+      "  forward(x: Tensor) -> Tensor:",
+      "    return fc(x)",
+      "net = Tiny(2, 1)",
+    ].join("\n");
+    for (const target of ["cpu", "webgpu", "cuda", "wasm"]) {
+      const result = native(`${model}\ncompile(net, input=randn([3, 2]), source=true, target="${target}")`);
+      expect(typeof result).toBe("string");
+      expect(String(result).length).toBeGreaterThan(0);
+    }
+    expect(String(native(`${model}\ncompile(net, input=randn([3, 2]), source=true, options={ target: "cpu" })`))).toContain("function TeraModel");
+    expect(checkSource(`${model}\ncompile(net, input=randn([3, 2]), target="cpu")`, "strict")).toEqual([]);
+    expect(() => native(`${model}\ncompile(net, input=randn([3, 2]), source=true, target="gpu")`)).toThrow("Unsupported compile target 'gpu'");
+  });
+
+  it("formats compiled Tera models consistently for print and template strings", () => {
+    const model = [
+      "model Tiny(input: int, output: int):",
+      "  fc = Linear(input, output)",
+      "  forward(x: Tensor) -> Tensor:",
+      "    return fc(x)",
+      "net = Tiny(2, 1)",
+    ].join("\n");
+    const out: string[] = [];
+    new Engine({ output: (text: unknown) => out.push(String(text)) })
+      .runNative(`${model}\nprint(compile(net, input=randn([3, 2])))`);
+    expect(out.join("\n")).toContain("Tiny(");
+    expect(String(native(`${model}\ns = \`\${compile(net, input=randn([3, 2]))}\`\ns`))).toContain("Tiny(");
+  });
+
   describe("tensor slicing", () => {
     const setup = "m = tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])\n";
     const sliced = (expr: string) => {

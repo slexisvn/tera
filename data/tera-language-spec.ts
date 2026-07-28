@@ -37,6 +37,7 @@ export type TeraOperators = {
 };
 
 export type TeraPseudoTypeSpec = {
+  typeParams?: string[];
   methods: TeraMethodSpec[];
 };
 
@@ -243,7 +244,9 @@ export const TERA_KEYWORD_GROUPS = {
     "let",
     "const",
     "var",
-    "extends"
+    "extends",
+    "get",
+    "set"
   ],
   "control": [
     "if",
@@ -274,7 +277,6 @@ export const TERA_KEYWORD_GROUPS = {
     "instanceof",
     "typeof",
     "delete",
-    "void",
     "new"
   ],
   "constant": [
@@ -292,6 +294,8 @@ export const TERA_KEYWORD_GROUPS = {
 export const TERA_PRIMITIVE_TYPES = [
   "any",
   "unknown",
+  "undefined",
+  "void",
   "int",
   "float",
   "string",
@@ -322,6 +326,9 @@ export const TERA_PRIMITIVE_TYPES = [
   "Trainer"
 ];
 
+export const TERA_COMPILE_TARGETS = ["cpu", "webgpu", "cuda", "wasm"] as const;
+export type TeraCompileTarget = typeof TERA_COMPILE_TARGETS[number];
+
 export const TERA_ASYNC_DOMAIN_TYPES = [
   "DataFrame",
   "Trainer"
@@ -349,6 +356,7 @@ export const TERA_BUILTIN_ALIASES = {
   "TensorData": { "type": "TensorDataInput" },
   "DynamicShapeSpec": { "type": "bool | Set | null | undefined" },
   "DynamicShapes": { "type": "DynamicShapeSpec[] | null" },
+  "CompileTarget": { "type": "string" },
   "NumericElementInput": { "type": "Tensor | NumericScalar" },
   "NumericArrayInput": { "type": "Tensor | NumericScalar[]" },
   "NumericVectorInput": { "type": "Tensor | NumericScalar | NumericScalar[]" },
@@ -413,7 +421,8 @@ export const TERA_BUILTIN_INTERFACES = {
       "shapeBuckets": field("int[][][]", true),
       "shape_buckets": field("int[][][]", true),
       "backward": field("unknown", true),
-      "target": field("unknown", true),
+      "target": field("CompileTarget", true),
+      "source": field("bool", true),
       "rematPolicy": field("unknown", true),
       "remat_policy": field("unknown", true),
       "remat": field("ParamGrid", true)
@@ -1045,6 +1054,8 @@ export const TERA_BUILTINS = {
       namedOptionalParam("input", "Tensor | Tensor[]"),
       namedOptionalParam("example_inputs", "Tensor[]"),
       namedOptionalParam("exampleInputs", "Tensor[]"),
+      namedOptionalParam("target", "CompileTarget"),
+      namedOptionalParam("source", "bool"),
       namedOptionalParam("options", "CompileOptions")
     ]
   },
@@ -4584,20 +4595,21 @@ export const TERA_PSEUDO_TYPES = {
     ]
   },
   "Promise": {
+    "typeParams": ["T"],
     "methods": [
-      { "name": "then", "params": [param("on_fulfilled", "any"), optionalParam("on_rejected", "any")], "returns": "Promise" },
-      { "name": "catch", "params": [param("on_rejected", "any")], "returns": "Promise" },
-      { "name": "finally", "params": [param("on_finally", "any")], "returns": "Promise" }
+      { "name": "then", "typeParams": ["U"], "params": [param("on_fulfilled", "(T) -> U"), optionalParam("on_rejected", "(any) -> U")], "returns": "Promise<U>" },
+      { "name": "catch", "typeParams": ["U"], "params": [param("on_rejected", "(any) -> U")], "returns": "Promise<T | U>" },
+      { "name": "finally", "params": [param("on_finally", "() -> any")], "returns": "Promise<T>" }
     ]
   },
   "PromiseConstructor": {
     "methods": [
-      { "name": "resolve", "params": [optionalParam("value", "any")], "returns": "Promise" },
-      { "name": "reject", "params": [optionalParam("reason", "any")], "returns": "Promise" },
-      { "name": "all", "params": [param("values", "any")], "returns": "Promise" },
-      { "name": "all_settled", "params": [param("values", "any")], "returns": "Promise" },
-      { "name": "race", "params": [param("values", "any")], "returns": "Promise" },
-      { "name": "any", "params": [param("values", "any")], "returns": "Promise" }
+      { "name": "resolve", "typeParams": ["T"], "params": [optionalParam("value", "T")], "returns": "Promise<T>" },
+      { "name": "reject", "typeParams": ["T"], "params": [optionalParam("reason", "any")], "returns": "Promise<T>" },
+      { "name": "all", "typeParams": ["T"], "params": [param("values", "Promise<T>[]")], "returns": "Promise<T[]>" },
+      { "name": "all_settled", "typeParams": ["T"], "params": [param("values", "Promise<T>[]")], "returns": "Promise<T[]>" },
+      { "name": "race", "typeParams": ["T"], "params": [param("values", "Promise<T>[]")], "returns": "Promise<T>" },
+      { "name": "any", "typeParams": ["T"], "params": [param("values", "Promise<T>[]")], "returns": "Promise<T>" }
     ]
   },
   "ObjectConstructor": {

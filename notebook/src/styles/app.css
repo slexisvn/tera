@@ -738,6 +738,23 @@ body.docs-closed .docs-panel {
   font-size: 12px;
   white-space: pre-wrap;
 }
+.cm-tera-hover-diagnostics {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-family: var(--code-font);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.cm-tera-hover-diagnostic + .cm-tera-hover-diagnostic {
+  margin-top: 5px;
+}
+.cm-tera-hover-diagnostic.error {
+  color: var(--error);
+}
+.cm-tera-hover-diagnostic.warning {
+  color: #b58900;
+}
 
 .hint {
   position: fixed;

@@ -3,12 +3,6 @@ export const THEME_KEY = "tera-notebook-theme";
 export const DF_PAGE_SIZE = 25;
 export const CSV_BATCH_ROWS = 16384;
 
-export const KEYWORDS = [
-  "model", "forward", "train", "validate", "optimizer", "return", "fn",
-  "if", "else", "for", "in", "while", "break", "continue",
-  "and", "or", "not", "true", "false", "null",
-];
-
 export const SEED_CELLS = [
   `a = tensor([[1, 2], [3, 4]])\nb = tensor([[5, 6], [7, 8]])\na @ b`,
   `x = randn([3, 4])\nprint(x.shape)\nx.relu().mean()`,

@@ -1,4 +1,5 @@
 import type { Hover, HoverParams } from "vscode-languageserver/node.js";
+import { isStringLiteralTextPosition } from "../../../../src/frontend/index.ts";
 import type { AnalyzedDocument } from "../analyzer/index.ts";
 import { wordRangeAt } from "../analyzer/position.ts";
 import { isMemberAccess, resolveReceiverType } from "../language/members.ts";
@@ -22,6 +23,7 @@ export default defineProvider({
 export function computeHover(context: ProviderContext, params: HoverParams): Hover | null {
   const document = context.analyzer.get(params.textDocument.uri);
   if (!document) return null;
+  if (isStringLiteralTextPosition(document.text, params.position)) return null;
 
   const word = wordRangeAt(document.lines, params.position);
   if (!word) return null;

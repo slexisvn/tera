@@ -16,7 +16,7 @@ import { snakeToCamel } from "../../utils/naming.js";
 import { camelOptions, resolveDevice, splitOptions, type NativeFn } from "./common.js";
 import { MODEL_MARKER } from "../../frontend/parser/index.js";
 import { bindModelBridge, nativeToTagged, optionsArg, taggedToNative } from "./host.js";
-import { TERA_BUILTINS } from "../../../data/tera-language-spec.js";
+import { TERA_BUILTINS, TERA_COMPILE_TARGETS } from "../../../data/tera-language-spec.js";
 import { runtimeBuiltinMetadataFromSpec } from "../../utils/language-spec-runtime.js";
 
 type InterpreterLike = {
@@ -31,6 +31,13 @@ const domainBuiltins = runtimeBuiltinMetadataFromSpec(TERA_BUILTINS);
 
 const bridges = new WeakMap<object, unknown>();
 const activeBridges: unknown[] = [];
+const TARGETS = {
+  cpu: mlfw.CPUTarget,
+  cuda: mlfw.CUDATarget,
+  wasm: mlfw.WasmTarget,
+  webgpu: mlfw.WebGPUTarget,
+} satisfies Record<(typeof TERA_COMPILE_TARGETS)[number], () => unknown>;
+const TARGET_NAMES = new Set<string>(TERA_COMPILE_TARGETS);
 
 function teraFunction(model: TaggedValue, name: string, interpreter: InterpreterLike): TaggedValue | null {
   if (!isObject(model)) return null;
@@ -103,8 +110,15 @@ function createBridge(model: TaggedValue, interpreter: InterpreterLike): unknown
   return bridge;
 }
 
+function ensureModelDisplay(model: TaggedValue, interpreter: InterpreterLike): void {
+  if (!isObject(model)) return;
+  const object = getPayload(model) as JSObject;
+  object._display ??= () => String(modelBridge(model, interpreter));
+}
+
 export function modelBridge(model: TaggedValue, interpreter: InterpreterLike): unknown {
   const object = getPayload(model) as object;
+  ensureModelDisplay(model, interpreter);
   const cached = bridges.get(object);
   if (cached) return cached;
   const bridge = createBridge(model, interpreter);
@@ -125,6 +139,39 @@ function logMetric(...args: unknown[]): unknown {
   return bridge.log(String(values[0]), value, camelOptions(options));
 }
 
+function normalizeExampleInputs(value: unknown): unknown[] | undefined {
+  if (value === undefined) return undefined;
+  return Array.isArray(value) ? value : [value];
+}
+
+function resolveTarget(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  if (!TARGET_NAMES.has(value)) {
+    throw new Error(`Unsupported compile target '${value}'. Expected one of: ${TERA_COMPILE_TARGETS.join(", ")}`);
+  }
+  return TARGETS[value as keyof typeof TARGETS]();
+}
+
+function compileOptions(options: Record<string, unknown>): Record<string, unknown> {
+  const out = camelOptions(options);
+  delete out.input;
+  delete out.exampleInputs;
+  delete out.options;
+  delete out.source;
+  if ("target" in out) out.target = resolveTarget(out.target);
+  return out;
+}
+
+type CompiledForwardLike = {
+  _ready?: Promise<void> | null;
+  source?: () => string | null;
+};
+
+function compiledSource(compiled: CompiledForwardLike): string | Promise<string> {
+  const read = () => compiled.source?.() ?? "";
+  return compiled._ready ? compiled._ready.then(read) : read();
+}
+
 export function createModelBuiltins(): BuiltinMap {
   return {
     compile: {
@@ -132,11 +179,29 @@ export function createModelBuiltins(): BuiltinMap {
       metadata: domainBuiltins.compile,
       call(args: TaggedValue[], _this: TaggedValue, interpreter: InterpreterLike) {
         const model = args[0] ?? mkUndefined();
-        const options = optionsArg(args[args.length - 1] === undefined ? undefined : taggedToNative(args[args.length - 1]!));
-        const input = "input" in options ? nativeToTagged(options.input) : args.length > 1 ? args[1] : undefined;
+        const nativeArgs = args.map((arg) => taggedToNative(arg));
+        const { values, options: namedOptions } = splitOptions(nativeArgs);
+        const nestedOptions = optionsArg(namedOptions.options);
+        const options = { ...nestedOptions, ...namedOptions };
+        const positionalInput = values.length > 1 ? values[1] : undefined;
+        const exampleInputs = normalizeExampleInputs(
+          options.example_inputs ?? options.exampleInputs ?? options.input ?? positionalInput,
+        );
+        const input = exampleInputs?.[0] !== undefined ? nativeToTagged(exampleInputs[0]) : undefined;
         if (input !== undefined && isObject(model)) {
           const forward = runtimeGetProperty(model, "forward", interpreter);
           if (isFunction(forward)) interpreter.callFunctionValue(forward, [input], model);
+        }
+        if (isObject(model)) {
+          ensureModelDisplay(model, interpreter);
+        }
+        if (options.source === true && isObject(model)) {
+          const compiled = mlfw.compile(
+            modelBridge(model, interpreter) as Parameters<typeof mlfw.compile>[0],
+            exampleInputs as Parameters<typeof mlfw.compile>[1],
+            compileOptions(options),
+          ) as CompiledForwardLike;
+          return nativeToTagged(compiledSource(compiled));
         }
         return model;
       },

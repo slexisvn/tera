@@ -164,6 +164,12 @@ describe("Lexer", () => {
         expect(tok.value).toBe(kw);
       }
     });
+
+    it("treats void as a type identifier, not an operator keyword", () => {
+      const tok = tokenize("void")[0];
+      expect(tok.type).toBe(TokenType.Identifier);
+      expect(tok.value).toBe("void");
+    });
   });
 
   describe("punctuators", () => {

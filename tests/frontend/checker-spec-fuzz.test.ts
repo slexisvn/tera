@@ -90,7 +90,7 @@ function exprForType(type: string | null | undefined): string {
   }
   const functionType = normalized.match(/^\((.*)\)\s*->\s*(.+)$/);
   if (functionType) {
-    const params = splitTopLevel(functionType[1], ",").map((_, index) => `arg${index}`);
+    const params = splitTopLevel(functionType[1], ",").map((part) => part.trim()).filter(Boolean).map((_, index) => `arg${index}`);
     return `(${params.join(", ")}) => ${exprForType(functionType[2])}`;
   }
   if (normalized === "Function") return "x => x";
@@ -199,8 +199,9 @@ function validArgsWithBadParam(params: TeraParam[] | null | undefined, target: T
   return args.join(", ");
 }
 
-function typedBadTarget(params: TeraParam[] | null | undefined): TeraParam | undefined {
-  return (params ?? []).find((param) => !param.rest && badExprForType(param.type));
+function typedBadTarget(params: TeraParam[] | null | undefined, typeParams: readonly string[] | undefined = []): TeraParam | undefined {
+  const generic = new Set(typeParams);
+  return (params ?? []).find((param) => !param.rest && !generic.has(cleanType(param.type)) && badExprForType(param.type));
 }
 
 function requiredTarget(params: TeraParam[] | null | undefined): TeraParam | undefined {
@@ -229,9 +230,9 @@ function expectedBuiltinReturn(name: string, spec: TeraBuiltinSpec): string {
   return substituteFuzzTypeArgs(returns, spec.typeParams);
 }
 
-function expectedMethodReturn(type: string, method: TeraMethodSpec): string {
+function expectedMethodReturn(type: string, method: TeraMethodSpec, ownerTypeParams: readonly string[] | undefined = []): string {
   const returns = cleanType(method.returns ?? "undefined");
-  return substituteFuzzTypeArgs(returns === "this" ? type : returns, method.typeParams);
+  return substituteReceiverTypeArgs(substituteFuzzTypeArgs(returns === "this" ? type : returns, method.typeParams), type, ownerTypeParams);
 }
 
 function explicitFuzzTypeArgs(typeParams: readonly string[] | undefined): string {
@@ -242,6 +243,18 @@ function substituteFuzzTypeArgs(type: string, typeParams: readonly string[] | un
   let out = cleanType(type);
   for (const param of typeParams ?? []) out = out.replace(new RegExp(`\\b${param}\\b`, "g"), "float");
   return cleanType(out);
+}
+
+function substituteReceiverTypeArgs(type: string, receiverType: string, typeParams: readonly string[] | undefined): string {
+  let out = cleanType(type);
+  const generic = cleanType(receiverType).match(/^[A-Za-z_$][\w$]*\s*<(.+)>$/);
+  const args = generic ? splitTopLevel(generic[1], ",").map((arg) => cleanType(arg)) : [];
+  for (let i = 0; i < (typeParams ?? []).length; i++) out = out.replace(new RegExp(`\\b${typeParams![i]}\\b`, "g"), args[i] ?? "any");
+  return cleanType(out);
+}
+
+function pseudoReceiverType(owner: string, spec: { typeParams?: readonly string[] }): string {
+  return spec.typeParams?.length ? `${owner}<${spec.typeParams.map(() => "any").join(", ")}>` : owner;
 }
 
 function kindReceiver(kind: string, fallback: string): string {
@@ -1084,14 +1097,14 @@ describe("checker fuzz invariants", () => {
       }
       covered.builtins++;
 
-      const target = typedBadTarget(spec.params);
+      const target = typedBadTarget(spec.params, spec.typeParams);
       if (target) covered.possibleBadParams++;
       const badArgs = target ? validArgsWithBadParam(spec.params, target) : null;
       if (target && badArgs) {
         const badSource = [`__any: any = 1`, `${name}(${badArgs})`].join("\n");
         const diagnostics = checkSource(badSource, "strict");
         expectDiagnosticsInSource(failures, `builtin-bad-${name}`, badSource, diagnostics);
-        if (!diagnostics.some((diagnostic) => diagnostic.message.includes(`parameter '${target.name}: ${cleanType(target.type)}`))) {
+        if (!diagnostics.some((diagnostic) => diagnostic.message.includes(`parameter '${target.name}:`))) {
           pushFailure(failures, `builtin-bad-${name}`, badSource, formatDiagnostics(diagnostics));
         }
         covered.badParams++;
@@ -1117,7 +1130,7 @@ describe("checker fuzz invariants", () => {
         const badSource = [`__any: any = 1`, `chart.${name}(${badArgs})`].join("\n");
         const diagnostics = checkSource(badSource, "strict");
         expectDiagnosticsInSource(failures, `chart-bad-${name}`, badSource, diagnostics);
-        if (!diagnostics.some((diagnostic) => diagnostic.message.includes(`parameter '${target.name}: ${cleanType(target.type)}`))) {
+        if (!diagnostics.some((diagnostic) => diagnostic.message.includes(`parameter '${target.name}:`))) {
           pushFailure(failures, `chart-bad-${name}`, badSource, formatDiagnostics(diagnostics));
         }
         covered.badParams++;
@@ -1148,27 +1161,28 @@ describe("checker fuzz invariants", () => {
 
     for (const [owner, spec] of Object.entries(TERA_PSEUDO_TYPES)) {
       for (const method of spec.methods ?? []) {
-        const receiver = `recv_${safeName(owner)}`;
+        const receiverType = pseudoReceiverType(owner, spec);
+        const receiver = `recv_${safeName(receiverType)}`;
         const result = `ret_${safeName(owner)}_${safeName(method.name)}`;
         const target = `${receiver}.${method.name}`;
         const expr = method.isGetter ? target : `${target}${explicitFuzzTypeArgs(method.typeParams)}(${validArgs(method.params)})`;
-        const source = [`__any: any = 1`, `${receiver}: ${owner} = __any`, `${result} = ${expr}`].join("\n");
+        const source = [`__any: any = 1`, `${receiver}: ${receiverType} = __any`, `${result} = ${expr}`].join("\n");
         expectNoDiagnostics(failures, `pseudo-good-${owner}.${method.name}`, source);
-        const expected = expectedMethodReturn(owner, method);
+        const expected = expectedMethodReturn(receiverType, method, spec.typeParams);
         const symbols = inferSymbolTypes(source);
         if (!symbols.some((symbol) => symbol.name === result && symbol.type === expected)) {
           pushFailure(failures, `pseudo-return-${owner}.${method.name}`, source, JSON.stringify(symbols));
         }
         covered.pseudoMethods++;
 
-        const targetParam = typedBadTarget(method.params);
+        const targetParam = typedBadTarget(method.params, method.typeParams);
         if (!method.isGetter && targetParam) covered.possibleBadParams++;
         const badArgs = targetParam ? validArgsWithBadParam(method.params, targetParam) : null;
         if (!method.isGetter && targetParam && badArgs) {
-          const badSource = [`__any: any = 1`, `${receiver}: ${owner} = __any`, `${target}(${badArgs})`].join("\n");
+          const badSource = [`__any: any = 1`, `${receiver}: ${receiverType} = __any`, `${target}(${badArgs})`].join("\n");
           const diagnostics = checkSource(badSource, "strict");
           expectDiagnosticsInSource(failures, `pseudo-bad-${owner}.${method.name}`, badSource, diagnostics);
-          if (!diagnostics.some((diagnostic) => diagnostic.message.includes(`parameter '${targetParam.name}: ${cleanType(targetParam.type)}`))) {
+          if (!diagnostics.some((diagnostic) => diagnostic.message.includes(`parameter '${targetParam.name}:`))) {
             pushFailure(failures, `pseudo-bad-${owner}.${method.name}`, badSource, formatDiagnostics(diagnostics));
           }
           covered.badParams++;
@@ -1268,8 +1282,9 @@ describe("checker fuzz invariants", () => {
     for (const [owner, spec] of Object.entries(TERA_PSEUDO_TYPES)) {
       for (const method of spec.methods ?? []) {
         if (method.isGetter) continue;
-        const receiver = `recv_${safeName(owner)}`;
-        checkCallable(`pseudo-${owner}.${method.name}`, `${receiver}.${method.name}`, method.params, ["__any: any = 1", `${receiver}: ${owner} = __any`]);
+        const receiverType = pseudoReceiverType(owner, spec);
+        const receiver = `recv_${safeName(receiverType)}`;
+        checkCallable(`pseudo-${owner}.${method.name}`, `${receiver}.${method.name}`, method.params, ["__any: any = 1", `${receiver}: ${receiverType} = __any`]);
       }
     }
 

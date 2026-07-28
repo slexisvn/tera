@@ -2,18 +2,19 @@ import { autocompletion, type CompletionContext, type CompletionResult } from "@
 import { linter } from "@codemirror/lint";
 import { EditorView } from "@codemirror/view";
 import CodeMirror from "@uiw/react-codemirror";
-import { useMemo, type MutableRefObject } from "react";
+import { memo, useMemo, type MutableRefObject } from "react";
 import { KernelClient } from "../../services/kernel-client";
 import type { NotebookDiagnostic } from "../../services/diagnostics";
 import type { AddCellOptions, CellOutput, CellState } from "../../types/notebook";
 import { teraCodeMirrorExtensions } from "../../utils/codemirror-tera";
+import type { NotebookSourceAnalysis } from "../../utils/source-analysis";
 import { Output } from "../outputs/Output";
-import { DiagnosticsList } from "./DiagnosticsList";
 
 type NotebookCellProps = {
   cell: CellState;
   diagnostics: NotebookDiagnostic[];
   completionSource: (context: CompletionContext) => CompletionResult | null;
+  analysis: () => NotebookSourceAnalysis;
   onChange: (id: string, source: string) => void;
   onRun: (id: string) => Promise<CellOutput | null>;
   onAdd: (source?: string, options?: AddCellOptions) => string;
@@ -22,17 +23,17 @@ type NotebookCellProps = {
   kernel: MutableRefObject<KernelClient | null>;
 };
 
-export function NotebookCell({ cell, diagnostics, completionSource, onChange, onRun, onAdd, onDelete, onMove, kernel }: NotebookCellProps) {
+export const NotebookCell = memo(function NotebookCell({ cell, diagnostics, completionSource, analysis, onChange, onRun, onAdd, onDelete, onMove, kernel }: NotebookCellProps) {
   const extensions = useMemo(() => [
     EditorView.lineWrapping,
-    teraCodeMirrorExtensions(),
+    teraCodeMirrorExtensions({ analysis, cellId: cell.id, diagnostics }),
     autocompletion({ override: [completionSource] }),
     linter(() => diagnostics.map((item) => ({
       from: item.from,
       to: item.to,
       severity: item.severity,
       message: item.message,
-    }))),
+    })), { tooltipFilter: () => [] }),
     EditorView.theme({
       "&": { backgroundColor: "transparent", color: "var(--text)" },
       "&.cm-focused": { outline: "none" },
@@ -53,7 +54,7 @@ export function NotebookCell({ cell, diagnostics, completionSource, onChange, on
       ".cm-diagnostic": { fontFamily: "var(--code-font)" },
       ".cm-focused": { outline: "none" },
     }, { dark: true }),
-  ], [completionSource, diagnostics]);
+  ], [analysis, cell.id, completionSource, diagnostics]);
 
   return (
     <div className="cell" data-cell-id={cell.id}>
@@ -81,7 +82,6 @@ export function NotebookCell({ cell, diagnostics, completionSource, onChange, on
             }}
           />
         </div>
-        <DiagnosticsList diagnostics={diagnostics} />
         <Output output={cell.output} kernel={kernel} />
       </div>
       <div className="cell-tools">
@@ -92,4 +92,4 @@ export function NotebookCell({ cell, diagnostics, completionSource, onChange, on
       </div>
     </div>
   );
-}
+});

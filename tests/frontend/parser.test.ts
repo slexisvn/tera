@@ -105,7 +105,7 @@ describe("Parser", () => {
     it("all unary operators", () => {
       const cases = [
         ["-x", "-"], ["+x", "+"], ["!x", "!"], ["not x", "!"], ["~x", "~"],
-        ["typeof x", "typeof"], ["void 0", "void"], ["delete obj.x", "delete"],
+        ["typeof x", "typeof"], ["delete obj.x", "delete"],
       ];
       for (const [src, op] of cases) {
         const expr = parseExpr(src);
@@ -971,6 +971,11 @@ describe("Parser", () => {
     it("skips a function type in return position", () => {
       const stmt = parseStmt("function f() -> (int) -> bool { return g }");
       expect(stmt).toMatchObject({ type: NodeType.FunctionDeclaration, name: "f" });
+    });
+
+    it("skips a fn-prefixed function type in return position", () => {
+      const stmt = parseStmt("function adder(base: int) -> fn(int) -> int { return add }");
+      expect(stmt).toMatchObject({ type: NodeType.FunctionDeclaration, name: "adder" });
     });
 
     it("accepts a return type annotation on a class getter", () => {

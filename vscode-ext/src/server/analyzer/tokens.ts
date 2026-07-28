@@ -1,5 +1,4 @@
-import { TokenType, tokenize } from "@slexisvn/tera/frontend";
-import type { Token } from "@slexisvn/tera/frontend";
+import { TokenType, tokenize, type Token } from "../../../../src/frontend/index.ts";
 import { splitLines } from "./position.ts";
 import type { AnalyzedToken, TokenKind } from "./types.ts";
 

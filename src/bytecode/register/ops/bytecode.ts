@@ -311,6 +311,7 @@ export class RegisterCompiledFunction {
   sourceMap: SourceMapEntry[];
   upvalues: UpvalueDescriptor[];
   isAsync: boolean;
+  explicitAsync: boolean;
   isGenerator: boolean;
   isClassConstructor: boolean;
   isStrict: boolean;
@@ -358,6 +359,7 @@ export class RegisterCompiledFunction {
     this.sourceMap = [];
     this.upvalues = [];
     this.isAsync = false;
+    this.explicitAsync = false;
     this.isGenerator = false;
     this.isClassConstructor = false;
     this.isStrict = false;

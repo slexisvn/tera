@@ -4,6 +4,32 @@ import { checkSource, inferSymbolTypes } from "../../src/index.js";
 const messages = (source: string) => checkSource(source, "strict").map((d) => d.message);
 
 describe("checker pipeline", () => {
+  it("reports undefined identifiers in expressions", () => {
+    const source = [
+      "class Account:",
+      "  constructor(owner: string, balance: float = 0.0):",
+      "    this.owner = owner",
+      "    this.balance = balance",
+      "acc = Account(ashdasr)",
+      "missing_call()",
+    ].join("\n");
+
+    expect(checkSource(source, "strict")).toEqual([
+      expect.objectContaining({
+        line: 5,
+        column: 15,
+        severity: "error",
+        message: "undefined name 'ashdasr'",
+      }),
+      expect.objectContaining({
+        line: 6,
+        column: 1,
+        severity: "error",
+        message: "undefined name 'missing_call'",
+      }),
+    ]);
+  });
+
   it("reports assignment type errors with strict severity", () => {
     const diagnostics = checkSource("count: float = \"nope\"", "strict");
 
@@ -122,6 +148,16 @@ describe("checker pipeline", () => {
       "Type 'string' is not assignable to 'float'",
       "Type 'int' is not assignable to parameter 'value: string'",
     ]);
+  });
+
+  it("propagates Promise value types through chained callbacks", () => {
+    const source = "result = Promise.resolve(10).then(v => v * 2).then(v => v + 1)";
+
+    expect(messages(source)).toEqual([]);
+    expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "v", type: "int", kind: "parameter" }),
+      expect.objectContaining({ name: "result", type: "Promise<int>" }),
+    ]));
   });
 
   it("normalizes fn-prefixed function return annotations", () => {
@@ -836,6 +872,40 @@ describe("checker pipeline", () => {
         "a: float = c.area()",
       ].join("\n");
       expect(messages(source)).toEqual([]);
+    });
+
+    it("uses nominal least-upper-bound for arrays of subclass instances", () => {
+      const source = [
+        "class Shape:",
+        "  constructor(name: string):",
+        "    this.name = name",
+        "  area() -> float:",
+        "    return 0.0",
+        "  describe() -> string:",
+        "    return `${this.name} with area ${this.area()}`",
+        "class Circle extends Shape:",
+        "  constructor(r: float):",
+        "    super(name=\"circle\")",
+        "    this.r = r",
+        "  area() -> float:",
+        "    return 3.14159 * this.r * this.r",
+        "class Rectangle extends Shape:",
+        "  constructor(w: float, h: float):",
+        "    super(name=\"rectangle\")",
+        "    this.w = w",
+        "    this.h = h",
+        "  area() -> float:",
+        "    return this.w * this.h",
+        "shapes = [Circle(2.0), Rectangle(3.0, 4.0), Circle(1.0)]",
+        "for s of shapes:",
+        "  label: string = s.describe()",
+      ].join("\n");
+
+      expect(messages(source)).toEqual([]);
+      expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "shapes", type: "Shape[]" }),
+        expect.objectContaining({ name: "s", type: "Shape" }),
+      ]));
     });
 
     it("reports an argument mismatch on a constructor call", () => {

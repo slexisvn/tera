@@ -4,6 +4,7 @@ export type ParameterNode = {
   name: string;
   type: string;
   optional: boolean;
+  span: SourceSpan;
 };
 
 export type SourceSpan = {
@@ -17,12 +18,14 @@ export type TypeAliasNode = {
   typeParams: string[];
   type: string;
   span: SourceSpan;
+  nameSpan: SourceSpan;
 };
 
 export type InterfaceFieldNode = {
   name: string;
   type: string;
   optional: boolean;
+  span: SourceSpan;
 };
 
 export type InterfaceIndexNode = {
@@ -38,6 +41,7 @@ export type InterfaceNode = {
   fields: InterfaceFieldNode[];
   indexers: InterfaceIndexNode[];
   span: SourceSpan;
+  nameSpan: SourceSpan;
 };
 
 export type FunctionNode = {
@@ -48,6 +52,7 @@ export type FunctionNode = {
   returns: string;
   body: SemanticNode[];
   span: SourceSpan;
+  nameSpan: SourceSpan;
 };
 
 export type ModelNode = {
@@ -56,6 +61,7 @@ export type ModelNode = {
   params: ParameterNode[];
   body: SemanticNode[];
   span: SourceSpan;
+  nameSpan: SourceSpan;
 };
 
 export type ClassMemberKind = "constructor" | "method" | "getter" | "setter";
@@ -71,11 +77,14 @@ export type ClassNode = {
   parent?: string;
   members: ClassMemberNode[];
   span: SourceSpan;
+  nameSpan: SourceSpan;
 };
 
 export type BlockNode = {
   kind: "Block";
   test?: ASTNode;
+  catchVariable?: string;
+  catchVariableSpan?: SourceSpan;
   body: SemanticNode[];
   span: SourceSpan;
 };
@@ -96,6 +105,7 @@ export type VarNode = {
   declaredType?: string;
   value: ASTNode;
   span: SourceSpan;
+  nameSpan: SourceSpan;
 };
 
 export type DestructureNode = {

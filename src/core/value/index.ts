@@ -493,6 +493,9 @@ export function toPrimitive(v: TaggedValue, hint = "default"): TaggedValue {
   if (isObject(v)) {
     const objectPayload = getPayload(v);
     if (objectPayload._primitiveValue !== undefined) return objectPayload._primitiveValue;
+    if (typeof objectPayload._display === "function") {
+      return mkString(objectPayload._display(true));
+    }
   }
 
   if (hint === "number" || hint === "default") {
@@ -569,6 +572,7 @@ export function toString(v: TaggedValue, seen?: Set<HeapPayload>): string {
       if (obj._mapData) return `Map(${obj._mapData.size})`;
       if (obj._setData) return `Set(${obj._setData.size})`;
       if (obj._weakMapData) return `WeakMap`;
+      if (typeof obj._display === "function") return obj._display(true);
       return "[object Object]";
     }
     case CODE_ARRAY: {

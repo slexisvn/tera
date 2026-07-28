@@ -1,5 +1,5 @@
 import { NodeType, type ASTNode, type ObjectPropertyNode } from "../ast/index.js";
-import { lookup, type BoundProgram, type Scope } from "./binder.js";
+import { lookup, lookupSignature, type BoundProgram, type Scope } from "./binder.js";
 import { diagnostic, type Diagnostic } from "./diagnostics.js";
 import { callSignatureForCallee, comprehensionElementType, comprehensionOf, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf } from "./infer.js";
 import { acceptsTensorLeftArithmetic, acceptsTensorRightArithmetic, binaryOperatorSemantics, isTensorType } from "./operator-types.js";
@@ -11,6 +11,9 @@ export type SymbolType = {
   line: number;
   column: number;
   type: string;
+  kind?: "variable" | "parameter";
+  scopeStartLine?: number;
+  scopeStartColumn?: number;
 };
 
 export class TypeChecker {
@@ -51,6 +54,10 @@ export class TypeChecker {
         break;
       case "Block": {
         const child = narrowScope(node.test, this.bound, scope, this.bound.scopes.get(node));
+        if (node.catchVariable) {
+          const at = node.catchVariableSpan ?? node.span;
+          this.onDeclare?.({ name: node.catchVariable, line: at.line, column: at.column, type: "any", kind: "parameter" });
+        }
         if (node.test) {
           this.checkCondition(node.test, scope, node.span.line, node.span.column);
           this.checkExpression(node.test, scope, node.span.line, node.span.column);
@@ -141,7 +148,15 @@ export class TypeChecker {
     const loopScope: Scope = { parent: scope, locals: new Map(), signatures: new Map(), signature: scope.signature };
     loopScope.locals.set(comp.variable, { type: elementType, optional: false, declared: true });
     const at = nodePosition(comp.variableNode, line, column);
-    this.onDeclare?.({ name: comp.variable, line: at.line, column: at.column, type: elementType });
+    const start = comp.projection ? nodePosition(comp.projection, line, column) : at;
+    this.onDeclare?.({
+      name: comp.variable,
+      line: at.line,
+      column: at.column,
+      type: elementType,
+      scopeStartLine: start.line,
+      scopeStartColumn: start.column,
+    });
     if (comp.projection) this.checkExpression(comp.projection, loopScope, at.line, at.column);
   }
 
@@ -231,7 +246,7 @@ export class TypeChecker {
     }
     const stored = node.declaredType ? declared : previous?.declared ? previous.type : previous ? this.widenType(previous.type, actual) : actual;
     scope.locals.set(node.name, { type: stored, optional: false, declared: !!node.declaredType || !!previous?.declared });
-    this.onDeclare?.({ name: node.name, line: node.span.line, column: node.span.column, type: stored });
+    this.onDeclare?.({ name: node.name, line: node.nameSpan.line, column: node.nameSpan.column, type: stored });
     const callable = functionSignatureForType(node.name, stored);
     if (callable) scope.signatures.set(node.name, callable);
   }
@@ -274,8 +289,16 @@ export class TypeChecker {
       this.checkComprehension(comprehension, scope, line, column);
       return;
     }
+    if (node.type === NodeType.Identifier) {
+      this.checkIdentifier(node, scope, line, column);
+      return;
+    }
     if (node.type === NodeType.ArrowFunctionExpression) {
       this.checkArrow(node, scope, expected ?? null, line, column);
+      return;
+    }
+    if (node.type === NodeType.FunctionExpression) {
+      this.checkFunctionExpression(node, scope, line, column);
       return;
     }
     if (node.type === NodeType.CallExpression || node.type === NodeType.OptionalCallExpression || node.type === NodeType.NewExpression) {
@@ -335,6 +358,13 @@ export class TypeChecker {
         this.checkExpression(value as ASTNode, scope, line, column);
       }
     }
+  }
+
+  checkIdentifier(node: ASTNode, scope: Scope, line: number, column: number): void {
+    const name = String(node.name);
+    if (lookup(scope, name) || lookupSignature(scope, name)) return;
+    const at = nodePosition(node, line, column);
+    this.add(at.line, at.column, `undefined name '${name}'`);
   }
 
   checkCondition(node: ASTNode, scope: Scope, line: number, column: number): void {
@@ -427,7 +457,7 @@ export class TypeChecker {
       const expectedType = expected?.params.get(expected.positional[i])?.type ?? "any";
       child.locals.set(name, { type: expectedType, optional: false, declared: true });
       const at = nodePosition(node, line, column);
-      this.onDeclare?.({ name, line: at.line, column: at.column, type: expectedType });
+      this.onDeclare?.({ name, line: at.line, column: at.column, type: expectedType, kind: "parameter" });
     }
     const body = node.body as ASTNode | ASTNode[];
     if (Array.isArray(body) || body.type === NodeType.BlockStatement) return;
@@ -437,6 +467,41 @@ export class TypeChecker {
     const actual = inferExpression(body, this.bound, child, null, expected.returns);
     if (!compatible(actual, expected.returns, this.bound.env)) {
       this.add(at.line, at.column, `Type '${actual}' is not assignable to return type '${expected.returns}'`);
+    }
+  }
+
+  checkFunctionExpression(node: ASTNode, scope: Scope, line: number, column: number): void {
+    const child: Scope = { parent: scope, locals: new Map(), signatures: new Map(), signature: undefined };
+    const params = node.params as Array<string | { name?: string }>;
+    for (const param of params) {
+      const name = typeof param === "string" ? param : String(param.name ?? "");
+      if (name) child.locals.set(name, { type: "any", optional: false, declared: true });
+    }
+    this.checkFunctionExpressionBody(node.body as ASTNode | ASTNode[], child, line, column);
+  }
+
+  checkFunctionExpressionBody(body: ASTNode | ASTNode[], scope: Scope, line: number, column: number): void {
+    const statements = Array.isArray(body) ? body : body.type === NodeType.BlockStatement ? body.body as ASTNode[] : [body];
+    for (const statement of statements) {
+      if (statement.type === NodeType.ExpressionStatement) {
+        this.checkExpression(statement.expression as ASTNode, scope, line, column);
+      } else if (statement.type === NodeType.ReturnStatement || statement.type === NodeType.ThrowStatement) {
+        const argument = statement.argument as ASTNode | undefined;
+        if (argument) this.checkExpression(argument, scope, line, column);
+      } else if (statement.type === NodeType.BlockStatement) {
+        this.checkFunctionExpressionBody(statement, scope, line, column);
+      } else if (statement.type === NodeType.IfStatement) {
+        this.checkExpression(statement.test as ASTNode, scope, line, column);
+        this.checkFunctionExpressionBody(statement.consequent as ASTNode, scope, line, column);
+        if (statement.alternate) this.checkFunctionExpressionBody(statement.alternate as ASTNode, scope, line, column);
+      } else if (statement.type === NodeType.LetDeclaration || statement.type === NodeType.ConstDeclaration || statement.type === NodeType.VarDeclaration) {
+        const init = statement.init as ASTNode | undefined;
+        if (init) this.checkExpression(init, scope, line, column);
+        const name = typeof statement.name === "string" ? statement.name : "";
+        if (name) scope.locals.set(name, { type: init ? inferExpression(init, this.bound, scope) : "unknown", optional: false });
+      } else if ("type" in statement) {
+        this.checkExpression(statement, scope, line, column);
+      }
     }
   }
 

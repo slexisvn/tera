@@ -105,6 +105,7 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
   }
   if (node.kind === "Block") {
     const child = createScope(scope, scope.signature);
+    if (node.catchVariable) child.locals.set(node.catchVariable, { type: "any", optional: false, declared: true });
     bound.scopes.set(node, child);
     for (const stmt of node.body) bindNode(stmt, bound, child);
     return;

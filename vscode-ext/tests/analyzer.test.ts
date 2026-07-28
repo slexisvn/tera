@@ -29,6 +29,29 @@ describe("analyzeDiagnostics", () => {
     expect(analyzeDiagnostics("x = 1\n")).toEqual([]);
   });
 
+  it("reports undefined identifiers through checker diagnostics", () => {
+    const source = [
+      "class Account:",
+      "  constructor(owner: string, balance: float = 0.0):",
+      "    this.owner = owner",
+      "    this.balance = balance",
+      "acc = Account(ashdasr)",
+    ].join("\n");
+    const analyzer = new DocumentAnalyzer();
+    const document = analyzer.update("file:///test.tera", source);
+    const diagnostic = toDiagnostic(document.errors[0], document);
+
+    expect(document.errors[0]).toMatchObject({
+      line: 5,
+      column: 15,
+      message: "undefined name 'ashdasr'",
+    });
+    expect(diagnostic.range).toEqual({
+      start: { line: 4, character: 14 },
+      end: { line: 4, character: 21 },
+    });
+  });
+
   it("accepts fn-prefixed returned function types", () => {
     const source = [
       "fn adder(base: int) -> fn(int) -> int:",
@@ -156,6 +179,11 @@ describe("analyzeTokens", () => {
     expect(kinds.get("fn")).toBe("keyword");
     expect(kinds.get("f")).toBe("identifier");
     expect(kinds.get("s")).toBe("string");
+  });
+
+  it("keeps void as an identifier so semantic tokens can classify it as a type", () => {
+    const kinds = new Map(analyzeTokens("fn f() -> void:\n").map((t) => [t.value, t.type]));
+    expect(kinds.get("void")).toBe("identifier");
   });
 
   it("gives each token an end position", () => {

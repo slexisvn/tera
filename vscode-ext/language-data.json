@@ -19,6 +19,7 @@
     "finally",
     "fn",
     "for",
+    "get",
     "if",
     "in",
     "instanceof",
@@ -31,6 +32,7 @@
     "of",
     "or",
     "return",
+    "set",
     "super",
     "switch",
     "this",
@@ -41,7 +43,6 @@
     "typeof",
     "undefined",
     "var",
-    "void",
     "while",
     "yield"
   ],
@@ -55,7 +56,9 @@
       "let",
       "const",
       "var",
-      "extends"
+      "extends",
+      "get",
+      "set"
     ],
     "control": [
       "if",
@@ -86,7 +89,6 @@
       "instanceof",
       "typeof",
       "delete",
-      "void",
       "new"
     ],
     "constant": [
@@ -137,7 +139,9 @@
     "float",
     "int",
     "string",
-    "unknown"
+    "undefined",
+    "unknown",
+    "void"
   ],
   "operators": {
     "threeChar": [
@@ -520,65 +524,65 @@
       {
         "name": "then",
         "description": null,
-        "returns": "Promise",
+        "returns": "Promise<U>",
         "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
             {
               "name": "on_fulfilled",
-              "type": "any",
+              "type": "(T) -> U",
               "optional": false,
               "rest": false,
               "defaultValue": null
             },
             {
               "name": "on_rejected",
-              "type": "any",
+              "type": "(any) -> U",
               "optional": true,
               "rest": false,
               "defaultValue": null
             }
           ],
-          "display": "then(on_fulfilled: any, on_rejected?: any) -> Promise"
+          "display": "then(on_fulfilled: (T) -> U, on_rejected?: (any) -> U) -> Promise<U>"
         }
       },
       {
         "name": "catch",
         "description": null,
-        "returns": "Promise",
+        "returns": "Promise<T | U>",
         "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
             {
               "name": "on_rejected",
-              "type": "any",
+              "type": "(any) -> U",
               "optional": false,
               "rest": false,
               "defaultValue": null
             }
           ],
-          "display": "catch(on_rejected: any) -> Promise"
+          "display": "catch(on_rejected: (any) -> U) -> Promise<T | U>"
         }
       },
       {
         "name": "finally",
         "description": null,
-        "returns": "Promise",
+        "returns": "Promise<T>",
         "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
             {
               "name": "on_finally",
-              "type": "any",
+              "type": "() -> any",
               "optional": false,
               "rest": false,
               "defaultValue": null
             }
           ],
-          "display": "finally(on_finally: any) -> Promise"
+          "display": "finally(on_finally: () -> any) -> Promise<T>"
         }
       }
     ],
@@ -586,26 +590,26 @@
       {
         "name": "resolve",
         "description": null,
-        "returns": "Promise",
+        "returns": "Promise<T>",
         "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
             {
               "name": "value",
-              "type": "any",
+              "type": "T",
               "optional": true,
               "rest": false,
               "defaultValue": null
             }
           ],
-          "display": "resolve(value?: any) -> Promise"
+          "display": "resolve(value?: T) -> Promise<T>"
         }
       },
       {
         "name": "reject",
         "description": null,
-        "returns": "Promise",
+        "returns": "Promise<T>",
         "effect": "sync",
         "isGetter": false,
         "signature": {
@@ -618,83 +622,83 @@
               "defaultValue": null
             }
           ],
-          "display": "reject(reason?: any) -> Promise"
+          "display": "reject(reason?: any) -> Promise<T>"
         }
       },
       {
         "name": "all",
         "description": null,
-        "returns": "Promise",
+        "returns": "Promise<T[]>",
         "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
             {
               "name": "values",
-              "type": "any",
+              "type": "Promise<T>[]",
               "optional": false,
               "rest": false,
               "defaultValue": null
             }
           ],
-          "display": "all(values: any) -> Promise"
+          "display": "all(values: Promise<T>[]) -> Promise<T[]>"
         }
       },
       {
         "name": "all_settled",
         "description": null,
-        "returns": "Promise",
+        "returns": "Promise<T[]>",
         "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
             {
               "name": "values",
-              "type": "any",
+              "type": "Promise<T>[]",
               "optional": false,
               "rest": false,
               "defaultValue": null
             }
           ],
-          "display": "all_settled(values: any) -> Promise"
+          "display": "all_settled(values: Promise<T>[]) -> Promise<T[]>"
         }
       },
       {
         "name": "race",
         "description": null,
-        "returns": "Promise",
+        "returns": "Promise<T>",
         "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
             {
               "name": "values",
-              "type": "any",
+              "type": "Promise<T>[]",
               "optional": false,
               "rest": false,
               "defaultValue": null
             }
           ],
-          "display": "race(values: any) -> Promise"
+          "display": "race(values: Promise<T>[]) -> Promise<T>"
         }
       },
       {
         "name": "any",
         "description": null,
-        "returns": "Promise",
+        "returns": "Promise<T>",
         "effect": "sync",
         "isGetter": false,
         "signature": {
           "params": [
             {
               "name": "values",
-              "type": "any",
+              "type": "Promise<T>[]",
               "optional": false,
               "rest": false,
               "defaultValue": null
             }
           ],
-          "display": "any(values: any) -> Promise"
+          "display": "any(values: Promise<T>[]) -> Promise<T>"
         }
       }
     ],
@@ -5377,6 +5381,20 @@
             "defaultValue": null
           },
           {
+            "name": "target",
+            "type": "CompileTarget",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "source",
+            "type": "bool",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
             "name": "options",
             "type": "CompileOptions",
             "optional": true,
@@ -5384,7 +5402,7 @@
             "defaultValue": null
           }
         ],
-        "display": "compile(model: Module, input?: Tensor | Tensor[], example_inputs?: Tensor[], exampleInputs?: Tensor[], options?: CompileOptions) -> unknown"
+        "display": "compile(model: Module, input?: Tensor | Tensor[], example_inputs?: Tensor[], exampleInputs?: Tensor[], target?: CompileTarget, source?: bool, options?: CompileOptions) -> unknown"
       },
       "methods": []
     },

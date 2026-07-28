@@ -73,4 +73,76 @@ describe("definition", () => {
     expect(location?.range.start).toEqual({ line: 1, character: 2 });
     expect(location?.range.end).toEqual({ line: 1, character: "  saved_vocab".length });
   });
+
+  it("jumps from a comprehension variable use to the comprehension binding", () => {
+    const source = [
+      "interface ChatRow:",
+      "  question: string",
+      "  answer: string",
+      "train_rows = load_csv(\"examples/chat_train.csv\").to_array<ChatRow>()",
+      "train_q_text = [r.question for r of train_rows]",
+    ].join("\n");
+
+    const location = computeDefinition(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 4, character: "train_q_text = [r".length },
+    });
+
+    const binding = "train_q_text = [r.question for ".length;
+    expect(location?.range.start).toEqual({ line: 4, character: binding });
+    expect(location?.range.end).toEqual({ line: 4, character: binding + 1 });
+  });
+
+  it("jumps from an interface member access to the field declaration", () => {
+    const source = [
+      "interface ChatRow:",
+      "  question: string",
+      "  answer: string",
+      "train_rows = load_csv(\"examples/chat_train.csv\").to_array<ChatRow>()",
+      "train_q_text = [r.question for r of train_rows]",
+    ].join("\n");
+
+    const location = computeDefinition(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 4, character: "train_q_text = [r.question".length },
+    });
+
+    expect(location?.range.start).toEqual({ line: 1, character: 2 });
+    expect(location?.range.end).toEqual({ line: 1, character: "  question".length });
+  });
+
+  it("does not treat object literal keys as variable references", () => {
+    const source = [
+      "async fn fetch_user(id: int):",
+      "  return { id: id, name: `user-${id}` }",
+    ].join("\n");
+    const context = contextFor(source);
+
+    const key = computeDefinition(context, {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 1, character: "  return { id".length },
+    });
+    const value = computeDefinition(context, {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 1, character: "  return { id: id".length },
+    });
+
+    expect(key).toBeNull();
+    expect(value?.range.start).toEqual({ line: 0, character: "async fn fetch_user(".length });
+    expect(value?.range.end).toEqual({ line: 0, character: "async fn fetch_user(id".length });
+  });
+
+  it("does not jump from quoted string literal text to a same-named symbol", () => {
+    const source = [
+      "a = tensor(0)",
+      "print('a')",
+    ].join("\n");
+
+    const location = computeDefinition(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 1, character: "print('a".length },
+    });
+
+    expect(location).toBeNull();
+  });
 });

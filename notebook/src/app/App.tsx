@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import languageData from "../../../vscode-ext/language-data.json";
 import { DocsPanel } from "../components/layout/DocsPanel";
 import { Sidebar } from "../components/layout/Sidebar";
 import { NotebookCell } from "../components/notebook/NotebookCell";
@@ -11,9 +10,13 @@ import { KernelClient } from "../services/kernel-client";
 import { serializeNotebook, parseNotebook } from "../utils/tenb";
 import { initDocsRuntime } from "../services/docs-runtime";
 import { makeCompletionSource } from "../utils/completion";
+import { languageData } from "../utils/language-data";
+import { analyzeNotebookSource } from "../utils/source-analysis";
 import type { AddCellOptions, CellOutput, CellState, CsvRow, KernelRunResult, UploadedFileMeta } from "../types/notebook";
 
 const makeId = () => `cell-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+const ANALYSIS_DELAY_MS = 300;
+const EMPTY_DIAGNOSTICS: NotebookDiagnostic[] = [];
 
 function loadInitialCells(): CellState[] {
   let saved: unknown;
@@ -37,10 +40,13 @@ export default function App() {
   });
   const [completionNames, setCompletionNames] = useState<string[]>([]);
   const [diagnostics, setDiagnostics] = useState(() => new Map<string, NotebookDiagnostic[]>());
+  const [sourceAnalysis, setSourceAnalysis] = useState(() => analyzeNotebookSource(cells));
   const kernelRef = useRef<KernelClient | null>(null);
   const execCountRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
+  const cellsRef = useRef(cells);
+  const sourceAnalysisRef = useRef(sourceAnalysis);
 
   const setKernel = useCallback((text: string, busy = false) => {
     setKernelText(text);
@@ -65,10 +71,21 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cells.map((cell) => cell.source)));
-    const handle = window.setTimeout(() => setDiagnostics(analyzeCells(cells)), 250);
+    cellsRef.current = cells;
+    const snapshot = cells;
+    const handle = window.setTimeout(() => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot.map((cell) => cell.source)));
+      const nextAnalysis = analyzeNotebookSource(snapshot);
+      sourceAnalysisRef.current = nextAnalysis;
+      setSourceAnalysis(nextAnalysis);
+      setDiagnostics(analyzeCells(snapshot));
+    }, ANALYSIS_DELAY_MS);
     return () => window.clearTimeout(handle);
   }, [cells]);
+
+  useEffect(() => {
+    sourceAnalysisRef.current = sourceAnalysis;
+  }, [sourceAnalysis]);
 
   useEffect(() => {
     void initDocsRuntime({ createCell: (source = "") => addCell(source, { focus: true }) }, languageData);
@@ -107,7 +124,7 @@ export default function App() {
   }, []);
 
   const updateCell = useCallback((id: string, source: string) => {
-    setCells((current) => current.map((cell) => cell.id === id ? { ...cell, source } : cell));
+    setCells((current) => current.map((cell) => cell.id === id && cell.source !== source ? { ...cell, source } : cell));
   }, []);
 
   const deleteCell = useCallback((id: string) => {
@@ -131,7 +148,7 @@ export default function App() {
 
   const runCell = useCallback(async (id: string) => {
     const kernel = kernelRef.current;
-    const cell = cells.find((item) => item.id === id);
+    const cell = cellsRef.current.find((item) => item.id === id);
     if (!kernel || !cell) return null;
     setKernel("running", true);
     setCells((current) => current.map((item) => item.id === id ? { ...item, running: true, output: undefined } : item));
@@ -147,14 +164,14 @@ export default function App() {
     setCells((current) => current.map((item) => item.id === id ? { ...item, running: false, executionCount: count, output } : item));
     setKernel("ready");
     return output;
-  }, [cells, setKernel]);
+  }, [setKernel]);
 
   const runAll = useCallback(async () => {
-    for (const cell of cells) {
+    for (const cell of cellsRef.current) {
       const result = await runCell(cell.id);
       if (result && !result.ok) break;
     }
-  }, [cells, runCell]);
+  }, [runCell]);
 
   const restart = useCallback(() => {
     bootKernel();
@@ -259,7 +276,13 @@ export default function App() {
     uploadFiles([...event.dataTransfer.files]);
   }, [uploadFiles]);
 
-  const completionSource = useMemo(() => makeCompletionSource(completionNames), [completionNames]);
+  const analysisProvider = useCallback(() => sourceAnalysisRef.current, []);
+  const cellIds = useMemo(() => cells.map((cell) => cell.id).join("\0"), [cells]);
+  const completionSources = useMemo(() => {
+    const sources = new Map<string, ReturnType<typeof makeCompletionSource>>();
+    for (const cell of cells) sources.set(cell.id, makeCompletionSource(completionNames, analysisProvider, cell.id));
+    return sources;
+  }, [analysisProvider, cellIds, completionNames]);
 
   return (
     <>
@@ -291,8 +314,9 @@ export default function App() {
               <NotebookCell
                 key={cell.id}
                 cell={cell}
-                diagnostics={diagnostics.get(cell.id) || []}
-                completionSource={completionSource}
+                diagnostics={diagnostics.get(cell.id) || EMPTY_DIAGNOSTICS}
+                completionSource={completionSources.get(cell.id) || makeCompletionSource(completionNames, analysisProvider, cell.id)}
+                analysis={analysisProvider}
                 onChange={updateCell}
                 onRun={runCell}
                 onAdd={addCell}

@@ -1,6 +1,5 @@
-import { inferSymbolTypes, parse } from "@slexisvn/tera/frontend";
+import { inferSymbolTypes, parse, recoverMemberCompletionSource } from "../../../../src/frontend/index.ts";
 import type { LanguageData } from "../../shared/language-data.ts";
-import { buildBuiltinEnv, type BuiltinEnv } from "./builtin-env.ts";
 import { analyzeDiagnostics } from "./diagnostics.ts";
 import { splitLines } from "./position.ts";
 import { buildSymbolTable } from "./symbols.ts";
@@ -9,15 +8,12 @@ import type { AnalyzedDocument } from "./types.ts";
 
 export class DocumentAnalyzer {
   private readonly cache = new Map<string, AnalyzedDocument>();
-  private readonly env: BuiltinEnv;
 
-  constructor(languageData: Partial<LanguageData> = {}) {
-    this.env = buildBuiltinEnv(languageData);
-  }
+  constructor(_languageData: Partial<LanguageData> = {}) {}
 
   update(uri: string, text: string): AnalyzedDocument {
     const previous = this.cache.get(uri);
-    const analyzed = analyze(text, this.env);
+    const analyzed = analyze(text);
     if (!analyzed.symbols.flat.length && previous?.symbols.flat.length) {
       analyzed.symbols = previous.symbols;
     }
@@ -42,32 +38,28 @@ export class DocumentAnalyzer {
   }
 }
 
-function analyze(text: string, env: BuiltinEnv): AnalyzedDocument {
+function analyze(text: string): AnalyzedDocument {
   const lines = splitLines(text);
-  const inferred = inferTypesSafely(text);
+  const symbolText = recoverMemberCompletionSource(text);
+  const inferred = inferTypesSafely(symbolText);
   return {
     text,
     lines,
     tokens: analyzeTokens(text),
     ast: parseSafely(text),
-    symbols: buildSymbolTable(lines, env, inferred.types, inferred.members),
+    symbols: buildSymbolTable(symbolText, inferred),
     errors: analyzeDiagnostics(text),
   };
 }
 
-function inferTypesSafely(text: string): { types: Map<string, string>; members: Map<string, string> } {
-  const types = new Map<string, string>();
-  const members = new Map<string, string>();
+function inferTypesSafely(text: string): Array<{ name: string; line: number; column: number; type: string }> {
   try {
-    for (const symbol of inferSymbolTypes(text)) {
-      if (symbol.name.includes(".")) members.set(symbol.name, symbol.type);
-      else types.set(`${symbol.name}:${symbol.line}`, symbol.type);
-    }
+    return inferSymbolTypes(text);
   } catch {
-    return { types, members };
+    return [];
   }
-  return { types, members };
 }
+
 
 function parseSafely(text: string): unknown {
   try {

@@ -2,6 +2,7 @@ import {
   CompletionItemKind, InsertTextFormat,
   type CompletionItem, type CompletionList, type CompletionParams,
 } from "vscode-languageserver/node.js";
+import { isStringLiteralTextPosition } from "../../../../src/frontend/index.ts";
 import type { Method, Param } from "../../shared/language-data.ts";
 import type { AnalyzedDocument, Position, Scope, TeraSymbol } from "../analyzer/index.ts";
 import { buildSnippet } from "../../shared/snippet.ts";
@@ -63,7 +64,7 @@ export default defineProvider({
     connection.onCompletion((params: CompletionParams) => {
       try {
         const document = context.analyzer.get(params.textDocument.uri);
-        return document ? collect(context, document, params.position) : EMPTY;
+        return document ? collectCompletions(context, params) : EMPTY;
       } catch (error) {
         connection.console.error(`completion error: ${error instanceof Error ? error.stack : String(error)}`);
         return EMPTY;
@@ -72,7 +73,14 @@ export default defineProvider({
   },
 });
 
+export function collectCompletions(context: ProviderContext, params: CompletionParams): CompletionList {
+  const document = context.analyzer.get(params.textDocument.uri);
+  return document ? collect(context, document, params.position) : EMPTY;
+}
+
 function collect(context: ProviderContext, document: AnalyzedDocument, position: Position): CompletionList {
+  if (isStringLiteralTextPosition(document.text, position)) return EMPTY;
+
   if (isMemberAccess(document, position)) {
     const typeName = resolveReceiverType(context, document, position);
     return { isIncomplete: false, items: typeName ? memberItems(context, document, typeName) : [] };

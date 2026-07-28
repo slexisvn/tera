@@ -1,3 +1,11 @@
+import type {
+  ScopeKind,
+  SourceScope,
+  SourceSymbol,
+  SourceSymbolTable,
+  SymbolKind,
+} from "../../../../src/frontend/index.ts";
+
 export type Position = { line: number; character: number };
 
 export type Range = { start: Position; end: Position };
@@ -13,39 +21,10 @@ export type AnalyzedToken = {
   endColumn: number;
 };
 
-export type SymbolKind = "function" | "model" | "module" | "variable" | "parameter" | "field" | "method" | "property";
-
-export type ScopeKind = "scope" | "function" | "class" | "model" | "interface";
-
-export type TeraSymbol = {
-  name: string;
-  kind: SymbolKind;
-  line: number;
-  column: number;
-  typeName: string | null;
-  scope?: Scope;
-};
-
-export type Scope = {
-  name: string;
-  kind: ScopeKind;
-  parent: Scope | null;
-  children: Scope[];
-  symbols: TeraSymbol[];
-  startLine: number;
-  endLine: number;
-  indent: number;
-};
-
-export type SymbolTable = {
-  root: Scope;
-  scopes: Scope[];
-  flat: TeraSymbol[];
-  findScopeAt(position: Position): Scope;
-  resolve(name: string, position: Position): TeraSymbol | null;
-  resolveField(typeName: string | null, fieldName: string): TeraSymbol | null;
-  membersOf(typeName: string | null): TeraSymbol[];
-};
+export type { ScopeKind, SymbolKind };
+export type Scope = SourceScope;
+export type TeraSymbol = SourceSymbol;
+export type SymbolTable = SourceSymbolTable;
 
 export type AnalyzedError = {
   message: string;

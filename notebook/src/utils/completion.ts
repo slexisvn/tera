@@ -1,48 +1,69 @@
 import type { Completion, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
-import languageData from "../../../vscode-ext/language-data.json";
-import { KEYWORDS } from "../config/constants";
+import { isStringLiteralTextOffset, resolveMemberReceiverType } from "../../../src/frontend";
+import { languageData, type Builtin, type Method } from "./language-data";
+import type { NotebookSourceAnalysis } from "./source-analysis";
 
-type BuiltinItem = {
-  name: string;
-  kind?: string;
-  description?: string;
-  methods?: PseudoMethodItem[];
-};
+const memberItems = Object.values(languageData.pseudoTypes).flat();
+const chartItems = languageData.builtins.find((item) => item.name === "chart")?.methods ?? [];
 
-type PseudoMethodItem = {
-  name: string;
-  isGetter?: boolean;
-  description?: string;
-};
-
-const memberItems: PseudoMethodItem[] = Object.values(languageData.pseudoTypes || {}).flat() as PseudoMethodItem[];
-const chartItems = ((languageData.builtins as BuiltinItem[]).find((item) => item.name === "chart")?.methods || []) as PseudoMethodItem[];
-
-export function makeCompletionSource(completionNames: string[]) {
+export function makeCompletionSource(completionNames: string[], analysis?: () => NotebookSourceAnalysis, cellId?: string) {
   return (context: CompletionContext): CompletionResult | null => {
-    const word = context.matchBefore(/[A-Za-z_]\w*/);
+    const word = completionWord(context);
     if (!word || (word.from === word.to && !context.explicit)) return null;
     const prefix = word.text;
     const seen = new Set<string>();
     const options: Completion[] = [];
+    const source = context.state.doc.toString();
+    if (isStringLiteralTextOffset(source, word.from)) return null;
     const owner = ownerBeforeDot(context.state.doc.toString(), word.from);
+    const memberAccess = nonSpaceBefore(source, word.from) === ".";
     const add = (label: string, type: string, detail?: string, info?: string) => {
       if (!label || seen.has(label) || label.startsWith("_") || !label.startsWith(prefix)) return;
       seen.add(label);
       options.push({ label, type, detail, info });
     };
     if (owner === "chart") {
-      for (const item of chartItems) add(item.name, "function", "chart", item.description);
-    } else if (owner) {
-      for (const item of memberItems) add(item.name, item.isGetter ? "property" : "method", item.isGetter ? "property" : "method", item.description);
+      for (const item of chartItems) addMethod(item, "chart");
+    } else if (memberAccess) {
+      const typeName = receiverType(context, word.from, analysis, cellId);
+      const members = typeName ? analysis?.().symbols.membersOf(typeName) ?? [] : [];
+      if (members.length) {
+        for (const item of members) add(item.name, item.kind === "method" ? "method" : item.kind === "property" ? "property" : "field", item.typeName ?? item.kind);
+      } else {
+        for (const item of memberItems) addMethod(item, item.isGetter ? "property" : "method");
+      }
     } else {
-      for (const item of languageData.builtins as BuiltinItem[]) add(item.name, item.kind || "function", item.kind, item.description);
+      for (const item of languageData.builtins) addBuiltin(item);
       for (const name of completionNames) add(name, "variable");
-      for (const name of KEYWORDS) add(name, "keyword");
+      for (const name of languageData.keywords) add(name, "keyword");
     }
+    function addBuiltin(item: Builtin): void {
+      add(item.name, item.kind || "function", item.kind, item.description ?? undefined);
+    }
+
+    function addMethod(item: Method, detail: string): void {
+      add(item.name, item.isGetter ? "property" : "method", detail, item.description ?? undefined);
+    }
+
     options.sort((a, b) => a.label.localeCompare(b.label));
     return options.length ? { from: word.from, options } : null;
   };
+}
+
+function completionWord(context: CompletionContext): { from: number; to: number; text: string } | null {
+  const direct = context.matchBefore(/[A-Za-z_$][\w$]*/);
+  if (direct) return direct;
+  const before = context.state.sliceDoc(0, context.pos);
+  if (!/\.\s*$/.test(before)) return null;
+  return { from: context.pos, to: context.pos, text: "" };
+}
+
+function receiverType(context: CompletionContext, from: number, analysis: (() => NotebookSourceAnalysis) | undefined, cellId: string | undefined): string | null {
+  if (!analysis || !cellId) return null;
+  const source = context.state.doc.toString();
+  const current = analysis();
+  const position = current.positionFor(cellId, source, from);
+  return resolveMemberReceiverType(current.source, position, current.symbols, languageData.globalNamespaces);
 }
 
 function ownerBeforeDot(source: string, index: number): string | null {
@@ -52,6 +73,12 @@ function ownerBeforeDot(source: string, index: number): string | null {
   cursor--;
   while (cursor >= 0 && /\s/.test(source[cursor])) cursor--;
   let end = cursor + 1;
-  while (cursor >= 0 && /\w/.test(source[cursor])) cursor--;
+  while (cursor >= 0 && /[\w$]/.test(source[cursor])) cursor--;
   return source.slice(cursor + 1, end) || null;
+}
+
+function nonSpaceBefore(source: string, index: number): string {
+  let cursor = index - 1;
+  while (cursor >= 0 && /\s/.test(source[cursor])) cursor--;
+  return cursor >= 0 ? source[cursor] : "";
 }

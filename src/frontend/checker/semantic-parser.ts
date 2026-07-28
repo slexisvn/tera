@@ -117,23 +117,47 @@ function parseTypeParams(tokens: Token[], start: number): { params: string[]; ne
   };
 }
 
+function splitTopLevelTokenGroups(tokens: Token[], delimiter: string): Token[][] {
+  const groups: Token[][] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (tok.type === TokenType.Punctuator) {
+      if (tok.value === "(" || tok.value === "[" || tok.value === "{") depth++;
+      else if (tok.value === ")" || tok.value === "]" || tok.value === "}") depth--;
+      else if (tok.value === delimiter && depth === 0) {
+        groups.push(tokens.slice(start, i));
+        start = i + 1;
+      }
+    }
+  }
+  groups.push(tokens.slice(start));
+  return groups;
+}
+
 function parseParams(tokens: Token[]): ParameterNode[] {
   if (tokens.length === 0) return [];
-  return splitTopLevel(tokenText(tokens), ",").map((part) => {
-    const pieces = part.trim();
-    const eq = pieces.indexOf("=");
-    const body = eq >= 0 ? pieces.slice(0, eq).trim() : pieces;
-    const colon = body.indexOf(":");
-    const rawName = colon >= 0 ? body.slice(0, colon).trim() : body;
-    const optional = rawName.endsWith("?") || eq >= 0;
-    const name = rawName.replace(/\?$/, "");
-    const type = colon >= 0 ? cleanType(body.slice(colon + 1)) : "any";
-    return { name, type, optional };
-  }).filter((param) => param.name);
+  return splitTopLevelTokenGroups(tokens, ",").map((group) => {
+    const eq = findTopLevel(group, "=");
+    const body = eq >= 0 ? group.slice(0, eq) : group;
+    const colon = findTopLevel(body, ":");
+    const nameToken = body.find((tok) => tok.type === TokenType.Identifier);
+    if (!nameToken) return null;
+    const optional = body[body.indexOf(nameToken) + 1]?.value === "?" || eq >= 0;
+    const type = colon >= 0 ? sliceType(body.slice(colon + 1)) : "any";
+    return {
+      name: String(nameToken.value),
+      type,
+      optional,
+      span: { line: nameToken.line, column: nameToken.column },
+    };
+  }).filter((param): param is ParameterNode => !!param?.name);
 }
 
 function parseSignature(line: Line, keywordOffset: number): {
   name: string;
+  nameSpan: { line: number; column: number };
   typeParams: string[];
   params: ParameterNode[];
   returns: string;
@@ -154,7 +178,7 @@ function parseSignature(line: Line, keywordOffset: number): {
   const arrow = findTopLevel(line.tokens, "->", close + 1);
   const colon = findTopLevel(line.tokens, ":", close + 1);
   const returns = arrow >= 0 ? sliceType(line.tokens.slice(arrow + 1, colon >= 0 ? colon : line.tokens.length)) : "any";
-  return { name: String(nameToken.value), typeParams: generic.params, params, returns };
+  return { name: String(nameToken.value), nameSpan: { line: nameToken.line, column: nameToken.column }, typeParams: generic.params, params, returns };
 }
 
 function parseInterfaceField(line: Line): InterfaceFieldNode | InterfaceIndexNode | null {
@@ -175,7 +199,7 @@ function parseInterfaceField(line: Line): InterfaceFieldNode | InterfaceIndexNod
   const optional = line.tokens[cursor]?.value === "?";
   if (optional) cursor++;
   if (line.tokens[cursor]?.value !== ":") return null;
-  return { name: String(nameToken.value), optional, type: sliceType(line.tokens.slice(cursor + 1)) };
+  return { name: String(nameToken.value), optional, type: sliceType(line.tokens.slice(cursor + 1)), span: { line: nameToken.line, column: nameToken.column } };
 }
 
 function parseDestructureNames(tokens: Token[]): { names: string[]; spans: Array<{ line: number; column: number }> } | null {
@@ -250,22 +274,32 @@ class SemanticParser {
     if (first === "if") return this.parseControlBlock(line, 1);
     if (first === "for") return this.parseFor(line);
     if (first === "class") return this.parseClass(line);
-    if (["else", "while", "try", "catch", "finally"].includes(String(first)) || line.tokens.at(-1)?.value === ":") return this.parseControlBlock(line, 1);
+    if (first === "catch") return this.parseCatchBlock(line);
+    if (["else", "while", "try", "finally"].includes(String(first)) || line.tokens.at(-1)?.value === ":") return this.parseControlBlock(line, 1);
     if (first === "return") return this.parseReturn(line);
     return this.parseSimple(line);
   }
 
   parseTypeAlias(line: Line): TypeAliasNode {
     this.index++;
-    const name = String(line.tokens[1]?.value ?? "");
+    const nameToken = line.tokens[1];
+    const name = String(nameToken?.value ?? "");
     const generic = parseTypeParams(line.tokens, 2);
     const eq = findTopLevel(line.tokens, "=", generic.next);
-    return { kind: "TypeAlias", name, typeParams: generic.params, type: sliceType(line.tokens.slice(eq + 1)), span: { line: line.line, column: line.indent + 1 } };
+    return {
+      kind: "TypeAlias",
+      name,
+      typeParams: generic.params,
+      type: sliceType(line.tokens.slice(eq + 1)),
+      span: { line: line.line, column: line.indent + 1 },
+      nameSpan: { line: nameToken?.line ?? line.line, column: nameToken?.column ?? line.indent + 1 },
+    };
   }
 
   parseInterface(line: Line): InterfaceNode {
     this.index++;
-    const name = String(line.tokens[1]?.value ?? "");
+    const nameToken = line.tokens[1];
+    const name = String(nameToken?.value ?? "");
     const generic = parseTypeParams(line.tokens, 2);
     const extendsIndex = line.tokens.findIndex((tok) => tok.value === "extends");
     const colon = findTopLevel(line.tokens, ":");
@@ -278,7 +312,16 @@ class SemanticParser {
       else if (field) fields.push(field);
       this.index++;
     }
-    return { kind: "Interface", name, typeParams: generic.params, parents, fields, indexers, span: { line: line.line, column: line.indent + 1 } };
+    return {
+      kind: "Interface",
+      name,
+      typeParams: generic.params,
+      parents,
+      fields,
+      indexers,
+      span: { line: line.line, column: line.indent + 1 },
+      nameSpan: { line: nameToken?.line ?? line.line, column: nameToken?.column ?? line.indent + 1 },
+    };
   }
 
   parseFunction(line: Line): FunctionNode {
@@ -289,16 +332,25 @@ class SemanticParser {
 
   parseModel(line: Line): ModelNode {
     this.index++;
-    const name = String(line.tokens[1]?.value ?? "");
+    const nameToken = line.tokens[1];
+    const name = String(nameToken?.value ?? "");
     const open = findTopLevel(line.tokens, "(", 2);
     const close = open >= 0 ? findTopLevel(line.tokens, ")", open) : -1;
     const params = open >= 0 && close >= 0 ? parseParams(line.tokens.slice(open + 1, close)) : [];
-    return { kind: "Model", name, params, body: this.parseBlock(line.indent), span: { line: line.line, column: line.indent + 1 } };
+    return {
+      kind: "Model",
+      name,
+      params,
+      body: this.parseBlock(line.indent),
+      span: { line: line.line, column: line.indent + 1 },
+      nameSpan: { line: nameToken?.line ?? line.line, column: nameToken?.column ?? line.indent + 1 },
+    };
   }
 
   parseClass(line: Line): ClassNode {
     this.index++;
-    const name = String(line.tokens[1]?.value ?? "");
+    const nameToken = line.tokens[1];
+    const name = String(nameToken?.value ?? "");
     const extendsIndex = line.tokens.findIndex((tok) => tok.value === "extends");
     const parent = extendsIndex >= 0 && line.tokens[extendsIndex + 1]?.type === TokenType.Identifier
       ? String(line.tokens[extendsIndex + 1].value)
@@ -309,7 +361,14 @@ class SemanticParser {
       if (member) members.push(member);
       else this.parseNode(this.lines[this.index]);
     }
-    return { kind: "Class", name, parent, members, span: { line: line.line, column: line.indent + 1 } };
+    return {
+      kind: "Class",
+      name,
+      parent,
+      members,
+      span: { line: line.line, column: line.indent + 1 },
+      nameSpan: { line: nameToken?.line ?? line.line, column: nameToken?.column ?? line.indent + 1 },
+    };
   }
 
   parseClassMember(line: Line): ClassMemberNode | null {
@@ -341,6 +400,19 @@ class SemanticParser {
     return { kind: "Block", test, body: this.parseBlock(line.indent), span: { line: line.line, column: line.indent + 1 } };
   }
 
+  parseCatchBlock(line: Line): BlockNode {
+    this.index++;
+    const colon = findTopLevel(line.tokens, ":");
+    const variable = line.tokens[1];
+    return {
+      kind: "Block",
+      catchVariable: variable?.type === TokenType.Identifier && (colon < 0 || 1 < colon) ? String(variable.value) : undefined,
+      catchVariableSpan: variable?.type === TokenType.Identifier ? { line: variable.line, column: variable.column } : undefined,
+      body: this.parseBlock(line.indent),
+      span: { line: line.line, column: line.indent + 1 },
+    };
+  }
+
   parseReturn(line: Line): SemanticNode {
     this.index++;
     const tokens = line.tokens.slice(1);
@@ -355,7 +427,13 @@ class SemanticParser {
       const nameToken = line.tokens[1];
       const value = eq > 0 ? parseExprOrNull(line.tokens.slice(eq + 1)) : null;
       if (nameToken?.type === TokenType.Identifier && value) {
-        return { kind: "Var", name: String(nameToken.value), value, span: { line: line.line, column: line.indent + 1 } };
+        return {
+          kind: "Var",
+          name: String(nameToken.value),
+          value,
+          span: { line: line.line, column: line.indent + 1 },
+          nameSpan: { line: nameToken.line, column: nameToken.column },
+        };
       }
       return { kind: "Block", body: [], span: { line: line.line, column: line.indent + 1 } };
     }
@@ -369,7 +447,14 @@ class SemanticParser {
     if (eq > 0 && line.tokens[0]?.type === TokenType.Identifier && (eq === 1 || (colon === 1 && colon < eq))) {
       const declaredType = colon > 0 && colon < eq ? sliceType(line.tokens.slice(colon + 1, eq)) : undefined;
       const value = parseExprOrNull(line.tokens.slice(eq + 1));
-      if (value) return { kind: "Var", name: String(line.tokens[0].value), declaredType, value, span: { line: line.line, column: line.indent + 1 } };
+      if (value) return {
+        kind: "Var",
+        name: String(line.tokens[0].value),
+        declaredType,
+        value,
+        span: { line: line.line, column: line.indent + 1 },
+        nameSpan: { line: line.tokens[0].line, column: line.tokens[0].column },
+      };
     }
     const value = parseExprOrNull(line.tokens);
     return value

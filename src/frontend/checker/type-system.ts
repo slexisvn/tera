@@ -77,6 +77,7 @@ const BUILTIN_ALIAS_SPECS = TERA_BUILTIN_ALIASES as Record<string, TeraTypeAlias
 const BUILTIN_INTERFACE_SPECS = TERA_BUILTIN_INTERFACES as Record<string, TeraInterfaceSpec | undefined>;
 const METHOD_SPECS = new Map<string, Map<string, TeraMethodSpec>>();
 const METHOD_OWNER_NAMES = new Map<string, string>();
+const PSEUDO_TYPE_PARAMS = new Map<string, string[]>();
 const CALL_SIGNATURES = new Map<string, Signature>();
 const KIND_FAMILIES = new Map<string, TypeName>([
   ["module", "Module"],
@@ -97,6 +98,7 @@ const BUILTIN_FAMILIES = new Map<string, TypeName>([
 export const BUILTIN_SIGNATURES = new Map<string, Signature>();
 
 export const GLOBAL_NAMESPACE_BINDINGS = new Map<string, TypeName>(Object.entries(TERA_GLOBAL_NAMESPACES));
+if (Object.keys(TERA_CHART_METHODS).length) GLOBAL_NAMESPACE_BINDINGS.set("chart", "chart");
 
 function registerMethodOwner(name: string): void {
   METHOD_OWNER_NAMES.set(name, name);
@@ -111,7 +113,10 @@ function registerMethods(owner: string, methods: TeraMethodSpec[] | undefined): 
   METHOD_SPECS.set(owner, entries);
 }
 
-for (const [owner, spec] of Object.entries(PSEUDO_TYPE_SPECS)) registerMethods(owner, spec?.methods);
+for (const [owner, spec] of Object.entries(PSEUDO_TYPE_SPECS)) {
+  if (spec?.typeParams?.length) PSEUDO_TYPE_PARAMS.set(owner, spec.typeParams);
+  registerMethods(owner, spec?.methods);
+}
 for (const [kind, methods] of Object.entries(KIND_METHOD_SPECS)) {
   const family = KIND_FAMILIES.get(kind);
   if (family) registerMethods(family, methods);
@@ -408,6 +413,11 @@ export function leastUpperBound(types: TypeName[], env: TypeEnv): TypeName | nul
       current = next;
       continue;
     }
+    const nominal = commonNominalAncestor(current, next, env);
+    if (nominal) {
+      current = nominal;
+      continue;
+    }
     return null;
   }
   return current;
@@ -560,10 +570,36 @@ export function builtinMethod(type: TypeName, name: string, env?: TypeEnv): Memb
   const owner = methodOwnerName(type, env);
   const match = lookupMethod(owner, name, env);
   if (!match) return null;
-  const sig = signatureFromMethod(match.owner, match.method);
+  const sig = instantiateReceiverSignature(type, match.owner, signatureFromMethod(match.owner, match.method), env);
   const returns = sig.returns === "this" ? base : sig.returns;
   const signature = returns === sig.returns ? sig : { ...sig, returns };
   return { returns, getter: !!match.method.isGetter, signature };
+}
+
+function instantiateReceiverSignature(type: TypeName, owner: string, sig: Signature, env?: TypeEnv): Signature {
+  const typeParams = PSEUDO_TYPE_PARAMS.get(owner);
+  if (!typeParams?.length) return sig;
+  const args = genericArgsForOwner(type, owner, env);
+  const substitutions = new Map<string, TypeName>();
+  for (let i = 0; i < typeParams.length; i++) substitutions.set(typeParams[i], args[i] ?? "any");
+  return instantiateSignature(sig, substitutions);
+}
+
+function genericArgsForOwner(type: TypeName, owner: string, env?: TypeEnv): TypeName[] {
+  const resolved = env ? resolveType(type, env) : cleanType(type);
+  const resolvedGeneric = parseGenericType(resolved);
+  if (resolvedGeneric?.name === owner) return resolvedGeneric.args;
+  const directGeneric = parseGenericType(type);
+  return directGeneric?.name === owner ? directGeneric.args : [];
+}
+
+function parseGenericType(type: TypeName): { name: string; args: TypeName[] } | null {
+  const source = cleanType(type);
+  const open = source.indexOf("<");
+  if (open <= 0 || !source.endsWith(">")) return null;
+  const name = source.slice(0, open).trim();
+  if (!name) return null;
+  return { name, args: splitTopLevel(source.slice(open + 1, -1), ",").map((arg) => cleanType(arg)) };
 }
 
 export function callSignatureForType(type: TypeName, env?: TypeEnv): Signature | null {
@@ -722,6 +758,24 @@ function boolAssignable(actual: TypeName, expected: TypeName): boolean {
 function nominalFamily(type: TypeName, env: TypeEnv): TypeName | null {
   const base = baseTypeName(resolveType(type, env));
   return env.nominalFamilies.get(base) ?? BUILTIN_FAMILIES.get(base) ?? null;
+}
+
+function commonNominalAncestor(left: TypeName, right: TypeName, env: TypeEnv): TypeName | null {
+  const leftLineage = nominalLineage(left, env);
+  const rightLineage = new Set(nominalLineage(right, env));
+  return leftLineage.find((item) => rightLineage.has(item)) ?? null;
+}
+
+function nominalLineage(type: TypeName, env: TypeEnv): TypeName[] {
+  const out: TypeName[] = [];
+  let current: TypeName | null = baseTypeName(type);
+  const seen = new Set<TypeName>();
+  while (current && !seen.has(current)) {
+    out.push(current);
+    seen.add(current);
+    current = nominalFamily(current, env);
+  }
+  return out;
 }
 
 function nominalAssignable(actual: TypeName, expected: TypeName, env: TypeEnv): boolean {

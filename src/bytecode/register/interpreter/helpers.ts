@@ -58,7 +58,6 @@ type AsyncCapability = {
 
 type AsyncInterpreterLike = {
   runFrame(frame: AsyncFrameLike): TaggedValue;
-  microtaskQueue?: { drain(): void };
 };
 
 type CompiledFunctionWithFeedback = RegisterCompiledFunction & {
@@ -181,9 +180,6 @@ export function resumeAfterSuspend(
     suspendedFrame.pc = handler.catchPC;
     runAsyncWithSuspension(interpreter, suspendedFrame, capability);
   });
-  if (interpreter.microtaskQueue) {
-    interpreter.microtaskQueue.drain();
-  }
 }
 
 export function runAsyncWithSuspension(

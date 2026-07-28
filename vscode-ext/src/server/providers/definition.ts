@@ -1,5 +1,7 @@
 import type { DefinitionParams, Location } from "vscode-languageserver/node.js";
+import { isStringLiteralTextPosition } from "../../../../src/frontend/index.ts";
 import { wordRangeAt } from "../analyzer/position.ts";
+import type { AnalyzedDocument, AnalyzedToken } from "../analyzer/types.ts";
 import { isMemberAccess, resolveReceiverType } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
@@ -20,9 +22,11 @@ export default defineProvider({
 export function computeDefinition(context: ProviderContext, params: DefinitionParams): Location | null {
   const document = context.analyzer.get(params.textDocument.uri);
   if (!document) return null;
+  if (isStringLiteralTextPosition(document.text, params.position)) return null;
 
   const word = wordRangeAt(document.lines, params.position);
   if (!word) return null;
+  if (isObjectKey(document, word.range.start)) return null;
 
   if (isMemberAccess(document, params.position)) {
     const receiverType = resolveReceiverType(context, document, params.position);
@@ -33,6 +37,29 @@ export function computeDefinition(context: ProviderContext, params: DefinitionPa
 
   const symbol = document.symbols.resolve(word.text, params.position);
   return symbol ? location(params.textDocument.uri, symbol.name, symbol.line, symbol.column) : null;
+}
+
+function isObjectKey(document: AnalyzedDocument, position: { line: number; character: number }): boolean {
+  const tokens = document.tokens;
+  const index = tokens.findIndex((token) => token.line === position.line + 1 && token.column === position.character + 1);
+  if (index < 0 || tokens[index].type !== "identifier") return false;
+  const next = nextAfterOptional(tokens, index + 1, "?");
+  if (tokens[next]?.value !== ":") return false;
+  return enclosingBrace(tokens, index)?.value === "{";
+}
+
+function nextAfterOptional(tokens: AnalyzedToken[], index: number, optional: string): number {
+  return tokens[index]?.value === optional ? index + 1 : index;
+}
+
+function enclosingBrace(tokens: AnalyzedToken[], before: number): AnalyzedToken | null {
+  const stack: AnalyzedToken[] = [];
+  for (let i = 0; i < before; i++) {
+    const value = tokens[i].value;
+    if (value === "{" || value === "[" || value === "(") stack.push(tokens[i]);
+    else if (value === "}" || value === "]" || value === ")") stack.pop();
+  }
+  return stack.at(-1) ?? null;
 }
 
 function location(uri: string, name: string, lineOneBased: number, columnOneBased: number): Location {

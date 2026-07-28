@@ -70,6 +70,8 @@ export type BindingIdentifier = {
   kind: "id";
   name: string;
   default?: ASTNode;
+  __line?: number;
+  __column?: number;
 };
 export type ObjectBindingPattern = {
   kind: "object";
@@ -161,6 +163,7 @@ export function AsyncFunctionDeclaration(name: string | null, params: Params, bo
     params,
     body,
     async: true,
+    explicitAsync: true,
   };
 }
 

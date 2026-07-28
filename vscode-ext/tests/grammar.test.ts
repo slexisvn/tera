@@ -16,6 +16,11 @@ describe("grammar: declarations", () => {
     expect(await scopeOf(line, "->")).toBe("keyword.operator.arrow.tera");
   });
 
+  it("scopes void as a return type", async () => {
+    const line = "async fn run() -> void:";
+    expect(await scopeOf(line, "void")).toBe("storage.type.tera");
+  });
+
   it("does not mistake a fn-typed return for a type name", async () => {
     expect(await scopeOf("fn adder(base: int) -> fn(int) -> int:", "fn")).toBe("keyword.other.declaration.tera");
   });

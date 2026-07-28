@@ -2142,23 +2142,23 @@ export class RegisterInterpreter {
 
             case bytecode.ROP_AWAIT: {
               const promiseVal = frame.acc;
-              if (isPromise(promiseVal)) {
-                const p = getPayload(promiseVal);
-                if (p.state === PROMISE_FULFILLED) {
-                  frame.acc = p.result;
-                } else if (p.state === PROMISE_REJECTED) {
-                  throw new RegisterException(p.result);
-                } else if (frame.suspendable) {
-                  throw new AsyncSuspend(frame, promiseVal);
-                } else {
-                  throw new VMTypeError(
-                    `'${compiledFn.name || "<anonymous>"}' awaited a pending value but was not inferred as async. ` +
-                      `This is an effect-inference gap: the call site could not be resolved to a known callee. ` +
-                      `Mark the function 'async' explicitly, or await the value in the caller.`,
-                  );
-                }
+              if (!isPromise(promiseVal)) break;
+              if (compiledFn.explicitAsync) {
+                throw new AsyncSuspend(frame, promiseVal);
+              }
+              const p = getPayload(promiseVal);
+              if (p.state === PROMISE_FULFILLED) {
+                frame.acc = p.result;
+              } else if (p.state === PROMISE_REJECTED) {
+                throw new RegisterException(p.result);
+              } else if (frame.suspendable) {
+                throw new AsyncSuspend(frame, promiseVal);
               } else {
-                frame.acc = promiseVal;
+                throw new VMTypeError(
+                  `'${compiledFn.name || "<anonymous>"}' awaited a pending value but was not inferred as async. ` +
+                    `This is an effect-inference gap: the call site could not be resolved to a known callee. ` +
+                    `Mark the function 'async' explicitly, or await the value in the caller.`,
+                );
               }
               break;
             }

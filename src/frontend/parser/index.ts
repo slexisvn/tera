@@ -78,6 +78,15 @@ type ParserToken = Token;
 type ParserNode = ASTNode;
 type StatementResult = ASTNode | ASTNode[];
 
+function bindingIdentifier(token: ParserToken): BindingIdentifier {
+  const identifier: BindingIdentifier = { kind: "id", name: String(token.value) };
+  Object.defineProperties(identifier, {
+    __line: { value: token.line },
+    __column: { value: token.column },
+  });
+  return identifier;
+}
+
 const PRECEDENCE: Record<string, number> = {
   "??": 1,
   "||": 1,
@@ -539,6 +548,15 @@ export class Parser {
 
   skipTypePrimary(): void {
     const tok = this.current();
+    if (tok.type === TokenType.Keyword && tok.value === "fn") {
+      this.advance();
+      if (this.check(TokenType.Punctuator, "(")) this.skipBracketed();
+      if (this.check(TokenType.Punctuator, "->")) {
+        this.advance();
+        this.skipTypePrimary();
+      }
+      return;
+    }
     if (tok.type === TokenType.Punctuator) {
       if (tok.value === "{" || tok.value === "(" || tok.value === "[") this.skipBracketed();
       else return;
@@ -747,7 +765,8 @@ export class Parser {
     } else if (this.check(TokenType.Punctuator, "[")) {
       target = this._parseArrayPattern();
     } else {
-      target = { kind: "id" as const, name: this.expectString(TokenType.Identifier) };
+      const token = this.expect(TokenType.Identifier);
+      target = bindingIdentifier(token);
     }
     if (this.isBindingIdentifier(target) && this.match(TokenType.Punctuator, "=")) {
       target.default = this.parseExpression();
@@ -1342,12 +1361,6 @@ export class Parser {
       const op = this.tokenString(this.advance(), "operator");
       const argument = this.parseExpression(11);
       return UpdateExpression(op, argument, true);
-    }
-
-    if (tok.type === TokenType.Keyword && tok.value === "void") {
-      this.advance();
-      const argument = this.parseExpression(11);
-      return UnaryExpression("void", argument);
     }
 
     if (tok.type === TokenType.Keyword && tok.value === "delete") {
