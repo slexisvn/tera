@@ -158,6 +158,11 @@ export type RuntimeFunctionMetadata = {
   callConvention?: "positional" | "named" | "positional_named" | "namespace";
 };
 
+export type FunctionAccessor = {
+  get?: TaggedValue;
+  set?: TaggedValue;
+};
+
 export type RuntimeFunctionPayload = {
   __heapId?: number;
   name?: string;
@@ -171,6 +176,8 @@ export type RuntimeFunctionPayload = {
   compiled?: RegisterCompiledFunction | null;
   closure?: Environment | null;
   properties?: Record<string, TaggedValue>;
+  accessors?: Record<string, FunctionAccessor>;
+  staticBase?: RuntimeFunctionPayload | null;
   prototypeObj?: JSObject | null;
   constructorOf?: RuntimeFunctionPayload | null;
   call?: RuntimeNativeCall;

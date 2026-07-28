@@ -68,6 +68,7 @@ export type ClassMemberKind = "constructor" | "method" | "getter" | "setter";
 
 export type ClassMemberNode = {
   memberKind: ClassMemberKind;
+  static: boolean;
   fn: FunctionNode;
 };
 

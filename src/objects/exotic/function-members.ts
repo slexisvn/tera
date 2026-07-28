@@ -5,7 +5,9 @@ import {
   mkString,
   mkUndefined,
   isArray,
+  isObject,
   getPayload,
+  type FunctionAccessor,
   type RuntimeFunctionPayload,
   type TaggedValue,
 } from "../../core/value/index.js";
@@ -18,6 +20,22 @@ type MethodInterpreter = {
     thisValue: TaggedValue,
   ): TaggedValue;
 };
+
+type FunctionSlot =
+  | { kind: "data"; value: TaggedValue }
+  | { kind: "accessor"; accessor: FunctionAccessor };
+
+function hasOwn(record: Record<string, unknown> | undefined, key: string): boolean {
+  return !!record && Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function resolveFunctionSlot(fn: RuntimeFunctionPayload, propName: string): FunctionSlot | null {
+  for (let current: RuntimeFunctionPayload | null | undefined = fn; current; current = current.staticBase) {
+    if (hasOwn(current.accessors, propName)) return { kind: "accessor", accessor: current.accessors![propName] };
+    if (hasOwn(current.properties, propName)) return { kind: "data", value: current.properties![propName] };
+  }
+  return null;
+}
 
 function spreadArrayArg(arrVal: TaggedValue): TaggedValue[] {
   const out: TaggedValue[] = [];
@@ -93,9 +111,16 @@ function functionArity(fn: RuntimeFunctionPayload): number {
 export function functionMemberValue(
   receiver: TaggedValue,
   propName: string,
+  interp?: MethodInterpreter,
 ): TaggedValue | null {
   const fn = getPayload(receiver) as RuntimeFunctionPayload;
-  if (fn.properties && fn.properties[propName]) return fn.properties[propName];
+  const slot = resolveFunctionSlot(fn, propName);
+  if (slot) {
+    if (slot.kind === "data") return slot.value;
+    return slot.accessor.get && interp
+      ? interp.callFunctionValue(slot.accessor.get, [], receiver)
+      : mkUndefined();
+  }
   if (FUNCTION_METHOD_NAMES.has(propName))
     return makeFunctionMethod(receiver, propName);
   if (propName === "name") return mkString(fn.name || "");
@@ -108,4 +133,42 @@ export function functionMemberValue(
     return mkObject(fn.prototypeObj);
   }
   return null;
+}
+
+export function setFunctionMember(
+  receiver: TaggedValue,
+  propName: string,
+  value: TaggedValue,
+  interp?: MethodInterpreter,
+): void {
+  const fn = getPayload(receiver) as RuntimeFunctionPayload;
+  const slot = resolveFunctionSlot(fn, propName);
+  if (slot?.kind === "accessor") {
+    if (slot.accessor.set && interp) interp.callFunctionValue(slot.accessor.set, [value], receiver);
+    return;
+  }
+  if (!fn.properties) fn.properties = {};
+  fn.properties[propName] = value;
+  if (propName === "prototype" && isObject(value)) fn.prototypeObj = getPayload(value);
+}
+
+export function defineFunctionAccessor(
+  receiver: TaggedValue,
+  propName: string,
+  getter: TaggedValue | null,
+  setter: TaggedValue | null,
+): void {
+  const fn = getPayload(receiver) as RuntimeFunctionPayload;
+  if (!fn.accessors) fn.accessors = {};
+  const existing = fn.accessors[propName];
+  if (existing) {
+    if (getter) existing.get = getter;
+    if (setter) existing.set = setter;
+    return;
+  }
+  fn.accessors[propName] = { get: getter ?? undefined, set: setter ?? undefined };
+}
+
+export function setFunctionStaticBase(receiver: TaggedValue, base: TaggedValue): void {
+  (getPayload(receiver) as RuntimeFunctionPayload).staticBase = getPayload(base) as RuntimeFunctionPayload;
 }

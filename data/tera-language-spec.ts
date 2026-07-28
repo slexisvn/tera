@@ -245,6 +245,7 @@ export const TERA_KEYWORD_GROUPS = {
     "const",
     "var",
     "extends",
+    "static",
     "get",
     "set"
   ],

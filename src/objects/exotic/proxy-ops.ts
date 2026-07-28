@@ -462,7 +462,7 @@ export function runtimeGetProperty(
     }
   }
   if (isFunction(receiver)) {
-    const member = functionMemberValue(receiver, propName);
+    const member = functionMemberValue(receiver, propName, interpreter ?? undefined);
     if (member !== null) return member;
   }
   return mkUndefined();

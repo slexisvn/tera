@@ -71,7 +71,7 @@ import {
   runtimeOwnKeys,
   runtimeHasProperty,
 } from "../../../objects/exotic/proxy-ops.js";
-import { functionMemberValue } from "../../../objects/exotic/function-members.js";
+import { defineFunctionAccessor, functionMemberValue, setFunctionMember } from "../../../objects/exotic/function-members.js";
 import { RegisterException, runGeneratorFrame } from "./helpers.js";
 import { RegisterFrame } from "./frame.js";
 import { isNull, isUndefined as isUndefinedVal, typeOf } from "../../../core/value/index.js";
@@ -340,7 +340,7 @@ export function handleLdaProp(
   } else if (isPromise(obj)) {
     return handlePromiseProp(interp, obj, propName);
   } else if (isFunction(obj)) {
-    const member = functionMemberValue(obj, propName);
+    const member = functionMemberValue(obj, propName, interp);
     return member !== null ? member : mkUndefined();
   } else if (isSmi(obj) || isDouble(obj)) {
     return interp._lookupBuiltinPrototype(
@@ -557,12 +557,7 @@ export function handleStaProp(
       }
     }
   } else if (isFunction(obj)) {
-    const fn = getPayload(obj);
-    if (!fn.properties) fn.properties = {};
-    fn.properties[propName] = value;
-    if (propName === "prototype" && isObject(value)) {
-      fn.prototypeObj = getPayload(value);
-    }
+    setFunctionMember(obj, propName, value, interp);
   } else if (isRegex(obj) && propName === "lastIndex") {
     getPayload(obj).lastIndex = toNumber(value);
   }
@@ -784,11 +779,15 @@ export function handleDefineAccessor(
   const daGetterReg = operands[2];
   const daSetterReg = operands[3];
   const daObj = frame.getReg(daObjReg);
+  const propName = constantPropertyName(compiledFn, daPropIdx);
+  const getter = daGetterReg >= 0 ? frame.getReg(daGetterReg) : null;
+  const setter = daSetterReg >= 0 ? frame.getReg(daSetterReg) : null;
+  if (isFunction(daObj)) {
+    defineFunctionAccessor(daObj, propName, getter, setter);
+    return;
+  }
   if (isObject(daObj)) {
     const jsObj = getPayload(daObj);
-    const propName = constantPropertyName(compiledFn, daPropIdx);
-    const getter = daGetterReg >= 0 ? frame.getReg(daGetterReg) : null;
-    const setter = daSetterReg >= 0 ? frame.getReg(daSetterReg) : null;
     const existingDesc = jsObj.hiddenClass.lookupProperty(propName);
     if (existingDesc && existingDesc.kind === "accessor") {
       const existingPair = jsObj.storedProperty(propName);

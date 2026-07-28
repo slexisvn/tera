@@ -193,10 +193,12 @@ class SymbolTableBuilder {
   }
 
   private visitClass(node: Extract<SemanticNode, { kind: "Class" }>, scope: SourceScope): void {
-    const symbol = addSymbol(scope, node.name, "module", node.nameSpan.line, node.nameSpan.column);
+    const staticType = `typeof ${node.name}`;
+    const symbol = addSymbol(scope, node.name, "module", node.nameSpan.line, node.nameSpan.column, staticType);
     const child = this.childScope(scope, node.name, "class", node.span.line, node.span.column);
     symbol.scope = child;
     this.fieldsByType.set(node.name, inheritedMembers(this.fieldsByType, node.parent));
+    this.fieldsByType.set(staticType, inheritedMembers(this.fieldsByType, node.parent ? `typeof ${node.parent}` : undefined));
     for (const member of node.members) this.visitClassMember(member, child, node.name);
     child.endLine = endLine(node.members.map((member) => member.fn), node.span.line);
   }
@@ -233,15 +235,16 @@ class SymbolTableBuilder {
   }
 
   private visitClassMember(member: ClassMemberNode, scope: SourceScope, owner: string): void {
+    const targetOwner = member.static ? `typeof ${owner}` : owner;
     const kind = member.memberKind === "getter" ? "property" : "method";
     const symbol = addSymbol(scope, member.fn.name, kind, member.fn.nameSpan.line, member.fn.nameSpan.column, memberType(member));
-    if (member.memberKind !== "constructor") upsertMember(this.fieldsByType.get(owner), symbol);
+    if (member.memberKind !== "constructor") upsertMember(this.fieldsByType.get(targetOwner), symbol);
     const child = this.childScope(scope, member.fn.name, "function", member.fn.span.line, member.fn.span.column);
     symbol.scope = child;
-    addSymbol(child, "this", "variable", member.fn.span.line, member.fn.span.column, owner);
+    addSymbol(child, "this", "variable", member.fn.span.line, member.fn.span.column, targetOwner);
     this.addParams(child, member.fn);
     for (const stmt of member.fn.body) {
-      this.visitThisField(stmt, child, owner);
+      this.visitThisField(stmt, child, targetOwner);
       this.visitNode(stmt, child);
     }
     child.endLine = endLine(member.fn.body, member.fn.span.line);

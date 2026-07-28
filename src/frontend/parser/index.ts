@@ -1494,32 +1494,34 @@ export class Parser {
       !this.check(TokenType.Punctuator, "}") &&
       !this.check(TokenType.EOF)
     ) {
+      let isStatic = false;
+      let memberName = this.tokenString(this.expect(TokenType.Identifier), "method name");
+      if (memberName === "static" && this.check(TokenType.Identifier)) {
+        isStatic = true;
+        memberName = this.expectString(TokenType.Identifier);
+      }
       let accessorKind = null;
-      const firstIdent = this.expect(TokenType.Identifier);
-      const firstName = this.tokenString(firstIdent, "method name");
-      let methodName;
       if (
-        (firstName === "get" || firstName === "set") &&
+        (memberName === "get" || memberName === "set") &&
         this.check(TokenType.Identifier)
       ) {
-        accessorKind = firstName;
-        methodName = this.expectString(TokenType.Identifier);
-      } else {
-        methodName = firstName;
+        accessorKind = memberName;
+        memberName = this.expectString(TokenType.Identifier);
       }
       const params = this._parseParams();
       this.skipReturnType();
       const body = this.parseBlock();
 
-      const funcNode = FunctionDeclaration(methodName, params, body);
+      const funcNode = FunctionDeclaration(memberName, params, body);
 
-      if (methodName === "constructor" && !accessorKind) {
+      if (memberName === "constructor" && !accessorKind && !isStatic) {
         constructorNode = funcNode;
       } else {
         methods.push({
-          name: methodName,
+          name: memberName,
           func: funcNode,
           kind: accessorKind,
+          static: isStatic,
         });
       }
     }

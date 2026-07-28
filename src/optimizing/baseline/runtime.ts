@@ -54,7 +54,7 @@ import {
   runtimeHasProperty,
   runtimeSetProperty,
 } from "../../objects/exotic/proxy-ops.js";
-import { functionMemberValue } from "../../objects/exotic/function-members.js";
+import { functionMemberValue, setFunctionMember } from "../../objects/exotic/function-members.js";
 
 export type BaselineInterpreter = {
   globalCells: {
@@ -349,7 +349,7 @@ export class BaselineRuntime {
       );
     }
     if (isFunction(obj)) {
-      const member = functionMemberValue(obj, propName);
+      const member = functionMemberValue(obj, propName, this.interp);
       return member !== null ? member : this.u;
     }
     if (isNumber(obj)) {
@@ -371,6 +371,10 @@ export class BaselineRuntime {
     const propName = constantString(this.consts, nameIdx);
     if (isJSProxyValue(obj)) {
       runtimeSetProperty(obj, propName, val, this.interp);
+      return;
+    }
+    if (isFunction(obj)) {
+      setFunctionMember(obj, propName, val, this.interp);
       return;
     }
     if (isObject(obj)) {

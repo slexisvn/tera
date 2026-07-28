@@ -93,11 +93,15 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
     const classScope = createScope(scope, sig);
     bound.scopes.set(node, classScope);
     classScope.locals.set(node.name, { type: node.name, optional: false });
+    const staticType = `typeof ${node.name}`;
     for (const member of node.members) {
       const memberSig = signatureFromParams(member.fn.name, member.fn.typeParams, member.fn.params, member.fn.returns);
+      if (member.static && member.memberKind !== "constructor") {
+        scope.signatures.set(`${node.name}.${member.fn.name}`, memberSig);
+      }
       const child = createScope(classScope, memberSig);
       bound.scopes.set(member.fn, child);
-      child.locals.set("this", { type: node.name, optional: false, declared: true });
+      child.locals.set("this", { type: member.static ? staticType : node.name, optional: false, declared: true });
       for (const [name, binding] of memberSig.params) child.locals.set(name, { ...binding, declared: true });
       for (const stmt of member.fn.body) bindNode(stmt, bound, child);
     }

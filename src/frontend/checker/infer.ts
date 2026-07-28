@@ -384,9 +384,9 @@ export function callSignatureForCallee(callee: ASTNode, bound: BoundProgram, sco
   if (callee.type === NodeType.Identifier) {
     const name = String(callee.name);
     const binding = lookup(scope, name);
-    if (binding) return functionSignatureForType(name, binding.type) ?? callSignatureForType(binding.type, bound.env);
-    const scoped = lookupSignature(scope, name);
-    return scoped ?? null;
+    const fromBinding = binding ? functionSignatureForType(name, binding.type) ?? callSignatureForType(binding.type, bound.env) : null;
+    if (fromBinding) return fromBinding;
+    return lookupSignature(scope, name) ?? null;
   }
   if (callee.type === NodeType.MemberExpression || callee.type === NodeType.OptionalMemberExpression) {
     const objectType = inferExpression(callee.object as ASTNode, bound, scope);

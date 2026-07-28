@@ -43,6 +43,7 @@ type FunctionNode = ASTNode & {
 type ClassMethodNode = {
   name: string;
   kind?: "get" | "set" | string;
+  static?: boolean;
   func: FunctionNode & { name: string; params: string[] };
 };
 
@@ -493,74 +494,38 @@ export const functionMethods: FunctionMethodMap = {
     this._nextFunctionIsClassConstructor = true;
     this.compileFunctionDeclaration(ctorNode);
 
-    const classResolvedForPrototype = this.scope.resolve(node.name);
-    if (classResolvedForPrototype && classResolvedForPrototype.type === "local") {
-      this.func.emit(bytecode.ROP_LDA_REG, classResolvedForPrototype.slot);
-    } else {
-      const classNameIdx = this.func.addConstant(node.name);
-      this.func.emit(bytecode.ROP_LDA_GLOBAL, classNameIdx);
-    }
-    const classRegForPrototype = this.temps.alloc();
-    this.func.emit(bytecode.ROP_STAR, classRegForPrototype);
-    const prototypeNameIdx = this.func.addConstant("prototype");
-    const prototypeFbSlot = this.func.allocFeedbackSlot();
-    this.func.emit(bytecode.ROP_LDA_PROP, classRegForPrototype, prototypeNameIdx, prototypeFbSlot);
-    this.temps.free(classRegForPrototype);
-
-    if (node.superClass) {
-      const classResolved = this.scope.resolve(node.name);
-      if (classResolved && classResolved.type === "local") {
-        this.func.emit(bytecode.ROP_LDA_REG, classResolved.slot);
-      } else {
-        const classNameIdx = this.func.addConstant(node.name);
-        this.func.emit(bytecode.ROP_LDA_GLOBAL, classNameIdx);
-      }
-      const subCtorReg = this.temps.alloc();
-      this.func.emit(bytecode.ROP_STAR, subCtorReg);
-      const protoStr = this.func.addConstant("prototype");
-      const fbSlot1 = this.func.allocFeedbackSlot();
-      this.func.emit(bytecode.ROP_LDA_PROP, subCtorReg, protoStr, fbSlot1);
-      const subProtoReg = this.temps.alloc();
-      this.func.emit(bytecode.ROP_STAR, subProtoReg);
-
-      this.func.emit(bytecode.ROP_LDA_REG, superClassReg);
-      const superCtorReg = this.temps.alloc();
-      this.func.emit(bytecode.ROP_STAR, superCtorReg);
-      const fbSlot2 = this.func.allocFeedbackSlot();
-      this.func.emit(bytecode.ROP_LDA_PROP, superCtorReg, protoStr, fbSlot2);
-      const superProtoReg = this.temps.alloc();
-      this.func.emit(bytecode.ROP_STAR, superProtoReg);
-
-      this.func.emit(bytecode.ROP_SET_PROTO, subProtoReg, superProtoReg);
-
-      this.temps.free(superProtoReg);
-      this.temps.free(superCtorReg);
-      this.temps.free(subProtoReg);
-      this.temps.free(subCtorReg);
-    }
-
-    for (const method of node.methods) {
+    const loadClassValue = (): void => {
       const resolved = this.scope.resolve(node.name);
       if (resolved && resolved.type === "local") {
         this.func.emit(bytecode.ROP_LDA_REG, resolved.slot);
       } else {
-        const nameIdx = this.func.addConstant(node.name);
-        this.func.emit(bytecode.ROP_LDA_GLOBAL, nameIdx);
+        this.func.emit(bytecode.ROP_LDA_GLOBAL, this.func.addConstant(node.name));
       }
+    };
 
-      const protoReg = this.temps.alloc();
-      this.func.emit(bytecode.ROP_STAR, protoReg);
-      const protoConstIdx = this.func.addConstant("prototype");
-      const protoFbSlot = this.func.allocFeedbackSlot();
-      this.func.emit(
-        bytecode.ROP_LDA_PROP,
-        protoReg,
-        protoConstIdx,
-        protoFbSlot,
-      );
+    const prototypeNameIdx = this.func.addConstant("prototype");
+    loadClassValue();
+    const classReg = this.temps.alloc();
+    this.func.emit(bytecode.ROP_STAR, classReg);
+    this.func.emit(bytecode.ROP_LDA_PROP, classReg, prototypeNameIdx, this.func.allocFeedbackSlot());
+    const prototypeReg = this.temps.alloc();
+    this.func.emit(bytecode.ROP_STAR, prototypeReg);
 
-      const protoObjReg = this.temps.alloc();
-      this.func.emit(bytecode.ROP_STAR, protoObjReg);
+    if (node.superClass) {
+      this.func.emit(bytecode.ROP_LDA_REG, superClassReg);
+      const superCtorReg = this.temps.alloc();
+      this.func.emit(bytecode.ROP_STAR, superCtorReg);
+      this.func.emit(bytecode.ROP_LDA_PROP, superCtorReg, prototypeNameIdx, this.func.allocFeedbackSlot());
+      const superProtoReg = this.temps.alloc();
+      this.func.emit(bytecode.ROP_STAR, superProtoReg);
+      this.func.emit(bytecode.ROP_SET_PROTO, prototypeReg, superProtoReg);
+      this.func.emit(bytecode.ROP_SET_PROTO, classReg, superCtorReg);
+      this.temps.free(superProtoReg);
+      this.temps.free(superCtorReg);
+    }
+
+    for (const method of node.methods) {
+      const targetReg = method.static ? classReg : prototypeReg;
 
       const outerFunc = this.func;
       const outerScope = this.scope;
@@ -575,7 +540,7 @@ export const functionMethods: FunctionMethodMap = {
       this.scope = new Scope(outerScope);
       this.scope.isFunctionBoundary = true;
       this.temps = new TempAllocator(methodFunc);
-      this._currentSuperClassName = node.superClass ? node.name : null;
+      this._currentSuperClassName = method.static ? null : (node.superClass ? node.name : null);
 
       this._compileParams(method.func.params, methodFunc, this.scope);
 
@@ -603,13 +568,8 @@ export const functionMethods: FunctionMethodMap = {
       this.temps = outerTemps;
       this._currentSuperClassName = outerSuperClassName;
 
-      if (methodFunc.upvalues.length > 0) {
-        const constIdx = outerFunc.addConstant(methodFunc);
-        outerFunc.emit(bytecode.ROP_MAKE_CLOSURE, constIdx);
-      } else {
-        const constIdx = outerFunc.addConstant(methodFunc);
-        outerFunc.emit(bytecode.ROP_LDA_CONST, constIdx);
-      }
+      const constIdx = outerFunc.addConstant(methodFunc);
+      outerFunc.emit(methodFunc.upvalues.length > 0 ? bytecode.ROP_MAKE_CLOSURE : bytecode.ROP_LDA_CONST, constIdx);
 
       const methodNameIdx = outerFunc.addConstant(method.name);
       if (method.kind === "get" || method.kind === "set") {
@@ -617,27 +577,15 @@ export const functionMethods: FunctionMethodMap = {
         outerFunc.emit(bytecode.ROP_STAR, fnReg);
         const getterReg = method.kind === "get" ? fnReg : -1;
         const setterReg = method.kind === "set" ? fnReg : -1;
-        outerFunc.emit(
-          bytecode.ROP_DEFINE_ACCESSOR,
-          protoObjReg,
-          methodNameIdx,
-          getterReg,
-          setterReg,
-        );
+        outerFunc.emit(bytecode.ROP_DEFINE_ACCESSOR, targetReg, methodNameIdx, getterReg, setterReg);
         this.temps.free(fnReg);
       } else {
-        const setFbSlot = outerFunc.allocFeedbackSlot();
-        outerFunc.emit(
-          bytecode.ROP_STA_PROP,
-          protoObjReg,
-          methodNameIdx,
-          setFbSlot,
-        );
+        outerFunc.emit(bytecode.ROP_STA_PROP, targetReg, methodNameIdx, outerFunc.allocFeedbackSlot());
       }
-
-      this.temps.free(protoObjReg);
-      this.temps.free(protoReg);
     }
+
+    this.temps.free(prototypeReg);
+    this.temps.free(classReg);
   },
 
   compileSuperCall(node) {

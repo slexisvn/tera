@@ -65,6 +65,7 @@ import {
   recordConstruction,
 } from "../../../objects/heap/js-object.js";
 import { AccessorPair } from "../../../objects/heap/js-object.js";
+import { setFunctionStaticBase } from "../../../objects/exotic/function-members.js";
 import {
   INSTANCE_TYPE_STRING_WRAPPER,
   INSTANCE_TYPE_NUMBER_WRAPPER,
@@ -1914,6 +1915,8 @@ export class RegisterInterpreter {
               const proto = frame.getReg(protoReg);
               if (isObject(obj) && isObject(proto)) {
                 getPayload(obj).setPrototype(getPayload(proto));
+              } else if (isFunction(obj) && isFunction(proto)) {
+                setFunctionStaticBase(obj, proto);
               }
               break;
             }

@@ -113,14 +113,20 @@ export class TypeChecker {
 
   registerClassShape(node: Extract<SemanticNode, { kind: "Class" }>, classScope: Scope): void {
     const shape: ObjectShape = { fields: new Map() };
+    const staticShape: ObjectShape = { fields: new Map() };
+    const staticType = `typeof ${node.name}`;
     if (node.parent) {
       const parentShape = instantiateShapeForType(node.parent, this.bound.env);
       if (parentShape) for (const [name, binding] of parentShape.fields) shape.fields.set(name, binding);
+      const parentStatic = this.bound.env.interfaces.get(`typeof ${node.parent}`);
+      if (parentStatic) for (const [name, binding] of parentStatic.fields) staticShape.fields.set(name, binding);
     }
     this.bound.env.interfaces.set(node.name, shape);
+    this.bound.env.interfaces.set(staticType, staticShape);
     const constructorFirst = (member: ClassMemberNode): number => (member.memberKind === "constructor" ? 0 : 1);
     const ordered = [...node.members].sort((left, right) => constructorFirst(left) - constructorFirst(right));
     for (const member of ordered) {
+      if (member.static) continue;
       const memberScope = this.bound.scopes.get(member.fn) ?? classScope;
       this.collectThisFields(member.fn.body, memberScope, shape);
     }
@@ -130,9 +136,10 @@ export class TypeChecker {
       const returns = this.memberReturnType(member.fn, memberScope);
       if (member.fn.returns === "any" && memberScope.signature) memberScope.signature.returns = returns;
       const type = member.memberKind === "getter" ? returns : classMethodType(member.fn, returns);
-      shape.fields.set(member.fn.name, { type, optional: false });
+      (member.static ? staticShape : shape).fields.set(member.fn.name, { type, optional: false });
     }
     this.emitMembers(node.name, shape, node.span);
+    this.emitMembers(staticType, staticShape, node.span);
   }
 
   emitMembers(typeName: string, shape: ObjectShape | null | undefined, span: { line: number; column: number }): void {

@@ -931,4 +931,53 @@ describe("checker pipeline", () => {
       expect(messages(source)).toEqual([]);
     });
   });
+
+  describe("static class members", () => {
+    const factory = [
+      "class Vec:",
+      "  static create(x: int, y: int) -> Vec:",
+      "    return Vec()",
+      "  constructor():",
+      "    this.x = 0",
+    ].join("\n");
+
+    it("accepts a well-formed static factory call", () => {
+      expect(messages(`${factory}\nVec.create(1, 2)`)).toEqual([]);
+    });
+
+    it("argument-checks static method calls", () => {
+      expect(messages(`${factory}\nVec.create(1)`)).toContain("Missing required argument 'y' for create()");
+      expect(messages(`${factory}\nVec.create(1, "no")`)).toContain("Type 'string' is not assignable to parameter 'y: int'");
+    });
+
+    it("exposes static members on the class type and keeps them off instances", () => {
+      const source = [
+        "class Reg:",
+        "  static make() -> Reg:",
+        "    return Reg()",
+        "  constructor():",
+        "    this.v = 1",
+        "  read() -> int:",
+        "    return this.v",
+      ].join("\n");
+      const statics = inferSymbolTypes(source).filter((s) => s.name.startsWith("typeof Reg."));
+      const instance = inferSymbolTypes(source).filter((s) => s.name.startsWith("Reg."));
+      expect(statics.map((s) => s.name)).toContain("typeof Reg.make");
+      expect(instance.map((s) => s.name)).toEqual(expect.arrayContaining(["Reg.v", "Reg.read"]));
+      expect(instance.map((s) => s.name)).not.toContain("Reg.make");
+    });
+
+    it("inherits static members from a superclass", () => {
+      const source = [
+        "class Base:",
+        "  static tag() -> string:",
+        "    return \"b\"",
+        "class Sub extends Base:",
+        "  step() -> int:",
+        "    return 1",
+        "Sub.tag()",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+  });
 });

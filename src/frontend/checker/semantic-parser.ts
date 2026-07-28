@@ -372,13 +372,16 @@ class SemanticParser {
   }
 
   parseClassMember(line: Line): ClassMemberNode | null {
-    const first = line.tokens[0]?.value;
-    const accessor = (first === "get" || first === "set") && line.tokens[1]?.type === TokenType.Identifier;
-    const offset = accessor ? 1 : 0;
+    let offset = 0;
+    const isStatic = line.tokens[offset]?.value === "static" && line.tokens[offset + 1]?.type === TokenType.Identifier;
+    if (isStatic) offset++;
+    const keyword = line.tokens[offset]?.value;
+    const accessor = (keyword === "get" || keyword === "set") && line.tokens[offset + 1]?.type === TokenType.Identifier;
+    if (accessor) offset++;
     const signature = parseSignature(line, offset);
     if (!signature) return null;
-    let memberKind: ClassMemberKind = accessor ? (first as "get" | "set") === "get" ? "getter" : "setter" : "method";
-    if (!accessor && signature.name === "constructor") memberKind = "constructor";
+    let memberKind: ClassMemberKind = accessor ? (keyword as "get" | "set") === "get" ? "getter" : "setter" : "method";
+    if (!accessor && !isStatic && signature.name === "constructor") memberKind = "constructor";
     this.index++;
     const fn: FunctionNode = {
       kind: "Function",
@@ -386,7 +389,7 @@ class SemanticParser {
       body: this.parseBlock(line.indent),
       span: { line: line.line, column: line.indent + 1 },
     };
-    return { memberKind, fn };
+    return { memberKind, static: isStatic, fn };
   }
 
   parseControlBlock(line: Line, exprStart: number): BlockNode {
