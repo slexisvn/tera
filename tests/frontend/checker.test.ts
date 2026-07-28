@@ -980,4 +980,79 @@ describe("checker pipeline", () => {
       expect(messages(source)).toEqual([]);
     });
   });
+
+  describe("class implements interface", () => {
+    const shape = [
+      "interface Shape:",
+      "  area() -> int",
+      "  name: string",
+    ].join("\n");
+
+    it("accepts a class that satisfies the interface", () => {
+      const source = [
+        shape,
+        "class Sq implements Shape:",
+        "  constructor():",
+        "    this.name = \"sq\"",
+        "  area() -> int:",
+        "    return 4",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+
+    it("reports a missing interface member", () => {
+      const source = [
+        shape,
+        "class Sq implements Shape:",
+        "  constructor():",
+        "    this.name = \"sq\"",
+      ].join("\n");
+      expect(messages(source)).toContain("Class 'Sq' is missing 'area' required by interface 'Shape'");
+    });
+
+    it("reports an incompatible member type", () => {
+      const source = [
+        "interface Shape:",
+        "  area() -> int",
+        "class Sq implements Shape:",
+        "  area() -> string:",
+        "    return \"x\"",
+      ].join("\n");
+      expect(messages(source)).toContain("Property 'area: () -> string' in 'Sq' is not assignable to 'area: () -> int' required by interface 'Shape'");
+    });
+
+    it("reports an unknown interface", () => {
+      const source = [
+        "class Sq implements Ghost:",
+        "  area() -> int:",
+        "    return 1",
+      ].join("\n");
+      expect(messages(source)).toContain("Cannot find interface 'Ghost' implemented by 'Sq'");
+    });
+
+    it("checks every interface in a multi-interface list", () => {
+      const source = [
+        "interface A:",
+        "  a() -> int",
+        "interface B:",
+        "  b() -> int",
+        "class C implements A, B:",
+        "  a() -> int:",
+        "    return 1",
+      ].join("\n");
+      expect(messages(source)).toContain("Class 'C' is missing 'b' required by interface 'B'");
+    });
+
+    it("treats an implemented class as assignable to the interface", () => {
+      const source = [
+        "interface Shape:",
+        "  area() -> int",
+        "class Sq implements Shape:",
+        "  area() -> int:",
+        "    return 4",
+        "s: Shape = Sq()",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+  });
 });

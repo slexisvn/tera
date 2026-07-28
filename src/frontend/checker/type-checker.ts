@@ -140,6 +140,28 @@ export class TypeChecker {
     }
     this.emitMembers(node.name, shape, node.span);
     this.emitMembers(staticType, staticShape, node.span);
+    this.checkImplements(node, shape);
+  }
+
+  checkImplements(node: Extract<SemanticNode, { kind: "Class" }>, shape: ObjectShape): void {
+    for (const interfaceName of node.implements) {
+      const contract = instantiateShapeForType(interfaceName, this.bound.env);
+      if (!contract) {
+        this.add(node.nameSpan.line, node.nameSpan.column, `Cannot find interface '${interfaceName}' implemented by '${node.name}'`);
+        continue;
+      }
+      for (const [fieldName, required] of contract.fields) {
+        if (required.optional) continue;
+        const own = shape.fields.get(fieldName);
+        if (!own) {
+          this.add(node.nameSpan.line, node.nameSpan.column, `Class '${node.name}' is missing '${fieldName}' required by interface '${interfaceName}'`);
+          continue;
+        }
+        if (!compatible(own.type, required.type, this.bound.env)) {
+          this.add(node.nameSpan.line, node.nameSpan.column, `Property '${fieldName}: ${own.type}' in '${node.name}' is not assignable to '${fieldName}: ${required.type}' required by interface '${interfaceName}'`);
+        }
+      }
+    }
   }
 
   emitMembers(typeName: string, shape: ObjectShape | null | undefined, span: { line: number; column: number }): void {

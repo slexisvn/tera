@@ -147,4 +147,33 @@ describe("Tera classes", () => {
     ].join("\n");
     expect(run(source)).toBe("sub:base");
   });
+
+  it("runs classes that declare interface implementations", () => {
+    const source = [
+      "interface Shape:",
+      "  area() -> int",
+      "class Square implements Shape:",
+      "  constructor(side):",
+      "    this.side = side",
+      "  area():",
+      "    return this.side * this.side",
+      "Square(3).area()",
+    ].join("\n");
+    expect(run(source)).toBe(9);
+  });
+
+  it("runs a class that extends a base and implements interfaces", () => {
+    const source = [
+      "interface Named:",
+      "  label() -> string",
+      "class Base:",
+      "  constructor():",
+      "    this.kind = \"base\"",
+      "class Tagged extends Base implements Named:",
+      "  label():",
+      "    return this.kind",
+      "Tagged().label()",
+    ].join("\n");
+    expect(run(source)).toBe("base");
+  });
 });

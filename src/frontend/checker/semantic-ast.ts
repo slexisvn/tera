@@ -76,6 +76,7 @@ export type ClassNode = {
   kind: "Class";
   name: string;
   parent?: string;
+  implements: string[];
   members: ClassMemberNode[];
   span: SourceSpan;
   nameSpan: SourceSpan;

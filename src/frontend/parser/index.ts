@@ -1485,6 +1485,12 @@ export class Parser {
       superClass = Identifier(superName);
     }
 
+    if (this.match(TokenType.Identifier, "implements")) {
+      do {
+        this.expectString(TokenType.Identifier);
+      } while (this.match(TokenType.Punctuator, ","));
+    }
+
     this.expect(TokenType.Punctuator, "{");
 
     let constructorNode = null;

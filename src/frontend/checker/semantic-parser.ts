@@ -192,12 +192,23 @@ function parseInterfaceField(line: Line): InterfaceFieldNode | InterfaceIndexNod
       valueType: sliceType(line.tokens.slice(valueColon + 1)),
     };
   }
-  let cursor = line.tokens[0]?.value === "readonly" ? 1 : 0;
-  const nameToken = line.tokens[cursor];
+  const nameOffset = line.tokens[0]?.value === "readonly" ? 1 : 0;
+  const nameToken = line.tokens[nameOffset];
   if (!nameToken || nameToken.type !== TokenType.Identifier) return null;
-  cursor++;
+  let cursor = nameOffset + 1;
   const optional = line.tokens[cursor]?.value === "?";
   if (optional) cursor++;
+  if (!optional && (line.tokens[cursor]?.value === "(" || line.tokens[cursor]?.value === "<")) {
+    const signature = parseSignature(line, nameOffset);
+    if (signature) {
+      return {
+        name: signature.name,
+        optional: false,
+        type: cleanType(`(${signature.params.map((param) => param.type).join(", ")}) -> ${signature.returns}`),
+        span: signature.nameSpan,
+      };
+    }
+  }
   if (line.tokens[cursor]?.value !== ":") return null;
   return { name: String(nameToken.value), optional, type: sliceType(line.tokens.slice(cursor + 1)), span: { line: nameToken.line, column: nameToken.column } };
 }
@@ -355,6 +366,12 @@ class SemanticParser {
     const parent = extendsIndex >= 0 && line.tokens[extendsIndex + 1]?.type === TokenType.Identifier
       ? String(line.tokens[extendsIndex + 1].value)
       : undefined;
+    const implementsIndex = line.tokens.findIndex((tok) => tok.value === "implements");
+    const colon = findTopLevel(line.tokens, ":");
+    const implemented = implementsIndex < 0 ? [] : splitTopLevelTokenGroups(
+      line.tokens.slice(implementsIndex + 1, colon >= 0 ? colon : line.tokens.length),
+      ",",
+    ).map((group) => group.find((tok) => tok.type === TokenType.Identifier)).filter((tok): tok is Token => !!tok).map((tok) => String(tok.value));
     const members: ClassMemberNode[] = [];
     while (this.index < this.lines.length && this.lines[this.index].indent > line.indent) {
       const member = this.parseClassMember(this.lines[this.index]);
@@ -365,6 +382,7 @@ class SemanticParser {
       kind: "Class",
       name,
       parent,
+      implements: implemented,
       members,
       span: { line: line.line, column: line.indent + 1 },
       nameSpan: { line: nameToken?.line ?? line.line, column: nameToken?.column ?? line.indent + 1 },

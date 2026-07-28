@@ -241,7 +241,7 @@
           }
         },
         {
-          "match": "(->)\\s*(?!(?:instanceof|interface|continue|default|extends|finally|delete|return|switch|typeof|async|await|break|catch|class|const|false|model|super|throw|while|yield|case|else|null|this|true|type|and|for|get|let|new|not|set|try|var|do|fn|if|in|of|or)\\b)([A-Za-z_$][A-Za-z0-9_$]*)",
+          "match": "(->)\\s*(?!(?:implements|instanceof|interface|continue|default|extends|finally|delete|return|static|switch|typeof|async|await|break|catch|class|const|false|model|super|throw|while|yield|case|else|null|this|true|type|and|for|get|let|new|not|set|try|var|do|fn|if|in|of|or)\\b)([A-Za-z_$][A-Za-z0-9_$]*)",
           "captures": {
             "1": {
               "name": "keyword.operator.arrow.tera"
@@ -257,7 +257,7 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.tera",
-          "match": "\\b(?:interface|extends|class|const|model|type|get|let|set|var|fn)\\b"
+          "match": "\\b(?:implements|interface|extends|static|class|const|model|type|get|let|set|var|fn)\\b"
         },
         {
           "name": "keyword.control.tera",
