@@ -1,9 +1,14 @@
+import { CLASS_ABSTRACT_MODIFIER, CLASS_VISIBILITIES } from "../../core/class-visibility.js";
+
 export const TokenType = {
   Number: "Number",
   String: "String",
   Identifier: "Identifier",
   Keyword: "Keyword",
   Punctuator: "Punctuator",
+  Newline: "Newline",
+  Indent: "Indent",
+  Dedent: "Dedent",
   RegExp: "RegExp",
   TemplateLiteral: "TemplateLiteral",
   EOF: "EOF",
@@ -60,6 +65,8 @@ export const KEYWORDS = new Set([
   "await",
   "yield",
   "delete",
+  ...CLASS_VISIBILITIES,
+  CLASS_ABSTRACT_MODIFIER,
   "fn",
   "model",
   "and",

@@ -23,7 +23,12 @@ export function analyzeTokens(text: string): AnalyzedToken[] {
   const lines = splitLines(text);
   const out: AnalyzedToken[] = [];
   for (const token of raw) {
-    if (token.type === TokenType.EOF) continue;
+    if (
+      token.type === TokenType.EOF ||
+      token.type === TokenType.Newline ||
+      token.type === TokenType.Indent ||
+      token.type === TokenType.Dedent
+    ) continue;
     const value = stringifyValue(token);
     const span = tokenSpan(token, value, lines);
     out.push({

@@ -20,3 +20,5 @@ export {
 export type { Builtin, BuiltinSource, KeywordGroup, LanguageData, LanguageDataSource, LanguageDataSpec, Method, Operators, Param, PseudoTypeSource, Signature } from "./language-data.js";
 export { NodeType } from "./ast/index.js";
 export type { ASTNode, NodeTypeName } from "./ast/index.js";
+export { CLASS_ABSTRACT_MODIFIER, CLASS_MEMBER_MODIFIER_KEYWORDS, CLASS_MEMBER_MODIFIERS, CLASS_STATIC_MODIFIER, CLASS_VISIBILITIES, CLASS_VISIBILITY_KEYWORDS, DEFAULT_CLASS_VISIBILITY, isClassVisibility } from "../core/class-visibility.js";
+export type { ClassVisibility } from "../core/class-visibility.js";

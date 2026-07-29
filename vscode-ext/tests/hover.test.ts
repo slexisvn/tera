@@ -1,25 +1,6 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { LanguageData } from "../src/shared/language-data.ts";
-import { DocumentAnalyzer } from "../src/server/analyzer/index.ts";
-import { EventBus, type AnalyzerEvents } from "../src/server/bus.ts";
-import { TypeResolver } from "../src/server/language/type-resolver.ts";
 import { computeHover } from "../src/server/providers/hover.ts";
-import type { ProviderContext } from "../src/server/providers/types.ts";
-
-const languageData = JSON.parse(readFileSync(join(import.meta.dirname, "..", "language-data.json"), "utf8")) as LanguageData;
-
-function contextFor(source: string): ProviderContext {
-  const analyzer = new DocumentAnalyzer(languageData);
-  analyzer.update("file:///test.tera", source);
-  return {
-    analyzer,
-    languageData,
-    types: new TypeResolver(languageData),
-    bus: new EventBus<AnalyzerEvents>(),
-  };
-}
+import { contextFor } from "./provider-harness.ts";
 
 function hoverText(source: string, line: number, character: number): string {
   const hover = computeHover(contextFor(source), {
@@ -207,6 +188,50 @@ describe("hover", () => {
     expect(text).toContain("type: `() -> string`");
   });
 
+  it("shows super and inherited method types inside subclasses", () => {
+    const source = [
+      "interface RequestHandler:",
+      "  handle(request: string) -> string",
+      "class Handler implements RequestHandler:",
+      "  constructor(next: RequestHandler | null = null):",
+      "    this.next = next",
+      "  handle(request: string) -> string:",
+      "    return request",
+      "class CacheHandler extends Handler:",
+      "  constructor(next: RequestHandler | null = null):",
+      "    super(next)",
+      "  handle(request: string) -> string:",
+      "    return super.handle(request)",
+    ].join("\n");
+
+    const superCtor = hoverText(source, 9, "    super".length);
+    const methodDecl = hoverText(source, 10, "  handle".length);
+    const superMethod = hoverText(source, 11, "    return super.handle".length);
+
+    expect(superCtor).toContain("`super` — *variable*");
+    expect(superCtor).toContain("type: `Handler`");
+    expect(methodDecl).toContain("`handle` — *method*");
+    expect(methodDecl).toContain("type: `(string) -> string`");
+    expect(superMethod).toContain("`Handler.handle`");
+    expect(superMethod).toContain("type: `(string) -> string`");
+  });
+
+  it("shows protected inherited method types through super inside subclasses", () => {
+    const source = [
+      "class Handler:",
+      "  protected handle(request: string) -> string:",
+      "    return request",
+      "class CacheHandler extends Handler:",
+      "  read(request: string) -> string:",
+      "    return super.handle(request)",
+    ].join("\n");
+
+    const superMethod = hoverText(source, 5, "    return super.handle".length);
+
+    expect(superMethod).toContain("`Handler.handle`");
+    expect(superMethod).toContain("type: `(string) -> string`");
+  });
+
   it("shows class instance fields on this", () => {
     const source = [
       "class Account:",
@@ -221,6 +246,43 @@ describe("hover", () => {
 
     expect(text).toContain("`Account.owner`");
     expect(text).toContain("type: `string`");
+  });
+
+  it("does not show inaccessible private class fields outside the declaring class", () => {
+    const source = [
+      "class Account:",
+      "  private balance: int = 1",
+      "acc = Account()",
+      "acc.balance",
+    ].join("\n");
+
+    expect(hoverText(source, 3, "acc.balance".length)).toBe("");
+  });
+
+  it("shows primitive string method types", () => {
+    const source = [
+      "name: string = \"tera\"",
+      "name.to_upper_case()",
+    ].join("\n");
+
+    const text = hoverText(source, 1, "name.to_upper_case".length);
+
+    expect(text).toContain("to_upper_case");
+    expect(text).toContain("type: `() -> string`");
+  });
+
+  it("shows primitive number and boolean method types", () => {
+    const numberSource = [
+      "score: float = 3.14",
+      "score.to_fixed(2)",
+    ].join("\n");
+    const boolSource = [
+      "ready: bool = true",
+      "ready.to_string()",
+    ].join("\n");
+
+    expect(hoverText(numberSource, 1, "score.to_fixed".length)).toContain("type: `(int) -> string`");
+    expect(hoverText(boolSource, 1, "ready.to_string".length)).toContain("type: `() -> string`");
   });
 
   it("does not resolve symbols inside quoted string literal text", () => {

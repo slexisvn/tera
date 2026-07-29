@@ -31,7 +31,7 @@ export function computeHover(context: ProviderContext, params: HoverParams): Hov
   if (isMemberAccess(document, params.position)) {
     const receiverType = resolveReceiverType(context, document, params.position);
     const hover = receiverType
-      ? memberHover(context, document, receiverType, word.text)
+      ? memberHover(context, document, receiverType, word.text, params.position)
       : uniqueMethodHover(context, word.text);
     if (hover) return { ...hover, range: word.range };
     if (receiverType) return null;
@@ -70,12 +70,13 @@ function memberHover(
   document: AnalyzedDocument,
   receiverType: string,
   name: string,
+  position: HoverParams["position"],
 ): Hover | null {
   const element = arrayElement(receiverType);
   const lookup = context.types.lookupMethod(element ? "Array" : receiverType, name) ?? context.types.lookupMethod(receiverType, name);
   if (lookup) return methodHover(lookup);
 
-  const field = document.symbols.resolveField(receiverType, name);
+  const field = document.symbols.resolveField(receiverType, name, position);
   if (!field) return null;
 
   const role = field.kind === "method" ? "method" : field.kind === "property" ? "property" : "field";

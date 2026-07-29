@@ -166,4 +166,27 @@ describe("Tera control flow", () => {
     ].join("\n");
     expect(run(source)).toBe(4);
   });
+
+  it("iterates user-defined objects with @@iterator and prototype next", () => {
+    const out: unknown[] = [];
+    const source = [
+      "class RangeIterator:",
+      "  constructor(start, stop):",
+      "    this.current = start",
+      "    this.stop = stop",
+      "    this[\"@@iterator\"] = () => this",
+      "  next():",
+      "    if this.current >= this.stop:",
+      "      return { done: true, value: null }",
+      "    value = this.current",
+      "    this.current += 1",
+      "    return { done: false, value: value }",
+      "values = []",
+      "for value of RangeIterator(1, 4):",
+      "  values.push(value)",
+      "print(values.join(\",\"))",
+    ].join("\n");
+    new Engine({ output: (text: unknown) => out.push(text) }).runNative(source);
+    expect(out.join("\n")).toBe("1,2,3");
+  });
 });

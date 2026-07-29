@@ -1,5 +1,7 @@
 import type { ASTNode } from "../ast/index.js";
 
+import type { ClassVisibility } from "../../core/class-visibility.js";
+
 export type ParameterNode = {
   name: string;
   type: string;
@@ -51,6 +53,7 @@ export type FunctionNode = {
   params: ParameterNode[];
   returns: string;
   body: SemanticNode[];
+  abstract: boolean;
   span: SourceSpan;
   nameSpan: SourceSpan;
 };
@@ -69,7 +72,19 @@ export type ClassMemberKind = "constructor" | "method" | "getter" | "setter";
 export type ClassMemberNode = {
   memberKind: ClassMemberKind;
   static: boolean;
+  visibility: ClassVisibility;
+  abstract: boolean;
   fn: FunctionNode;
+};
+
+export type ClassFieldNode = {
+  name: string;
+  declaredType?: string;
+  value?: ASTNode;
+  static: boolean;
+  visibility: ClassVisibility;
+  span: SourceSpan;
+  nameSpan: SourceSpan;
 };
 
 export type ClassNode = {
@@ -77,6 +92,8 @@ export type ClassNode = {
   name: string;
   parent?: string;
   implements: string[];
+  abstract: boolean;
+  fields: ClassFieldNode[];
   members: ClassMemberNode[];
   span: SourceSpan;
   nameSpan: SourceSpan;

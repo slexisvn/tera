@@ -5,6 +5,7 @@ import {
   TERA_CHART_METHODS,
   TERA_GLOBAL_NAMESPACES,
   TERA_KIND_METHODS,
+  TERA_PRIMITIVE_PSEUDO_TYPES,
   TERA_PRIMITIVE_TYPES,
   TERA_PSEUDO_TYPES,
   type TeraInterfaceSpec,
@@ -15,6 +16,7 @@ import {
   type TeraPseudoTypeSpec,
   type TeraTypeAliasSpec,
 } from "../../../data/tera-language-spec.js";
+import type { ClassVisibility } from "../../core/class-visibility.js";
 
 export type TypeName = string;
 
@@ -22,6 +24,9 @@ export type Binding = {
   type: TypeName;
   optional: boolean;
   declared?: boolean;
+  visibility?: ClassVisibility;
+  owner?: string;
+  abstract?: boolean;
 };
 
 export type ObjectShape = {
@@ -53,6 +58,9 @@ export type Signature = {
   positional: string[];
   returns: TypeName;
   rest?: RestParameter;
+  visibility?: ClassVisibility;
+  owner?: string;
+  abstract?: boolean;
 };
 
 export type TypeEnv = {
@@ -60,6 +68,7 @@ export type TypeEnv = {
   interfaces: Map<string, ObjectShape>;
   nominalFamilies: Map<string, TypeName>;
   modelForwards: Map<string, Signature>;
+  abstractClasses: Set<string>;
 };
 
 export type MemberType = {
@@ -77,6 +86,7 @@ const BUILTIN_ALIAS_SPECS = TERA_BUILTIN_ALIASES as Record<string, TeraTypeAlias
 const BUILTIN_INTERFACE_SPECS = TERA_BUILTIN_INTERFACES as Record<string, TeraInterfaceSpec | undefined>;
 const METHOD_SPECS = new Map<string, Map<string, TeraMethodSpec>>();
 const METHOD_OWNER_NAMES = new Map<string, string>();
+const PRIMITIVE_METHOD_OWNER_NAMES = new Map<string, string>(Object.entries(TERA_PRIMITIVE_PSEUDO_TYPES));
 const PSEUDO_TYPE_PARAMS = new Map<string, string[]>();
 const CALL_SIGNATURES = new Map<string, Signature>();
 const KIND_FAMILIES = new Map<string, TypeName>([
@@ -317,7 +327,7 @@ export function createTypeEnv(): TypeEnv {
     }));
     interfaces.set(name, { typeParams: spec.typeParams, fields, indexers });
   }
-  return { aliases, interfaces, nominalFamilies: new Map(), modelForwards: new Map() };
+  return { aliases, interfaces, nominalFamilies: new Map(), modelForwards: new Map(), abstractClasses: new Set() };
 }
 
 export function substituteType(type: TypeName, substitutions: Map<string, TypeName>): TypeName {
@@ -532,7 +542,18 @@ export function iterableBindingType(type: TypeName, mode: "in" | "of", env: Type
   if (element) return element;
   if (isTupleType(resolved)) return unionType(tupleTypes(resolved));
   if (resolved === "Array") return "any";
-  return "unknown";
+  return iteratorElementType(resolved, env) ?? "unknown";
+}
+
+function iteratorElementType(type: TypeName, env: TypeEnv): TypeName | null {
+  const shape = instantiateShapeForType(type, env);
+  const next = shape?.fields.get("next");
+  if (!next) return null;
+  const sig = parseFunctionType(next.type);
+  if (!sig) return null;
+  const result = instantiateShapeForType(sig.returns, env);
+  const value = result?.fields.get("value")?.type;
+  return value ? removeNullish(value, env) : null;
 }
 
 export function baseTypeName(type: TypeName): string {
@@ -545,9 +566,10 @@ function methodOwnerName(type: TypeName, env?: TypeEnv): string {
   const owner = arrayElementType(resolved) || isTupleType(resolved)
     ? "Array"
     : baseTypeName(resolved);
-  const direct = METHOD_OWNER_NAMES.get(owner) ?? METHOD_OWNER_NAMES.get(owner.toLowerCase());
+  const lookupOwner = PRIMITIVE_METHOD_OWNER_NAMES.get(owner) ?? PRIMITIVE_METHOD_OWNER_NAMES.get(owner.toLowerCase()) ?? owner;
+  const direct = METHOD_OWNER_NAMES.get(lookupOwner) ?? METHOD_OWNER_NAMES.get(lookupOwner.toLowerCase());
   if (direct) return direct;
-  const family = env ? nominalFamily(owner, env) : BUILTIN_FAMILIES.get(owner);
+  const family = env ? nominalFamily(lookupOwner, env) : BUILTIN_FAMILIES.get(lookupOwner);
   return family ? METHOD_OWNER_NAMES.get(family) ?? family : owner;
 }
 

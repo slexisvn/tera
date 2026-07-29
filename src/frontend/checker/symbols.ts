@@ -1,8 +1,9 @@
 import { NodeType, type ASTNode } from "../ast/index.js";
-import { TERA_PSEUDO_TYPES } from "../../../data/tera-language-spec.js";
+import { TERA_PRIMITIVE_PSEUDO_TYPES, TERA_PSEUDO_TYPES } from "../../../data/tera-language-spec.js";
 import { parseSemanticProgram } from "./semantic-parser.js";
-import type { ClassMemberNode, FunctionNode, SemanticNode } from "./semantic-ast.js";
+import type { ClassFieldNode, ClassMemberNode, FunctionNode, SemanticNode } from "./semantic-ast.js";
 import { builtinMethod, createTypeEnv, signatureType, type Binding } from "./type-system.js";
+import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
 
 export type SymbolPosition = { line: number; character: number };
 
@@ -18,6 +19,8 @@ export type SourceSymbol = {
   typeName: string | null;
   visibleFromLine?: number;
   visibleFromColumn?: number;
+  visibility?: ClassVisibility;
+  owner?: string;
   scope?: SourceScope;
 };
 
@@ -38,8 +41,8 @@ export type SourceSymbolTable = {
   flat: SourceSymbol[];
   findScopeAt(position: SymbolPosition): SourceScope;
   resolve(name: string, position: SymbolPosition): SourceSymbol | null;
-  resolveField(typeName: string | null, fieldName: string): SourceSymbol | null;
-  membersOf(typeName: string | null): SourceSymbol[];
+  resolveField(typeName: string | null, fieldName: string, position?: SymbolPosition): SourceSymbol | null;
+  membersOf(typeName: string | null, position?: SymbolPosition): SourceSymbol[];
 };
 
 export function buildSourceSymbolTable(source: string, inferredSymbols: Iterable<InferredSymbolInput> = []): SourceSymbolTable {
@@ -80,10 +83,16 @@ type InferredSymbolInput = {
   scopeStartColumn?: number;
 };
 
+const PSEUDO_MEMBER_OWNER_BY_LOWER = new Map([
+  ...Object.keys(TERA_PSEUDO_TYPES).map((owner) => [owner.toLowerCase(), owner] as const),
+  ...Object.entries(TERA_PRIMITIVE_PSEUDO_TYPES).map(([primitive, owner]) => [primitive.toLowerCase(), owner] as const),
+]);
+
 class SymbolTableBuilder {
   root: SourceScope;
   scopes: SourceScope[];
   fieldsByType = builtinFieldsByType();
+  parentsByType = new Map<string, string>();
 
   constructor(private readonly lines: string[], private readonly inferred: InferredTypes) {
     this.root = makeScope("<root>", null, 1, lines.length + 1, 0);
@@ -120,15 +129,23 @@ class SymbolTableBuilder {
 
     const root = this.root;
     const fieldsByType = this.fieldsByType;
+    const parentsByType = this.parentsByType;
     return {
       root,
       scopes: this.scopes,
       flat: this.scopes.flatMap((scope) => scope.symbols),
       findScopeAt: (position) => findScopeAt(root, position.line + 1),
       resolve: (name, position) => resolveName(root, name, position.line + 1, position.character + 1),
-      resolveField: (typeName, fieldName) =>
-        (typeName ? membersFor(typeName, fieldsByType).find((field) => field.name === fieldName) : null) ?? null,
-      membersOf: (typeName) => typeName ? membersFor(typeName, fieldsByType) : [],
+      resolveField: (typeName, fieldName, position) => {
+        const scope = position ? findScopeAt(root, position.line + 1) : null;
+        return (typeName ? membersFor(typeName, fieldsByType).find((field) =>
+          field.name === fieldName && sourceAccessAllowed(field, typeName, scope, parentsByType),
+        ) : null) ?? null;
+      },
+      membersOf: (typeName, position) => {
+        const scope = position ? findScopeAt(root, position.line + 1) : null;
+        return typeName ? membersFor(typeName, fieldsByType).filter((field) => sourceAccessAllowed(field, typeName, scope, parentsByType)) : [];
+      },
     };
   }
 
@@ -197,10 +214,12 @@ class SymbolTableBuilder {
     const symbol = addSymbol(scope, node.name, "module", node.nameSpan.line, node.nameSpan.column, staticType);
     const child = this.childScope(scope, node.name, "class", node.span.line, node.span.column);
     symbol.scope = child;
+    if (node.parent) this.parentsByType.set(node.name, node.parent);
     this.fieldsByType.set(node.name, inheritedMembers(this.fieldsByType, node.parent));
     this.fieldsByType.set(staticType, inheritedMembers(this.fieldsByType, node.parent ? `typeof ${node.parent}` : undefined));
-    for (const member of node.members) this.visitClassMember(member, child, node.name);
-    child.endLine = endLine(node.members.map((member) => member.fn), node.span.line);
+    for (const field of node.fields) this.visitClassField(field, child, node.name);
+    for (const member of node.members) this.visitClassMember(member, child, node.name, node.parent);
+    child.endLine = endLine([...node.fields, ...node.members.map((member) => member.fn)], node.span.line);
   }
 
   private visitInterface(node: Extract<SemanticNode, { kind: "Interface" }>, scope: SourceScope): void {
@@ -234,20 +253,33 @@ class SymbolTableBuilder {
     if (scope.kind === "model" || scope.kind === "class") upsertMember(this.fieldsByType.get(scope.name), { ...symbol, kind: "field" });
   }
 
-  private visitClassMember(member: ClassMemberNode, scope: SourceScope, owner: string): void {
+  private visitClassMember(member: ClassMemberNode, scope: SourceScope, owner: string, parent: string | undefined): void {
     const targetOwner = member.static ? `typeof ${owner}` : owner;
     const kind = member.memberKind === "getter" ? "property" : "method";
-    const symbol = addSymbol(scope, member.fn.name, kind, member.fn.nameSpan.line, member.fn.nameSpan.column, memberType(member));
+    const symbol = addSymbol(scope, member.fn.name, kind, member.fn.nameSpan.line, member.fn.nameSpan.column, memberType(member), {}, {
+      visibility: member.visibility ?? DEFAULT_CLASS_VISIBILITY,
+      owner,
+    });
     if (member.memberKind !== "constructor") upsertMember(this.fieldsByType.get(targetOwner), symbol);
     const child = this.childScope(scope, member.fn.name, "function", member.fn.span.line, member.fn.span.column);
     symbol.scope = child;
     addSymbol(child, "this", "variable", member.fn.span.line, member.fn.span.column, targetOwner);
+    if (parent && !member.static) addSymbol(child, "super", "variable", member.fn.span.line, member.fn.span.column, parent);
     this.addParams(child, member.fn);
     for (const stmt of member.fn.body) {
       this.visitThisField(stmt, child, targetOwner);
       this.visitNode(stmt, child);
     }
     child.endLine = endLine(member.fn.body, member.fn.span.line);
+  }
+
+  private visitClassField(field: ClassFieldNode, scope: SourceScope, owner: string): void {
+    const targetOwner = field.static ? `typeof ${owner}` : owner;
+    const symbol = addSymbol(scope, field.name, "field", field.nameSpan.line, field.nameSpan.column, cleanType(field.declaredType) ?? this.localType(field.name, field.span.line), {}, {
+      visibility: field.visibility,
+      owner,
+    });
+    upsertMember(this.fieldsByType.get(targetOwner), symbol);
   }
 
   private visitExpression(node: ASTNode, scope: SourceScope, span: { line: number; column: number }): void {
@@ -265,6 +297,8 @@ class SymbolTableBuilder {
       line: at.line,
       column: at.column,
       typeName: this.localType(target.property, at.line),
+      visibility: existingVisibility(this.fieldsByType.get(owner), target.property),
+      owner: existingOwner(this.fieldsByType.get(owner), target.property),
     });
   }
 
@@ -319,8 +353,9 @@ function addSymbol(
   column: number,
   typeName: string | null = null,
   visibility: Pick<SourceSymbol, "visibleFromLine" | "visibleFromColumn"> = {},
+  access: Pick<SourceSymbol, "visibility" | "owner"> = {},
 ): SourceSymbol {
-  const symbol: SourceSymbol = { name, kind, line, column, typeName, ...visibility };
+  const symbol: SourceSymbol = { name, kind, line, column, typeName, ...visibility, ...access };
   scope.symbols.push(symbol);
   return symbol;
 }
@@ -330,6 +365,14 @@ function upsertMember(members: SourceSymbol[] | undefined, member: SourceSymbol)
   const index = members.findIndex((entry) => entry.name === member.name);
   if (index >= 0) members[index] = member;
   else members.push(member);
+}
+
+function existingVisibility(members: SourceSymbol[] | undefined, name: string): ClassVisibility | undefined {
+  return members?.find((member) => member.name === name)?.visibility;
+}
+
+function existingOwner(members: SourceSymbol[] | undefined, name: string): string | undefined {
+  return members?.find((member) => member.name === name)?.owner;
 }
 
 function upsertInferredMember(members: SourceSymbol[] | undefined, member: SourceSymbol): void {
@@ -355,7 +398,7 @@ function builtinFieldsByType(): Map<string, SourceSymbol[]> {
   const env = createTypeEnv();
   const owners = new Set<string>();
   for (const name of env.interfaces.keys()) owners.add(name);
-  for (const type of ["Array", "DataFrame", "Tensor", "String", "Object", "Promise", "Math", "JSON"]) owners.add(type);
+  for (const type of Object.keys(TERA_PSEUDO_TYPES)) owners.add(type);
   for (const owner of owners) {
     const members = fields.get(owner) ?? [];
     for (const candidate of builtinMethodCandidates(owner)) {
@@ -387,12 +430,12 @@ function builtinField(name: string, binding: Binding): SourceSymbol {
   return { name, kind: "field", line: 0, column: 0, typeName: binding.type };
 }
 
-function endLine(nodes: Array<SemanticNode | FunctionNode>, fallback: number): number {
+function endLine(nodes: Array<SemanticNode | FunctionNode | ClassFieldNode>, fallback: number): number {
   let line = fallback;
   for (const node of nodes) {
     line = Math.max(line, node.span.line);
     if ("body" in node) line = Math.max(line, endLine(node.body, node.span.line));
-    if (node.kind === "Class") line = Math.max(line, endLine(node.members.map((member) => member.fn), node.span.line));
+    if ("kind" in node && node.kind === "Class") line = Math.max(line, endLine(node.members.map((member) => member.fn), node.span.line));
   }
   return line + 1;
 }
@@ -417,8 +460,65 @@ function memberType(member: ClassMemberNode): string | null {
 function membersFor(typeName: string, fieldsByType: Map<string, SourceSymbol[]>): SourceSymbol[] {
   const type = typeName.trim();
   const union = splitUnionTopLevel(type);
-  if (union.length > 1) return commonMembers(union.map((part) => membersFor(part, fieldsByType)));
-  return objectTypeMembers(type) ?? fieldsByType.get(type) ?? [];
+  if (union.length > 1) {
+    const concrete = union.filter((part) => !isNullishType(part));
+    return commonMembers((concrete.length ? concrete : union).map((part) => membersFor(part, fieldsByType)));
+  }
+  if (arrayElementType(type)) return fieldsByType.get("Array") ?? [];
+  return objectTypeMembers(type) ?? fieldsByType.get(type) ?? fieldsByType.get(canonicalPseudoMemberOwner(type)) ?? [];
+}
+
+function arrayElementType(typeName: string): string | null {
+  const type = typeName.trim();
+  return type.endsWith("[]") ? type.slice(0, -2).trim() : null;
+}
+
+function canonicalPseudoMemberOwner(typeName: string): string {
+  return PSEUDO_MEMBER_OWNER_BY_LOWER.get(ownerFromType(typeName).toLowerCase()) ?? typeName;
+}
+
+function isNullishType(typeName: string): boolean {
+  const type = typeName.trim();
+  return type === "null" || type === "undefined";
+}
+
+function sourceAccessAllowed(
+  symbol: SourceSymbol,
+  typeName: string,
+  scope: SourceScope | null,
+  parentsByType: Map<string, string>,
+): boolean {
+  const visibility = symbol.visibility ?? "public";
+  if (visibility === "public") return true;
+  const caller = currentClassScopeName(scope);
+  if (!caller) return false;
+  const owner = symbol.owner ?? ownerFromType(typeName);
+  if (visibility === "private") return caller === owner;
+  return caller === owner || sourceClassExtends(caller, owner, parentsByType);
+}
+
+function currentClassScopeName(scope: SourceScope | null): string | null {
+  for (let current = scope; current; current = current.parent) {
+    if (current.kind === "class") return current.name;
+  }
+  return null;
+}
+
+function sourceClassExtends(typeName: string, parentName: string, parentsByType: Map<string, string>): boolean {
+  let current = parentsByType.get(typeName);
+  const seen = new Set<string>();
+  while (current && !seen.has(current)) {
+    if (current === parentName) return true;
+    seen.add(current);
+    current = parentsByType.get(current);
+  }
+  return false;
+}
+
+function ownerFromType(typeName: string): string {
+  const cleaned = typeName.trim().replace(/^typeof\s+/, "");
+  const generic = cleaned.match(/^([A-Za-z_$][\w$]*)\s*</);
+  return generic ? generic[1] : cleaned;
 }
 
 function commonMembers(groups: SourceSymbol[][]): SourceSymbol[] {

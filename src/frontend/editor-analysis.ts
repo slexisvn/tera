@@ -132,11 +132,13 @@ export function resolveMemberReceiverType(
   symbols: SourceSymbolTable,
   globals: Record<string, string> = {},
 ): string | null {
-  const line = source.replace(/\r\n?/g, "\n").split("\n")[position.line] ?? "";
+  const lines = source.replace(/\r\n?/g, "\n").split("\n");
+  const line = lines[position.line] ?? "";
   const before = line.slice(0, position.character);
   const trailing = before.match(/\.\s*[A-Za-z0-9_$]*$/);
   if (!trailing) return null;
-  const receiver = extractReceiverExpression(before.slice(0, before.length - trailing[0].length));
+  const receiverSource = before.slice(0, before.length - trailing[0].length);
+  const receiver = extractReceiverExpression(receiverSource) || leadingDotReceiverExpression(lines, position.line);
   return receiver ? resolveExpressionType(receiver, position, symbols, globals) : null;
 }
 
@@ -160,6 +162,21 @@ export function extractReceiverExpression(text: string): string {
   return text.slice(start).trim();
 }
 
+function leadingDotReceiverExpression(lines: string[], lineIndex: number): string | null {
+  const segments: string[] = [];
+  for (let cursor = lineIndex - 1; cursor >= 0; cursor--) {
+    const trimmed = lines[cursor].trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith(".")) {
+      segments.unshift(trimmed);
+      continue;
+    }
+    const base = extractReceiverExpression(lines[cursor]);
+    return base ? `${base}${segments.join("")}` : null;
+  }
+  return null;
+}
+
 function resolveExpressionType(
   expression: string,
   position: SymbolPosition,
@@ -170,17 +187,26 @@ function resolveExpressionType(
   if (!base) return null;
   let type: string | null = symbols.resolve(base[1], position)?.typeName ?? globals[base[1]] ?? base[1];
   let rest = expression.slice(base[1].length);
+  if (/^\s*\(/.test(rest)) {
+    rest = skipBalancedParens(rest);
+    type = callResultType(type);
+  }
   while (rest.length) {
     const step = rest.match(/^\s*\.\s*([A-Za-z_$][\w$]*)/);
     if (!step || !type) break;
     rest = rest.slice(step[0].length);
     const called = /^\s*\(/.test(rest);
     if (called) rest = skipBalancedParens(rest);
-    const memberType: string | null = symbols.resolveField(type, step[1])?.typeName ?? null;
+    const memberType: string | null = symbols.resolveField(type, step[1], position)?.typeName ?? null;
     if (!memberType) return null;
     type = called ? returnTypeAfterArrow(memberType) : memberType;
   }
   return type;
+}
+
+function callResultType(type: string): string {
+  const cleaned = type.trim();
+  return cleaned.startsWith("typeof ") ? cleaned.slice("typeof ".length).trim() : returnTypeAfterArrow(cleaned);
 }
 
 function returnTypeAfterArrow(type: string): string {

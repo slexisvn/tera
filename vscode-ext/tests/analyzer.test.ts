@@ -52,6 +52,19 @@ describe("analyzeDiagnostics", () => {
     });
   });
 
+  it("reports inaccessible private class members through checker diagnostics", () => {
+    const source = [
+      "class Account:",
+      "  private balance: int = 1",
+      "acc = Account()",
+      "acc.balance",
+    ].join("\n");
+
+    expect(analyzeDiagnostics(source).map((diagnostic) => diagnostic.message)).toEqual([
+      "Cannot access private member 'balance' of 'Account'",
+    ]);
+  });
+
   it("accepts fn-prefixed returned function types", () => {
     const source = [
       "fn adder(base: int) -> fn(int) -> int:",
@@ -169,6 +182,35 @@ describe("analyzeDiagnostics", () => {
     expect(diagnostic.range).toEqual({
       start: { line: 0, character: 9 },
       end: { line: 0, character: 14 },
+    });
+  });
+
+  it("keeps missing member-call argument diagnostics on the method name", () => {
+    const source = [
+      "interface Notifier:",
+      "  send(message: string) -> string",
+      "class PlainNotifier implements Notifier:",
+      "  send(message: string) -> string:",
+      "    return message",
+      "class SmsDecorator implements Notifier:",
+      "  private next: Notifier = PlainNotifier()",
+      "  constructor(next: Notifier):",
+      "    this.next = next",
+      "  send(message: string) -> string:",
+      "    return this.next.send()",
+    ].join("\n");
+    const analyzer = new DocumentAnalyzer();
+    const document = analyzer.update("file:///test.tera", source);
+    const diagnostic = toDiagnostic(document.errors[0], document);
+
+    expect(document.errors[0]).toMatchObject({
+      line: 11,
+      column: "    return this.next.".length + 1,
+      message: "Missing required argument 'arg0' for send()",
+    });
+    expect(diagnostic.range).toEqual({
+      start: { line: 10, character: "    return this.next.".length },
+      end: { line: 10, character: "    return this.next.send".length },
     });
   });
 });

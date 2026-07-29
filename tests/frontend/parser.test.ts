@@ -588,13 +588,13 @@ describe("Parser", () => {
     it("for in", () => {
       const stmt = parseStmt("for (let k in obj) { x }");
       expect(stmt.type).toBe(NodeType.ForInStatement);
-      expect(stmt.variable).toBe("k");
+      expect(stmt.variable).toMatchObject({ kind: "id", name: "k" });
     });
 
     it("for of", () => {
       const stmt = parseStmt("for (let v of arr) { x }");
       expect(stmt.type).toBe(NodeType.ForOfStatement);
-      expect(stmt.variable).toBe("v");
+      expect(stmt.variable).toMatchObject({ kind: "id", name: "v" });
     });
 
     it("for with empty parts", () => {
@@ -719,6 +719,56 @@ describe("Parser", () => {
       );
       expect(stmt.methods[0].kind).toBe("get");
       expect(stmt.methods[1].kind).toBe("set");
+    });
+
+    it("parses visibility modifiers and class fields", () => {
+      const stmt = parseStmt([
+        "class Account {",
+        "  private balance: float = 0.0",
+        "  static protected instances: int = 0",
+        "  private static token",
+        "  public constructor(owner: string) { this.owner = owner }",
+        "  private get hidden() -> int { return 1 }",
+        "  protected set hidden(value: int) { this.value = value }",
+        "}",
+      ].join("\n"));
+
+      expect(stmt.fields).toEqual([
+        expect.objectContaining({ name: "balance", static: false, visibility: "private", init: expect.objectContaining({ kind: "number" }) }),
+        expect.objectContaining({ name: "instances", static: true, visibility: "protected", init: expect.objectContaining({ kind: "number" }) }),
+        expect.objectContaining({ name: "token", static: true, visibility: "private", init: expect.objectContaining({ kind: "undefined", value: undefined }) }),
+      ]);
+      expect(stmt.constructor).toMatchObject({ name: "constructor", visibility: "public" });
+      expect(stmt.methods.find((method) => method.kind === "get" && method.name === "hidden")).toMatchObject({ visibility: "private", static: false });
+      expect(stmt.methods.find((method) => method.kind === "set" && method.name === "hidden")).toMatchObject({ visibility: "protected", static: false });
+    });
+
+    it("rejects duplicate and conflicting class member modifiers", () => {
+      expect(() => parse("class C { private public value }")).toThrow(/Conflicting class member visibility/);
+      expect(() => parse("class C { private private value }")).toThrow(/Conflicting class member visibility/);
+      expect(() => parse("class C { static static value }")).toThrow(/Duplicate class member modifier 'static'/);
+    });
+
+    it("parses abstract classes and abstract member signatures", () => {
+      const stmt = parseStmt([
+        "abstract class Shape {",
+        "  protected abstract area() -> float",
+        "  abstract label() -> string",
+        "}",
+      ].join("\n"));
+      expect(stmt.abstract).toBe(true);
+      expect(stmt.methods).toEqual([
+        expect.objectContaining({ name: "area", visibility: "protected", abstract: true }),
+        expect.objectContaining({ name: "label", visibility: "public", abstract: true }),
+      ]);
+      expect(stmt.methods[0].func.body.body).toEqual([]);
+    });
+
+    it("rejects invalid abstract class members", () => {
+      expect(() => parse("abstract class C { abstract value }")).toThrow(/Abstract class fields are not supported/);
+      expect(() => parse("abstract class C { abstract constructor() }")).toThrow(/Constructors cannot be abstract/);
+      expect(() => parse("abstract class C { static abstract value() }")).toThrow(/Static class members cannot be abstract/);
+      expect(() => parse("abstract class C { abstract value() { return 1 } }")).toThrow(/Abstract class members cannot have a body/);
     });
   });
 

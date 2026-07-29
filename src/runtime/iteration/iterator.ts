@@ -34,6 +34,16 @@ type IteratorInterpreter = {
   generatorNext(gen: GeneratorPayload, value: TaggedValue): TaggedValue;
 };
 
+function getPropertyInChain(obj: RuntimeObject, name: string): TaggedValue | undefined {
+  let current: RuntimeObject | null | undefined = obj;
+  while (current) {
+    const value = current.getProperty(name);
+    if (value !== undefined && !isUndefined(value)) return value;
+    current = current.prototype;
+  }
+  return undefined;
+}
+
 export class IteratorRecord {
   next: (interpreter: IteratorInterpreter | null) => TaggedValue;
 
@@ -150,14 +160,14 @@ export function getIterator(
       }
     }
     if (!method || isUndefined(method)) {
-      method = obj.getProperty("@@iterator");
+      method = getPropertyInChain(obj, "@@iterator");
     }
     if (isFunction(method)) {
       const iteratorMethod = method as TaggedValue;
       const iter = interpreter.callFunctionValue(iteratorMethod, [], value);
       if (isIterator(iter)) return iter;
       if (isObject(iter)) {
-        const nextMethod = (getPayload(iter) as RuntimeObject).getProperty("next");
+        const nextMethod = getPropertyInChain(getPayload(iter) as RuntimeObject, "next");
         if (isFunction(nextMethod)) {
           const callableNext = nextMethod as TaggedValue;
           return mkIterator(

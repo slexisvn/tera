@@ -10,12 +10,14 @@ import {
   type Signature,
   type TypeEnv,
 } from "./type-system.js";
+import { DEFAULT_CLASS_VISIBILITY } from "../../core/class-visibility.js";
 
 export type Scope = {
   parent: Scope | null;
   locals: Map<string, Binding>;
   signatures: Map<string, Signature>;
   signature?: Signature;
+  classOwner?: string | null;
 };
 
 export type BoundProgram = {
@@ -25,7 +27,7 @@ export type BoundProgram = {
   scopes: WeakMap<SemanticNode, Scope>;
 };
 
-function signatureFromParams(name: string, typeParams: string[], params: Array<{ name: string; type: string; optional: boolean }>, returns: string): Signature {
+function signatureFromParams(name: string, typeParams: string[], params: Array<{ name: string; type: string; optional: boolean }>, returns: string, meta: Pick<Signature, "visibility" | "owner" | "abstract"> = {}): Signature {
   const paramMap = new Map<string, Binding>();
   const required = new Set<string>();
   const positional: string[] = [];
@@ -34,7 +36,7 @@ function signatureFromParams(name: string, typeParams: string[], params: Array<{
     positional.push(param.name);
     if (!param.optional) required.add(param.name);
   }
-  return { name, typeParams, params: paramMap, required, positional, returns: cleanType(returns) };
+  return { name, typeParams, params: paramMap, required, positional, returns: cleanType(returns), ...meta };
 }
 
 function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
@@ -87,19 +89,31 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
   }
   if (node.kind === "Class") {
     const constructor = node.members.find((member) => member.memberKind === "constructor");
-    const sig = signatureFromParams(node.name, [], constructor?.fn.params ?? [], node.name);
+    const sig = signatureFromParams(node.name, [], constructor?.fn.params ?? [], node.name, {
+      visibility: constructor?.visibility ?? DEFAULT_CLASS_VISIBILITY,
+      owner: node.name,
+      abstract: node.abstract,
+    });
     scope.signatures.set(node.name, sig);
+    if (node.abstract) bound.env.abstractClasses.add(node.name);
     if (node.parent) bound.env.nominalFamilies.set(node.name, node.parent);
-    const classScope = createScope(scope, sig);
-    bound.scopes.set(node, classScope);
-    classScope.locals.set(node.name, { type: node.name, optional: false });
     const staticType = `typeof ${node.name}`;
+    scope.locals.set(node.name, { type: staticType, optional: false, declared: true });
+    const classScope = createScope(scope, sig);
+    classScope.classOwner = node.name;
+    bound.scopes.set(node, classScope);
+    classScope.locals.set(node.name, { type: staticType, optional: false });
     for (const member of node.members) {
-      const memberSig = signatureFromParams(member.fn.name, member.fn.typeParams, member.fn.params, member.fn.returns);
+      const memberSig = signatureFromParams(member.fn.name, member.fn.typeParams, member.fn.params, member.fn.returns, {
+        visibility: member.visibility,
+        owner: node.name,
+        abstract: member.abstract,
+      });
       if (member.static && member.memberKind !== "constructor") {
         scope.signatures.set(`${node.name}.${member.fn.name}`, memberSig);
       }
       const child = createScope(classScope, memberSig);
+      child.classOwner = node.name;
       bound.scopes.set(member.fn, child);
       child.locals.set("this", { type: member.static ? staticType : node.name, optional: false, declared: true });
       for (const [name, binding] of memberSig.params) child.locals.set(name, { ...binding, declared: true });
@@ -136,7 +150,7 @@ function modelForwardSignature(node: Extract<SemanticNode, { kind: "Model" }>): 
 }
 
 function createScope(parent: Scope | null, signature?: Signature): Scope {
-  return { parent, locals: new Map(), signatures: new Map(), signature };
+  return { parent, locals: new Map(), signatures: new Map(), signature, classOwner: parent?.classOwner ?? null };
 }
 
 export function bindProgram(program: SemanticProgram): BoundProgram {

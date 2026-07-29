@@ -140,7 +140,9 @@ function memberHoverFor(source: string, token: string, from: number, options: { 
   if (typeName) {
     const method = methodDoc(typeName, token);
     if (method) return method;
-    const field = options.analysis?.().symbols.resolveField(typeName, token);
+    const analysis = options.analysis?.();
+    const position = options.cellId && analysis ? analysis.positionFor(options.cellId, source, from) : undefined;
+    const field = analysis?.symbols.resolveField(typeName, token, position);
     if (field) {
       const description = field.typeName ? `type: ${field.typeName}` : "";
       const builtin = field.typeName ? builtinDocs.get(field.typeName) : null;

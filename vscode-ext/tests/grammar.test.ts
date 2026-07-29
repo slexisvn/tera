@@ -24,6 +24,14 @@ describe("grammar: declarations", () => {
   it("does not mistake a fn-typed return for a type name", async () => {
     expect(await scopeOf("fn adder(base: int) -> fn(int) -> int:", "fn")).toBe("keyword.other.declaration.tera");
   });
+
+  it.each(["public", "private", "protected"])("scopes %s as a class visibility declaration keyword", async (keyword) => {
+    expect(await scopeOf(`${keyword} value: int = 1`, keyword)).toBe("keyword.other.declaration.tera");
+  });
+
+  it("scopes abstract as a class declaration keyword", async () => {
+    expect(await scopeOf("abstract class Exporter:", "abstract")).toBe("keyword.other.declaration.tera");
+  });
 });
 
 describe("grammar: keywords and operators", () => {

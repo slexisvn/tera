@@ -17,6 +17,39 @@ describe("Tera classes", () => {
     expect(run(source)).toBe(7);
   });
 
+  it("initializes string literal fields in simple constructors", () => {
+    const source = [
+      "class Label:",
+      "  constructor():",
+      "    this.text = \"ready\"",
+      "Label().text",
+    ].join("\n");
+    expect(run(source)).toBe("ready");
+  });
+
+  it("allows keyword-named static class members", () => {
+    const source = [
+      "class Glyph:",
+      "  static of(value):",
+      "    return value",
+      "Glyph.of(\"A\")",
+    ].join("\n");
+    expect(run(source)).toBe("A");
+  });
+
+  it("runs private constructor calls from static field initializers", () => {
+    const source = [
+      "class Config:",
+      "  private static instance = Config(\"prod\")",
+      "  private constructor(env):",
+      "    this.env = env",
+      "  static getInstance():",
+      "    return Config.instance",
+      "Config.getInstance().env",
+    ].join("\n");
+    expect(run(source)).toBe("prod");
+  });
+
   it("supports inheritance, super calls, and method override", () => {
     const source = [
       "class Animal:",
@@ -175,5 +208,171 @@ describe("Tera classes", () => {
       "Tagged().label()",
     ].join("\n");
     expect(run(source)).toBe("base");
+  });
+
+  it("initializes and guards private instance fields", () => {
+    const source = [
+      "class Account:",
+      "  private balance = 1",
+      "  deposit(amount):",
+      "    this.balance = this.balance + amount",
+      "    return this.balance",
+      "Account().deposit(4)",
+    ].join("\n");
+    expect(run(source)).toBe(5);
+    expect(() => run([
+      "class Account:",
+      "  private balance = 1",
+      "Account().balance",
+    ].join("\n"))).toThrow(/Cannot access private member 'balance'/);
+    expect(() => run([
+      "class Account:",
+      "  private balance = 1",
+      "acc = Account()",
+      "acc.balance = 3",
+    ].join("\n"))).toThrow(/Cannot access private member 'balance'/);
+  });
+
+  it("guards private methods while allowing owner calls", () => {
+    const source = [
+      "class SecretBox:",
+      "  private secret():",
+      "    return 3",
+      "  reveal():",
+      "    return this.secret()",
+      "SecretBox().reveal()",
+    ].join("\n");
+    expect(run(source)).toBe(3);
+    expect(() => run([
+      "class SecretBox:",
+      "  private secret():",
+      "    return 3",
+      "SecretBox().secret()",
+    ].join("\n"))).toThrow(/Cannot access private member 'secret'/);
+  });
+
+  it("allows protected subclass access and rejects external access", () => {
+    const source = [
+      "class Base:",
+      "  protected code = 4",
+      "  protected read():",
+      "    return this.code",
+      "class Sub extends Base:",
+      "  reveal():",
+      "    return this.read() + this.code",
+      "Sub().reveal()",
+    ].join("\n");
+    expect(run(source)).toBe(8);
+    expect(() => run([
+      "class Base:",
+      "  protected code = 4",
+      "Base().code",
+    ].join("\n"))).toThrow(/Cannot access protected member 'code'/);
+  });
+
+  it("guards private constructors but allows owner factories", () => {
+    const source = [
+      "class Token:",
+      "  private constructor(value):",
+      "    this.value = value",
+      "  static make(value):",
+      "    return Token(value)",
+      "Token.make(7).value",
+    ].join("\n");
+    expect(run(source)).toBe(7);
+    expect(() => run([
+      "class Token:",
+      "  private constructor():",
+      "    this.value = 1",
+      "Token()",
+    ].join("\n"))).toThrow(/Cannot access private constructor 'Token'/);
+  });
+
+  it("guards private and protected static members", () => {
+    const source = [
+      "class Base:",
+      "  protected static seed = 3",
+      "class Vault extends Base:",
+      "  private static key = 5",
+      "  private static secret():",
+      "    return Vault.key",
+      "  static read():",
+      "    return Vault.secret() + Vault.seed",
+      "Vault.read()",
+    ].join("\n");
+    expect(run(source)).toBe(8);
+    expect(() => run([
+      "class Vault:",
+      "  private static key = 5",
+      "Vault.key",
+    ].join("\n"))).toThrow(/Cannot access private member 'key'/);
+    expect(() => run([
+      "class Vault:",
+      "  private static secret():",
+      "    return 5",
+      "Vault.secret()",
+    ].join("\n"))).toThrow(/Cannot access private member 'secret'/);
+    expect(() => run([
+      "class Base:",
+      "  protected static seed = 3",
+      "Base.seed",
+    ].join("\n"))).toThrow(/Cannot access protected member 'seed'/);
+  });
+
+  it("guards abstract class construction at runtime without typecheck", () => {
+    const source = [
+      "abstract class Exporter:",
+      "  abstract write() -> string",
+      "Exporter()",
+    ].join("\n");
+    expect(() => new Engine({ typecheck: "off" }).runNative(source)).toThrow(/Cannot instantiate abstract class 'Exporter'/);
+  });
+
+  it("runs concrete subclasses that implement abstract members", () => {
+    const source = [
+      "abstract class Exporter:",
+      "  prefix() -> string:",
+      "    return \"file\"",
+      "  abstract write() -> string",
+      "class CsvExporter extends Exporter:",
+      "  write() -> string:",
+      "    return this.prefix() + \":csv\"",
+      "CsvExporter().write()",
+    ].join("\n");
+    expect(new Engine({ typecheck: "off" }).runNative(source)).toBe("file:csv");
+  });
+
+  it("rejects concrete subclasses that leave abstract members unresolved without typecheck", () => {
+    const source = [
+      "abstract class Exporter:",
+      "  abstract write() -> string",
+      "class CsvExporter extends Exporter:",
+      "  label() -> string:",
+      "    return \"csv\"",
+    ].join("\n");
+    expect(() => new Engine({ typecheck: "off" }).runNative(source)).toThrow(/must implement abstract member 'write'/);
+  });
+
+  it("enforces implemented interface contracts at runtime without typecheck", () => {
+    const source = [
+      "interface Shape:",
+      "  area() -> int",
+      "class Square implements Shape:",
+      "  constructor(side):",
+      "    this.side = side",
+    ].join("\n");
+    expect(() => new Engine({ typecheck: "off" }).runNative(source)).toThrow(/Class 'Square' is missing 'area' required by interface 'Shape'/);
+  });
+
+  it("accepts runtime interface fields created by constructor assignments", () => {
+    const source = [
+      "interface Named:",
+      "  name: string",
+      "class Person implements Named:",
+      "  constructor(name):",
+      "    this.name = name",
+      "Person(\"tera\").name",
+    ].join("\n");
+    expect(new Engine({ typecheck: "off" }).runNative(source)).toBe("tera");
   });
 });

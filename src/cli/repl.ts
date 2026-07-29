@@ -5,6 +5,7 @@ import { isObject, getPayload, toDisplayString } from "../core/value/index.js";
 import type { TaggedValue } from "../core/value/index.js";
 import { runtimeOwnKeys } from "../objects/exotic/proxy-ops.js";
 import type { GlobalCell } from "../runtime/intrinsics/global-cells.js";
+import { KEYWORDS as FRONTEND_KEYWORDS } from "../frontend/lexer/index.js";
 
 type EngineLike = {
   interpreter: {
@@ -179,45 +180,7 @@ const PROTOTYPE_KEYS = new Map(
   }),
 );
 
-const KEYWORDS = new Set([
-  "let",
-  "const",
-  "var",
-  "function",
-  "if",
-  "else",
-  "while",
-  "for",
-  "do",
-  "return",
-  "true",
-  "false",
-  "null",
-  "undefined",
-  "new",
-  "this",
-  "typeof",
-  "instanceof",
-  "switch",
-  "case",
-  "default",
-  "break",
-  "continue",
-  "try",
-  "catch",
-  "finally",
-  "throw",
-  "class",
-  "extends",
-  "super",
-  "in",
-  "of",
-  "async",
-  "await",
-  "yield",
-  "delete",
-  "void",
-]);
+const KEYWORDS = new Set([...FRONTEND_KEYWORDS, "void"]);
 
 function extractLocalVars(code: string, set: Set<string>): void {
   let m: RegExpExecArray | null;

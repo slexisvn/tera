@@ -123,6 +123,8 @@ import {
   runtimeApply,
   runtimeConstruct,
 } from "../../../objects/exotic/proxy-ops.js";
+import { assertConstructorAccess } from "../../../runtime/class-access.js";
+import { assertClassImplementsRuntime, type RuntimeInterfaceContract } from "../../../runtime/interface-contract.js";
 
 import { RegisterFrame, throwIfTDZ } from "./frame.js";
 import {
@@ -558,6 +560,7 @@ function callFunction(
   }
 
   if (fn.construct) {
+    assertConstructorAccess(fn, interpreter);
     const result = fn.construct(args, interpreter);
     recordReturnFeedback(slot, result);
     return result;
@@ -758,6 +761,30 @@ export class RegisterInterpreter {
     return this.jitEngine ? this.jitEngine.tieringPolicy : null;
   }
 
+  currentClassOwnerName(): string | null {
+    return this.activeFrames.at(-1)?.compiledFn.classOwnerName ?? null;
+  }
+
+  currentClassConstructor(): RuntimeFunctionPayload | null {
+    const frame = this.activeFrames.at(-1);
+    if (!frame) return null;
+    const value = frame.thisValue;
+    if (isFunction(value)) return getPayload(value) as RuntimeFunctionPayload;
+    if (isObject(value)) {
+      const obj = getPayload(value);
+      if (obj.constructorRef) {
+        return isFunction(obj.constructorRef as TaggedValue)
+          ? getPayload(obj.constructorRef as TaggedValue) as RuntimeFunctionPayload
+          : obj.constructorRef as RuntimeFunctionPayload;
+      }
+      if (obj.prototype?.constructorRef) {
+        const ref = obj.prototype.constructorRef;
+        return isFunction(ref as TaggedValue) ? getPayload(ref as TaggedValue) as RuntimeFunctionPayload : ref as RuntimeFunctionPayload;
+      }
+    }
+    return null;
+  }
+
   wrapConstant(val: bytecode.RegisterConstant): TaggedValue {
     if (val instanceof bytecode.RegisterCompiledFunction)
       return mkFunction(new JSFunction(val, val.name ?? undefined));
@@ -781,6 +808,7 @@ export class RegisterInterpreter {
       switch (op) {
         case bytecode.ROP_LDA_PROP:
         case bytecode.ROP_STA_PROP:
+        case bytecode.ROP_DEFINE_CLASS_MEMBER:
           {
             const slotIndex = operands.length >= 3 ? numericOperand(operands[2]) : null;
             if (slotIndex !== null && slotIndex < fv.slots.length) {
@@ -1078,7 +1106,10 @@ export class RegisterInterpreter {
     }
     const fn = getPayload(callee);
     if (fn.call) return fn.call(args, thisValue, this);
-    if (fn.construct) return fn.construct(args, this);
+    if (fn.construct) {
+      assertConstructorAccess(fn, this);
+      return fn.construct(args, this);
+    }
     if (fn.compiled && (fn.prototypeObj || fn.compiled.simpleConstructorInfo || fn.constructorOf) && isUndefined(thisValue)) {
       return this.constructFunctionValue(callee, args);
     }
@@ -1176,6 +1207,7 @@ export class RegisterInterpreter {
     if (isFunction(callee)) {
       const payload = getPayload(callee);
       if (payload.construct) {
+        assertConstructorAccess(payload, this);
         return payload.construct(args, this);
       }
     }
@@ -1186,6 +1218,7 @@ export class RegisterInterpreter {
       throw new VMTypeError(`${toDisplayString(callee)} is not a constructor`);
     }
     const fn = getPayload(callee);
+    assertConstructorAccess(fn, this);
     const compiled = fn.compiled;
     if (!compiled) {
       throw new VMTypeError(`${toDisplayString(callee)} is not a constructor`);
@@ -1194,6 +1227,7 @@ export class RegisterInterpreter {
     const stub = !fn.closure ? this.getConstructorStub(compiled, fn) : null;
     if (stub) return stub(args);
     const newObj = createJSObject();
+    newObj.constructorRef = fn;
     if (!fn.prototypeObj) {
       fn.prototypeObj = createJSObject();
       fn.prototypeObj.constructorRef = fn;
@@ -1237,6 +1271,7 @@ export class RegisterInterpreter {
     }
     compiledFn.constructorStub = (args: TaggedValue[]) => {
       const obj = createJSObject();
+      obj.constructorRef = fn;
       if (fn.prototypeObj) obj.setPrototype(fn.prototypeObj);
       presizeInstanceSlots(obj, fn);
       for (const item of fieldMap) {
@@ -1246,9 +1281,7 @@ export class RegisterInterpreter {
           val = (args[item.field.source.index] === undefined ? mkUndefined() : args[item.field.source.index]);
         else if (item.field.source.kind === "const") {
           const constantValue = compiledFn.constants[item.field.source.index];
-          val = typeof constantValue === "number"
-            ? mkNumber(constantValue)
-            : mkUndefined();
+          val = this.wrapConstant(constantValue);
         }
         else if (item.field.source.kind === "null") val = mkNull();
         else if (item.field.source.kind === "true") val = mkBool(true);
@@ -1406,6 +1439,11 @@ export class RegisterInterpreter {
 
             case bytecode.ROP_STA_PROP: {
               handleStaProp(this, frame, operands, compiledFn, funcName);
+              break;
+            }
+
+            case bytecode.ROP_DEFINE_CLASS_MEMBER: {
+              handleStaProp(this, frame, operands, compiledFn, funcName, false);
               break;
             }
 
@@ -1924,6 +1962,18 @@ export class RegisterInterpreter {
 
             case bytecode.ROP_DEFINE_ACCESSOR: {
               handleDefineAccessor(this, frame, operands, compiledFn);
+              break;
+            }
+
+            case bytecode.ROP_ASSERT_CLASS_CONTRACTS: {
+              const classReg = operands[0];
+              const contractsIdx = operands[1];
+              const classValue = frame.getReg(classReg);
+              const contracts = compiledFn.constants[contractsIdx] as RuntimeInterfaceContract[];
+              if (!isFunction(classValue)) {
+                throw new VMTypeError(`${toDisplayString(classValue)} is not a class`);
+              }
+              assertClassImplementsRuntime(getPayload(classValue), contracts);
               break;
             }
 

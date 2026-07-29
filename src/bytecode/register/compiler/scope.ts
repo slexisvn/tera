@@ -66,6 +66,7 @@ const NESTED_SCOPE_TYPES = new Set<string>([
   NodeType.FunctionExpression,
   NodeType.ArrowFunctionExpression,
   NodeType.ClassDeclaration,
+  NodeType.ModelDeclaration,
 ]);
 
 type ImplicitScan = { assigned: Set<string>; escaped: Set<string> };

@@ -188,6 +188,28 @@ describe("checker pipeline", () => {
     ]);
   });
 
+  it("checks primitive number and boolean methods from pseudo type specs", () => {
+    const source = [
+      "score: float = 3.14159",
+      "fixed: string = score.to_fixed(2)",
+      "same_score: float = score.value_of()",
+      "count: int = 7",
+      "same_count: int = count.value_of()",
+      "ready: bool = true",
+      "ready_text: string = ready.to_string()",
+      "same_ready: bool = ready.value_of()",
+    ].join("\n");
+
+    expect(messages(source)).toEqual([]);
+    expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "fixed", type: "string" }),
+      expect.objectContaining({ name: "same_score", type: "float" }),
+      expect.objectContaining({ name: "same_count", type: "int" }),
+      expect.objectContaining({ name: "ready_text", type: "string" }),
+      expect.objectContaining({ name: "same_ready", type: "bool" }),
+    ]));
+  });
+
   it("checks argument types for fn declarations", () => {
     const source = [
       "fn abc(a: string):",
@@ -919,6 +941,104 @@ describe("checker pipeline", () => {
         "Type 'string' is not assignable to parameter 'x: float'",
       ]);
     });
+
+    it("enforces private and protected instance visibility", () => {
+      const source = [
+        "class Account:",
+        "  private balance: float = 0.0",
+        "  protected owner: string = \"alice\"",
+        "  constructor():",
+        "    this.balance = 1.0",
+        "  read() -> float:",
+        "    return this.balance",
+        "class Savings extends Account:",
+        "  read_owner() -> string:",
+        "    return this.owner",
+        "acc = Account()",
+        "bad_balance: float = acc.balance",
+        "bad_owner: string = acc.owner",
+      ].join("\n");
+
+      expect(messages(source)).toEqual([
+        "Cannot access private member 'balance' of 'Account'",
+        "Cannot access protected member 'owner' of 'Account'",
+      ]);
+    });
+
+    it("enforces private constructors while allowing static factories", () => {
+      const source = [
+        "class Token:",
+        "  private constructor(value: int):",
+        "    this.value = value",
+        "  static make(value: int) -> Token:",
+        "    return Token(value)",
+        "ok: Token = Token.make(1)",
+        "bad = Token(2)",
+      ].join("\n");
+
+      expect(messages(source)).toEqual([
+        "Cannot access private constructor 'Token'",
+      ]);
+    });
+
+    it("enforces static member visibility", () => {
+      const source = [
+        "class Vault:",
+        "  private static key: int = 5",
+        "  private static secret() -> int:",
+        "    return Vault.key",
+        "  static read() -> int:",
+        "    return Vault.secret()",
+        "value: int = Vault.read()",
+        "bad: int = Vault.key",
+        "bad_call: int = Vault.secret()",
+      ].join("\n");
+
+      expect(messages(source)).toEqual([
+        "Cannot access private member 'key' of 'Vault'",
+        "Cannot access private member 'secret' of 'Vault'",
+      ]);
+    });
+
+    it("narrows member flow aliases and super method return types", () => {
+      const source = [
+        "interface Image:",
+        "  display() -> string",
+        "class RealImage implements Image:",
+        "  display() -> string:",
+        "    return \"ok\"",
+        "class ProxyImage implements Image:",
+        "  private real: Image | null = null",
+        "  display() -> string:",
+        "    real = this.real",
+        "    if real != null:",
+        "      return real.display()",
+        "    real: Image = RealImage()",
+        "    this.real = real",
+        "    return real.display()",
+        "class Handler:",
+        "  handle() -> string:",
+        "    return \"base\"",
+        "class Child extends Handler:",
+        "  handle() -> string:",
+        "    return super.handle()",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+
+    it("infers user-defined iterator element types from next result values", () => {
+      const source = [
+        "type IteratorStep = { done: bool, value: int | null }",
+        "interface IntIterator:",
+        "  next() -> IteratorStep",
+        "class RangeIterator implements IntIterator:",
+        "  next() -> IteratorStep:",
+        "    return { done: false, value: 1 }",
+        "for value of RangeIterator():",
+        "  n: int = value",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
   });
 
   describe("member-chain continuation lines", () => {
@@ -1021,6 +1141,17 @@ describe("checker pipeline", () => {
       expect(messages(source)).toContain("Property 'area: () -> string' in 'Sq' is not assignable to 'area: () -> int' required by interface 'Shape'");
     });
 
+    it("requires implemented members to be public", () => {
+      const source = [
+        "interface Shape:",
+        "  area() -> int",
+        "class Sq implements Shape:",
+        "  private area() -> int:",
+        "    return 4",
+      ].join("\n");
+      expect(messages(source)).toContain("Class 'Sq' is missing 'area' required by interface 'Shape'");
+    });
+
     it("reports an unknown interface", () => {
       const source = [
         "class Sq implements Ghost:",
@@ -1051,6 +1182,65 @@ describe("checker pipeline", () => {
         "  area() -> int:",
         "    return 4",
         "s: Shape = Sq()",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+  });
+
+  describe("abstract classes", () => {
+    it("rejects instantiating an abstract class", () => {
+      const source = [
+        "abstract class Exporter:",
+        "  abstract write() -> string",
+        "Exporter()",
+      ].join("\n");
+      expect(messages(source)).toContain("Cannot instantiate abstract class 'Exporter'");
+    });
+
+    it("requires concrete subclasses to implement inherited abstract members", () => {
+      const source = [
+        "abstract class Exporter:",
+        "  abstract write() -> string",
+        "class CsvExporter extends Exporter:",
+        "  label() -> string:",
+        "    return \"csv\"",
+      ].join("\n");
+      expect(messages(source)).toContain("Class 'CsvExporter' must implement abstract member 'write' inherited from 'Exporter'");
+    });
+
+    it("accepts concrete overrides and abstract intermediate classes", () => {
+      const source = [
+        "abstract class Exporter:",
+        "  abstract write() -> string",
+        "abstract class BaseExporter extends Exporter:",
+        "  label() -> string:",
+        "    return \"base\"",
+        "class CsvExporter extends BaseExporter:",
+        "  write() -> string:",
+        "    return this.label() + \":csv\"",
+        "CsvExporter().write()",
+      ].join("\n");
+      expect(messages(source)).toEqual([]);
+    });
+
+    it("rejects private abstract members", () => {
+      const source = [
+        "abstract class Secret:",
+        "  private abstract reveal() -> string",
+      ].join("\n");
+      expect(messages(source)).toContain("Abstract member 'reveal' cannot be private");
+    });
+
+    it("allows abstract classes to satisfy interface contracts with public abstract members", () => {
+      const source = [
+        "interface Exporter:",
+        "  write() -> string",
+        "abstract class BaseExporter implements Exporter:",
+        "  abstract write() -> string",
+        "class CsvExporter extends BaseExporter:",
+        "  write() -> string:",
+        "    return \"csv\"",
+        "e: Exporter = CsvExporter()",
       ].join("\n");
       expect(messages(source)).toEqual([]);
     });

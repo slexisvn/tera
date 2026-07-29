@@ -1,0 +1,39 @@
+interface BuiltReport:
+  text() -> string
+
+interface Builder:
+  setTitle(title: string) -> Builder
+  addSection(name: string) -> Builder
+  build() -> BuiltReport
+
+class Report implements BuiltReport:
+  title: string
+  sections: string[]
+  constructor(title: string, sections: string[]):
+    this.title = title
+    this.sections = sections
+  text() -> string:
+    return this.title + ": " + this.sections.join(", ")
+
+class ReportBuilder implements Builder:
+  private title: string = "untitled"
+  private sections: string[] = []
+  constructor():
+    this.title = "untitled"
+    this.sections = []
+  setTitle(title: string) -> Builder:
+    this.title = title
+    return this
+  addSection(name: string) -> Builder:
+    this.sections.push(name)
+    return this
+  build() -> BuiltReport:
+    return Report(this.title, this.sections)
+
+report = ReportBuilder()
+  .setTitle("monthly")
+  .addSection("sales")
+  .addSection("risk")
+  .build()
+
+print("builder:", report.text())

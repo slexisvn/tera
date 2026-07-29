@@ -1,0 +1,25 @@
+interface Exporter:
+  export(data: string[]) -> string
+
+abstract class DataExporter implements Exporter:
+  export(data: string[]) -> string:
+    return this.header() + this.body(data) + this.footer()
+  header() -> string:
+    return "["
+  abstract body(data: string[]) -> string
+  footer() -> string:
+    return "]"
+
+class JsonExporter extends DataExporter:
+  body(data: string[]) -> string:
+    return data.join(",")
+
+class CsvExporter extends DataExporter:
+  header() -> string:
+    return ""
+  body(data: string[]) -> string:
+    return data.join(",")
+  footer() -> string:
+    return ""
+
+print("template method:", JsonExporter().export(["a", "b"]), "|", CsvExporter().export(["a", "b"]))

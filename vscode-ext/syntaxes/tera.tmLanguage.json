@@ -230,7 +230,7 @@
     "annotations": {
       "patterns": [
         {
-          "match": "(->)\\s*(PromiseConstructor|ObjectConstructor|MetricCollection|QuillProduct|GroupedData|IndexTensor|LRScheduler|MLTransform|DataLoader|DataFrame|Optimizer|Tokenizer|undefined|Callback|boolean|Dataset|MLModel|Promise|Trainer|unknown|Column|Logger|Metric|Module|Object|string|String|Tensor|Array|float|Model|bool|JSON|Math|void|any|int|Map|Set)\\b",
+          "match": "(->)\\s*(PromiseConstructor|ObjectConstructor|MetricCollection|QuillProduct|GroupedData|IndexTensor|LRScheduler|MLTransform|DataLoader|DataFrame|Optimizer|Tokenizer|undefined|Callback|boolean|Boolean|Dataset|MLModel|Promise|Trainer|unknown|Column|Logger|Metric|Module|Number|Object|string|String|Tensor|Array|float|Model|bool|JSON|Math|void|any|int|Map|Set)\\b",
           "captures": {
             "1": {
               "name": "keyword.operator.arrow.tera"
@@ -241,7 +241,7 @@
           }
         },
         {
-          "match": "(->)\\s*(?!(?:implements|instanceof|interface|continue|default|extends|finally|delete|return|static|switch|typeof|async|await|break|catch|class|const|false|model|super|throw|while|yield|case|else|null|this|true|type|and|for|get|let|new|not|set|try|var|do|fn|if|in|of|or)\\b)([A-Za-z_$][A-Za-z0-9_$]*)",
+          "match": "(->)\\s*(?!(?:implements|instanceof|interface|protected|abstract|continue|default|extends|finally|private|delete|public|return|static|switch|typeof|async|await|break|catch|class|const|false|model|super|throw|while|yield|case|else|null|this|true|type|and|for|get|let|new|not|set|try|var|do|fn|if|in|of|or)\\b)([A-Za-z_$][A-Za-z0-9_$]*)",
           "captures": {
             "1": {
               "name": "keyword.operator.arrow.tera"
@@ -257,7 +257,7 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.tera",
-          "match": "\\b(?:implements|interface|extends|static|class|const|model|type|get|let|set|var|fn)\\b"
+          "match": "\\b(?:implements|interface|protected|abstract|extends|private|public|static|class|const|model|type|get|let|set|var|fn)\\b"
         },
         {
           "name": "keyword.control.tera",
@@ -281,7 +281,7 @@
       "patterns": [
         {
           "name": "storage.type.tera",
-          "match": "\\b(?:PromiseConstructor|ObjectConstructor|MetricCollection|QuillProduct|GroupedData|IndexTensor|LRScheduler|MLTransform|DataLoader|DataFrame|Optimizer|Tokenizer|undefined|Callback|boolean|Dataset|MLModel|Promise|Trainer|unknown|Column|Logger|Metric|Module|Object|string|String|Tensor|Array|float|Model|bool|JSON|Math|void|any|int|Map|Set)\\b"
+          "match": "\\b(?:PromiseConstructor|ObjectConstructor|MetricCollection|QuillProduct|GroupedData|IndexTensor|LRScheduler|MLTransform|DataLoader|DataFrame|Optimizer|Tokenizer|undefined|Callback|boolean|Boolean|Dataset|MLModel|Promise|Trainer|unknown|Column|Logger|Metric|Module|Number|Object|string|String|Tensor|Array|float|Model|bool|JSON|Math|void|any|int|Map|Set)\\b"
         }
       ]
     },

@@ -1,9 +1,11 @@
 import type { RegisterFrame } from "../../bytecode/register/interpreter/frame.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
+import type { RuntimeNameMap } from "../../bytecode/register/ops/bytecode.js";
 import type { JSArray } from "../../objects/heap/js-array.js";
 import type { JSObject } from "../../objects/heap/js-object.js";
 import type { JSProxy } from "../../objects/exotic/js-proxy.js";
 import type { Environment } from "../../runtime/intrinsics/environment.js";
+import type { ClassVisibility } from "../class-visibility.js";
 
 export const TAG_SMI = "smi";
 export const TAG_DOUBLE = "double";
@@ -179,6 +181,14 @@ export type RuntimeFunctionPayload = {
   staticBase?: RuntimeFunctionPayload | null;
   prototypeObj?: JSObject | null;
   constructorOf?: RuntimeFunctionPayload | null;
+  classOwnerName?: string | null;
+  classConstructorVisibility?: ClassVisibility;
+  classInstanceMemberVisibility?: Record<string, ClassVisibility>;
+  classStaticMemberVisibility?: Record<string, ClassVisibility>;
+  classAbstract?: boolean;
+  classImplementedInterfaces?: string[];
+  classInstancePublicMembers?: RuntimeNameMap;
+  classStaticPublicMembers?: RuntimeNameMap;
   call?: RuntimeNativeCall;
   construct?: RuntimeNativeConstruct;
   toString?: () => string;
@@ -1084,6 +1094,14 @@ export class JSFunction {
   prototype: HeapPayload | null;
   constructorOf: RuntimeFunctionPayload | null;
   prototypeObj: JSObject | null;
+  classOwnerName: string | null;
+  classConstructorVisibility?: ClassVisibility;
+  classInstanceMemberVisibility?: Record<string, ClassVisibility>;
+  classStaticMemberVisibility?: Record<string, ClassVisibility>;
+  classAbstract?: boolean;
+  classImplementedInterfaces?: string[];
+  classInstancePublicMembers?: RuntimeNameMap;
+  classStaticPublicMembers?: RuntimeNameMap;
 
   constructor(
     compiledFunction: RegisterCompiledFunction | null,
@@ -1097,5 +1115,13 @@ export class JSFunction {
     this.prototype = null;
     this.constructorOf = null;
     this.prototypeObj = null;
+    this.classOwnerName = compiledFunction?.classOwnerName ?? null;
+    this.classConstructorVisibility = compiledFunction?.classConstructorVisibility;
+    this.classInstanceMemberVisibility = compiledFunction?.classInstanceMemberVisibility;
+    this.classStaticMemberVisibility = compiledFunction?.classStaticMemberVisibility;
+    this.classAbstract = compiledFunction?.classAbstract;
+    this.classImplementedInterfaces = compiledFunction?.classImplementedInterfaces;
+    this.classInstancePublicMembers = compiledFunction?.classInstancePublicMembers;
+    this.classStaticPublicMembers = compiledFunction?.classStaticPublicMembers;
   }
 }

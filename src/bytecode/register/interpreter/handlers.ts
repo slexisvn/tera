@@ -72,6 +72,7 @@ import {
   runtimeHasProperty,
 } from "../../../objects/exotic/proxy-ops.js";
 import { defineFunctionAccessor, functionMemberValue, setFunctionMember } from "../../../objects/exotic/function-members.js";
+import { assertConstructorAccess, assertObjectMemberAccess } from "../../../runtime/class-access.js";
 import { RegisterException, runGeneratorFrame } from "./helpers.js";
 import { RegisterFrame } from "./frame.js";
 import { isNull, isUndefined as isUndefinedVal, typeOf } from "../../../core/value/index.js";
@@ -218,6 +219,7 @@ export function handleLdaProp(
 
   if (isObject(obj)) {
     const jsObj = getPayload(obj);
+    assertObjectMemberAccess(jsObj, null, propName, interp);
 
     const accDesc = jsObj.hiddenClass.lookupProperty(propName);
     if (accDesc && accDesc.kind === "accessor") {
@@ -486,6 +488,7 @@ export function handleStaProp(
   operands: OperandList,
   compiledFn: CompiledFunctionLike,
   funcName: string | null | undefined,
+  enforceAccess = true,
 ): void {
   const objReg = operands[0];
   const propNameIdx = operands[1];
@@ -503,6 +506,7 @@ export function handleStaProp(
 
   if (isObject(obj)) {
     const jsObj = getPayload(obj);
+    if (enforceAccess) assertObjectMemberAccess(jsObj, null, propName, interp);
 
     if (jsObj._frozen) return;
     if (
@@ -557,7 +561,7 @@ export function handleStaProp(
       }
     }
   } else if (isFunction(obj)) {
-    setFunctionMember(obj, propName, value, interp);
+    setFunctionMember(obj, propName, value, interp, enforceAccess);
   } else if (isRegex(obj) && propName === "lastIndex") {
     getPayload(obj).lastIndex = toNumber(value);
   }
@@ -726,6 +730,7 @@ export function handleNew(
 
   if (isFunction(callee)) {
     const fn = getPayload(callee);
+    assertConstructorAccess(fn, interp);
     if (fn.construct) {
       return fn.construct(args);
     } else if (fn.compiled) {
@@ -737,6 +742,7 @@ export function handleNew(
         return stub(args);
       } else {
         const newObj = createJSObject();
+        newObj.constructorRef = fn;
         if (!fn.prototypeObj) {
           fn.prototypeObj = createJSObject();
           fn.prototypeObj.constructorRef = fn;

@@ -26,7 +26,8 @@ export function makeCompletionSource(completionNames: string[], analysis?: () =>
       for (const item of chartItems) addMethod(item, "chart");
     } else if (memberAccess) {
       const typeName = receiverType(context, word.from, analysis, cellId);
-      const members = typeName ? analysis?.().symbols.membersOf(typeName) ?? [] : [];
+      const currentAnalysis = analysis?.();
+      const members = typeName && currentAnalysis ? currentAnalysis.symbols.membersOf(typeName, currentAnalysis.positionFor(cellId!, source, word.from)) : [];
       if (members.length) {
         for (const item of members) add(item.name, item.kind === "method" ? "method" : item.kind === "property" ? "property" : "field", item.typeName ?? item.kind);
       } else {
@@ -54,8 +55,9 @@ function completionWord(context: CompletionContext): { from: number; to: number;
   const direct = context.matchBefore(/[A-Za-z_$][\w$]*/);
   if (direct) return direct;
   const before = context.state.sliceDoc(0, context.pos);
-  if (!/\.\s*$/.test(before)) return null;
-  return { from: context.pos, to: context.pos, text: "" };
+  if (/\.\s*$/.test(before)) return { from: context.pos, to: context.pos, text: "" };
+  if (context.explicit) return { from: context.pos, to: context.pos, text: "" };
+  return null;
 }
 
 function receiverType(context: CompletionContext, from: number, analysis: (() => NotebookSourceAnalysis) | undefined, cellId: string | undefined): string | null {

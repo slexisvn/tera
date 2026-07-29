@@ -28,15 +28,54 @@ export function computeDefinition(context: ProviderContext, params: DefinitionPa
   if (!word) return null;
   if (isObjectKey(document, word.range.start)) return null;
 
+  const superTarget = superDefinition(context, document, params, word);
+  if (superTarget) return superTarget;
+
   if (isMemberAccess(document, params.position)) {
     const receiverType = resolveReceiverType(context, document, params.position);
     if (!receiverType) return null;
-    const field = document.symbols.resolveField(receiverType, word.text);
+    const field = document.symbols.resolveField(receiverType, word.text, params.position);
     return field && field.line > 0 ? location(params.textDocument.uri, field.name, field.line, field.column) : null;
   }
 
   const symbol = document.symbols.resolve(word.text, params.position);
   return symbol ? location(params.textDocument.uri, symbol.name, symbol.line, symbol.column) : null;
+}
+
+function superDefinition(
+  context: ProviderContext,
+  document: AnalyzedDocument,
+  params: DefinitionParams,
+  word: NonNullable<ReturnType<typeof wordRangeAt>>,
+): Location | null {
+  if (word.text !== "super") return null;
+  const line = document.lines[word.range.start.line] ?? "";
+  const member = memberAfterDot(line, word.range.end.character);
+  if (member) {
+    const position = { line: word.range.start.line, character: member.end };
+    const receiverType = resolveReceiverType(context, document, position);
+    const field = receiverType ? document.symbols.resolveField(receiverType, member.name, position) : null;
+    return field && field.line > 0 ? location(params.textDocument.uri, field.name, field.line, field.column) : null;
+  }
+  const symbol = document.symbols.resolve("super", params.position);
+  const owner = symbol?.typeName ? typeSymbol(document, symbol.typeName) : null;
+  const constructor = owner?.scope?.symbols.find((item) => item.name === "constructor");
+  const target = constructor ?? owner;
+  return target ? location(params.textDocument.uri, target.name, target.line, target.column) : null;
+}
+
+function memberAfterDot(line: string, start: number): { name: string; end: number } | null {
+  let cursor = start;
+  while (cursor < line.length && /\s/.test(line[cursor])) cursor++;
+  if (line[cursor] !== ".") return null;
+  cursor++;
+  while (cursor < line.length && /\s/.test(line[cursor])) cursor++;
+  const match = line.slice(cursor).match(/^[A-Za-z_$][\w$]*/);
+  return match ? { name: match[0], end: cursor + match[0].length } : null;
+}
+
+function typeSymbol(document: AnalyzedDocument, typeName: string) {
+  return document.symbols.flat.find((symbol) => symbol.name === typeName && (symbol.kind === "module" || symbol.kind === "model")) ?? null;
 }
 
 function isObjectKey(document: AnalyzedDocument, position: { line: number; character: number }): boolean {

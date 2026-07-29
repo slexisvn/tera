@@ -53,6 +53,8 @@ export function inferExpression(
     }
     case NodeType.ThisExpression:
       return lookup(scope, "this")?.type ?? "unknown";
+    case NodeType.SuperExpression:
+      return scope.classOwner ? bound.env.nominalFamilies.get(scope.classOwner) ?? "unknown" : "unknown";
     case NodeType.ArrayExpression:
       return inferArray(node, bound, scope, expectedType);
     case NodeType.ObjectExpression:
@@ -192,6 +194,8 @@ function memberName(node: ASTNode): string {
 }
 
 function inferMember(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
+  const scoped = lookup(scope, dottedName(node) ?? "");
+  if (scoped) return scoped.type;
   const objectType = inferExpression(node.object as ASTNode, bound, scope);
   const optional = node.type === NodeType.OptionalMemberExpression;
   if (node.computed) {
@@ -352,21 +356,32 @@ export function narrowScope(test: ASTNode | undefined, bound: BoundProgram, pare
     const right = test.right as ASTNode;
     const subject = nullishComparisonSubject(left, right);
     if (subject) {
-      const binding = lookup(parent, subject);
+      const binding = lookup(parent, subject.name) ?? { type: inferExpression(subject.node, bound, parent), optional: false };
       if (binding) {
         const nonNullish = test.op === "!=" || test.op === "!==";
         const next = nonNullish ? removeNullish(binding.type, bound.env) : unionType(unionParts(binding.type, bound.env).filter((part) => part === "null" || part === "undefined"));
-        child.locals.set(subject, { ...binding, type: next });
+        child.locals.set(subject.name, { ...binding, type: next });
       }
     }
   }
   return child;
 }
 
-function nullishComparisonSubject(left: ASTNode, right: ASTNode): string | null {
-  if (left.type === NodeType.Identifier && right.type === NodeType.Literal && (right.kind === "null" || right.kind === "undefined")) return String(left.name);
-  if (right.type === NodeType.Identifier && left.type === NodeType.Literal && (left.kind === "null" || left.kind === "undefined")) return String(right.name);
+function nullishComparisonSubject(left: ASTNode, right: ASTNode): { name: string; node: ASTNode } | null {
+  if (right.type === NodeType.Literal && (right.kind === "null" || right.kind === "undefined")) {
+    const name = subjectName(left);
+    return name ? { name, node: left } : null;
+  }
+  if (left.type === NodeType.Literal && (left.kind === "null" || left.kind === "undefined")) {
+    const name = subjectName(right);
+    return name ? { name, node: right } : null;
+  }
   return null;
+}
+
+function subjectName(node: ASTNode): string | null {
+  if (node.type === NodeType.Identifier) return String(node.name);
+  return dottedName(node);
 }
 
 export function functionSignatureForType(name: string, type: TypeName): Signature | null {

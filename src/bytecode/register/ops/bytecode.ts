@@ -1,6 +1,8 @@
 import type { Dependency } from "../../../deopt/dependencies.js";
 import type { FeedbackVector } from "../../../feedback/vector/index.js";
 import type { TaggedValue } from "../../../core/value/index.js";
+import type { ClassVisibility } from "../../../core/class-visibility.js";
+import type { RuntimeInterfaceContract } from "../../../runtime/interface-contract.js";
 
 export const ROP_LDA_CONST = 0x01;
 export const ROP_LDA_REG = 0x02;
@@ -14,6 +16,7 @@ export const ROP_LDA_PROP = 0x07;
 export const ROP_STA_PROP = 0x08;
 export const ROP_LDA_INDEX = 0x09;
 export const ROP_STA_INDEX = 0x0a;
+export const ROP_DEFINE_CLASS_MEMBER = 0x0b;
 
 export const ROP_ADD = 0x10;
 export const ROP_SUB = 0x11;
@@ -105,10 +108,12 @@ export const ROP_CALL_SPREAD_NAMED = 0x8e;
 export const ROP_CALL_METHOD_SPREAD_NAMED = 0x8f;
 
 export const ROP_LDA_KEYED_SLICE = 0x90;
+export const ROP_ASSERT_CLASS_CONTRACTS = 0x91;
 
 export type RegisterOpcode = number;
 export type RegisterOperand = number;
-export type RegisterConstant = RuntimeValue | RegisterCompiledFunction | string[];
+export type RuntimeNameMap = Record<string, true>;
+export type RegisterConstant = RuntimeValue | RegisterCompiledFunction | string[] | RuntimeInterfaceContract[];
 export type BaselineCode = {
   (args: TaggedValue[], thisValue: TaggedValue, interpreter: object): TaggedValue;
   _call0?: (thisValue: TaggedValue, interpreter: object) => TaggedValue;
@@ -180,6 +185,7 @@ const ROPCODE_NAMES: Record<number, string> = {
   [ROP_STA_GLOBAL]: "StaGlobal",
   [ROP_LDA_PROP]: "LdaNamedProperty",
   [ROP_STA_PROP]: "StaNamedProperty",
+  [ROP_DEFINE_CLASS_MEMBER]: "DefineClassMember",
   [ROP_LDA_INDEX]: "LdaKeyedProperty",
   [ROP_STA_INDEX]: "StaKeyedProperty",
   [ROP_ADD]: "Add",
@@ -256,6 +262,7 @@ const ROPCODE_NAMES: Record<number, string> = {
   [ROP_CALL_SPREAD_NAMED]: "CallSpreadNamed",
   [ROP_CALL_METHOD_SPREAD_NAMED]: "CallMethodSpreadNamed",
   [ROP_LDA_KEYED_SLICE]: "LdaKeyedSlice",
+  [ROP_ASSERT_CLASS_CONTRACTS]: "AssertClassContracts",
 };
 
 export function rOpcodeName(opcode: RegisterOpcode): string {
@@ -369,6 +376,14 @@ export class RegisterCompiledFunction {
   paramNames: string[] | null;
   constructorStub?: ((args: TaggedValue[]) => TaggedValue) | null;
   simpleConstructorInfo?: SimpleConstructorField[] | null;
+  classOwnerName?: string | null;
+  classConstructorVisibility?: ClassVisibility;
+  classInstanceMemberVisibility?: Record<string, ClassVisibility>;
+  classStaticMemberVisibility?: Record<string, ClassVisibility>;
+  classAbstract?: boolean;
+  classImplementedInterfaces?: string[];
+  classInstancePublicMembers?: RuntimeNameMap;
+  classStaticPublicMembers?: RuntimeNameMap;
 
   constructor(name: string | null = null, paramCount = 0) {
     if (
@@ -526,7 +541,7 @@ export class RegisterCompiledFunction {
         ) {
           parts.push(`[${op}] (${String(this.constants[op as number])})`);
         } else if (
-          (instr.opcode === ROP_LDA_PROP || instr.opcode === ROP_STA_PROP) &&
+          (instr.opcode === ROP_LDA_PROP || instr.opcode === ROP_STA_PROP || instr.opcode === ROP_DEFINE_CLASS_MEMBER) &&
           j === 1
         ) {
           parts.push(`[${op}] (${String(this.constants[op as number])})`);

@@ -12,6 +12,7 @@ import {
   type TaggedValue,
 } from "../../core/value/index.js";
 import { createJSObject } from "../heap/factory.js";
+import { assertFunctionMemberAccess } from "../../runtime/class-access.js";
 
 type MethodInterpreter = {
   callFunctionValue(
@@ -22,8 +23,8 @@ type MethodInterpreter = {
 };
 
 type FunctionSlot =
-  | { kind: "data"; value: TaggedValue }
-  | { kind: "accessor"; accessor: FunctionAccessor };
+  | { kind: "data"; value: TaggedValue; owner: RuntimeFunctionPayload }
+  | { kind: "accessor"; accessor: FunctionAccessor; owner: RuntimeFunctionPayload };
 
 function hasOwn(record: Record<string, unknown> | undefined, key: string): boolean {
   return !!record && Object.prototype.hasOwnProperty.call(record, key);
@@ -31,8 +32,8 @@ function hasOwn(record: Record<string, unknown> | undefined, key: string): boole
 
 function resolveFunctionSlot(fn: RuntimeFunctionPayload, propName: string): FunctionSlot | null {
   for (let current: RuntimeFunctionPayload | null | undefined = fn; current; current = current.staticBase) {
-    if (hasOwn(current.accessors, propName)) return { kind: "accessor", accessor: current.accessors![propName] };
-    if (hasOwn(current.properties, propName)) return { kind: "data", value: current.properties![propName] };
+    if (hasOwn(current.accessors, propName)) return { kind: "accessor", accessor: current.accessors![propName], owner: current };
+    if (hasOwn(current.properties, propName)) return { kind: "data", value: current.properties![propName], owner: current };
   }
   return null;
 }
@@ -116,6 +117,7 @@ export function functionMemberValue(
   const fn = getPayload(receiver) as RuntimeFunctionPayload;
   const slot = resolveFunctionSlot(fn, propName);
   if (slot) {
+    assertFunctionMemberAccess(fn, propName, interp, slot.owner);
     if (slot.kind === "data") return slot.value;
     return slot.accessor.get && interp
       ? interp.callFunctionValue(slot.accessor.get, [], receiver)
@@ -140,10 +142,12 @@ export function setFunctionMember(
   propName: string,
   value: TaggedValue,
   interp?: MethodInterpreter,
+  enforceAccess = true,
 ): void {
   const fn = getPayload(receiver) as RuntimeFunctionPayload;
   const slot = resolveFunctionSlot(fn, propName);
   if (slot?.kind === "accessor") {
+    if (enforceAccess) assertFunctionMemberAccess(fn, propName, interp, slot.owner);
     if (slot.accessor.set && interp) interp.callFunctionValue(slot.accessor.set, [value], receiver);
     return;
   }

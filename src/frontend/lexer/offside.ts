@@ -1,11 +1,11 @@
 import { Lexer, TokenType, type Token, type TokenValue } from "../lexer/index.js";
 
-function punct(value: string, line: number, column: number): Token {
-  return { type: TokenType.Punctuator, value, line, column };
-}
-
 function token(type: Token["type"], value: TokenValue, line: number, column: number): Token {
   return { type, value, line, column };
+}
+
+function layout(type: typeof TokenType.Newline | typeof TokenType.Indent | typeof TokenType.Dedent, line: number, column: number): Token {
+  return { type, value: "", line, column };
 }
 
 function leadingSpaces(line: string): number {
@@ -63,38 +63,35 @@ export function tokenize(source: string): Token[] {
 
     if (delimiterDepth === 0) {
       if (pendingBlock) {
-        if (indent <= indents[indents.length - 1]) {
-          const virtualIndent = indents[indents.length - 1] + 2;
-          indents.push(virtualIndent);
-        } else {
+        if (indent > indents[indents.length - 1]) {
           indents.push(indent);
+          out.push(layout(TokenType.Indent, lineNo, indent + 1));
         }
-        out.push(punct("{", pendingBlock.line, pendingBlock.column));
         pendingBlock = null;
       } else {
         while (indents.length > 1 && indent < indents[indents.length - 1]) {
           indents.pop();
-          out.push(punct("}", lineNo, indent + 1));
+          out.push(layout(TokenType.Dedent, lineNo, indent + 1));
         }
       }
     }
 
     const endsBlock = delimiterDepth === 0 && lineTokens.at(-1)?.type === TokenType.Punctuator && lineTokens.at(-1)?.value === ":";
-    if (endsBlock) lineTokens.pop();
     out.push(...lineTokens);
     delimiterDepth += delimiterDelta(lineTokens);
 
     if (endsBlock) {
-      pendingBlock = punct("{", lineNo, raw.length + 1);
+      pendingBlock = lineTokens[lineTokens.length - 1] ?? null;
+      out.push(layout(TokenType.Newline, lineNo, raw.length + 1));
     } else if (delimiterDepth === 0 && !continuesMemberChain(lines, i)) {
-      out.push(punct(";", lineNo, raw.length + 1));
+      out.push(layout(TokenType.Newline, lineNo, raw.length + 1));
     }
     if (delimiterDepth < 0) delimiterDepth = 0;
   }
 
   while (indents.length > 1) {
     indents.pop();
-    out.push(punct("}", lastLine, 1));
+    out.push(layout(TokenType.Dedent, lastLine, 1));
   }
   out.push({ type: TokenType.EOF, value: "", line: lastLine + 1, column: 1 });
   return out;

@@ -55,6 +55,7 @@ import {
   runtimeSetProperty,
 } from "../../objects/exotic/proxy-ops.js";
 import { functionMemberValue, setFunctionMember } from "../../objects/exotic/function-members.js";
+import { assertObjectMemberAccess } from "../../runtime/class-access.js";
 
 export type BaselineInterpreter = {
   globalCells: {
@@ -254,6 +255,7 @@ export class BaselineRuntime {
     }
     if (isObject(obj)) {
       const jsObj = getPayload(obj);
+      assertObjectMemberAccess(jsObj, null, propName, this.interp);
       const ownDesc = jsObj.hiddenClass.lookupProperty(propName);
       if (ownDesc && ownDesc.kind === "accessor") {
         return runtimeGetProperty(obj, propName, this.interp);
@@ -367,18 +369,19 @@ export class BaselineRuntime {
     return this.u;
   }
 
-  sp(obj: TaggedValue, nameIdx: number, val: TaggedValue, fbSlot: number) {
+  sp(obj: TaggedValue, nameIdx: number, val: TaggedValue, fbSlot: number, enforceAccess = true) {
     const propName = constantString(this.consts, nameIdx);
     if (isJSProxyValue(obj)) {
       runtimeSetProperty(obj, propName, val, this.interp);
       return;
     }
     if (isFunction(obj)) {
-      setFunctionMember(obj, propName, val, this.interp);
+      setFunctionMember(obj, propName, val, this.interp, enforceAccess);
       return;
     }
     if (isObject(obj)) {
       const jsObj = getPayload(obj);
+      if (enforceAccess) assertObjectMemberAccess(jsObj, null, propName, this.interp);
       const ownDesc = jsObj.hiddenClass.lookupProperty(propName);
       if (
         (ownDesc && ownDesc.kind === "accessor") ||

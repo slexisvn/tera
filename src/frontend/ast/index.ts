@@ -1,3 +1,5 @@
+import type { ClassVisibility } from "../../core/class-visibility.js";
+
 export const NodeType = {
   Program: "Program",
   FunctionDeclaration: "FunctionDeclaration",
@@ -30,6 +32,9 @@ export const NodeType = {
   TryStatement: "TryStatement",
   ThrowStatement: "ThrowStatement",
   ClassDeclaration: "ClassDeclaration",
+  ModelDeclaration: "ModelDeclaration",
+  TypeAliasDeclaration: "TypeAliasDeclaration",
+  InterfaceDeclaration: "InterfaceDeclaration",
   ForInStatement: "ForInStatement",
   ForOfStatement: "ForOfStatement",
   Identifier: "Identifier",
@@ -113,6 +118,55 @@ export type ClassMethodNode = {
   func?: ASTNode;
   kind: string | null;
   static?: boolean;
+  visibility?: ClassVisibility;
+  abstract?: boolean;
+};
+export type ClassFieldNode = {
+  name: string;
+  init?: ASTNode | null;
+  static?: boolean;
+  visibility?: ClassVisibility;
+  declaredType?: string;
+  __line?: number;
+  __column?: number;
+  __nameLine?: number;
+  __nameColumn?: number;
+};
+export type FunctionParamInfo = {
+  name: string;
+  type?: string;
+  optional?: boolean;
+  line?: number;
+  column?: number;
+};
+export type InterfaceFieldAstNode = {
+  name: string;
+  type: string;
+  optional?: boolean;
+  kind?: "field" | "method";
+  __line?: number;
+  __column?: number;
+};
+export type InterfaceIndexAstNode = {
+  keyType: string;
+  valueType: string;
+};
+export type ModelFieldAstNode = {
+  name: string;
+  init: ASTNode;
+  declaredType?: string;
+  __line?: number;
+  __column?: number;
+  __nameLine?: number;
+  __nameColumn?: number;
+};
+export type ModelSectionNode = {
+  name: string;
+  body: ASTNode;
+  __line?: number;
+  __column?: number;
+  __nameLine?: number;
+  __nameColumn?: number;
 };
 export type CatchHandlerNode = {
   param: BindingTarget | null;
@@ -120,6 +174,7 @@ export type CatchHandlerNode = {
 };
 export type ASTFieldValue =
   | LiteralValue
+  | string[]
   | NodeTypeName
   | ASTNode
   | ASTNode[]
@@ -132,6 +187,18 @@ export type ASTFieldValue =
   | ObjectPropertyNode[]
   | ClassMethodNode
   | ClassMethodNode[]
+  | ClassFieldNode
+  | ClassFieldNode[]
+  | FunctionParamInfo
+  | FunctionParamInfo[]
+  | InterfaceFieldAstNode
+  | InterfaceFieldAstNode[]
+  | InterfaceIndexAstNode
+  | InterfaceIndexAstNode[]
+  | ModelFieldAstNode
+  | ModelFieldAstNode[]
+  | ModelSectionNode
+  | ModelSectionNode[]
   | CatchHandlerNode;
 export type ASTNode = {
   type: NodeTypeName;
@@ -329,14 +396,40 @@ export function ForOfStatement(variable: BindingPattern, iterable: ASTNode, body
   return { type: NodeType.ForOfStatement, variable, iterable, body, kind };
 }
 
-export function ClassDeclaration(name: string | null, superClass: AnyNode, constructor: ASTNode | null, methods: ClassMethodNode[]): ASTNode {
+export function ClassDeclaration(name: string | null, superClass: AnyNode, constructor: ASTNode | null, methods: ClassMethodNode[], fields: ClassFieldNode[] = [], isAbstract = false): ASTNode {
   return {
     type: NodeType.ClassDeclaration,
     name,
     superClass,
     constructor,
     methods,
+    fields,
+    abstract: isAbstract,
   };
+}
+
+export function TypeAliasDeclaration(name: string, typeParams: string[], declaredType: string): ASTNode {
+  return { type: NodeType.TypeAliasDeclaration, name, typeParams, declaredType };
+}
+
+export function InterfaceDeclaration(
+  name: string,
+  typeParams: string[],
+  parents: string[],
+  fields: InterfaceFieldAstNode[],
+  indexers: InterfaceIndexAstNode[],
+): ASTNode {
+  return { type: NodeType.InterfaceDeclaration, name, typeParams, parents, fields, indexers };
+}
+
+export function ModelDeclaration(
+  name: string,
+  params: Params,
+  fields: ModelFieldAstNode[],
+  methods: ClassMethodNode[],
+  sections: ModelSectionNode[],
+): ASTNode {
+  return { type: NodeType.ModelDeclaration, name, params, fields, methods, sections };
 }
 
 export function SuperCallExpression(args: ASTNode[]): ASTNode {

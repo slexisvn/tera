@@ -2,6 +2,7 @@ import { NodeType } from "../../../frontend/ast/index.js";
 import type { ASTNode } from "../../../frontend/ast/index.js";
 import { Scope } from "./helpers.js";
 import * as bytecode from "../ops/bytecode.js";
+import type { RuntimeInterfaceContract } from "../../../runtime/interface-contract.js";
 
 import { TempAllocator } from "./temp-allocator.js";
 import { scopeMethods } from "./scope.js";
@@ -14,6 +15,7 @@ export { BINARY_OP_MAP } from "./expressions.js";
 
 export interface RegisterBytecodeCompiler {
   _prepareFunctionBody(statements: ASTNode[]): void;
+  _collectInterfaceDeclarations(statements: ASTNode[]): void;
   compileStatement(stmt: ASTNode): void;
   compileExpression(expr: ASTNode): void;
 }
@@ -25,6 +27,8 @@ export class RegisterBytecodeCompiler {
   _breakJumps: RuntimeValue[] | null;
   _continueJumps: RuntimeValue[] | null;
   _finallyBlocks: RuntimeValue[];
+  interfaceContracts: Map<string, RuntimeInterfaceContract>;
+  classAbstractMembers: Map<string, Map<string, string>>;
 
   constructor() {
     this.func = null;
@@ -33,6 +37,8 @@ export class RegisterBytecodeCompiler {
     this._breakJumps = null;
     this._continueJumps = null;
     this._finallyBlocks = [];
+    this.interfaceContracts = new Map();
+    this.classAbstractMembers = new Map();
   }
 
   compile(ast: ASTNode): bytecode.RegisterCompiledFunction {
@@ -47,6 +53,7 @@ export class RegisterBytecodeCompiler {
     this.temps = new TempAllocator(func);
 
     const body = ast.body as ASTNode[];
+    this._collectInterfaceDeclarations(body);
     this._prepareFunctionBody(body);
 
     const last = body.length > 0 ? body[body.length - 1] : null;

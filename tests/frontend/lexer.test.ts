@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { CLASS_ABSTRACT_MODIFIER, CLASS_VISIBILITIES } from "../../src/core/class-visibility.js";
 import { Lexer, TokenType } from "../../src/frontend/lexer/index.js";
+import { tokenize as tokenizeLayout } from "../../src/frontend/lexer/offside.js";
 
 function tokenize(src) {
   return new Lexer(src).tokenize();
@@ -17,7 +19,24 @@ function tokenTypes(src) {
     .map((t) => t.type);
 }
 
+function layoutTokens(src) {
+  return tokenizeLayout(src)
+    .filter((t) => t.type !== TokenType.EOF);
+}
+
 describe("Lexer", () => {
+  describe("layout", () => {
+    it("emits layout tokens for indentation blocks", () => {
+      const tokens = layoutTokens("if ready:\n  run()\ndone()");
+      expect(tokens.map((t) => t.type)).toContain(TokenType.Indent);
+      expect(tokens.map((t) => t.type)).toContain(TokenType.Dedent);
+      expect(tokens.map((t) => t.type)).toContain(TokenType.Newline);
+      expect(tokens.map((t) => t.value)).not.toContain(";");
+      expect(tokens.map((t) => t.value).filter((value) => value === "{")).toHaveLength(0);
+      expect(tokens.map((t) => t.value).filter((value) => value === "}")).toHaveLength(0);
+    });
+  });
+
   describe("comments", () => {
     it("skips block comments without confusing them for regex", () => {
       expect(tokenValues("/* hi */ x")).toEqual(["x"]);
@@ -157,6 +176,8 @@ describe("Lexer", () => {
         "async",
         "await",
         "yield",
+        ...CLASS_VISIBILITIES,
+        CLASS_ABSTRACT_MODIFIER,
       ];
       for (const kw of keywords) {
         const tok = tokenize(kw)[0];

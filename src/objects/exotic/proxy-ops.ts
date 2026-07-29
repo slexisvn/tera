@@ -35,6 +35,7 @@ import {
 } from "../heap/factory.js";
 import { isJSProxyObject } from "./js-proxy.js";
 import { functionMemberValue } from "./function-members.js";
+import { assertObjectMemberAccess, canAccessObjectMember } from "../../runtime/class-access.js";
 
 function sameValue(a: TaggedValue, b: TaggedValue): boolean {
   const ta = getTag(a);
@@ -223,6 +224,7 @@ function ordinaryGetObject(
   key: string,
   interpreter?: InterpreterLike | null,
 ): TaggedValue {
+  assertObjectMemberAccess(obj, null, key, interpreter);
   const desc = obj.hiddenClass.lookupProperty(key);
   if (desc) {
     const value = slotValue(obj, desc, key);
@@ -257,6 +259,7 @@ function ordinarySetObject(
   value: TaggedValue,
   interpreter?: InterpreterLike | null,
 ): boolean {
+  assertObjectMemberAccess(obj, null, key, interpreter);
   const desc = obj.hiddenClass.lookupProperty(key);
   if (desc && desc.kind === "accessor") {
     const pair = slotValue(obj, desc, key);
@@ -287,7 +290,9 @@ function ordinarySetObject(
 function ordinaryGetDescriptorObject(
   obj: RuntimeObject,
   key: string,
+  interpreter?: InterpreterLike | null,
 ): TaggedValue {
+  if (!canAccessObjectMember(obj, obj, key, interpreter)) return mkUndefined();
   const desc = obj.hiddenClass.lookupProperty(key);
   if (!desc) return mkUndefined();
   const result = createJSObject();
@@ -310,7 +315,9 @@ function ordinaryDefinePropertyObject(
   obj: RuntimeObject,
   key: string,
   descObj: TaggedValue,
+  interpreter?: InterpreterLike | null,
 ): boolean {
+  assertObjectMemberAccess(obj, null, key, interpreter);
   const getterVal = runtimeGetProperty(descObj, "get");
   const setterVal = runtimeGetProperty(descObj, "set");
   if (
@@ -598,8 +605,10 @@ export function runtimeHasProperty(
   }
   if (isObject(receiver)) {
     const obj = objectPayload(receiver);
-    if (obj.hiddenClass.hasProperty(propName)) return true;
-    return !!(obj.prototype && obj.lookupPrototypeChain(propName).found);
+    if (obj.hiddenClass.hasProperty(propName)) return canAccessObjectMember(obj, obj, propName, interpreter);
+    if (!obj.prototype) return false;
+    const result = obj.lookupPrototypeChain(propName);
+    return !!(result.found && canAccessObjectMember(obj, null, propName, interpreter));
   }
   if (isArray(receiver)) {
     const idx = Number(propName);
@@ -656,7 +665,11 @@ export function runtimeDeleteProperty(
     }
     return runtimeDeleteProperty(proxy.target, propName, interpreter);
   }
-  if (isObject(receiver)) return objectPayload(receiver).deleteProperty(propName);
+  if (isObject(receiver)) {
+    const obj = objectPayload(receiver);
+    assertObjectMemberAccess(obj, null, propName, interpreter);
+    return obj.deleteProperty(propName);
+  }
   return true;
 }
 
@@ -681,7 +694,10 @@ export function runtimeOwnKeys(
     }
     return runtimeOwnKeys(proxy.target, interpreter);
   }
-  if (isObject(receiver)) return objectPayload(receiver).keys();
+  if (isObject(receiver)) {
+    const obj = objectPayload(receiver);
+    return obj.keys().filter((key) => canAccessObjectMember(obj, obj, key, interpreter));
+  }
   if (isArray(receiver))
   {
     const arr = arrayPayload(receiver);
@@ -710,7 +726,7 @@ export function runtimeGetOwnPropertyDescriptor(
     return runtimeGetOwnPropertyDescriptor(proxy.target, propName, interpreter);
   }
   if (isObject(receiver))
-    return ordinaryGetDescriptorObject(objectPayload(receiver), propName);
+    return ordinaryGetDescriptorObject(objectPayload(receiver), propName, interpreter);
   return mkUndefined();
 }
 
@@ -736,7 +752,7 @@ export function runtimeDefineProperty(
     return runtimeDefineProperty(proxy.target, propName, desc, interpreter);
   }
   if (isObject(receiver) && isObject(desc))
-    return ordinaryDefinePropertyObject(objectPayload(receiver), propName, desc);
+    return ordinaryDefinePropertyObject(objectPayload(receiver), propName, desc, interpreter);
   return false;
 }
 

@@ -83,7 +83,7 @@ function collect(context: ProviderContext, document: AnalyzedDocument, position:
 
   if (isMemberAccess(document, position)) {
     const typeName = resolveReceiverType(context, document, position);
-    return { isIncomplete: false, items: typeName ? memberItems(context, document, typeName) : [] };
+    return { isIncomplete: false, items: typeName ? memberItems(context, document, typeName, position) : [] };
   }
 
   const items: CompletionItem[] = [
@@ -160,8 +160,9 @@ function memberItems(
   context: ProviderContext,
   document: AnalyzedDocument,
   typeName: string,
+  position: Position,
 ): CompletionItem[] {
-  const members = document.symbols.membersOf(typeName);
+  const members = document.symbols.membersOf(typeName, position);
   if (members.length) {
     return members.map((member) => ({
       label: member.name,

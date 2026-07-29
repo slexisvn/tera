@@ -40,7 +40,8 @@ export class BaselineCompiler {
           instr.opcode === bytecode.ROP_CALL_SPREAD ||
           instr.opcode === bytecode.ROP_REST_ARGS ||
           instr.opcode === bytecode.ROP_SPREAD_ARRAY ||
-          instr.opcode === bytecode.ROP_DEFINE_ACCESSOR,
+          instr.opcode === bytecode.ROP_DEFINE_ACCESSOR ||
+          instr.opcode === bytecode.ROP_ASSERT_CLASS_CONTRACTS,
       )
     )
       return null;
@@ -185,6 +186,9 @@ export class BaselineCompiler {
 
       case bytecode.ROP_STA_PROP:
         return `$.sp(r[${o[0]}],${o[1]},acc,${o[2] ?? 0});`;
+
+      case bytecode.ROP_DEFINE_CLASS_MEMBER:
+        return `$.sp(r[${o[0]}],${o[1]},acc,${o[2] ?? 0},false);`;
 
       case bytecode.ROP_LDA_INDEX:
         return `acc=$.gi(r[${o[0]}],r[${o[1]}],${o[2] ?? 0});`;

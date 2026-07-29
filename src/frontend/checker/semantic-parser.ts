@@ -1,657 +1,512 @@
-import { Parser } from "../parser/index.js";
-import { Lexer, TokenType, type Token } from "../lexer/index.js";
-import type { ASTNode } from "../ast/index.js";
+import {
+  NodeType,
+  Literal,
+  type ASTNode,
+  type BindingIdentifier,
+  type BindingPattern,
+  type ClassFieldNode as AstClassFieldNode,
+  type ClassMethodNode as AstClassMemberNode,
+  type FunctionParamInfo,
+  type InterfaceFieldAstNode,
+  type ModelFieldAstNode,
+  type ModelSectionNode,
+  type ParamNode,
+} from "../ast/index.js";
+import { parse } from "../parser/language.js";
+import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
 import type {
   BlockNode,
+  ClassFieldNode,
   ClassMemberKind,
   ClassMemberNode,
   ClassNode,
-  FunctionNode,
+  DestructureNode,
+  ExprNode,
   ForNode,
-  InterfaceFieldNode,
-  InterfaceIndexNode,
+  FunctionNode,
   InterfaceNode,
   ModelNode,
   ParameterNode,
+  ReturnNode,
   SemanticNode,
   SemanticProgram,
   TypeAliasNode,
+  VarNode,
 } from "./semantic-ast.js";
-import { cleanType, splitTopLevel } from "./type-system.js";
+import { cleanType } from "./type-system.js";
 
-type Line = {
-  indent: number;
-  tokens: Token[];
-  text: string;
-  line: number;
-};
-
-type PositionedNode = ASTNode & {
+type Positioned = {
   __line?: number;
   __column?: number;
-  __raw?: string;
+  __nameLine?: number;
+  __nameColumn?: number;
 };
 
-function leadingIndent(line: string): number {
-  let count = 0;
-  while (count < line.length && line[count] === " ") count++;
-  return count;
+type FunctionAst = ASTNode & {
+  name?: string | null;
+  params?: ParamNode[];
+  body?: ASTNode | ASTNode[];
+  _paramInfo?: FunctionParamInfo[];
+  _returnType?: string;
+  _typeParams?: string[];
+  visibility?: ClassVisibility;
+  abstract?: boolean;
+};
+
+type ClassAst = ASTNode & {
+  name?: string | null;
+  superClass?: ASTNode | null;
+  constructor?: FunctionAst | null;
+  methods?: AstClassMemberNode[];
+  fields?: AstClassFieldNode[];
+  implements?: string[];
+  abstract?: boolean;
+};
+
+type ModelAst = ASTNode & {
+  name?: string | null;
+  params?: ParamNode[];
+  fields?: ModelFieldAstNode[];
+  methods?: AstClassMemberNode[];
+  sections?: ModelSectionNode[];
+  _paramInfo?: FunctionParamInfo[];
+};
+
+const UNKNOWN_SPAN = { line: 1, column: 1 };
+
+export function parseSemanticProgram(source: string): SemanticProgram {
+  return astToSemanticProgram(parse(source));
 }
 
-function lineTokens(text: string, line: number, column: number): Token[] {
-  return new Lexer(text).tokenize()
-    .filter((tok) => tok.type !== TokenType.EOF)
-    .map((tok) => ({
-      ...tok,
-      line,
-      column: tok.line === 1 ? column + tok.column - 1 : tok.column,
-    }));
+export function astToSemanticProgram(ast: ASTNode): SemanticProgram {
+  const body = ast.type === NodeType.Program ? statementsOf(ast).flatMap(toSemanticNodes) : toSemanticNodes(ast);
+  return { body };
 }
 
-function delimiterDelta(tokens: Token[]): number {
-  let delta = 0;
-  for (const tok of tokens) {
-    if (tok.type !== TokenType.Punctuator) continue;
-    if (tok.value === "(" || tok.value === "[" || tok.value === "{") delta++;
-    else if (tok.value === ")" || tok.value === "]" || tok.value === "}") delta--;
+function toSemanticNodes(node: ASTNode | null | undefined): SemanticNode[] {
+  if (!node) return [];
+  switch (node.type) {
+    case NodeType.TypeAliasDeclaration:
+      return [typeAliasNode(node)];
+    case NodeType.InterfaceDeclaration:
+      return [interfaceNode(node)];
+    case NodeType.FunctionDeclaration:
+    case NodeType.LazyFunctionDeclaration:
+      return [functionNode(node as FunctionAst)];
+    case NodeType.ModelDeclaration:
+      return [modelNode(node as ModelAst)];
+    case NodeType.ClassDeclaration:
+      return [classNode(node as ClassAst)];
+    case NodeType.BlockStatement:
+      return [blockNode(node)];
+    case NodeType.IfStatement:
+      return ifNodes(node);
+    case NodeType.WhileStatement:
+    case NodeType.DoWhileStatement:
+      return [blockNode(node.body as ASTNode, node.test as ASTNode | undefined, spanOf(node))];
+    case NodeType.ForInStatement:
+      return forNode(node, "in");
+    case NodeType.ForOfStatement:
+      return forNode(node, "of");
+    case NodeType.ForStatement:
+      return forStatementNodes(node);
+    case NodeType.TryStatement:
+      return tryNodes(node);
+    case NodeType.ReturnStatement:
+      return [returnNode(node)];
+    case NodeType.LetDeclaration:
+    case NodeType.ConstDeclaration:
+    case NodeType.VarDeclaration:
+      return declarationNode(node);
+    case NodeType.ObjectDestructuring:
+    case NodeType.ArrayDestructuring:
+      return destructureNode(node);
+    case NodeType.ExpressionStatement:
+      return expressionStatementNode(node);
+    case NodeType.SwitchStatement:
+      return switchNodes(node);
+    case NodeType.ThrowStatement:
+      return exprFrom(node.argument as ASTNode | undefined, spanOf(node));
+    default:
+      return [];
   }
-  return delta;
 }
 
-function tokenText(tokens: Token[]): string {
-  return tokens.map((tok) => String(tok.value)).join(" ");
-}
-
-function startsMemberChain(tokens: Token[]): boolean {
-  const first = tokens[0];
-  return first?.type === TokenType.Punctuator && (first.value === "." || first.value === "?.");
-}
-
-function findTopLevel(tokens: Token[], value: string, start = 0): number {
-  let depth = 0;
-  for (let i = start; i < tokens.length; i++) {
-    const tok = tokens[i];
-    if (depth === 0 && tok.value === value) return i;
-    if (tok.type === TokenType.Punctuator) {
-      if (tok.value === "(" || tok.value === "[" || tok.value === "{") depth++;
-      else if (tok.value === ")" || tok.value === "]" || tok.value === "}") depth--;
-      if (depth === 0 && tok.value === value) return i;
-    }
-  }
-  return -1;
-}
-
-function sliceType(tokens: Token[]): string {
-  return cleanType(tokenText(tokens).replace(/\s*\[\s*\]/g, "[]").replace(/\s*<\s*/g, "<").replace(/\s*>\s*/g, ">").replace(/\s*\|\s*/g, " | ").replace(/\s*&\s*/g, " & ").replace(/\s*->\s*/g, " -> "));
-}
-
-function parseExpr(tokens: Token[]): ASTNode {
-  const parserTokens = [...tokens, { type: TokenType.EOF, value: "", line: tokens.at(-1)?.line ?? 0, column: tokens.at(-1)?.column ?? 0 }];
-  const parser = new Parser(parserTokens);
-  const expr = parser.parseExpression();
-  while (parser.current().value === ";") parser.advance();
-  if (!parser.isAtEnd()) parser.error(`Unexpected token '${parser.current().value}'`, parser.current());
-  return annotateExpression(expr, tokens);
-}
-
-function parseExprOrNull(tokens: Token[]): ASTNode | null {
-  try {
-    return tokens.length ? parseExpr(tokens) : null;
-  } catch {
-    return null;
-  }
-}
-
-function parseTypeParams(tokens: Token[], start: number): { params: string[]; next: number } {
-  if (tokens[start]?.value !== "<") return { params: [], next: start };
-  let depth = 1;
-  let end = start + 1;
-  while (end < tokens.length && depth > 0) {
-    if (tokens[end].value === "<") depth++;
-    else if (tokens[end].value === ">") depth--;
-    end++;
-  }
+function typeAliasNode(node: ASTNode): TypeAliasNode {
   return {
-    params: splitTopLevel(tokenText(tokens.slice(start + 1, end - 1)), ",").map((part) => part.trim()).filter(Boolean),
-    next: end,
+    kind: "TypeAlias",
+    name: String(node.name ?? ""),
+    typeParams: stringList(node.typeParams),
+    type: cleanType(String(node.declaredType ?? "any")),
+    span: spanOf(node),
+    nameSpan: nameSpanOf(node),
   };
 }
 
-function splitTopLevelTokenGroups(tokens: Token[], delimiter: string): Token[][] {
-  const groups: Token[][] = [];
-  let depth = 0;
-  let start = 0;
-  for (let i = 0; i < tokens.length; i++) {
-    const tok = tokens[i];
-    if (tok.type === TokenType.Punctuator) {
-      if (tok.value === "(" || tok.value === "[" || tok.value === "{") depth++;
-      else if (tok.value === ")" || tok.value === "]" || tok.value === "}") depth--;
-      else if (tok.value === delimiter && depth === 0) {
-        groups.push(tokens.slice(start, i));
-        start = i + 1;
-      }
+function interfaceNode(node: ASTNode): InterfaceNode {
+  const fields = arrayOf<InterfaceFieldAstNode>(node.fields).map((field) => ({
+    name: field.name,
+    optional: !!field.optional,
+    type: cleanType(field.type),
+    span: spanOf(field),
+  }));
+  return {
+    kind: "Interface",
+    name: String(node.name ?? ""),
+    typeParams: stringList(node.typeParams),
+    parents: stringList(node.parents).map(cleanType),
+    fields,
+    indexers: arrayOf<{ keyType: string; valueType: string }>(node.indexers).map((indexer) => ({
+      keyType: cleanType(indexer.keyType),
+      valueType: cleanType(indexer.valueType),
+    })),
+    span: spanOf(node),
+    nameSpan: nameSpanOf(node),
+  };
+}
+
+function modelNode(node: ModelAst): ModelNode {
+  return {
+    kind: "Model",
+    name: String(node.name ?? ""),
+    params: paramsFromInfo(node._paramInfo, node.params),
+    body: [
+      ...arrayOf<ModelFieldAstNode>(node.fields).map(modelFieldVar),
+      ...arrayOf<AstClassMemberNode>(node.methods).map((method) => functionNode(method.func as FunctionAst, method.name ?? undefined)),
+      ...arrayOf<ModelSectionNode>(node.sections).map(modelSectionBlock),
+    ],
+    span: spanOf(node),
+    nameSpan: nameSpanOf(node),
+  };
+}
+
+function classNode(node: ClassAst): ClassNode {
+  const constructorMember = node.constructor
+    ? [classMemberNode(node.constructor, "constructor", false, node.constructor.visibility ?? DEFAULT_CLASS_VISIBILITY)]
+    : [];
+  return {
+    kind: "Class",
+    name: String(node.name ?? ""),
+    parent: typeof node.superClass?.name === "string" ? node.superClass.name : undefined,
+    implements: stringList(node.implements),
+    abstract: !!node.abstract,
+    fields: arrayOf<AstClassFieldNode>(node.fields).map(classFieldNode),
+    members: [
+      ...constructorMember,
+      ...arrayOf<AstClassMemberNode>(node.methods).map((member) => {
+        const kind: ClassMemberKind = member.kind === "get" ? "getter" : member.kind === "set" ? "setter" : "method";
+        return classMemberNode(member.func as FunctionAst, kind, !!member.static, member.visibility ?? DEFAULT_CLASS_VISIBILITY, member.name ?? undefined, !!member.abstract);
+      }),
+    ],
+    span: spanOf(node),
+    nameSpan: nameSpanOf(node),
+  };
+}
+
+function classMemberNode(
+  fn: FunctionAst,
+  memberKind: ClassMemberKind,
+  isStatic: boolean,
+  visibility: ClassVisibility,
+  fallbackName?: string,
+  isAbstract = !!fn.abstract,
+): ClassMemberNode {
+  return {
+    memberKind,
+    static: isStatic,
+    visibility,
+    abstract: isAbstract,
+    fn: functionNode(fn, fallbackName),
+  };
+}
+
+function classFieldNode(field: AstClassFieldNode): ClassFieldNode {
+  return {
+    name: field.name,
+    declaredType: field.declaredType,
+    value: field.init ?? Literal(undefined, "undefined"),
+    static: !!field.static,
+    visibility: field.visibility ?? DEFAULT_CLASS_VISIBILITY,
+    span: spanOf(field),
+    nameSpan: nameSpanOf(field),
+  };
+}
+
+function modelFieldVar(field: ModelFieldAstNode): VarNode {
+  return {
+    kind: "Var",
+    name: field.name,
+    declaredType: field.declaredType,
+    value: field.init,
+    span: spanOf(field),
+    nameSpan: nameSpanOf(field),
+  };
+}
+
+function modelSectionBlock(section: ModelSectionNode): BlockNode {
+  return {
+    kind: "Block",
+    body: semanticBody(section.body),
+    span: spanOf(section),
+  };
+}
+
+function functionNode(node: FunctionAst, fallbackName?: string): FunctionNode {
+  return {
+    kind: "Function",
+    name: String(node.name ?? fallbackName ?? ""),
+    typeParams: stringList(node._typeParams),
+    params: paramsFromInfo(node._paramInfo, node.params),
+    returns: cleanType(node._returnType ?? "any"),
+    body: semanticBody(node.body),
+    abstract: !!node.abstract,
+    span: spanOf(node),
+    nameSpan: nameSpanOf(node),
+  };
+}
+
+function paramsFromInfo(info: FunctionParamInfo[] | undefined, params: ParamNode[] | undefined): ParameterNode[] {
+  const parsed = arrayOf<FunctionParamInfo>(info);
+  if (parsed.length) {
+    return parsed.map((param) => ({
+      name: param.name,
+      type: cleanType(param.type ?? "any"),
+      optional: !!param.optional,
+      span: { line: param.line ?? UNKNOWN_SPAN.line, column: param.column ?? UNKNOWN_SPAN.column },
+    }));
+  }
+  return arrayOf<ParamNode>(params).flatMap((param) => {
+    const binding = paramBinding(param);
+    return binding ? [{
+      name: binding.name,
+      type: "any",
+      optional: binding.optional,
+      span: binding.span,
+    }] : [];
+  });
+}
+
+function ifNodes(node: ASTNode): SemanticNode[] {
+  const out: SemanticNode[] = [blockNode(node.consequent as ASTNode, node.test as ASTNode | undefined, spanOf(node))];
+  const alternate = node.alternate as ASTNode | null | undefined;
+  if (!alternate) return out;
+  if (alternate.type === NodeType.IfStatement) out.push(...ifNodes(alternate));
+  else out.push(blockNode(alternate, undefined, spanOf(alternate)));
+  return out;
+}
+
+function forNode(node: ASTNode, mode: "in" | "of"): SemanticNode[] {
+  const source = mode === "in" ? node.object : node.iterable;
+  const binding = bindingName(node.variable as BindingPattern | undefined);
+  if (!binding || !source || typeof source !== "object" || !("type" in source)) {
+    return [blockNode(node.body as ASTNode, source as ASTNode | undefined, spanOf(node))];
+  }
+  return [{
+    kind: "For",
+    variable: binding.name,
+    mode,
+    iterable: source as ASTNode,
+    body: semanticBody(node.body as ASTNode),
+    span: spanOf(node),
+    variableSpan: binding.span,
+  } satisfies ForNode];
+}
+
+function forStatementNodes(node: ASTNode): SemanticNode[] {
+  const init = node.init;
+  const body = [
+    ...toSemanticNodes(Array.isArray(init) ? undefined : init as ASTNode | undefined),
+    blockNode(node.body as ASTNode, node.test as ASTNode | undefined, spanOf(node)),
+    ...exprFrom(node.update as ASTNode | undefined, spanOf(node)),
+  ];
+  if (Array.isArray(init)) body.unshift(...(init as ASTNode[]).flatMap((entry) => toSemanticNodes(entry)));
+  return body;
+}
+
+function tryNodes(node: ASTNode): SemanticNode[] {
+  const out = [blockNode(node.block as ASTNode, undefined, spanOf(node))];
+  const handler = node.handler as { param?: string | null; body?: ASTNode } | null | undefined;
+  if (handler?.body) {
+    out.push({
+      kind: "Block",
+      catchVariable: handler.param ?? undefined,
+      catchVariableSpan: handler.param ? spanOf(node) : undefined,
+      body: semanticBody(handler.body),
+      span: spanOf(handler.body),
+    });
+  }
+  if (node.finalizer) out.push(blockNode(node.finalizer as ASTNode, undefined, spanOf(node.finalizer as ASTNode)));
+  return out;
+}
+
+function switchNodes(node: ASTNode): SemanticNode[] {
+  const cases = arrayOf<ASTNode>(node.cases).map((entry) => {
+    const test = entry.test as ASTNode | null | undefined;
+    return {
+      kind: "Block",
+      test: test ?? undefined,
+      body: semanticBody(entry.consequent as ASTNode[]),
+      span: spanOf(entry),
+    } satisfies BlockNode;
+  });
+  return [{
+    kind: "Block",
+    test: node.discriminant as ASTNode | undefined,
+    body: cases,
+    span: spanOf(node),
+  }];
+}
+
+function blockNode(bodySource: ASTNode | ASTNode[] | null | undefined, test?: ASTNode, fallback = UNKNOWN_SPAN): BlockNode {
+  return {
+    kind: "Block",
+    test,
+    body: semanticBody(bodySource),
+    span: spanOf(bodySource, fallback),
+  };
+}
+
+function returnNode(node: ASTNode): ReturnNode {
+  return {
+    kind: "Return",
+    value: node.argument as ASTNode | undefined,
+    span: spanOf(node),
+  };
+}
+
+function declarationNode(node: ASTNode): SemanticNode[] {
+  const binding = bindingName(node.name as BindingPattern | undefined);
+  const init = node.init as ASTNode | null | undefined;
+  if (!binding) return [];
+  if (!init) return [];
+  return [{
+    kind: "Var",
+    name: binding.name,
+    declaredType: typeof node.declaredType === "string" ? node.declaredType : undefined,
+    value: init,
+    span: spanOf(node),
+    nameSpan: typeof node.name === "string" ? nameSpanOf(node) : binding.span,
+  } satisfies VarNode];
+}
+
+function destructureNode(node: ASTNode): SemanticNode[] {
+  const bindings = bindingNames(node.pattern as BindingPattern | undefined);
+  const init = node.init as ASTNode | undefined;
+  if (!bindings.names.length || !init) return [];
+  return [{
+    kind: "Destructure",
+    names: bindings.names,
+    value: init,
+    span: spanOf(node),
+    variableSpans: bindings.spans,
+  } satisfies DestructureNode];
+}
+
+function expressionStatementNode(node: ASTNode): SemanticNode[] {
+  const expression = node.expression as ASTNode | undefined;
+  if (!expression) return [];
+  if (expression.type === NodeType.AssignmentExpression) {
+    const target = expression.target as ASTNode | undefined;
+    if (target?.type === NodeType.Identifier) {
+      return [{
+        kind: "Var",
+        name: String(target.name),
+        value: expression.value as ASTNode,
+        span: spanOf(node),
+        nameSpan: spanOf(target),
+      } satisfies VarNode];
     }
   }
-  groups.push(tokens.slice(start));
-  return groups;
+  return [{
+    kind: "Expr",
+    value: expression,
+    span: spanOf(node),
+  } satisfies ExprNode];
 }
 
-function parseParams(tokens: Token[]): ParameterNode[] {
-  if (tokens.length === 0) return [];
-  return splitTopLevelTokenGroups(tokens, ",").map((group) => {
-    const eq = findTopLevel(group, "=");
-    const body = eq >= 0 ? group.slice(0, eq) : group;
-    const colon = findTopLevel(body, ":");
-    const nameToken = body.find((tok) => tok.type === TokenType.Identifier);
-    if (!nameToken) return null;
-    const optional = body[body.indexOf(nameToken) + 1]?.value === "?" || eq >= 0;
-    const type = colon >= 0 ? sliceType(body.slice(colon + 1)) : "any";
-    return {
-      name: String(nameToken.value),
-      type,
-      optional,
-      span: { line: nameToken.line, column: nameToken.column },
-    };
-  }).filter((param): param is ParameterNode => !!param?.name);
+function exprFrom(node: ASTNode | null | undefined, fallback = UNKNOWN_SPAN): ExprNode[] {
+  return node ? [{ kind: "Expr", value: node, span: spanOf(node, fallback) }] : [];
 }
 
-function parseSignature(line: Line, keywordOffset: number): {
-  name: string;
-  nameSpan: { line: number; column: number };
-  typeParams: string[];
-  params: ParameterNode[];
-  returns: string;
-} | null {
-  let cursor = keywordOffset;
-  if (line.tokens[cursor]?.value === "async") cursor++;
-  if (line.tokens[cursor]?.value === "fn") cursor++;
-  if (line.tokens[cursor]?.value === "*") cursor++;
-  const nameToken = line.tokens[cursor];
-  if (!nameToken || nameToken.type !== TokenType.Identifier) return null;
-  cursor++;
-  const generic = parseTypeParams(line.tokens, cursor);
-  cursor = generic.next;
-  if (line.tokens[cursor]?.value !== "(") return null;
-  const close = findTopLevel(line.tokens, ")", cursor);
-  if (close < 0) return null;
-  const params = parseParams(line.tokens.slice(cursor + 1, close));
-  const arrow = findTopLevel(line.tokens, "->", close + 1);
-  const colon = findTopLevel(line.tokens, ":", close + 1);
-  const returns = arrow >= 0 ? sliceType(line.tokens.slice(arrow + 1, colon >= 0 ? colon : line.tokens.length)) : "any";
-  return { name: String(nameToken.value), nameSpan: { line: nameToken.line, column: nameToken.column }, typeParams: generic.params, params, returns };
+function semanticBody(source: ASTNode | ASTNode[] | null | undefined): SemanticNode[] {
+  return statementsOf(source).flatMap(toSemanticNodes);
 }
 
-function parseInterfaceField(line: Line): InterfaceFieldNode | InterfaceIndexNode | null {
-  if (line.tokens[0]?.value === "[") {
-    const close = findTopLevel(line.tokens, "]");
-    const keyColon = findTopLevel(line.tokens, ":", 1);
-    const valueColon = close >= 0 ? findTopLevel(line.tokens, ":", close + 1) : -1;
-    if (close < 0 || keyColon < 0 || keyColon > close || valueColon < 0) return null;
-    return {
-      keyType: sliceType(line.tokens.slice(keyColon + 1, close)),
-      valueType: sliceType(line.tokens.slice(valueColon + 1)),
-    };
+function statementsOf(source: ASTNode | ASTNode[] | null | undefined): ASTNode[] {
+  if (!source) return [];
+  if (Array.isArray(source)) return source;
+  if (source.type === NodeType.Program || source.type === NodeType.BlockStatement) return arrayOf<ASTNode>(source.body);
+  return [source];
+}
+
+function spanOf(source: unknown, fallback = UNKNOWN_SPAN): { line: number; column: number } {
+  const positioned = source as Positioned | null | undefined;
+  return {
+    line: positioned?.__line ?? fallback.line,
+    column: positioned?.__column ?? fallback.column,
+  };
+}
+
+function nameSpanOf(source: unknown): { line: number; column: number } {
+  const positioned = source as Positioned | null | undefined;
+  return {
+    line: positioned?.__nameLine ?? positioned?.__line ?? UNKNOWN_SPAN.line,
+    column: positioned?.__nameColumn ?? positioned?.__column ?? UNKNOWN_SPAN.column,
+  };
+}
+
+function bindingName(pattern: BindingPattern | undefined): { name: string; span: { line: number; column: number } } | null {
+  if (typeof pattern === "string") return { name: pattern, span: UNKNOWN_SPAN };
+  if (!pattern || typeof pattern !== "object" || Array.isArray(pattern)) return null;
+  if ((pattern as BindingIdentifier).kind === "id" && typeof (pattern as BindingIdentifier).name === "string") {
+    return { name: (pattern as BindingIdentifier).name, span: spanOf(pattern) };
   }
-  const nameOffset = line.tokens[0]?.value === "readonly" ? 1 : 0;
-  const nameToken = line.tokens[nameOffset];
-  if (!nameToken || nameToken.type !== TokenType.Identifier) return null;
-  let cursor = nameOffset + 1;
-  const optional = line.tokens[cursor]?.value === "?";
-  if (optional) cursor++;
-  if (!optional && (line.tokens[cursor]?.value === "(" || line.tokens[cursor]?.value === "<")) {
-    const signature = parseSignature(line, nameOffset);
-    if (signature) {
-      return {
-        name: signature.name,
-        optional: false,
-        type: cleanType(`(${signature.params.map((param) => param.type).join(", ")}) -> ${signature.returns}`),
-        span: signature.nameSpan,
-      };
-    }
-  }
-  if (line.tokens[cursor]?.value !== ":") return null;
-  return { name: String(nameToken.value), optional, type: sliceType(line.tokens.slice(cursor + 1)), span: { line: nameToken.line, column: nameToken.column } };
+  return null;
 }
 
-function parseDestructureNames(tokens: Token[]): { names: string[]; spans: Array<{ line: number; column: number }> } | null {
-  if (tokens.length < 3 || tokens.length % 2 === 0) return null;
+function bindingNames(pattern: BindingPattern | undefined): { names: string[]; spans: Array<{ line: number; column: number }> } {
   const names: string[] = [];
   const spans: Array<{ line: number; column: number }> = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (i % 2 === 1) {
-      if (token.value !== ",") return null;
-      continue;
+  const visit = (item: BindingPattern | null | undefined) => {
+    if (!item) return;
+    const simple = bindingName(item);
+    if (simple) {
+      names.push(simple.name);
+      spans.push(simple.span);
+      return;
     }
-    if (token.type !== TokenType.Identifier) return null;
-    names.push(String(token.value));
-    spans.push({ line: token.line, column: token.column });
-  }
+    if (typeof item !== "object" || Array.isArray(item)) return;
+    if (item.kind === "array") {
+      for (const element of item.elements) visit(element);
+      visit(item.rest as BindingPattern | null | undefined);
+    } else if (item.kind === "object") {
+      for (const prop of item.props) visit(prop.value);
+      if (typeof item.rest === "string") {
+        names.push(item.rest);
+        spans.push(spanOf(item));
+      } else {
+        visit(item.rest as BindingPattern | null | undefined);
+      }
+    }
+  };
+  visit(pattern);
   return { names, spans };
 }
 
-class SemanticParser {
-  lines: Line[];
-  index = 0;
-
-  constructor(source: string) {
-    const physical = source.replace(/\r\n?/g, "\n").split("\n").flatMap((raw, i) => {
-      if (!raw.trim()) return [];
-      const indent = leadingIndent(raw);
-      const text = raw.slice(indent).trimEnd();
-      return [{ indent, text, line: i + 1, tokens: lineTokens(text, i + 1, indent + 1) }];
-    });
-    this.lines = [];
-    for (let i = 0; i < physical.length; i++) {
-      const current = physical[i];
-      let depth = delimiterDelta(current.tokens);
-      while (i + 1 < physical.length && (depth > 0 || startsMemberChain(physical[i + 1].tokens))) {
-        const next = physical[++i];
-        current.text += `\n${next.text}`;
-        current.tokens.push(...next.tokens);
-        depth += delimiterDelta(next.tokens);
-      }
-      this.lines.push(current);
-    }
+function paramBinding(param: ParamNode): { name: string; optional: boolean; span: { line: number; column: number } } | null {
+  if (typeof param === "string") return { name: param, optional: false, span: UNKNOWN_SPAN };
+  if (!param || typeof param !== "object") return null;
+  const record = param as { name?: unknown; default?: unknown; rest?: unknown };
+  if (typeof record.name === "string") {
+    return { name: record.name, optional: !!record.default || !!record.rest, span: spanOf(param) };
   }
-
-  parse(): SemanticProgram {
-    return { body: this.parseBlock(-1) };
-  }
-
-  parseBlock(parentIndent: number): SemanticNode[] {
-    const body: SemanticNode[] = [];
-    while (this.index < this.lines.length) {
-      const line = this.lines[this.index];
-      if (line.indent <= parentIndent) break;
-      const before = this.index;
-      try {
-        body.push(this.parseNode(line));
-      } catch {
-        if (this.index === before) this.index++;
-      }
-    }
-    return body;
-  }
-
-  parseNode(line: Line): SemanticNode {
-    const first = line.tokens[0]?.value;
-    if (first === "type") return this.parseTypeAlias(line);
-    if (first === "interface") return this.parseInterface(line);
-    if (first === "function") return this.parseControlBlock(line, line.tokens.length);
-    if (first === "fn" || (first === "async" && line.tokens[1]?.value === "fn")) return this.parseFunction(line);
-    if (line.tokens[0]?.type === TokenType.Identifier && line.tokens[1]?.value === "(" && line.tokens.at(-1)?.value === ":") return this.parseFunction(line);
-    if (first === "model") return this.parseModel(line);
-    if (first === "if") return this.parseControlBlock(line, 1);
-    if (first === "for") return this.parseFor(line);
-    if (first === "class") return this.parseClass(line);
-    if (first === "catch") return this.parseCatchBlock(line);
-    if (["else", "while", "try", "finally"].includes(String(first)) || line.tokens.at(-1)?.value === ":") return this.parseControlBlock(line, 1);
-    if (first === "return") return this.parseReturn(line);
-    return this.parseSimple(line);
-  }
-
-  parseTypeAlias(line: Line): TypeAliasNode {
-    this.index++;
-    const nameToken = line.tokens[1];
-    const name = String(nameToken?.value ?? "");
-    const generic = parseTypeParams(line.tokens, 2);
-    const eq = findTopLevel(line.tokens, "=", generic.next);
-    return {
-      kind: "TypeAlias",
-      name,
-      typeParams: generic.params,
-      type: sliceType(line.tokens.slice(eq + 1)),
-      span: { line: line.line, column: line.indent + 1 },
-      nameSpan: { line: nameToken?.line ?? line.line, column: nameToken?.column ?? line.indent + 1 },
-    };
-  }
-
-  parseInterface(line: Line): InterfaceNode {
-    this.index++;
-    const nameToken = line.tokens[1];
-    const name = String(nameToken?.value ?? "");
-    const generic = parseTypeParams(line.tokens, 2);
-    const extendsIndex = line.tokens.findIndex((tok) => tok.value === "extends");
-    const colon = findTopLevel(line.tokens, ":");
-    const parents = extendsIndex >= 0 ? splitTopLevel(sliceType(line.tokens.slice(extendsIndex + 1, colon)), ",").map((part) => cleanType(part)) : [];
-    const fields: InterfaceFieldNode[] = [];
-    const indexers: InterfaceIndexNode[] = [];
-    while (this.index < this.lines.length && this.lines[this.index].indent > line.indent) {
-      const field = parseInterfaceField(this.lines[this.index]);
-      if (field && "valueType" in field) indexers.push(field);
-      else if (field) fields.push(field);
-      this.index++;
-    }
-    return {
-      kind: "Interface",
-      name,
-      typeParams: generic.params,
-      parents,
-      fields,
-      indexers,
-      span: { line: line.line, column: line.indent + 1 },
-      nameSpan: { line: nameToken?.line ?? line.line, column: nameToken?.column ?? line.indent + 1 },
-    };
-  }
-
-  parseFunction(line: Line): FunctionNode {
-    this.index++;
-    const signature = parseSignature(line, 0)!;
-    return { kind: "Function", ...signature, body: this.parseBlock(line.indent), span: { line: line.line, column: line.indent + 1 } };
-  }
-
-  parseModel(line: Line): ModelNode {
-    this.index++;
-    const nameToken = line.tokens[1];
-    const name = String(nameToken?.value ?? "");
-    const open = findTopLevel(line.tokens, "(", 2);
-    const close = open >= 0 ? findTopLevel(line.tokens, ")", open) : -1;
-    const params = open >= 0 && close >= 0 ? parseParams(line.tokens.slice(open + 1, close)) : [];
-    return {
-      kind: "Model",
-      name,
-      params,
-      body: this.parseBlock(line.indent),
-      span: { line: line.line, column: line.indent + 1 },
-      nameSpan: { line: nameToken?.line ?? line.line, column: nameToken?.column ?? line.indent + 1 },
-    };
-  }
-
-  parseClass(line: Line): ClassNode {
-    this.index++;
-    const nameToken = line.tokens[1];
-    const name = String(nameToken?.value ?? "");
-    const extendsIndex = line.tokens.findIndex((tok) => tok.value === "extends");
-    const parent = extendsIndex >= 0 && line.tokens[extendsIndex + 1]?.type === TokenType.Identifier
-      ? String(line.tokens[extendsIndex + 1].value)
-      : undefined;
-    const implementsIndex = line.tokens.findIndex((tok) => tok.value === "implements");
-    const colon = findTopLevel(line.tokens, ":");
-    const implemented = implementsIndex < 0 ? [] : splitTopLevelTokenGroups(
-      line.tokens.slice(implementsIndex + 1, colon >= 0 ? colon : line.tokens.length),
-      ",",
-    ).map((group) => group.find((tok) => tok.type === TokenType.Identifier)).filter((tok): tok is Token => !!tok).map((tok) => String(tok.value));
-    const members: ClassMemberNode[] = [];
-    while (this.index < this.lines.length && this.lines[this.index].indent > line.indent) {
-      const member = this.parseClassMember(this.lines[this.index]);
-      if (member) members.push(member);
-      else this.parseNode(this.lines[this.index]);
-    }
-    return {
-      kind: "Class",
-      name,
-      parent,
-      implements: implemented,
-      members,
-      span: { line: line.line, column: line.indent + 1 },
-      nameSpan: { line: nameToken?.line ?? line.line, column: nameToken?.column ?? line.indent + 1 },
-    };
-  }
-
-  parseClassMember(line: Line): ClassMemberNode | null {
-    let offset = 0;
-    const isStatic = line.tokens[offset]?.value === "static" && line.tokens[offset + 1]?.type === TokenType.Identifier;
-    if (isStatic) offset++;
-    const keyword = line.tokens[offset]?.value;
-    const accessor = (keyword === "get" || keyword === "set") && line.tokens[offset + 1]?.type === TokenType.Identifier;
-    if (accessor) offset++;
-    const signature = parseSignature(line, offset);
-    if (!signature) return null;
-    let memberKind: ClassMemberKind = accessor ? (keyword as "get" | "set") === "get" ? "getter" : "setter" : "method";
-    if (!accessor && !isStatic && signature.name === "constructor") memberKind = "constructor";
-    this.index++;
-    const fn: FunctionNode = {
-      kind: "Function",
-      ...signature,
-      body: this.parseBlock(line.indent),
-      span: { line: line.line, column: line.indent + 1 },
-    };
-    return { memberKind, static: isStatic, fn };
-  }
-
-  parseControlBlock(line: Line, exprStart: number): BlockNode {
-    this.index++;
-    const colon = findTopLevel(line.tokens, ":");
-    const start = line.tokens[0]?.value === "else" && line.tokens[exprStart]?.value === "if"
-      ? exprStart + 1
-      : exprStart;
-    const exprTokens = colon >= 0 ? line.tokens.slice(start, colon) : [];
-    const test = exprTokens.length ? parseExpr(exprTokens) : undefined;
-    return { kind: "Block", test, body: this.parseBlock(line.indent), span: { line: line.line, column: line.indent + 1 } };
-  }
-
-  parseCatchBlock(line: Line): BlockNode {
-    this.index++;
-    const colon = findTopLevel(line.tokens, ":");
-    const variable = line.tokens[1];
-    return {
-      kind: "Block",
-      catchVariable: variable?.type === TokenType.Identifier && (colon < 0 || 1 < colon) ? String(variable.value) : undefined,
-      catchVariableSpan: variable?.type === TokenType.Identifier ? { line: variable.line, column: variable.column } : undefined,
-      body: this.parseBlock(line.indent),
-      span: { line: line.line, column: line.indent + 1 },
-    };
-  }
-
-  parseReturn(line: Line): SemanticNode {
-    this.index++;
-    const tokens = line.tokens.slice(1);
-    return { kind: "Return", value: tokens.length ? parseExpr(tokens) : undefined, span: { line: line.line, column: line.indent + 1 } };
-  }
-
-  parseSimple(line: Line): SemanticNode {
-    this.index++;
-    const declKeyword = ["let", "const", "var"].includes(String(line.tokens[0]?.value));
-    if (declKeyword) {
-      const eq = findTopLevel(line.tokens, "=");
-      const nameToken = line.tokens[1];
-      const value = eq > 0 ? parseExprOrNull(line.tokens.slice(eq + 1)) : null;
-      if (nameToken?.type === TokenType.Identifier && value) {
-        return {
-          kind: "Var",
-          name: String(nameToken.value),
-          value,
-          span: { line: line.line, column: line.indent + 1 },
-          nameSpan: { line: nameToken.line, column: nameToken.column },
-        };
-      }
-      return { kind: "Block", body: [], span: { line: line.line, column: line.indent + 1 } };
-    }
-    const colon = findTopLevel(line.tokens, ":");
-    const eq = findTopLevel(line.tokens, "=");
-    const destructure = eq > 0 ? parseDestructureNames(line.tokens.slice(0, eq)) : null;
-    if (destructure) {
-      const value = parseExprOrNull(line.tokens.slice(eq + 1));
-      if (value) return { kind: "Destructure", names: destructure.names, value, span: { line: line.line, column: line.indent + 1 }, variableSpans: destructure.spans };
-    }
-    if (eq > 0 && line.tokens[0]?.type === TokenType.Identifier && (eq === 1 || (colon === 1 && colon < eq))) {
-      const declaredType = colon > 0 && colon < eq ? sliceType(line.tokens.slice(colon + 1, eq)) : undefined;
-      const value = parseExprOrNull(line.tokens.slice(eq + 1));
-      if (value) return {
-        kind: "Var",
-        name: String(line.tokens[0].value),
-        declaredType,
-        value,
-        span: { line: line.line, column: line.indent + 1 },
-        nameSpan: { line: line.tokens[0].line, column: line.tokens[0].column },
-      };
-    }
-    const value = parseExprOrNull(line.tokens);
-    return value
-      ? { kind: "Expr", value, span: { line: line.line, column: line.indent + 1 } }
-      : { kind: "Block", body: [], span: { line: line.line, column: line.indent + 1 } };
-  }
-
-  parseFor(line: Line): ForNode | BlockNode {
-    const variable = line.tokens[1];
-    const mode = line.tokens[2];
-    const colon = findTopLevel(line.tokens, ":");
-    if (variable?.type !== TokenType.Identifier || (mode?.value !== "of" && mode?.value !== "in") || colon < 0) {
-      return this.parseControlBlock(line, 1);
-    }
-    this.index++;
-    const iterable = parseExpr(line.tokens.slice(3, colon));
-    return {
-      kind: "For",
-      variable: String(variable.value),
-      mode: mode.value,
-      iterable,
-      body: this.parseBlock(line.indent),
-      span: { line: line.line, column: line.indent + 1 },
-      variableSpan: { line: variable.line, column: variable.column },
-    };
-  }
+  return null;
 }
 
-function annotateExpression(node: ASTNode, tokens: Token[]): ASTNode {
-  annotateNode(node, tokens, { index: 0 });
-  return node;
+function arrayOf<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : [];
 }
 
-function annotateNode(node: ASTNode | null | undefined, tokens: Token[], cursor: { index: number }): void {
-  if (!node) return;
-  switch (node.type) {
-    case "Identifier":
-      markNode(node, findNext(tokens, cursor, (tok) => tok.value === node.name));
-      break;
-    case "Literal":
-      markNode(node, findNext(tokens, cursor, (tok) => literalMatches(tok, node)));
-      break;
-    case "MemberExpression":
-    case "OptionalMemberExpression": {
-      annotateNode(node.object as ASTNode, tokens, cursor);
-      copySpan(node, node.object as ASTNode);
-      if (node.computed) {
-        findNext(tokens, cursor, (tok) => tok.value === "[");
-        annotateNode(node.property as ASTNode, tokens, cursor);
-        findNext(tokens, cursor, (tok) => tok.value === "]");
-      } else {
-        const dot = findNext(tokens, cursor, (tok) => tok.value === "." || tok.value === "?.");
-        if (dot) {
-          cursor.index = tokens.indexOf(dot) + 1;
-          if (typeof node.property === "string") findNext(tokens, cursor, (tok) => tok.value === node.property);
-          else annotateNode(node.property as ASTNode, tokens, cursor);
-        }
-      }
-      break;
-    }
-    case "CallExpression":
-    case "OptionalCallExpression":
-      annotateNode(node.callee as ASTNode, tokens, cursor);
-      copySpan(node, node.callee as ASTNode);
-      findNext(tokens, cursor, (tok) => tok.value === "(");
-      for (const arg of node.args as ASTNode[]) annotateNode(arg, tokens, cursor);
-      break;
-    case "NamedArgument": {
-      const name = findNext(tokens, cursor, (tok) => tok.value === node.name);
-      markNode(node, name);
-      findNext(tokens, cursor, (tok) => tok.value === "=");
-      annotateNode(node.value as ASTNode, tokens, cursor);
-      break;
-    }
-    case "BinaryExpression":
-    case "LogicalExpression":
-    case "NullishCoalescingExpression":
-      annotateNode(node.left as ASTNode, tokens, cursor);
-      copySpan(node, node.left as ASTNode);
-      if ("op" in node) findNext(tokens, cursor, (tok) => tok.value === node.op);
-      annotateNode(node.right as ASTNode, tokens, cursor);
-      break;
-    case "ArrayExpression":
-      markNode(node, findNext(tokens, cursor, (tok) => tok.value === "["));
-      for (const item of node.elements as Array<ASTNode | null>) annotateNode(item, tokens, cursor);
-      break;
-    case "ObjectExpression":
-      markNode(node, findNext(tokens, cursor, (tok) => tok.value === "{"));
-      for (const prop of node.properties as Array<{ key?: string | ASTNode; value?: ASTNode; argument?: ASTNode; shorthand?: boolean; spread?: boolean }>) {
-        if (prop.spread) {
-          annotateNode(prop.argument, tokens, cursor);
-          continue;
-        }
-        if (!prop.shorthand && prop.key !== undefined) {
-          if (typeof prop.key === "string") findNext(tokens, cursor, (tok) => tok.value === prop.key);
-          else annotateNode(prop.key, tokens, cursor);
-          findNext(tokens, cursor, (tok) => tok.value === ":");
-        }
-        annotateNode(prop.value ?? prop.argument, tokens, cursor);
-      }
-      break;
-    case "IndexExpression":
-      annotateNode(node.object as ASTNode, tokens, cursor);
-      copySpan(node, node.object as ASTNode);
-      findNext(tokens, cursor, (tok) => tok.value === "[");
-      for (const dim of node.dims as ASTNode[]) annotateNode(dim, tokens, cursor);
-      findNext(tokens, cursor, (tok) => tok.value === "]");
-      break;
-    case "IndexElement":
-      if (node.kind === "index") annotateNode(node.value as ASTNode, tokens, cursor);
-      else {
-        annotateNode(node.start as ASTNode | null, tokens, cursor);
-        findNext(tokens, cursor, (tok) => tok.value === ":");
-        annotateNode(node.stop as ASTNode | null, tokens, cursor);
-        if (node.step) {
-          findNext(tokens, cursor, (tok) => tok.value === ":");
-          annotateNode(node.step as ASTNode, tokens, cursor);
-        }
-      }
-      break;
-    case "ConditionalExpression":
-      annotateNode(node.test as ASTNode, tokens, cursor);
-      copySpan(node, node.test as ASTNode);
-      annotateNode(node.consequent as ASTNode, tokens, cursor);
-      annotateNode(node.alternate as ASTNode, tokens, cursor);
-      break;
-    case "ArrowFunctionExpression":
-      markNode(node, tokens[cursor.index]);
-      break;
-    default:
-      markNode(node, tokens[cursor.index]);
-      for (const value of Object.values(node)) {
-        if (Array.isArray(value)) {
-          for (const item of value) if (item && typeof item === "object" && "type" in item) annotateNode(item as ASTNode, tokens, cursor);
-        } else if (value && typeof value === "object" && "type" in value) {
-          annotateNode(value as ASTNode, tokens, cursor);
-        }
-      }
-      break;
-  }
-}
-
-function findNext(tokens: Token[], cursor: { index: number }, matches: (tok: Token) => boolean): Token | undefined {
-  for (let i = cursor.index; i < tokens.length; i++) {
-    if (matches(tokens[i])) {
-      cursor.index = i + 1;
-      return tokens[i];
-    }
-  }
-  return undefined;
-}
-
-function markNode(node: ASTNode, token: Token | undefined): void {
-  if (!token) return;
-  const target = node as PositionedNode;
-  target.__line = token.line;
-  target.__column = token.column;
-  target.__raw = String(token.value);
-}
-
-function copySpan(target: ASTNode, source: ASTNode): void {
-  const from = source as PositionedNode;
-  if (!from.__line || !from.__column) return;
-  const to = target as PositionedNode;
-  to.__line = from.__line;
-  to.__column = from.__column;
-}
-
-function literalMatches(tok: Token, node: ASTNode): boolean {
-  if (node.kind === "number") return tok.type === TokenType.Number && Number(tok.value) === node.value;
-  if (node.kind === "string") return tok.type === TokenType.String && tok.value === node.value;
-  if (node.kind === "boolean") return tok.value === (node.value ? "true" : "false");
-  if (node.kind === "null") return tok.value === "null";
-  return tok.value === "undefined";
-}
-
-export function parseSemanticProgram(source: string): SemanticProgram {
-  return new SemanticParser(source).parse();
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }

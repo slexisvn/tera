@@ -1,6 +1,7 @@
 {
   "version": 2,
   "keywords": [
+    "abstract",
     "and",
     "async",
     "await",
@@ -32,6 +33,9 @@
     "null",
     "of",
     "or",
+    "private",
+    "protected",
+    "public",
     "return",
     "set",
     "static",
@@ -52,6 +56,7 @@
     "declaration": [
       "fn",
       "model",
+      "abstract",
       "class",
       "interface",
       "type",
@@ -61,6 +66,9 @@
       "extends",
       "implements",
       "static",
+      "public",
+      "private",
+      "protected",
       "get",
       "set"
     ],
@@ -108,6 +116,7 @@
   },
   "types": [
     "Array",
+    "Boolean",
     "Callback",
     "Column",
     "DataFrame",
@@ -126,6 +135,7 @@
     "MetricCollection",
     "Model",
     "Module",
+    "Number",
     "Object",
     "ObjectConstructor",
     "Optimizer",
@@ -521,6 +531,119 @@
             }
           ],
           "display": "parse(text: string, reviver?: any) -> any"
+        }
+      }
+    ],
+    "Number": [
+      {
+        "name": "to_string",
+        "description": "Return the number rendered as a string with an optional radix.",
+        "returns": "string",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "radix",
+              "type": "int",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "to_string(radix?: int) -> string"
+        }
+      },
+      {
+        "name": "to_fixed",
+        "description": "Return fixed-point decimal notation.",
+        "returns": "string",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "digits",
+              "type": "int",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "to_fixed(digits?: int) -> string"
+        }
+      },
+      {
+        "name": "to_precision",
+        "description": "Return a string using the requested significant digits.",
+        "returns": "string",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "precision",
+              "type": "int",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "to_precision(precision?: int) -> string"
+        }
+      },
+      {
+        "name": "to_exponential",
+        "description": "Return exponential notation with optional fraction digits.",
+        "returns": "string",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "fraction_digits",
+              "type": "int",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "to_exponential(fraction_digits?: int) -> string"
+        }
+      },
+      {
+        "name": "value_of",
+        "description": "Return the numeric primitive value.",
+        "returns": "this",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "value_of() -> this"
+        }
+      }
+    ],
+    "Boolean": [
+      {
+        "name": "to_string",
+        "description": "Return `true` or `false` as text.",
+        "returns": "string",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "to_string() -> string"
+        }
+      },
+      {
+        "name": "value_of",
+        "description": "Return the boolean primitive value.",
+        "returns": "this",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "value_of() -> this"
         }
       }
     ],
@@ -5399,6 +5522,153 @@
             "defaultValue": null
           },
           {
+            "name": "name",
+            "type": "string",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "mode",
+            "type": "string",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "verify",
+            "type": "CompileVerifyMode",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "error_mode",
+            "type": "CompileErrorMode",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "fold_weights",
+            "type": "bool",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "dynamic_shapes",
+            "type": "DynamicShapes",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "shape_buckets",
+            "type": "int[][][]",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "backward",
+            "type": "unknown",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "fusion",
+            "type": "CompileFusionOptions",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "scheduling",
+            "type": "CompileSchedulingOptions",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "matmul_backend",
+            "type": "CompileMatmulBackend",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "quantization",
+            "type": "CompileQuantizationOptions",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "optimization",
+            "type": "CompileOptimizationOptions",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "memory",
+            "type": "CompileMemoryOptions",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "partition",
+            "type": "CompilePartitionOptions",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "trace",
+            "type": "CompileTraceOptions",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "remat_policy",
+            "type": "unknown",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "remat",
+            "type": "ParamGrid",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "pass_context",
+            "type": "unknown",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "lowering_rules",
+            "type": "unknown",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "codegen_entries",
+            "type": "unknown",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
             "name": "options",
             "type": "CompileOptions",
             "optional": true,
@@ -5406,7 +5676,7 @@
             "defaultValue": null
           }
         ],
-        "display": "compile(model: Module, input?: Tensor | Tensor[], example_inputs?: Tensor[], exampleInputs?: Tensor[], target?: CompileTarget, source?: bool, options?: CompileOptions) -> unknown"
+        "display": "compile(model: Module, input?: Tensor | Tensor[], example_inputs?: Tensor[], exampleInputs?: Tensor[], target?: CompileTarget, source?: bool, name?: string, mode?: string, verify?: CompileVerifyMode, error_mode?: CompileErrorMode, fold_weights?: bool, dynamic_shapes?: DynamicShapes, shape_buckets?: int[][][], backward?: unknown, fusion?: CompileFusionOptions, scheduling?: CompileSchedulingOptions, matmul_backend?: CompileMatmulBackend, quantization?: CompileQuantizationOptions, optimization?: CompileOptimizationOptions, memory?: CompileMemoryOptions, partition?: CompilePartitionOptions, trace?: CompileTraceOptions, remat_policy?: unknown, remat?: ParamGrid, pass_context?: unknown, lowering_rules?: unknown, codegen_entries?: unknown, options?: CompileOptions) -> unknown"
       },
       "methods": []
     },

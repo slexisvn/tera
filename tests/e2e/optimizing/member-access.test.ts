@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { differential, src, type Tier } from "./_tiers.js";
+import { baseline, differential, jit, oracle, osrEngine, src, type Tier } from "./_tiers.js";
 
 const jitOsr: Tier[] = ["jit", "osr"];
 
@@ -146,4 +146,32 @@ describe("function member access agrees across every tier when hot", () => {
       ),
     ).toEqual([99]);
   });
+});
+
+describe("restricted class member access agrees across tiers", () => {
+  it("keeps private instance reads guarded after warmup", () => {
+    const source = src(
+      "class Vault:",
+      "  private value = 1",
+      "  read():",
+      "    return this.value",
+      "fn probe(box, expose):",
+      "  if expose:",
+      "    return box.value",
+      "  return box.read()",
+      "fn driver(n):",
+      "  box = Vault()",
+      "  i = 0",
+      "  last = 0",
+      "  while (i < n):",
+      "    i = i + 1",
+      "    last = probe(box, false)",
+      "  return probe(box, true)",
+      "driver(1200)",
+    );
+
+    for (const engine of [oracle, baseline, jit, osrEngine]) {
+      expect(() => engine().runNative(source)).toThrow(/Cannot access private member 'value'/);
+    }
+  }, 30000);
 });

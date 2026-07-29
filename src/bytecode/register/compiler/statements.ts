@@ -1,8 +1,9 @@
 import { NodeType } from "../../../frontend/ast/index.js";
-import type { ASTNode } from "../../../frontend/ast/index.js";
+import type { ASTNode, InterfaceFieldAstNode } from "../../../frontend/ast/index.js";
 import { Scope } from "./helpers.js";
 import type { TempAllocator } from "./temp-allocator.js";
 import * as bytecode from "../ops/bytecode.js";
+import { runtimeInterfaceBaseName, type RuntimeInterfaceContract, type RuntimeInterfaceMember } from "../../../runtime/interface-contract.js";
 
 type BindingKind = "let" | "const" | "var";
 
@@ -100,6 +101,8 @@ type StatementCompilerThis = {
   _finallyBlocks: Array<{ body: ASTNode[] }>;
   _labeledBreaks: Record<string, number[]>;
   _labeledContinues: Record<string, number[]>;
+  interfaceContracts: Map<string, RuntimeInterfaceContract>;
+  _collectInterfaceDeclarations(nodes: ASTNode[]): void;
   compileStatement(node: ASTNode): void;
   compileStatements(nodes: ASTNode[]): void;
   compileFunctionDeclaration(node: ASTNode): void;
@@ -116,6 +119,7 @@ type StatementCompilerThis = {
   compileTryStatement(node: StatementNode): void;
   compileThrowStatement(node: StatementNode): void;
   compileClassDeclaration(node: ASTNode): void;
+  compileModelDeclaration(node: ASTNode): void;
   compileForInStatement(node: ASTNode): void;
   compileForOfStatement(node: ASTNode): void;
   compileObjectDestructuring(node: ASTNode): void;
@@ -134,7 +138,53 @@ type StatementMethodMap = {
   [name: string]: (this: StatementCompilerThis, node: StatementNode) => void | boolean;
 } & ThisType<StatementCompilerThis>;
 
+type InterfaceNode = ASTNode & {
+  name: string;
+  parents?: string[];
+  fields?: InterfaceFieldAstNode[];
+};
+
+function interfaceContractFrom(
+  node: InterfaceNode,
+  raw: Map<string, InterfaceNode>,
+  resolved: Map<string, RuntimeInterfaceContract>,
+  resolving: Set<string>,
+): RuntimeInterfaceContract {
+  const existing = resolved.get(node.name);
+  if (existing) return existing;
+  if (resolving.has(node.name)) return { name: node.name, members: [] };
+  resolving.add(node.name);
+  const members = new Map<string, RuntimeInterfaceMember>();
+  for (const parent of node.parents ?? []) {
+    const parentNode = raw.get(runtimeInterfaceBaseName(parent));
+    if (!parentNode) continue;
+    for (const member of interfaceContractFrom(parentNode, raw, resolved, resolving).members) {
+      members.set(member.name, member);
+    }
+  }
+  for (const field of node.fields ?? []) {
+    members.set(field.name, { name: field.name, optional: !!field.optional });
+  }
+  resolving.delete(node.name);
+  const contract = { name: node.name, members: [...members.values()] };
+  resolved.set(node.name, contract);
+  return contract;
+}
+
 export const statementMethods: StatementMethodMap = {
+  _collectInterfaceDeclarations(value) {
+    const nodes = Array.isArray(value) ? value as ASTNode[] : [];
+    const raw = new Map<string, InterfaceNode>();
+    for (const node of nodes) {
+      if (node.type === NodeType.InterfaceDeclaration && typeof node.name === "string") {
+        raw.set(node.name, node as InterfaceNode);
+      }
+    }
+    for (const node of raw.values()) {
+      interfaceContractFrom(node, raw, this.interfaceContracts, new Set());
+    }
+  },
+
   compileStatement(node) {
     switch (node.type as string) {
       case NodeType.EmptyStatement:
@@ -168,6 +218,11 @@ export const statementMethods: StatementMethodMap = {
         return this.compileThrowStatement(node);
       case NodeType.ClassDeclaration:
         return this.compileClassDeclaration(node);
+      case NodeType.ModelDeclaration:
+        return this.compileModelDeclaration(node);
+      case NodeType.TypeAliasDeclaration:
+      case NodeType.InterfaceDeclaration:
+        return;
       case NodeType.ForInStatement:
         return this.compileForInStatement(node);
       case NodeType.ForOfStatement:

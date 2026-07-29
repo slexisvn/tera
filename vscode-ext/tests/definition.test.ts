@@ -1,25 +1,6 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { LanguageData } from "../src/shared/language-data.ts";
-import { DocumentAnalyzer } from "../src/server/analyzer/index.ts";
-import { EventBus, type AnalyzerEvents } from "../src/server/bus.ts";
-import { TypeResolver } from "../src/server/language/type-resolver.ts";
 import { computeDefinition } from "../src/server/providers/definition.ts";
-import type { ProviderContext } from "../src/server/providers/types.ts";
-
-const languageData = JSON.parse(readFileSync(join(import.meta.dirname, "..", "language-data.json"), "utf8")) as LanguageData;
-
-function contextFor(source: string): ProviderContext {
-  const analyzer = new DocumentAnalyzer(languageData);
-  analyzer.update("file:///test.tera", source);
-  return {
-    analyzer,
-    languageData,
-    types: new TypeResolver(languageData),
-    bus: new EventBus<AnalyzerEvents>(),
-  };
-}
+import { contextFor } from "./provider-harness.ts";
 
 describe("definition", () => {
   it("does not jump from an unknown member to a same-named parameter", () => {
@@ -109,6 +90,53 @@ describe("definition", () => {
 
     expect(location?.range.start).toEqual({ line: 1, character: 2 });
     expect(location?.range.end).toEqual({ line: 1, character: "  question".length });
+  });
+
+  it("jumps from a super constructor call to the base constructor", () => {
+    const source = [
+      "class Handler:",
+      "  constructor(next: RequestHandler | null = null):",
+      "    this.next = next",
+      "  handle(request: string) -> string:",
+      "    return request",
+      "class CacheHandler extends Handler:",
+      "  constructor(next: RequestHandler | null = null):",
+      "    super(next)",
+    ].join("\n");
+
+    const location = computeDefinition(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 7, character: "    super".length },
+    });
+
+    expect(location?.range.start).toEqual({ line: 1, character: 2 });
+    expect(location?.range.end).toEqual({ line: 1, character: "  constructor".length });
+  });
+
+  it("jumps from super member access to the inherited method declaration", () => {
+    const source = [
+      "class Handler:",
+      "  protected handle(request: string) -> string:",
+      "    return request",
+      "class CacheHandler extends Handler:",
+      "  handle(request: string) -> string:",
+      "    return super.handle(request)",
+    ].join("\n");
+    const context = contextFor(source);
+
+    const fromSuper = computeDefinition(context, {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 5, character: "    return super".length },
+    });
+    const fromMethod = computeDefinition(context, {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 5, character: "    return super.handle".length },
+    });
+
+    expect(fromSuper?.range.start).toEqual({ line: 1, character: "  protected ".length });
+    expect(fromSuper?.range.end).toEqual({ line: 1, character: "  protected handle".length });
+    expect(fromMethod?.range.start).toEqual({ line: 1, character: "  protected ".length });
+    expect(fromMethod?.range.end).toEqual({ line: 1, character: "  protected handle".length });
   });
 
   it("does not treat object literal keys as variable references", () => {

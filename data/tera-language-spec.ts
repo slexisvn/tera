@@ -1,3 +1,5 @@
+import { CLASS_ABSTRACT_MODIFIER, CLASS_VISIBILITIES } from "../src/core/class-visibility.ts";
+
 export type TeraKeywordGroup = "declaration" | "control" | "operator" | "constant" | "variable";
 
 export type TeraParam = {
@@ -238,6 +240,7 @@ export const TERA_KEYWORD_GROUPS = {
   "declaration": [
     "fn",
     "model",
+    CLASS_ABSTRACT_MODIFIER,
     "class",
     "interface",
     "type",
@@ -247,6 +250,7 @@ export const TERA_KEYWORD_GROUPS = {
     "extends",
     "implements",
     "static",
+    ...CLASS_VISIBILITIES,
     "get",
     "set"
   ],
@@ -327,6 +331,14 @@ export const TERA_PRIMITIVE_TYPES = [
   "GroupedData",
   "Trainer"
 ];
+
+export const TERA_PRIMITIVE_PSEUDO_TYPES = {
+  "string": "String",
+  "int": "Number",
+  "float": "Number",
+  "bool": "Boolean",
+  "boolean": "Boolean"
+} satisfies Record<string, string>;
 
 export const TERA_COMPILE_TARGETS = ["cpu", "webgpu", "cuda", "wasm"] as const;
 export type TeraCompileTarget = typeof TERA_COMPILE_TARGETS[number];
@@ -4714,6 +4726,95 @@ export const TERA_PSEUDO_TYPES = {
     "methods": [
       { "name": "stringify", "params": [param("value", "any"), optionalParam("replacer", "any"), optionalParam("indent", "int")], "returns": "string" },
       { "name": "parse", "params": [param("text", "string"), optionalParam("reviver", "any")], "returns": "any" }
+    ]
+  },
+  "Number": {
+    "methods": [
+      {
+        "name": "to_string",
+        "params": [
+          {
+            "name": "radix",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "returns": "string",
+        "isGetter": false,
+        "description": "Return the number rendered as a string with an optional radix."
+      },
+      {
+        "name": "to_fixed",
+        "params": [
+          {
+            "name": "digits",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "returns": "string",
+        "isGetter": false,
+        "description": "Return fixed-point decimal notation."
+      },
+      {
+        "name": "to_precision",
+        "params": [
+          {
+            "name": "precision",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "returns": "string",
+        "isGetter": false,
+        "description": "Return a string using the requested significant digits."
+      },
+      {
+        "name": "to_exponential",
+        "params": [
+          {
+            "name": "fraction_digits",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "returns": "string",
+        "isGetter": false,
+        "description": "Return exponential notation with optional fraction digits."
+      },
+      {
+        "name": "value_of",
+        "params": [],
+        "returns": "this",
+        "isGetter": false,
+        "description": "Return the numeric primitive value."
+      }
+    ]
+  },
+  "Boolean": {
+    "methods": [
+      {
+        "name": "to_string",
+        "params": [],
+        "returns": "string",
+        "isGetter": false,
+        "description": "Return `true` or `false` as text."
+      },
+      {
+        "name": "value_of",
+        "params": [],
+        "returns": "this",
+        "isGetter": false,
+        "description": "Return the boolean primitive value."
+      }
     ]
   },
   "Promise": {

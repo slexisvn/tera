@@ -1,0 +1,31 @@
+interface Expression:
+  eval(context: Map) -> int
+
+class NumberExpression implements Expression:
+  private value: int
+  constructor(value: int):
+    this.value = value
+  eval(context: Map) -> int:
+    return this.value
+
+class VariableExpression implements Expression:
+  private name: string
+  constructor(name: string):
+    this.name = name
+  eval(context: Map) -> int:
+    return context.get(this.name)
+
+class AddExpression implements Expression:
+  private left: Expression
+  private right: Expression
+  constructor(left: Expression, right: Expression):
+    this.left = left
+    this.right = right
+  eval(context: Map) -> int:
+    return this.left.eval(context) + this.right.eval(context)
+
+context = Map()
+context.set("x", 4)
+expression = AddExpression(VariableExpression("x"), NumberExpression(6))
+
+print("interpreter:", expression.eval(context))

@@ -4,7 +4,8 @@ import { diagnostic, type Diagnostic } from "./diagnostics.js";
 import { callSignatureForCallee, comprehensionElementType, comprehensionOf, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf } from "./infer.js";
 import { acceptsTensorLeftArithmetic, acceptsTensorRightArithmetic, binaryOperatorSemantics, isTensorType } from "./operator-types.js";
 import type { ClassMemberNode, SemanticNode } from "./semantic-ast.js";
-import { arrayElementType, cleanType, compatible, indexKeyAssignable, indexedAccessType, indexKeyType, instantiateShapeForType, isIndexableType, isTupleType, iterableBindingType, leastUpperBound, removeNullish, resolveType, tupleTypes, unionParts, unionType, type ObjectShape, type Signature, type TypeName } from "./type-system.js";
+import { arrayElementType, cleanType, compatible, indexKeyAssignable, indexedAccessType, indexKeyType, instantiateShapeForType, isIndexableType, isTupleType, iterableBindingType, leastUpperBound, removeNullish, resolveType, tupleTypes, unionParts, unionType, type ObjectShape, type Signature, type TypeEnv, type TypeName } from "./type-system.js";
+import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
 
 export type SymbolType = {
   name: string;
@@ -46,7 +47,10 @@ export class TypeChecker {
       case "Class": {
         const child = this.bound.scopes.get(node) ?? scope;
         this.registerClassShape(node, child);
-        for (const member of node.members) this.checkNode(member.fn, child);
+        for (const field of node.fields) this.checkClassField(field, child);
+        for (const member of node.members) {
+          if (!member.abstract) this.checkNode(member.fn, child);
+        }
         break;
       }
       case "Interface":
@@ -112,6 +116,7 @@ export class TypeChecker {
   }
 
   registerClassShape(node: Extract<SemanticNode, { kind: "Class" }>, classScope: Scope): void {
+    if (node.abstract) this.bound.env.abstractClasses.add(node.name);
     const shape: ObjectShape = { fields: new Map() };
     const staticShape: ObjectShape = { fields: new Map() };
     const staticType = `typeof ${node.name}`;
@@ -123,10 +128,17 @@ export class TypeChecker {
     }
     this.bound.env.interfaces.set(node.name, shape);
     this.bound.env.interfaces.set(staticType, staticShape);
+    for (const field of node.fields) {
+      const fieldScope = this.bound.scopes.get(node) ?? classScope;
+      const type = field.declaredType ? cleanType(field.declaredType) : field.value ? inferExpression(field.value, this.bound, fieldScope) : "undefined";
+      const binding = { type, optional: false, visibility: field.visibility, owner: node.name, abstract: false };
+      (field.static ? staticShape : shape).fields.set(field.name, binding);
+    }
     const constructorFirst = (member: ClassMemberNode): number => (member.memberKind === "constructor" ? 0 : 1);
     const ordered = [...node.members].sort((left, right) => constructorFirst(left) - constructorFirst(right));
     for (const member of ordered) {
       if (member.static) continue;
+      if (member.abstract) continue;
       const memberScope = this.bound.scopes.get(member.fn) ?? classScope;
       this.collectThisFields(member.fn.body, memberScope, shape);
     }
@@ -136,11 +148,44 @@ export class TypeChecker {
       const returns = this.memberReturnType(member.fn, memberScope);
       if (member.fn.returns === "any" && memberScope.signature) memberScope.signature.returns = returns;
       const type = member.memberKind === "getter" ? returns : classMethodType(member.fn, returns);
-      (member.static ? staticShape : shape).fields.set(member.fn.name, { type, optional: false });
+      (member.static ? staticShape : shape).fields.set(member.fn.name, {
+        type,
+        optional: false,
+        visibility: member.visibility ?? DEFAULT_CLASS_VISIBILITY,
+        owner: node.name,
+        abstract: member.abstract,
+      });
     }
     this.emitMembers(node.name, shape, node.span);
     this.emitMembers(staticType, staticShape, node.span);
+    this.checkAbstractMembers(node, shape);
     this.checkImplements(node, shape);
+  }
+
+  checkAbstractMembers(node: Extract<SemanticNode, { kind: "Class" }>, shape: ObjectShape): void {
+    const ownAbstract = new Set<string>();
+    for (const member of node.members) {
+      if (!member.abstract) continue;
+      ownAbstract.add(member.fn.name);
+      if (member.visibility === "private") {
+        this.add(member.fn.nameSpan.line, member.fn.nameSpan.column, `Abstract member '${member.fn.name}' cannot be private`);
+      }
+      if (member.memberKind === "constructor") {
+        this.add(member.fn.nameSpan.line, member.fn.nameSpan.column, "Constructors cannot be abstract");
+      }
+      if (member.static) {
+        this.add(member.fn.nameSpan.line, member.fn.nameSpan.column, `Static member '${member.fn.name}' cannot be abstract`);
+      }
+    }
+    if (node.abstract) return;
+    for (const [name, binding] of shape.fields) {
+      if (!binding.abstract) continue;
+      if (ownAbstract.has(name)) {
+        this.add(node.nameSpan.line, node.nameSpan.column, `Class '${node.name}' must be abstract because it declares abstract member '${name}'`);
+      } else {
+        this.add(node.nameSpan.line, node.nameSpan.column, `Class '${node.name}' must implement abstract member '${name}' inherited from '${binding.owner ?? node.name}'`);
+      }
+    }
   }
 
   checkImplements(node: Extract<SemanticNode, { kind: "Class" }>, shape: ObjectShape): void {
@@ -153,7 +198,7 @@ export class TypeChecker {
       for (const [fieldName, required] of contract.fields) {
         if (required.optional) continue;
         const own = shape.fields.get(fieldName);
-        if (!own) {
+        if (!own || own.visibility && own.visibility !== "public") {
           this.add(node.nameSpan.line, node.nameSpan.column, `Class '${node.name}' is missing '${fieldName}' required by interface '${interfaceName}'`);
           continue;
         }
@@ -162,6 +207,12 @@ export class TypeChecker {
         }
       }
     }
+  }
+
+  checkClassField(field: Extract<SemanticNode, { kind: "Class" }>["fields"][number], scope: Scope): void {
+    if (!field.value) return;
+    if (field.declaredType) this.checkAssignableValue(field.value, cleanType(field.declaredType), scope, field.span.line, field.span.column, `'${field.name}: ${cleanType(field.declaredType)}'`);
+    else this.checkExpression(field.value, scope, field.span.line, field.span.column);
   }
 
   emitMembers(typeName: string, shape: ObjectShape | null | undefined, span: { line: number; column: number }): void {
@@ -588,10 +639,24 @@ export class TypeChecker {
     const objectType = inferExpression(object, this.bound, scope);
     if (this.isUnknownish(objectType)) return;
     const nullable = unionParts(objectType, this.bound.env).some((part) => this.isNullish(part));
-    if (!nullable) return;
     const property = typeof node.property === "string" ? node.property : String((node.property as ASTNode).name ?? "");
+    this.checkClassMemberVisibility(objectType, property, scope, node, line, column);
+    if (!nullable) return;
     const at = nodePosition(object, line, column);
     this.add(at.line, at.column, `Cannot access member '${property}' on nullable type '${objectType}'`);
+  }
+
+  checkClassMemberVisibility(objectType: TypeName, property: string, scope: Scope, node: ASTNode, line: number, column: number): void {
+    const caller = currentClassOwner(scope);
+    for (const part of unionParts(objectType, this.bound.env)) {
+      const shape = instantiateShapeForType(part, this.bound.env);
+      const binding = shape?.fields.get(property);
+      if (!binding?.visibility || binding.visibility === "public") continue;
+      if (classAccessAllowed(binding.visibility, binding.owner ?? ownerFromType(part), caller, part, this.bound.env)) continue;
+      const at = typeof node.property === "object" ? nodePosition(node.property as ASTNode, line, column) : nodePosition(node, line, column);
+      this.add(at.line, at.column, `Cannot access ${binding.visibility} member '${property}' of '${binding.owner ?? ownerFromType(part)}'`);
+      return;
+    }
   }
 
   checkComputedMemberAccess(node: ASTNode, scope: Scope, line: number, column: number): void {
@@ -610,9 +675,12 @@ export class TypeChecker {
     const target = node.target as ASTNode;
     const value = node.value as ASTNode;
     const expected = inferExpression(target, this.bound, scope);
+    const actual = inferExpression(value, this.bound, scope);
     this.checkExpression(target, scope, line, column);
     if (this.isUnknownish(expected)) this.checkExpression(value, scope, line, column);
     else this.checkAssignmentValue(expected, value, scope, line, column);
+    const name = flowName(target);
+    if (name && !this.isUnknownish(actual)) scope.locals.set(name, { type: actual, optional: false });
   }
 
   checkCompoundAssignment(node: ASTNode, scope: Scope, line: number, column: number): void {
@@ -732,6 +800,14 @@ export class TypeChecker {
   checkCall(node: ASTNode, scope: Scope, line: number, column: number): void {
     const sig = callSignatureForCallee(node.callee as ASTNode, this.bound, scope);
     if (!sig) return;
+    if (isClassConstructorSignature(sig) && sig.abstract) {
+      const at = nodePosition(node.callee as ASTNode, line, column);
+      this.add(at.line, at.column, `Cannot instantiate abstract class '${sig.owner ?? sig.name}'`);
+    }
+    if (isClassConstructorSignature(sig) && sig.visibility && sig.visibility !== "public" && !classConstructorAccessAllowed(sig.visibility, sig.owner ?? sig.name, currentClassOwner(scope), this.bound.env)) {
+      const at = nodePosition(node.callee as ASTNode, line, column);
+      this.add(at.line, at.column, `Cannot access ${sig.visibility} constructor '${sig.owner ?? sig.name}'`);
+    }
     const instantiated = instantiateForCall(sig, node.args as ASTNode[], this.bound, scope, typeArgsOf(node.callee as ASTNode));
     const seen = new Set<string>();
     let positional = 0;
@@ -772,7 +848,10 @@ export class TypeChecker {
       }
     }
     for (const required of instantiated.required) {
-      if (!seen.has(required)) this.add(line, column, `Missing required argument '${required}' for ${instantiated.name}()`);
+      if (!seen.has(required)) {
+        const at = callDiagnosticPosition(node, line, column);
+        this.add(at.line, at.column, `Missing required argument '${required}' for ${instantiated.name}()`);
+      }
     }
   }
 
@@ -895,4 +974,83 @@ function nodePosition(node: ASTNode, fallbackLine: number, fallbackColumn: numbe
     line: positioned.__line ?? fallbackLine,
     column: positioned.__column ?? fallbackColumn,
   };
+}
+
+function callDiagnosticPosition(node: ASTNode, fallbackLine: number, fallbackColumn: number): { line: number; column: number } {
+  const callee = node.callee as ASTNode | undefined;
+  if (callee?.type === NodeType.MemberExpression || callee?.type === NodeType.OptionalMemberExpression) {
+    const positioned = callee as ASTNode & { __propertyLine?: number; __propertyColumn?: number };
+    const fallback = nodePosition(callee, fallbackLine, fallbackColumn);
+    return {
+      line: positioned.__propertyLine ?? fallback.line,
+      column: positioned.__propertyColumn ?? fallback.column,
+    };
+  }
+  return callee ? nodePosition(callee, fallbackLine, fallbackColumn) : nodePosition(node, fallbackLine, fallbackColumn);
+}
+
+function flowName(node: ASTNode): string | null {
+  if (node.type === NodeType.Identifier) return String(node.name);
+  if (node.type !== NodeType.MemberExpression) return null;
+  const object = flowName(node.object as ASTNode);
+  if (!object) return null;
+  const property = typeof node.property === "string" ? node.property : String((node.property as ASTNode).name ?? "");
+  return property ? `${object}.${property}` : null;
+}
+
+function currentClassOwner(scope: Scope): string | null {
+  for (let current: Scope | null = scope; current; current = current.parent) {
+    if (current.classOwner) return current.classOwner;
+  }
+  return null;
+}
+
+function classAccessAllowed(
+  visibility: ClassVisibility,
+  owner: string,
+  caller: string | null,
+  targetType: TypeName,
+  env: TypeEnv,
+): boolean {
+  if (visibility === "public") return true;
+  if (!caller) return false;
+  if (visibility === "private") return caller === owner;
+  const lineage = classLineage(ownerFromType(targetType), env);
+  const ownerIndex = lineage.indexOf(owner);
+  const callerIndex = lineage.indexOf(caller);
+  return caller === owner || (ownerIndex >= 0 && callerIndex >= 0 && callerIndex <= ownerIndex);
+}
+
+function isClassConstructorSignature(sig: Signature): boolean {
+  return !!sig.owner && sig.name === sig.owner && sig.returns === sig.owner;
+}
+
+function classConstructorAccessAllowed(
+  visibility: ClassVisibility,
+  owner: string,
+  caller: string | null,
+  env: TypeEnv,
+): boolean {
+  if (visibility === "public") return true;
+  if (!caller) return false;
+  if (visibility === "private") return caller === owner;
+  return classLineage(caller, env).includes(owner);
+}
+
+function classLineage(type: string, env: TypeEnv): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  let current: string | null = ownerFromType(type);
+  while (current && !seen.has(current)) {
+    out.push(current);
+    seen.add(current);
+    current = env.nominalFamilies.get(current) ?? null;
+  }
+  return out;
+}
+
+function ownerFromType(type: TypeName): string {
+  const cleaned = cleanType(type).replace(/^typeof\s+/, "");
+  const generic = cleaned.match(/^([A-Za-z_$][\w$]*)\s*</);
+  return generic ? generic[1] : cleaned;
 }

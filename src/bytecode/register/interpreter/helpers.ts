@@ -76,6 +76,7 @@ export const INTERPRETER_ONLY_OPS: Set<number> = new Set([
   bytecode.ROP_TRY_END,
   bytecode.ROP_THROW,
   bytecode.ROP_LDA_KEYED_SLICE,
+  bytecode.ROP_ASSERT_CLASS_CONTRACTS,
 ]);
 
 export function requiresInterpreterOnly(compiledFn: RegisterCompiledFunction): boolean {
