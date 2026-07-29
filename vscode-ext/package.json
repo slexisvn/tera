@@ -25,7 +25,9 @@
   "main": "./dist/extension.cjs",
   "activationEvents": [
     "onLanguage:tera",
-    "onNotebook:tera-notebook"
+    "onNotebook:tera-notebook",
+    "onDebugInitialConfigurations:tera",
+    "onDebugResolve:tera"
   ],
   "contributes": {
     "languages": [
@@ -76,6 +78,63 @@
         "entrypoint": "./dist/chart-renderer.mjs",
         "mimeTypes": [
           "application/x-tera-chart+json"
+        ]
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "tera"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "tera",
+        "label": "Tera",
+        "languages": [
+          "tera"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "default": "${file}",
+                "description": "The Tera source file to debug."
+              },
+              "cwd": {
+                "type": "string",
+                "default": "${workspaceFolder}",
+                "description": "The working directory used by the Tera debugger."
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "default": false,
+                "description": "Pause before executing the first Tera instruction."
+              },
+              "typecheck": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "warn",
+                  "strict"
+                ],
+                "default": "off",
+                "description": "Typecheck mode used before launching the debugger."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "tera",
+            "request": "launch",
+            "name": "Debug Tera File",
+            "program": "${file}",
+            "typecheck": "off"
+          }
         ]
       }
     ],

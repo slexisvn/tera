@@ -67,6 +67,17 @@ const targets: BuildOptions[] = [
   },
   {
     ...shared,
+    entryPoints: [resolve(EXT_ROOT, "src/client/debug/worker.ts")],
+    outfile: resolve(DIST, "debug-worker.mjs"),
+    platform: "node",
+    format: "esm",
+    target: ["node20"],
+    banner: NODE_ESM_BANNER,
+    alias: { webgpu: NATIVE_STUB },
+    external: ["koffi"],
+  },
+  {
+    ...shared,
     entryPoints: [resolve(EXT_ROOT, "src/notebook/chart-renderer.ts")],
     outfile: resolve(DIST, "chart-renderer.mjs"),
     platform: "browser",

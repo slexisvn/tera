@@ -48,6 +48,7 @@ import {
   TypecheckError,
   type Diagnostic,
 } from "../frontend/checker/index.js";
+import type { RuntimeDebugger } from "../debugger/runtime.js";
 
 export type EngineOptions = {
   typecheck?: "off" | "warn" | "strict";
@@ -58,10 +59,12 @@ export type EngineOptions = {
   gc?: ConstructorParameters<typeof GenerationalGC>[0];
   trace?: boolean;
   traceCategories?: Iterable<string>;
+  debugger?: RuntimeDebugger | null;
 };
 
 export type CompileOptions = {
   lazy?: boolean;
+  sourceName?: string | null;
 };
 
 export type EngineValue = {
@@ -154,6 +157,7 @@ export class Engine {
   hiddenClassRegistry: HiddenClassRegistry;
   irNodeIdAllocator: IRNodeIdAllocator;
   compiledFunctionIdAllocator: CompiledFunctionIdAllocator;
+  debugger: RuntimeDebugger | null;
 
   constructor(options: EngineOptions = {}) {
     this.valueHeap = new ValueHeap();
@@ -161,6 +165,7 @@ export class Engine {
     this.hiddenClassRegistry = new HiddenClassRegistry();
     this.irNodeIdAllocator = new IRNodeIdAllocator();
     this.compiledFunctionIdAllocator = new CompiledFunctionIdAllocator();
+    this.debugger = options.debugger ?? null;
     this.typecheckMode = options.typecheck || "warn";
     this.output = options.output;
     this.diagnostics = [];
@@ -174,6 +179,7 @@ export class Engine {
       () => new RegisterInterpreter(this) as EngineInterpreter,
       false,
     );
+    this.interpreter.debugger = this.debugger;
     this.gc.bindRoots(
       this.interpreter,
       this.interpreter.globalCells,
@@ -231,15 +237,17 @@ export class Engine {
       throw new TypecheckError(this.diagnostics);
     }
     const ast = analyzeEffects(parse(source));
-    const compiler = new RegisterBytecodeCompiler();
+    const compiler = new RegisterBytecodeCompiler({
+      sourceName: options.sourceName ?? null,
+    });
     return compiler.compile(ast);
   }
 
-  private runSource(source: string): TaggedValue {
+  private runSource(source: string, options: CompileOptions = {}): TaggedValue {
     this.executionCount++;
     const t0 = performance.now();
 
-    const compiled = this.compile(source);
+    const compiled = this.compile(source, options);
     const compileTime = performance.now() - t0;
     this.totalCompileTimeMs += compileTime;
 
@@ -264,19 +272,19 @@ export class Engine {
     return result;
   }
 
-  run(source: string): TaggedValue {
-    const result = this.runSource(source);
+  run(source: string, options: CompileOptions = {}): TaggedValue {
+    const result = this.runSource(source, options);
     this.valueHeap.enableExternalLookup();
     return result;
   }
 
-  runValue(source: string): EngineValue {
-    const raw = this.runSource(source);
+  runValue(source: string, options: CompileOptions = {}): EngineValue {
+    const raw = this.runSource(source, options);
     return this.runInRuntime(() => ({ tag: getTag(raw), value: getPayload(raw) }));
   }
 
-  runNative(source: string): unknown {
-    const raw = this.runSource(source);
+  runNative(source: string, options: CompileOptions = {}): unknown {
+    const raw = this.runSource(source, options);
     return this.runInRuntime(() => this.toNativeResult(raw));
   }
 
@@ -328,8 +336,8 @@ export class Engine {
     this.microtaskQueue.setPolicy(policy);
   }
 
-  runWithDisassembly(source: string): TaggedValue {
-    const compiled = this.compile(source);
+  runWithDisassembly(source: string, options: CompileOptions = {}): TaggedValue {
+    const compiled = this.compile(source, options);
     console.log(compiled.disassemble());
 
     for (const constant of compiled.constants) {
@@ -365,7 +373,9 @@ export class Engine {
     const parser = new Parser(bodyTokens);
     const body = parser.parseBlock();
 
-    const compiler = new RegisterBytecodeCompiler();
+    const compiler = new RegisterBytecodeCompiler({
+      sourceName: compiledFn.sourceName,
+    });
     const ast = {
       type: "Program",
       body: [
@@ -392,6 +402,8 @@ export class Engine {
       compiledFn.registerCount = innerFn.registerCount;
       compiledFn.feedbackSlotCount = innerFn.feedbackSlotCount;
       compiledFn.upvalues = innerFn.upvalues;
+      compiledFn.sourceName = innerFn.sourceName;
+      compiledFn.sourceMap = innerFn.sourceMap;
     }
 
     compiledFn.isLazy = false;
@@ -706,6 +718,7 @@ export class Engine {
       () => new RegisterInterpreter(this) as EngineInterpreter,
       false,
     );
+    this.interpreter.debugger = this.debugger;
     this.gc.bindRoots(
       this.interpreter,
       this.interpreter.globalCells,
@@ -717,5 +730,10 @@ export class Engine {
     this.executionCount = 0;
     this.totalCompileTimeMs = 0;
     this.totalExecTimeMs = 0;
+  }
+
+  setDebugger(debuggerHook: RuntimeDebugger | null): void {
+    this.debugger = debuggerHook;
+    this.interpreter.debugger = debuggerHook;
   }
 }

@@ -102,6 +102,7 @@ type StatementCompilerThis = {
   _labeledBreaks: Record<string, number[]>;
   _labeledContinues: Record<string, number[]>;
   interfaceContracts: Map<string, RuntimeInterfaceContract>;
+  _withSourceNode<T>(node: ASTNode, run: () => T): T;
   _collectInterfaceDeclarations(nodes: ASTNode[]): void;
   compileStatement(node: ASTNode): void;
   compileStatements(nodes: ASTNode[]): void;
@@ -186,63 +187,65 @@ export const statementMethods: StatementMethodMap = {
   },
 
   compileStatement(node) {
-    switch (node.type as string) {
-      case NodeType.EmptyStatement:
-        return;
-      case NodeType.FunctionDeclaration:
-        if (node._hoisted) return;
-        return this.compileFunctionDeclaration(node);
-      case NodeType.LetDeclaration:
-      case NodeType.ConstDeclaration:
-      case NodeType.VarDeclaration:
-        return this.compileLetDeclaration(node);
-      case NodeType.IfStatement:
-        return this.compileIfStatement(node);
-      case NodeType.WhileStatement:
-        return this.compileWhileStatement(node);
-      case NodeType.ForStatement:
-        return this.compileForStatement(node);
-      case NodeType.ReturnStatement:
-        return this.compileReturnStatement(node);
-      case NodeType.BlockStatement:
-        return this.compileBlock(node);
-      case NodeType.ExpressionStatement:
-        return this.compileExpressionStatement(node);
-      case NodeType.SwitchStatement:
-        return this.compileSwitchStatement(node);
-      case NodeType.BreakStatement:
-        return this.compileBreakStatement(node);
-      case NodeType.TryStatement:
-        return this.compileTryStatement(node);
-      case NodeType.ThrowStatement:
-        return this.compileThrowStatement(node);
-      case NodeType.ClassDeclaration:
-        return this.compileClassDeclaration(node);
-      case NodeType.ModelDeclaration:
-        return this.compileModelDeclaration(node);
-      case NodeType.TypeAliasDeclaration:
-      case NodeType.InterfaceDeclaration:
-        return;
-      case NodeType.ForInStatement:
-        return this.compileForInStatement(node);
-      case NodeType.ForOfStatement:
-        return this.compileForOfStatement(node);
-      case NodeType.LazyFunctionDeclaration:
-        if (node._hoisted) return;
-        return this.compileLazyFunctionDeclaration(node);
-      case NodeType.ObjectDestructuring:
-        return this.compileObjectDestructuring(node);
-      case NodeType.ArrayDestructuring:
-        return this.compileArrayDestructuring(node);
-      case NodeType.DoWhileStatement:
-        return this.compileDoWhileStatement(node);
-      case NodeType.ContinueStatement:
-        return this.compileContinueStatement(node);
-      case NodeType.LabeledStatement:
-        return this.compileLabeledStatement(node);
-      default:
-        throw new Error(`[RegCompiler] Unknown statement type '${node.type}'`);
-    }
+    return this._withSourceNode(node, () => {
+      switch (node.type as string) {
+        case NodeType.EmptyStatement:
+          return;
+        case NodeType.FunctionDeclaration:
+          if (node._hoisted) return;
+          return this.compileFunctionDeclaration(node);
+        case NodeType.LetDeclaration:
+        case NodeType.ConstDeclaration:
+        case NodeType.VarDeclaration:
+          return this.compileLetDeclaration(node);
+        case NodeType.IfStatement:
+          return this.compileIfStatement(node);
+        case NodeType.WhileStatement:
+          return this.compileWhileStatement(node);
+        case NodeType.ForStatement:
+          return this.compileForStatement(node);
+        case NodeType.ReturnStatement:
+          return this.compileReturnStatement(node);
+        case NodeType.BlockStatement:
+          return this.compileBlock(node);
+        case NodeType.ExpressionStatement:
+          return this.compileExpressionStatement(node);
+        case NodeType.SwitchStatement:
+          return this.compileSwitchStatement(node);
+        case NodeType.BreakStatement:
+          return this.compileBreakStatement(node);
+        case NodeType.TryStatement:
+          return this.compileTryStatement(node);
+        case NodeType.ThrowStatement:
+          return this.compileThrowStatement(node);
+        case NodeType.ClassDeclaration:
+          return this.compileClassDeclaration(node);
+        case NodeType.ModelDeclaration:
+          return this.compileModelDeclaration(node);
+        case NodeType.TypeAliasDeclaration:
+        case NodeType.InterfaceDeclaration:
+          return;
+        case NodeType.ForInStatement:
+          return this.compileForInStatement(node);
+        case NodeType.ForOfStatement:
+          return this.compileForOfStatement(node);
+        case NodeType.LazyFunctionDeclaration:
+          if (node._hoisted) return;
+          return this.compileLazyFunctionDeclaration(node);
+        case NodeType.ObjectDestructuring:
+          return this.compileObjectDestructuring(node);
+        case NodeType.ArrayDestructuring:
+          return this.compileArrayDestructuring(node);
+        case NodeType.DoWhileStatement:
+          return this.compileDoWhileStatement(node);
+        case NodeType.ContinueStatement:
+          return this.compileContinueStatement(node);
+        case NodeType.LabeledStatement:
+          return this.compileLabeledStatement(node);
+        default:
+          throw new Error(`[RegCompiler] Unknown statement type '${node.type}'`);
+      }
+    });
   },
 
   compileLetDeclaration(node) {

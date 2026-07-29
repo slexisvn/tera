@@ -5,6 +5,10 @@ export const calls = {
   notebookControllers: [] as string[],
   serializers: [] as string[],
   languageClients: [] as string[],
+  debugConfigurationProviders: [] as string[],
+  debugConfigurationProviderInstances: [] as unknown[],
+  debugAdapterFactories: [] as string[],
+  debugAdapterFactoryInstances: [] as unknown[],
   errors: [] as string[],
 };
 
@@ -12,10 +16,34 @@ export function resetCalls(): void {
   calls.notebookControllers = [];
   calls.serializers = [];
   calls.languageClients = [];
+  calls.debugConfigurationProviders = [];
+  calls.debugConfigurationProviderInstances = [];
+  calls.debugAdapterFactories = [];
+  calls.debugAdapterFactoryInstances = [];
   calls.errors = [];
+  window.activeTextEditor = undefined;
+}
+
+export class EventEmitter<T = unknown> {
+  private listeners: Array<(event: T) => void> = [];
+  event = (listener: (event: T) => void) => {
+    this.listeners.push(listener);
+    return disposable;
+  };
+  fire(event: T): void {
+    for (const listener of this.listeners) listener(event);
+  }
+  dispose(): void {
+    this.listeners = [];
+  }
+}
+
+export class DebugAdapterInlineImplementation {
+  constructor(public implementation: unknown) {}
 }
 
 export const window = {
+  activeTextEditor: undefined as { document: { languageId: string; uri: { fsPath: string } } } | undefined,
   createOutputChannel: (name: string) => ({ name, appendLine: noop, dispose: noop }),
   showErrorMessage: (message: string) => {
     calls.errors.push(message);
@@ -31,6 +59,19 @@ export const workspace = {
   onDidCloseNotebookDocument: () => disposable,
   getWorkspaceFolder: () => undefined,
   getConfiguration: () => ({ get: () => undefined }),
+};
+
+export const debug = {
+  registerDebugConfigurationProvider: (type: string, provider: unknown) => {
+    calls.debugConfigurationProviders.push(type);
+    calls.debugConfigurationProviderInstances.push(provider);
+    return disposable;
+  },
+  registerDebugAdapterDescriptorFactory: (type: string, factory: unknown) => {
+    calls.debugAdapterFactories.push(type);
+    calls.debugAdapterFactoryInstances.push(factory);
+    return disposable;
+  },
 };
 
 export const notebooks = {

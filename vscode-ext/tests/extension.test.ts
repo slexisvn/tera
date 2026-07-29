@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { activate, deactivate } from "../src/client/extension.ts";
-import { calls, resetCalls } from "./stubs/vscode.ts";
+import { calls, resetCalls, window } from "./stubs/vscode.ts";
 import { resetClients, started, stopped } from "./stubs/vscode-languageclient.ts";
 
 const EXT_ROOT = join(import.meta.dirname, "..");
@@ -24,6 +24,34 @@ describe("extension activation", () => {
     await activate(fakeContext());
     expect(calls.notebookControllers).toEqual(["tera-kernel"]);
     expect(calls.serializers).toEqual(["tera-notebook"]);
+  });
+
+  it("registers the Tera debug adapter used by F5", async () => {
+    await activate(fakeContext());
+    expect(calls.debugConfigurationProviders).toEqual(["tera"]);
+    expect(calls.debugAdapterFactories).toEqual(["tera"]);
+  });
+
+  it("resolves F5 debug config from the active Tera file", async () => {
+    const file = join(EXT_ROOT, "sample.tera");
+    window.activeTextEditor = {
+      document: { languageId: "tera", uri: { fsPath: file } },
+    };
+    await activate(fakeContext());
+
+    const provider = calls.debugConfigurationProviderInstances[0] as {
+      resolveDebugConfiguration(folder: unknown, config: Record<string, unknown>): Record<string, unknown> | undefined;
+    };
+    const config = provider.resolveDebugConfiguration(undefined, {
+      type: "tera",
+      request: "launch",
+      name: "Debug Tera File",
+      program: "${file}",
+    });
+
+    expect(config?.program).toBe(file);
+    expect(config?.cwd).toBe(EXT_ROOT);
+    expect(config).not.toHaveProperty("stopOnEntry");
   });
 
   it("starts the language client against the bundled server", async () => {

@@ -147,9 +147,16 @@ export type LocalBindingKind = "temp" | "var" | "let" | "const" | "class";
 
 export type SourceMapEntry = {
   pc?: number;
+  sourceName?: string | null;
   line?: number;
   column?: number;
   [key: string]: RuntimeValue;
+};
+
+export type SourcePosition = {
+  sourceName?: string | null;
+  line: number;
+  column: number;
 };
 
 export type UpvalueDescriptor = {
@@ -306,6 +313,7 @@ export class CompiledFunctionIdAllocator {
 
 const defaultCompiledFunctionIdAllocator = new CompiledFunctionIdAllocator();
 let activeCompiledFunctionIdAllocator = defaultCompiledFunctionIdAllocator;
+let activeCompiledFunctionSourceName: string | null = null;
 
 export function withCompiledFunctionIdAllocator<T>(
   allocator: CompiledFunctionIdAllocator,
@@ -326,6 +334,19 @@ export function getCurrentCompiledFunctionIdAllocator(): CompiledFunctionIdAlloc
 
 export function getDefaultCompiledFunctionIdAllocator(): CompiledFunctionIdAllocator {
   return defaultCompiledFunctionIdAllocator;
+}
+
+export function withCompiledFunctionSourceName<T>(
+  sourceName: string | null,
+  run: () => T,
+): T {
+  const previous = activeCompiledFunctionSourceName;
+  activeCompiledFunctionSourceName = sourceName;
+  try {
+    return run();
+  } finally {
+    activeCompiledFunctionSourceName = previous;
+  }
 }
 
 export class RegisterCompiledFunction {
@@ -355,7 +376,9 @@ export class RegisterCompiledFunction {
   version: number;
   disableOptimization: boolean;
   optimizedDependencies: Dependency[];
+  sourceName: string | null;
   sourceMap: SourceMapEntry[];
+  activeSourcePosition: SourcePosition | null;
   upvalues: UpvalueDescriptor[];
   isAsync: boolean;
   explicitAsync: boolean;
@@ -420,7 +443,9 @@ export class RegisterCompiledFunction {
     this.version = 0;
     this.disableOptimization = false;
     this.optimizedDependencies = [];
+    this.sourceName = activeCompiledFunctionSourceName;
     this.sourceMap = [];
+    this.activeSourcePosition = null;
     this.upvalues = [];
     this.isAsync = false;
     this.explicitAsync = false;
@@ -490,7 +515,27 @@ export class RegisterCompiledFunction {
   emit(opcode: RegisterOpcode, ...operands: RegisterOperand[]): number {
     const instr = new RegisterInstruction(opcode, ...operands);
     this.instructions.push(instr);
-    return this.instructions.length - 1;
+    const pc = this.instructions.length - 1;
+    if (this.activeSourcePosition) {
+      this.sourceMap[pc] = {
+        pc,
+        sourceName: this.activeSourcePosition.sourceName ?? this.sourceName,
+        line: this.activeSourcePosition.line,
+        column: this.activeSourcePosition.column,
+      };
+    }
+    return pc;
+  }
+
+  withSourcePosition<T>(position: SourcePosition | null, run: () => T): T {
+    if (!position) return run();
+    const previous = this.activeSourcePosition;
+    this.activeSourcePosition = position;
+    try {
+      return run();
+    } finally {
+      this.activeSourcePosition = previous;
+    }
   }
 
   patchJump(instrIndex: number, target: number): void {

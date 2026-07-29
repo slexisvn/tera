@@ -144,6 +144,7 @@ type ExpressionCompilerThis = {
   temps: TempAllocator;
   _yieldStarCount?: number;
   _currentSuperClassName?: string | null;
+  _withSourceNode<T>(node: ASTNode, run: () => T): T;
   compileExpression(node: CompilerNode): number | void;
   compileLiteral(node: CompilerNode): number | void;
   compileIdentifier(node: CompilerNode): number | void;
@@ -207,67 +208,69 @@ export const BINARY_OP_MAP: Record<string, bytecode.RegisterOpcode> = {
 
 export const expressionMethods: ExpressionMethodMap = {
   compileExpression(node: CompilerNode) {
-    switch (node.type) {
-      case NodeType.Literal:
-        return this.compileLiteral(node);
-      case NodeType.Identifier:
-        return this.compileIdentifier(node);
-      case NodeType.ThisExpression:
-        return this.func.emit(bytecode.ROP_LDA_THIS);
-      case NodeType.SuperExpression:
-        throw new Error("[RegCompiler] Bare super is not supported");
-      case NodeType.BinaryExpression:
-        return this.compileBinaryExpression(node);
-      case NodeType.UnaryExpression:
-        return this.compileUnaryExpression(node);
-      case NodeType.LogicalExpression:
-        return this.compileLogicalExpression(node);
-      case NodeType.AssignmentExpression:
-        return this.compileAssignment(node);
-      case NodeType.CallExpression: {
-        const emitted = this.compileCallExpression(node);
-        if (node.implicitAwait) this.func.emit(bytecode.ROP_AWAIT);
-        return emitted;
+    return this._withSourceNode(node, () => {
+      switch (node.type) {
+        case NodeType.Literal:
+          return this.compileLiteral(node);
+        case NodeType.Identifier:
+          return this.compileIdentifier(node);
+        case NodeType.ThisExpression:
+          return this.func.emit(bytecode.ROP_LDA_THIS);
+        case NodeType.SuperExpression:
+          throw new Error("[RegCompiler] Bare super is not supported");
+        case NodeType.BinaryExpression:
+          return this.compileBinaryExpression(node);
+        case NodeType.UnaryExpression:
+          return this.compileUnaryExpression(node);
+        case NodeType.LogicalExpression:
+          return this.compileLogicalExpression(node);
+        case NodeType.AssignmentExpression:
+          return this.compileAssignment(node);
+        case NodeType.CallExpression: {
+          const emitted = this.compileCallExpression(node);
+          if (node.implicitAwait) this.func.emit(bytecode.ROP_AWAIT);
+          return emitted;
+        }
+        case NodeType.NewExpression:
+          return this.compileNewExpression(node);
+        case NodeType.MemberExpression:
+          return this.compileMemberExpression(node);
+        case NodeType.IndexExpression:
+          return this.compileIndexExpression(node);
+        case NodeType.ObjectExpression:
+          return this.compileObjectExpression(node);
+        case NodeType.ArrayExpression:
+          return this.compileArrayExpression(node);
+        case NodeType.ConditionalExpression:
+          return this.compileConditionalExpression(node);
+        case NodeType.AwaitExpression:
+          return this.compileAwaitExpression(node);
+        case NodeType.YieldExpression:
+          return this.compileYieldExpression(node);
+        case NodeType.UpdateExpression:
+          return this.compileUpdateExpression(node);
+        case NodeType.CompoundAssignmentExpression:
+          return this.compileCompoundAssignment(node);
+        case NodeType.ArrowFunctionExpression:
+          return this.compileArrowFunction(node);
+        case NodeType.FunctionExpression:
+          return this.compileFunctionExpression(node);
+        case NodeType.TemplateLiteral:
+          return this.compileTemplateLiteral(node);
+        case NodeType.NullishCoalescingExpression:
+          return this.compileNullishCoalescing(node);
+        case NodeType.OptionalMemberExpression:
+          return this.compileOptionalMember(node);
+        case NodeType.OptionalCallExpression:
+          return this.compileOptionalCall(node);
+        case NodeType.SuperCallExpression:
+          return this.compileSuperCall(node);
+        case NodeType.SequenceExpression:
+          return this.compileSequenceExpression(node);
+        default:
+          throw new Error(`[RegCompiler] Unknown expression type '${node.type}'`);
       }
-      case NodeType.NewExpression:
-        return this.compileNewExpression(node);
-      case NodeType.MemberExpression:
-        return this.compileMemberExpression(node);
-      case NodeType.IndexExpression:
-        return this.compileIndexExpression(node);
-      case NodeType.ObjectExpression:
-        return this.compileObjectExpression(node);
-      case NodeType.ArrayExpression:
-        return this.compileArrayExpression(node);
-      case NodeType.ConditionalExpression:
-        return this.compileConditionalExpression(node);
-      case NodeType.AwaitExpression:
-        return this.compileAwaitExpression(node);
-      case NodeType.YieldExpression:
-        return this.compileYieldExpression(node);
-      case NodeType.UpdateExpression:
-        return this.compileUpdateExpression(node);
-      case NodeType.CompoundAssignmentExpression:
-        return this.compileCompoundAssignment(node);
-      case NodeType.ArrowFunctionExpression:
-        return this.compileArrowFunction(node);
-      case NodeType.FunctionExpression:
-        return this.compileFunctionExpression(node);
-      case NodeType.TemplateLiteral:
-        return this.compileTemplateLiteral(node);
-      case NodeType.NullishCoalescingExpression:
-        return this.compileNullishCoalescing(node);
-      case NodeType.OptionalMemberExpression:
-        return this.compileOptionalMember(node);
-      case NodeType.OptionalCallExpression:
-        return this.compileOptionalCall(node);
-      case NodeType.SuperCallExpression:
-        return this.compileSuperCall(node);
-      case NodeType.SequenceExpression:
-        return this.compileSequenceExpression(node);
-      default:
-        throw new Error(`[RegCompiler] Unknown expression type '${node.type}'`);
-    }
+    });
   },
 
   compileSequenceExpression(node: CompilerNode) {

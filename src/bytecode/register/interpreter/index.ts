@@ -1,4 +1,5 @@
 import * as bytecode from "../ops/bytecode.js";
+import type { RuntimeDebugger } from "../../../debugger/runtime.js";
 
 import {
   mkSmi,
@@ -354,6 +355,13 @@ function currentBaselineCode(
   return compiled.baselineCode;
 }
 
+function debuggerForcesInterpreter(
+  interpreter: { debugger?: RuntimeDebugger | null },
+): boolean {
+  const hook = interpreter.debugger;
+  return !!hook && hook.enabled && hook.forceInterpreter;
+}
+
 function numericOperand(value: bytecode.RegisterOperand): number | null {
   return typeof value === "number" ? value : null;
 }
@@ -485,6 +493,7 @@ function tryTierUp(
   thisValue: TaggedValue,
   interpreter: InterpreterLike,
 ): TaggedValue | null {
+  if (debuggerForcesInterpreter(interpreter)) return null;
   const policy = interpreter.tieringPolicy;
   const engine = interpreter.jitEngine;
   if (!engine || !policy || fn.closure) return null;
@@ -584,8 +593,9 @@ function callFunction(
   }
 
   if (compiled.callMode === undefined) updateCallMode(compiled);
+  const debugInterpreted = debuggerForcesInterpreter(interpreter);
 
-  if (compiled.callMode === CALL_OPTIMIZED) {
+  if (!debugInterpreted && compiled.callMode === CALL_OPTIMIZED) {
     if (compiled.optimizedCode) {
       const result = compiled.optimizedCode(args, thisValue, interpreter);
       recordReturnFeedback(slot, result);
@@ -618,15 +628,17 @@ function callFunction(
   }
 
   {
-    const tierResult = tryTierUp(compiled, fn, callee, args, thisValue, interpreter);
-    if (tierResult !== null) {
-      recordReturnFeedback(slot, tierResult);
-      return tierResult;
-    }
-    if (compiled.baselineCode) {
-      const result = compiled.baselineCode(args, thisValue, interpreter);
-      recordReturnFeedback(slot, result);
-      return result;
+    if (!debugInterpreted) {
+      const tierResult = tryTierUp(compiled, fn, callee, args, thisValue, interpreter);
+      if (tierResult !== null) {
+        recordReturnFeedback(slot, tierResult);
+        return tierResult;
+      }
+      if (compiled.baselineCode) {
+        const result = compiled.baselineCode(args, thisValue, interpreter);
+        recordReturnFeedback(slot, result);
+        return result;
+      }
     }
     const result = interpretCall(compiled, fn, callee, args, thisValue, interpreter);
     recordReturnFeedback(slot, result);
@@ -649,6 +661,7 @@ export class RegisterInterpreter {
   icManager: InlineCacheManager;
   microtaskQueue: MicrotaskQueue;
   builtinPrototypes: Record<string, JSObject>;
+  debugger: RuntimeDebugger | null;
 
   constructor(jitEngine: JitEngineLike | null) {
     this.jitEngine = jitEngine;
@@ -660,6 +673,7 @@ export class RegisterInterpreter {
     this._sweepTick = 0;
     this._heapSweepThreshold = 1 << 18;
     this.icManager = new InlineCacheManager();
+    this.debugger = null;
     this.microtaskQueue =
       jitEngine && jitEngine.microtaskQueue
         ? jitEngine.microtaskQueue
@@ -911,6 +925,7 @@ export class RegisterInterpreter {
     };
     compiledFn.lastExecutionTime = Date.now();
     compiledFn.codeAge = 0;
+    const debugInterpreted = debuggerForcesInterpreter(this);
 
     if (compiledFn.hoistedVarNames) {
       for (const name of compiledFn.hoistedVarNames) {
@@ -930,7 +945,7 @@ export class RegisterInterpreter {
 
     this.consumePendingLazyDeopt(compiledFn, -1, "at function entry");
 
-    if (compiledFn.optimizedCode && !compiledFn.disableOptimization) {
+    if (!debugInterpreted && compiledFn.optimizedCode && !compiledFn.disableOptimization) {
       return finishExecution(
         compiledFn.optimizedCode(args, thisValue ?? mkUndefined(), this),
       );
@@ -940,7 +955,7 @@ export class RegisterInterpreter {
 
     this.initFeedbackVector(compiledFn);
 
-    if (this.jitEngine && this.tieringPolicy) {
+    if (!debugInterpreted && this.jitEngine && this.tieringPolicy) {
       const loopBudgetTriggered =
         compiledFn.feedbackVector &&
         compiledFn.feedbackVector.loopBudgetExhausted;
@@ -1374,6 +1389,7 @@ export class RegisterInterpreter {
     try {
       while (frame.pc < instructions.length) {
         try {
+          this.debugger?.beforeInstruction(this, frame, frame.pc);
           const instr = instructions[frame.pc];
           const op = instr.opcode;
           const operands = instr.operands;
