@@ -35,12 +35,6 @@ print(net(randn([8, 2])).shape)
 
 VS Code `^1.94.0`. The extension activates automatically when you open a `.tera` file.
 
-## Settings
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `tera.trace.server` | `off` | Trace LSP communication between VS Code and the Tera language server (`off` / `messages` / `verbose`). |
-
 ## License
 
 [MIT](LICENSE)

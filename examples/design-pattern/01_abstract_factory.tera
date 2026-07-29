@@ -1,0 +1,41 @@
+interface Widget:
+  render() -> string
+
+interface WidgetFactory:
+  createButton() -> Widget
+  createCheckbox() -> Widget
+
+class WinButton implements Widget:
+  render() -> string:
+    return "win button"
+
+class WinCheckbox implements Widget:
+  render() -> string:
+    return "win checkbox"
+
+class MacButton implements Widget:
+  render() -> string:
+    return "mac button"
+
+class MacCheckbox implements Widget:
+  render() -> string:
+    return "mac checkbox"
+
+class WinFactory implements WidgetFactory:
+  createButton() -> Widget:
+    return WinButton()
+  createCheckbox() -> Widget:
+    return WinCheckbox()
+
+class MacFactory implements WidgetFactory:
+  createButton() -> Widget:
+    return MacButton()
+  createCheckbox() -> Widget:
+    return MacCheckbox()
+
+fn paint(factory: WidgetFactory) -> string:
+  button = factory.createButton()
+  checkbox = factory.createCheckbox()
+  return button.render() + " + " + checkbox.render()
+
+print("abstract factory:", paint(WinFactory()), "|", paint(MacFactory()))

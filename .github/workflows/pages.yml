@@ -30,26 +30,35 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            notebook/package-lock.json
 
       - name: Install tera dependencies
         run: npm ci
 
+      - name: Install notebook dependencies
+        run: npm ci
+        working-directory: notebook
+
       - name: Build tera browser bundles
         run: npm run build
 
-      - name: Prepare Pages artifact
-        run: |
-          mkdir -p _site
-          cp notebook/index.html _site/
-          cp notebook/notebook.css _site/
-          mkdir -p _site/chart _site/dist
-          cp notebook/chart/chart.css _site/chart/
-          cp -R notebook/dist/. _site/dist/
+      - name: Typecheck notebook
+        run: npm run typecheck
+        working-directory: notebook
+
+      - name: Build notebook
+        run: npm run build
+        working-directory: notebook
+
+      - name: Disable Jekyll
+        run: touch notebook/dist/.nojekyll
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: _site
+          path: notebook/dist
 
   deploy:
     runs-on: ubuntu-latest
@@ -61,4 +70,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

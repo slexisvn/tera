@@ -1,0 +1,26 @@
+interface CloneableDocument:
+  title: string
+  tags: string[]
+  clone() -> CloneableDocument
+  rename(title: string) -> CloneableDocument
+  addTag(tag: string) -> CloneableDocument
+
+class Document implements CloneableDocument:
+  title: string
+  tags: string[]
+  constructor(title: string, tags: string[]):
+    this.title = title
+    this.tags = tags
+  clone() -> CloneableDocument:
+    return Document(this.title, this.tags.slice())
+  rename(title: string) -> CloneableDocument:
+    this.title = title
+    return this
+  addTag(tag: string) -> CloneableDocument:
+    this.tags.push(tag)
+    return this
+
+base = Document("contract", ["legal"])
+copy = base.clone().rename("contract-copy").addTag("draft")
+
+print("prototype:", base.title, base.tags.join("/"), "|", copy.title, copy.tags.join("/"))

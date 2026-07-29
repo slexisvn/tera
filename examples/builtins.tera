@@ -1,0 +1,74 @@
+
+print("=== Math ===")
+print("sqrt(2)  =", Math.sqrt(2.0))
+print("pow(2,10)=", Math.pow(2.0, 10.0))
+print("max/min  =", Math.max(3, 7, 2), Math.min(3, 7, 2))
+print("round    =", Math.round(3.6), Math.floor(3.6), Math.ceil(3.2))
+print("PI, E    =", Math.PI, Math.E)
+
+print("=== Numbers & parsing ===")
+print("Number   =", Number("128"))
+print("String   =", String(3.14))
+print("parseInt =", parseInt("42"))
+print("parseFloat =", parseFloat("2.718"))
+
+print("=== Strings ===")
+s: string = "Tera Language"
+print("upper    =", s.to_upper_case())
+print("lower    =", s.to_lower_case())
+print("slice    =", s.slice(0, 4))
+print("includes =", s.includes("Lang"))
+print("split    =", s.split(" "))
+print("replace  =", s.replace("Tera", "Hello"))
+print("trim     =", "   padded   ".trim())
+print("repeat   =", "ab".repeat(3))
+print("reversed =", "racecar".split("").reverse().join(""))
+
+print("=== Arrays ===")
+nums: int[] = [5, 3, 8, 1, 9, 2]
+doubled: int[] = nums.map(x => x * 2)
+evens: int[] = nums.filter(x => x > 3)
+total: int = nums.reduce((a, b) => a + b, 0)
+print("map      =", doubled)
+print("filter   =", evens)
+print("reduce   =", total)
+print("sort asc =", nums.sort((a, b) => a - b))
+print("includes =", nums.includes(8))
+print("find     =", nums.find(x => x > 4))
+print("some/every =", nums.some(x => x > 8), nums.every(x => x > 0))
+print("join     =", nums.join(", "))
+print("flat     =", [[1, 2], [3, 4], [5]].flat())
+squares: int[] = [x * x for x of range(1, 6)]
+print("comprehension =", squares)
+
+print("=== Objects ===")
+person: { name: string, age: int, langs: string[] } = { name: "Ada", age: 36, langs: ["Tera", "ML"] }
+print("keys     =", Object.keys(person))
+print("values   =", Object.values(person))
+print("entries  =", Object.entries(person))
+merged = Object.assign({}, person, { age: 37 })
+print("assign   =", merged.age)
+
+print("=== JSON ===")
+payload = JSON.stringify({ id: 1, tags: ["a", "b"], active: true })
+print("stringify =", payload)
+parsed = JSON.parse(payload)
+print("parse.id  =", parsed.id, "| tags[1] =", parsed.tags[1])
+
+print("=== Map ===")
+counts: Map = Map()
+for word of ["a", "b", "a", "c", "a", "b"]:
+  counts.set(word, (counts.get(word) ?? 0) + 1)
+print("a count  =", counts.get("a"), "| size =", counts.size)
+
+print("=== Set ===")
+seen: Set<int> = Set()
+for n of [1, 2, 2, 3, 3, 3, 4]:
+  seen.add(n)
+print("unique   =", seen.size, "| has 3 =", seen.has(3))
+
+print("=== range ===")
+print("range(5)      =", range(5))
+print("range(2, 8)   =", range(2, 8))
+evens_range: int[] = [n for n of range(0, 10, 2)]
+print("range(0,10,2) =", evens_range)

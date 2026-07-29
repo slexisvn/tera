@@ -1,0 +1,27 @@
+interface Observer:
+  update(value: string) -> string
+
+class Subject:
+  private listeners: Observer[] = []
+  constructor():
+    this.listeners = []
+  subscribe(listener: Observer) -> void:
+    this.listeners.push(listener)
+  notify(value: string) -> string:
+    out = []
+    for listener of this.listeners:
+      out.push(listener.update(value))
+    return out.join(",")
+
+class Listener implements Observer:
+  private name: string
+  constructor(name: string):
+    this.name = name
+  update(value: string) -> string:
+    return this.name + ":" + value
+
+subject = Subject()
+subject.subscribe(Listener("a"))
+subject.subscribe(Listener("b"))
+
+print("observer:", subject.notify("ready"))

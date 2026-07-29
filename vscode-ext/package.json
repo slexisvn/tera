@@ -2,7 +2,7 @@
   "name": "tera-language",
   "displayName": "Tera Language",
   "description": "Syntax highlighting, diagnostics and IntelliSense for Tera (.tera) — tensor algebra & neural network DSL.",
-  "version": "0.1.1",
+  "version": "0.4.31",
   "icon": "icons/icon.png",
   "publisher": "slexisvn",
   "license": "MIT",
@@ -22,10 +22,12 @@
   "categories": [
     "Programming Languages"
   ],
-  "main": "./client/extension.js",
+  "main": "./dist/extension.cjs",
   "activationEvents": [
     "onLanguage:tera",
-    "onNotebook:tera-notebook"
+    "onNotebook:tera-notebook",
+    "onDebugInitialConfigurations:tera",
+    "onDebugResolve:tera"
   ],
   "contributes": {
     "languages": [
@@ -73,9 +75,66 @@
       {
         "id": "tera-chart-renderer",
         "displayName": "Tera Chart",
-        "entrypoint": "./media/chart-renderer.mjs",
+        "entrypoint": "./dist/chart-renderer.mjs",
         "mimeTypes": [
           "application/x-tera-chart+json"
+        ]
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "tera"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "tera",
+        "label": "Tera",
+        "languages": [
+          "tera"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "default": "${file}",
+                "description": "The Tera source file to debug."
+              },
+              "cwd": {
+                "type": "string",
+                "default": "${workspaceFolder}",
+                "description": "The working directory used by the Tera debugger."
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "default": false,
+                "description": "Pause before executing the first Tera instruction."
+              },
+              "typecheck": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "warn",
+                  "strict"
+                ],
+                "default": "off",
+                "description": "Typecheck mode used before launching the debugger."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "tera",
+            "request": "launch",
+            "name": "Debug Tera File",
+            "program": "${file}",
+            "typecheck": "off"
+          }
         ]
       }
     ],
@@ -123,20 +182,30 @@
     }
   },
   "scripts": {
-    "generate": "node scripts/generate.js",
-    "build:icon": "node scripts/build_icon.js",
-    "build:kernel": "node scripts/build-kernel.js",
-    "test": "vitest run"
+    "generate": "node scripts/generate.ts",
+    "build": "node scripts/build.ts",
+    "watch": "node scripts/build.ts --watch",
+    "build:icon": "node scripts/build-icon.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "koffi": "^3.0.2",
-    "vscode-languageclient": "^9.0.1",
-    "vscode-languageserver": "^9.0.1",
-    "vscode-languageserver-textdocument": "^1.0.11"
+    "koffi": "^3.0.2"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
+    "@slexisvn/tera": "file:..",
+    "@types/node": "^26.1.1",
     "@types/vscode": "^1.85.0",
-    "vitest": "^4.1.8"
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10",
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }
