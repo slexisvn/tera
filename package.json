@@ -6,15 +6,15 @@
     "tera": "./dist/cli.js"
   },
   "main": "./dist/index.node.js",
-  "types": "./dist/types/index.d.ts",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/types/index.d.ts",
+      "types": "./dist/index.d.ts",
       "browser": "./dist/index.browser.js",
       "default": "./dist/index.node.js"
     },
     "./frontend": {
-      "types": "./dist/types/frontend.d.ts",
+      "types": "./dist/index.d.ts",
       "default": "./dist/index.frontend.js"
     },
     "./package.json": "./package.json"
@@ -30,7 +30,6 @@
     "nb:dev": "npm --prefix notebook run dev",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "probe": "node scripts/probe-runtime.ts",
     "postinstall": "patch-package"
   },
   "devDependencies": {

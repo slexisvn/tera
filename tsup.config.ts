@@ -20,16 +20,36 @@ const shared: Options = {
   clean: true,
   splitting: false,
   treeshake: false,
+  minify: true
 };
 
 export default defineConfig([
   {
     ...shared,
     platform: "node",
-    entry: { "index.node": "src/index.ts" },
+    entry: ["src/index.ts"],
     outDir: dist,
-    outExtension: () => ({ js: ".js" }),
+    dts: true,
+    outExtension: () => ({ js: ".node.js" }),
     external: [...dependencyNames, "*.node"],
+  },
+  {
+    ...shared,
+    platform: "neutral",
+    entry: ["src/frontend/index.ts"],
+    outDir: dist,
+    outExtension: () => ({ js: ".frontend.js" }),
+    external: [...dependencyNames, "*.node"],
+  },
+  {
+    ...shared,
+    platform: "browser",
+    entry: ["src/index.ts"],
+    outDir: dist,
+    outExtension: () => ({ js: ".browser.js" }),
+    define: { "process.env.NODE_ENV": '"production"' },
+    noExternal: dependencyNames,
+    external: ["*.node"],
   },
   {
     ...shared,
@@ -38,33 +58,5 @@ export default defineConfig([
     outDir: dist,
     outExtension: () => ({ js: ".js" }),
     external: [...dependencyNames, "*.node"],
-  },
-  {
-    ...shared,
-    platform: "neutral",
-    entry: { "index.frontend": "src/frontend/index.ts" },
-    outDir: dist,
-    outExtension: () => ({ js: ".js" }),
-    external: [...dependencyNames, "*.node"],
-  },
-  {
-    ...shared,
-    platform: "browser",
-    entry: { "index.browser": "src/index.ts" },
-    outDir: dist,
-    outExtension: () => ({ js: ".js" }),
-    define: { "process.env.NODE_ENV": '"production"' },
-    noExternal: dependencyNames,
-    external: ["*.node"],
-  },
-  {
-    entry: { index: "src/index.ts", frontend: "src/frontend/index.ts" },
-    outDir: resolve(dist, "types"),
-    format: ["esm"],
-    target: ["es2022"],
-    platform: "node",
-    dts: { only: true },
-    clean: true,
-    silent: false,
   },
 ]);

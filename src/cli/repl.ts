@@ -476,7 +476,7 @@ function pushHistory(history: string[], line: string): void {
 
 function printBanner() {
   term("╔═══════════════════════════════════════════╗\n");
-  term("║  Tera REPL — TypeScript engine runtime    ║\n");
+  term("║  Tera REPL                                ║\n");
   term("╠═══════════════════════════════════════════╣\n");
   term("║  .help     Show commands                  ║\n");
   term("║  .exit     Quit                           ║\n");

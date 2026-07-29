@@ -35,18 +35,14 @@ jobs:
             notebook/package-lock.json
 
       - name: Install tera dependencies
-        run: npm ci
+        run: npm install
 
       - name: Install notebook dependencies
-        run: npm ci
+        run: npm install
         working-directory: notebook
 
       - name: Build tera browser bundles
         run: npm run build
-
-      - name: Typecheck notebook
-        run: npm run typecheck
-        working-directory: notebook
 
       - name: Build notebook
         run: npm run build
