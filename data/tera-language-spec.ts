@@ -359,6 +359,10 @@ export const TERA_BUILTIN_ALIASES = {
   "DynamicShapeSpec": { "type": "bool | Set | null | undefined" },
   "DynamicShapes": { "type": "DynamicShapeSpec[] | null" },
   "CompileTarget": { "type": "string" },
+  "CompileFusionStrategy": { "type": "string" },
+  "CompileMatmulBackend": { "type": "string" },
+  "CompileErrorMode": { "type": "string" },
+  "CompileVerifyMode": { "type": "bool | string" },
   "NumericElementInput": { "type": "Tensor | NumericScalar" },
   "NumericArrayInput": { "type": "Tensor | NumericScalar[]" },
   "NumericVectorInput": { "type": "Tensor | NumericScalar | NumericScalar[]" },
@@ -416,18 +420,113 @@ export const TERA_BUILTIN_INTERFACES = {
     "fields": {
       "name": field("string", true),
       "mode": field("string", true),
-      "foldWeights": field("bool", true),
+      "verify": field("CompileVerifyMode", true),
+      "error_mode": field("CompileErrorMode", true),
       "fold_weights": field("bool", true),
-      "dynamicShapes": field("DynamicShapes", true),
       "dynamic_shapes": field("DynamicShapes", true),
-      "shapeBuckets": field("int[][][]", true),
       "shape_buckets": field("int[][][]", true),
       "backward": field("unknown", true),
       "target": field("CompileTarget", true),
       "source": field("bool", true),
-      "rematPolicy": field("unknown", true),
+      "fusion": field("CompileFusionOptions", true),
+      "scheduling": field("CompileSchedulingOptions", true),
+      "matmul_backend": field("CompileMatmulBackend", true),
+      "quantization": field("CompileQuantizationOptions", true),
+      "optimization": field("CompileOptimizationOptions", true),
+      "memory": field("CompileMemoryOptions", true),
+      "partition": field("CompilePartitionOptions", true),
+      "trace": field("CompileTraceOptions", true),
       "remat_policy": field("unknown", true),
-      "remat": field("ParamGrid", true)
+      "remat": field("ParamGrid", true),
+      "pass_context": field("unknown", true),
+      "lowering_rules": field("unknown", true),
+      "codegen_entries": field("unknown", true)
+    }
+  },
+  "CompileFusionOptions": {
+    "fields": {
+      "enabled": field("bool", true),
+      "strategy": field("CompileFusionStrategy", true),
+      "launch_overhead_us": field("float", true),
+      "max_fusion_size": field("int", true),
+      "max_shared_memory": field("int", true),
+      "allow_reduction_fusion": field("bool", true),
+      "max_reductions": field("int", true),
+      "cost": field("ParamGrid", true),
+      "benefit_weights": field("ParamGrid", true)
+    }
+  },
+  "CompileSchedulingOptions": {
+    "fields": {
+      "enabled": field("bool", true),
+      "autotune": field("bool", true),
+      "gpu_tiling": field("bool", true),
+      "primitive_matmul": field("bool", true),
+      "strategy": field("string", true),
+      "seed": field("int", true),
+      "hardware_measure": field("bool", true),
+      "population_size": field("int", true),
+      "num_generations": field("int", true),
+      "top_k_for_benchmark": field("int", true),
+      "max_rounds_per_task": field("int", true)
+    },
+    "indexers": [{ "keyType": "string", "valueType": "unknown" }]
+  },
+  "CompileQuantizationOptions": {
+    "fields": {
+      "enabled": field("bool", true),
+      "fold_weights": field("bool", true),
+      "calibration_data": field("unknown", true),
+      "calibration": field("unknown", true),
+      "calibration_mode": field("string", true),
+      "quantizable_ops": field("string[]", true)
+    },
+    "indexers": [{ "keyType": "string", "valueType": "unknown" }]
+  },
+  "CompileOptimizationOptions": {
+    "fields": {
+      "layout": field("bool", true),
+      "rematerialization": field("bool", true),
+      "remat_config": field("ParamGrid", true),
+      "fast_math": field("bool", true),
+      "max_simplify_iterations": field("int", true),
+      "loop_partition": field("bool", true),
+      "detect_accumulators": field("bool", true),
+      "tensorize": field("bool", true)
+    }
+  },
+  "CompileMemoryOptions": {
+    "fields": {
+      "alignment": field("int", true),
+      "inplace_reuse": field("bool", true),
+      "alloc_strategy": field("string", true),
+      "pool_allocation": field("bool", true)
+    }
+  },
+  "CompilePartitionOptions": {
+    "fields": {
+      "enabled": field("bool", true),
+      "targets": field("unknown[]", true),
+      "default_target": field("unknown", true),
+      "op_target_overrides": field("unknown", true),
+      "memory_limits": field("unknown", true),
+      "min_partition_size": field("int", true),
+      "cost_weights": field("ParamGrid", true)
+    },
+    "indexers": [{ "keyType": "string", "valueType": "unknown" }]
+  },
+  "CompileTraceOptions": {
+    "fields": {
+      "level": field("int", true),
+      "sink": field("unknown", true),
+      "ir_snapshot": field("CompileTraceSnapshotOptions", true)
+    }
+  },
+  "CompileTraceSnapshotOptions": {
+    "fields": {
+      "after_graph_passes": field("bool", true),
+      "after_lowering": field("bool", true),
+      "after_scheduling": field("bool", true)
     }
   },
   "SVDResult": {
@@ -1058,6 +1157,27 @@ export const TERA_BUILTINS = {
       namedOptionalParam("exampleInputs", "Tensor[]"),
       namedOptionalParam("target", "CompileTarget"),
       namedOptionalParam("source", "bool"),
+      namedOptionalParam("name", "string"),
+      namedOptionalParam("mode", "string"),
+      namedOptionalParam("verify", "CompileVerifyMode"),
+      namedOptionalParam("error_mode", "CompileErrorMode"),
+      namedOptionalParam("fold_weights", "bool"),
+      namedOptionalParam("dynamic_shapes", "DynamicShapes"),
+      namedOptionalParam("shape_buckets", "int[][][]"),
+      namedOptionalParam("backward", "unknown"),
+      namedOptionalParam("fusion", "CompileFusionOptions"),
+      namedOptionalParam("scheduling", "CompileSchedulingOptions"),
+      namedOptionalParam("matmul_backend", "CompileMatmulBackend"),
+      namedOptionalParam("quantization", "CompileQuantizationOptions"),
+      namedOptionalParam("optimization", "CompileOptimizationOptions"),
+      namedOptionalParam("memory", "CompileMemoryOptions"),
+      namedOptionalParam("partition", "CompilePartitionOptions"),
+      namedOptionalParam("trace", "CompileTraceOptions"),
+      namedOptionalParam("remat_policy", "unknown"),
+      namedOptionalParam("remat", "ParamGrid"),
+      namedOptionalParam("pass_context", "unknown"),
+      namedOptionalParam("lowering_rules", "unknown"),
+      namedOptionalParam("codegen_entries", "unknown"),
       namedOptionalParam("options", "CompileOptions")
     ]
   },

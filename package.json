@@ -42,7 +42,7 @@
     "vitest": "^4.1.8"
   },
   "dependencies": {
-    "@slexisvn/mlfw": "^0.1.3",
+    "@slexisvn/mlfw": "^0.1.5",
     "@slexisvn/quantc": "^0.1.2",
     "@slexisvn/query-engine": "^0.1.2",
     "cli-highlight": "^2.1.11",

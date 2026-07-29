@@ -153,7 +153,34 @@ function resolveTarget(value: unknown): unknown {
 }
 
 function compileOptions(options: Record<string, unknown>): Record<string, unknown> {
-  const out = camelOptions(options);
+  const assertSnakeOptions = (value: unknown, path: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((inner, index) => assertSnakeOptions(inner, `${path}[${index}]`));
+      return;
+    }
+    if (!value || typeof value !== "object" || value instanceof Map) return;
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return;
+    for (const [key, inner] of Object.entries(value)) {
+      if (/[A-Z]/.test(key)) throw new Error(`compile option '${path}.${key}' must use snake_case`);
+      assertSnakeOptions(inner, `${path}.${key}`);
+    }
+  };
+
+  const toCompileOption = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(toCompileOption);
+    if (!value || typeof value !== "object" || value instanceof Map) return value;
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return value;
+    const out: Record<string, unknown> = {};
+    for (const [key, inner] of Object.entries(value)) {
+      out[snakeToCamel(key)] = toCompileOption(inner);
+    }
+    return out;
+  };
+
+  assertSnakeOptions(options, "options");
+  const out = toCompileOption(camelOptions(options)) as Record<string, unknown>;
   delete out.input;
   delete out.exampleInputs;
   delete out.options;
@@ -185,7 +212,7 @@ export function createModelBuiltins(): BuiltinMap {
         const options = { ...nestedOptions, ...namedOptions };
         const positionalInput = values.length > 1 ? values[1] : undefined;
         const exampleInputs = normalizeExampleInputs(
-          options.example_inputs ?? options.exampleInputs ?? options.input ?? positionalInput,
+          options.input ?? positionalInput,
         );
         const input = exampleInputs?.[0] !== undefined ? nativeToTagged(exampleInputs[0]) : undefined;
         if (input !== undefined && isObject(model)) {
