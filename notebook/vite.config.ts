@@ -6,6 +6,7 @@ const notebookRoot = import.meta.dirname;
 const repoRoot = resolve(notebookRoot, "..");
 
 export default defineConfig({
+  base: "/tera/",
   root: notebookRoot,
   publicDir: false,
   plugins: [react()],
