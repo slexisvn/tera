@@ -1,6 +1,6 @@
 import {
   HiddenClass,
-  ROOT_HIDDEN_CLASS,
+  getRootHiddenClass,
 } from "../maps/hidden-class.js";
 import {
   dependencyRegistry,
@@ -50,7 +50,7 @@ export class JSArray {
   constructor(elements?: Array<TaggedValue | undefined>) {
     this.elements = elements ? [...elements] : [];
     this.elementsKind = inferElementsKind(this.elements);
-    this.hiddenClass = ROOT_HIDDEN_CLASS;
+    this.hiddenClass = getRootHiddenClass();
     this.hiddenClass.incrementObjectCount();
     this.slots = [];
     this.overflowProperties = new Map();

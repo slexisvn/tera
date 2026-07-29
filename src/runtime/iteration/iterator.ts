@@ -15,7 +15,7 @@ import {
   isUndefined,
   getPayload,
   toBool,
-  wellKnownSymbols,
+  getWellKnownSymbols,
 } from "../../core/value/index.js";
 import type { GeneratorPayload, TaggedValue } from "../../core/value/index.js";
 import { createJSObject, createJSArray } from "../../objects/heap/factory.js";
@@ -138,6 +138,7 @@ export function getIterator(
   if (isObject(value)) {
     const obj = getPayload(value) as RuntimeObject;
     let method: TaggedValue | undefined;
+    const wellKnownSymbols = getWellKnownSymbols();
     if (wellKnownSymbols.iterator) {
       method = obj.getSymbolProperty(wellKnownSymbols.iterator);
       if ((!method || isUndefined(method)) && obj.prototype) {

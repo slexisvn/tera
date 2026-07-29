@@ -1,6 +1,6 @@
 import {
   HiddenClass,
-  ROOT_HIDDEN_CLASS,
+  getRootHiddenClass,
   PropertyDescriptor,
 } from "../maps/hidden-class.js";
 import { tracer } from "../../core/tracing/index.js";
@@ -103,7 +103,7 @@ export class JSObject {
   _nonExtensible?: boolean;
 
   constructor(hiddenClass?: HiddenClass | null) {
-    this.hiddenClass = hiddenClass || ROOT_HIDDEN_CLASS;
+    this.hiddenClass = hiddenClass || getRootHiddenClass();
     this.hiddenClass.incrementObjectCount();
     const propCount = this.hiddenClass.propertyCount;
     this.slots = propCount > 0 ? new Array<StoredPropertyValue>(propCount) : [];

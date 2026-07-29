@@ -1,6 +1,6 @@
-import { getPayload, getHeapId } from "../core/value/index.js";
+import { getCurrentValueHeap, getHeapId } from "../core/value/index.js";
 import { visitExternalRoots } from "./external-roots.js";
-import type { HeapPayload, TaggedValue } from "../core/value/index.js";
+import type { HeapPayload, TaggedValue, ValueHeap } from "../core/value/index.js";
 import type { GCObject } from "./incremental-marker.js";
 import type { RegisterValue } from "../bytecode/register/interpreter/frame.js";
 import type { RegisterConstant } from "../bytecode/register/ops/bytecode.js";
@@ -52,7 +52,6 @@ type MicrotaskQueueLike = {
   queue: Array<MicrotaskRootRecord | null | undefined>;
 };
 type PayloadLike = GCObject & {
-  __heapId?: number;
   slots?: TaggedValue[];
   elements?: TaggedValue[];
   overflowProperties?: Map<string, TaggedValue>;
@@ -108,6 +107,7 @@ export function markReachableHeapIds(
   interpreter?: InterpreterLike | null,
   globalCells?: GlobalCellsLike | null,
   microtaskQueue?: MicrotaskQueueLike | null,
+  heap: ValueHeap = getCurrentValueHeap(),
 ): Set<number> {
   const live = new Set<number>();
   const seenPayloads = new Set<object>();
@@ -117,7 +117,7 @@ export function markReachableHeapIds(
     if (v === undefined || typeof v !== "number") return;
     const id = getHeapId(v);
     if (id > 0) live.add(id);
-    const p = getPayload(v as TaggedValue) as PayloadLike | null | undefined;
+    const p = heap.getPayload(v as TaggedValue) as PayloadLike | null | undefined;
     if (p && typeof p === "object" && !seenPayloads.has(p)) {
       seenPayloads.add(p);
       work.push(p);
@@ -131,7 +131,8 @@ export function markReachableHeapIds(
       const payload = p as PayloadLike;
       seenPayloads.add(payload);
       work.push(payload);
-      if (typeof payload.__heapId === "number" && payload.__heapId > 0) live.add(payload.__heapId);
+      const id = heap.getObjectHeapId(payload);
+      if (id > 0) live.add(id);
     }
   };
 
@@ -231,23 +232,24 @@ export function enumerateRoots(
   interpreter?: InterpreterLike | null,
   globalCells?: GlobalCellsLike | null,
   microtaskQueue?: MicrotaskQueueLike | null,
+  heap: ValueHeap = getCurrentValueHeap(),
 ): GCObject[] {
   const roots: GCObject[] = [];
 
   if (interpreter) {
     forEachRootFrame(interpreter, (frame) => {
       visitFrameRoots(frame, (value) => {
-        const obj = extractHeapObject(value);
+        const obj = extractHeapObject(value, heap);
         if (obj) roots.push(obj);
       });
     });
     visitTransientRoots(interpreter, (value) => {
-      const obj = extractHeapObject(value);
+      const obj = extractHeapObject(value, heap);
       if (obj) roots.push(obj);
     });
   }
   visitExternalRoots((value) => {
-    const obj = extractHeapObject(value);
+    const obj = extractHeapObject(value, heap);
     if (obj) roots.push(obj);
   });
 
@@ -259,7 +261,7 @@ export function enumerateRoots(
     ) {
       for (const [, cell] of cellsMap) {
         const val = cell && typeof cell.read === "function" ? cell.read() : cell.value;
-        const obj = extractHeapObject(val);
+        const obj = extractHeapObject(val, heap);
         if (obj) roots.push(obj);
       }
     }
@@ -279,6 +281,7 @@ export function enumerateRoots(
 export function collectLiveHeapIds(
   interpreter?: InterpreterLike | null,
   globalCells?: GlobalCellsLike | null,
+  heap: ValueHeap = getCurrentValueHeap(),
 ): Set<number> {
   const liveIds = new Set<number>();
 
@@ -322,11 +325,11 @@ export function collectLiveHeapIds(
   return liveIds;
 }
 
-function extractHeapObject(tagged: RootSlotValue): GCObject | null {
+function extractHeapObject(tagged: RootSlotValue, heap: ValueHeap = getCurrentValueHeap()): GCObject | null {
   if (tagged && typeof tagged === "object" && (tagged as GCObject).gcHeader)
     return tagged as GCObject;
   if (typeof tagged !== "number") return null;
-  const payload = getPayload(tagged);
+  const payload = heap.getPayload(tagged);
   if (payload && typeof payload === "object" && (payload as GCObject).gcHeader)
     return payload as GCObject;
   return null;

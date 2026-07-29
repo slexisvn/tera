@@ -13,7 +13,7 @@ import {
   INSTANCE_TYPE_SET,
   INSTANCE_TYPE_WEAKMAP,
 } from "../maps/hidden-class.js";
-import { bindWriteBarrierGC } from "../../gc/write-barrier.js";
+import { bindWriteBarrierGC, withWriteBarrierGC } from "../../gc/write-barrier.js";
 import type { TaggedValue } from "../../core/value/index.js";
 
 type BoundGC = {
@@ -35,6 +35,16 @@ let _gc: BoundGC | null = null;
 export function bindGC(gc: BoundGC | null): void {
   _gc = gc;
   bindWriteBarrierGC(gc);
+}
+
+export function withGC<T>(gc: BoundGC | null, run: () => T): T {
+  const previous = _gc;
+  _gc = gc;
+  try {
+    return withWriteBarrierGC(gc, run);
+  } finally {
+    _gc = previous;
+  }
 }
 
 export function createJSObject(

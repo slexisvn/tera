@@ -210,4 +210,33 @@ function normalizeDependencies(
   return result;
 }
 
-export const dependencyRegistry = new DependencyRegistry();
+const defaultDependencyRegistry = new DependencyRegistry();
+let activeDependencyRegistry = defaultDependencyRegistry;
+
+export function getCurrentDependencyRegistry(): DependencyRegistry {
+  return activeDependencyRegistry;
+}
+
+export function withDependencyRegistry<T>(registry: DependencyRegistry, run: () => T): T {
+  const previous = activeDependencyRegistry;
+  activeDependencyRegistry = registry;
+  try {
+    return run();
+  } finally {
+    activeDependencyRegistry = previous;
+  }
+}
+
+export function getDefaultDependencyRegistry(): DependencyRegistry {
+  return defaultDependencyRegistry;
+}
+
+export const dependencyRegistry = new Proxy(defaultDependencyRegistry, {
+  get(_target, property, receiver) {
+    const value = Reflect.get(activeDependencyRegistry, property, receiver);
+    return typeof value === "function" ? value.bind(activeDependencyRegistry) : value;
+  },
+  set(_target, property, value, receiver) {
+    return Reflect.set(activeDependencyRegistry, property, value, receiver);
+  },
+}) as DependencyRegistry;

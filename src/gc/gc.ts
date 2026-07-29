@@ -2,8 +2,8 @@ import { HeapRegion } from "./heap-region.js";
 import { OldGeneration } from "./old-generation.js";
 import { RememberedSet } from "./remembered-set.js";
 import { enumerateRoots, collectLiveHeapIds } from "./roots.js";
-import { sweepHeapPayloads, freeHeapObjectSlot } from "../core/value/index.js";
-import type { HeapPayload } from "../core/value/index.js";
+import { getCurrentValueHeap } from "../core/value/index.js";
+import type { HeapPayload, ValueHeap } from "../core/value/index.js";
 import { tracer } from "../core/tracing/index.js";
 import type { OldGenerationObject } from "./old-generation.js";
 import {
@@ -81,12 +81,14 @@ export class GenerationalGC {
   _majorGCThreshold: number;
   _targetPauseMs: number;
   _incrementalMajorGCActive: boolean;
+  valueHeap: ValueHeap;
 
-  constructor(options: GCOptions = {}) {
+  constructor(options: GCOptions = {}, valueHeap: ValueHeap = getCurrentValueHeap()) {
     this.fromSpace = new HeapRegion<ManagedObject>(options.youngGenSize);
     this.toSpace = new HeapRegion<ManagedObject>(options.youngGenSize);
     this.oldGen = new OldGeneration(options.oldGenCapacity);
     this.rememberedSet = new RememberedSet<ManagedObject>();
+    this.valueHeap = valueHeap;
 
     this.interpreter = null;
     this.globalCells = null;
@@ -114,6 +116,7 @@ export class GenerationalGC {
       this.interpreter,
       this.globalCells,
       this.microtaskQueue,
+      this.valueHeap,
     ) as ManagedObject[];
   }
 
@@ -237,7 +240,7 @@ export class GenerationalGC {
 
     this.toSpace.forEach((obj) => {
       if (obj && !visited.has(obj)) {
-        freeHeapObjectSlot(obj);
+        this.valueHeap.freeHeapObjectSlot(obj);
       }
     });
 
@@ -314,8 +317,8 @@ export class GenerationalGC {
     this.rememberedSet.clear();
     this._rebuildRememberedSetFromOldGen();
 
-    const liveIds = collectLiveHeapIds(this.interpreter, this.globalCells);
-    const heapFreed = sweepHeapPayloads(liveIds);
+    const liveIds = collectLiveHeapIds(this.interpreter, this.globalCells, this.valueHeap);
+    const heapFreed = this.valueHeap.sweepHeapPayloads(liveIds);
 
     this._majorGCThreshold = Math.max(
       this.oldGen.liveCount * MAJOR_GC_GROWTH_FACTOR,
@@ -397,8 +400,8 @@ export class GenerationalGC {
     this.rememberedSet.clear();
     this._rebuildRememberedSetFromOldGen();
 
-    const liveIds = collectLiveHeapIds(this.interpreter, this.globalCells);
-    const heapFreed = sweepHeapPayloads(liveIds);
+    const liveIds = collectLiveHeapIds(this.interpreter, this.globalCells, this.valueHeap);
+    const heapFreed = this.valueHeap.sweepHeapPayloads(liveIds);
 
     this._majorGCThreshold = Math.max(
       this.oldGen.liveCount * MAJOR_GC_GROWTH_FACTOR,

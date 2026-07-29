@@ -39,7 +39,7 @@ import {
   abstractLooseEqual,
   isPrimitive,
   initWellKnownSymbols,
-  wellKnownSymbols,
+  getWellKnownSymbols,
   areBothSmi,
   areBothNumber,
   smiPayload,
@@ -703,6 +703,7 @@ export class RegisterInterpreter {
     const symCell = this.globalCells.read("Symbol");
     if (symCell && isFunction(symCell)) {
       const symFn = getPayload(symCell);
+      const wellKnownSymbols = getWellKnownSymbols();
       if (!symFn.properties) symFn.properties = {};
       symFn.properties["iterator"] = wellKnownSymbols.iterator;
       symFn.properties["hasInstance"] = wellKnownSymbols.hasInstance;

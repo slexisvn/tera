@@ -14,6 +14,16 @@ export function bindWriteBarrierGC(gc: WriteBarrierGC | null): void {
   _gc = gc;
 }
 
+export function withWriteBarrierGC<T>(gc: WriteBarrierGC | null, run: () => T): T {
+  const previous = _gc;
+  _gc = gc;
+  try {
+    return run();
+  } finally {
+    _gc = previous;
+  }
+}
+
 export function storeBarrier(
   holder: GCObject | null | undefined,
   newRef: GCObject | null | undefined,

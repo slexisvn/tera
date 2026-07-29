@@ -5,8 +5,6 @@ import {
   DEP_PROTO_VALIDITY,
 } from "../../deopt/dependencies.js";
 
-let nextHiddenClassId = 0;
-
 const TRANSITION_ADD = "add";
 const TRANSITION_DELETE = "delete";
 const TRANSITION_RECONFIGURE = "reconfigure";
@@ -19,10 +17,6 @@ const INTEGRITY_FROZEN = "frozen";
 
 const MAX_TRANSITIONS_BEFORE_UNSTABLE = 32;
 const MAX_DEPRECATIONS_BEFORE_FREEZE = 5;
-
-const allHiddenClasses = new Map<number, HiddenClass>();
-const deprecatedMaps = new Map<number, HiddenClass>();
-const migrationTargetCache = new Map<string, HiddenClass>();
 
 type TransitionType =
   | typeof TRANSITION_ADD
@@ -66,6 +60,89 @@ type HiddenClassStatistics = {
   integrityTransitionCount: number;
   reconfigureTransitionCount: number;
 };
+
+export class HiddenClassRegistry {
+  nextHiddenClassId: number;
+  allHiddenClasses: Map<number, HiddenClass>;
+  deprecatedMaps: Map<number, HiddenClass>;
+  migrationTargetCache: Map<string, HiddenClass>;
+  initialMapCache: Map<string, HiddenClass>;
+  root: HiddenClass;
+
+  constructor() {
+    this.nextHiddenClassId = 0;
+    this.allHiddenClasses = new Map();
+    this.deprecatedMaps = new Map();
+    this.migrationTargetCache = new Map();
+    this.initialMapCache = new Map();
+    this.root = new HiddenClass(null, null, null, 0, this);
+  }
+
+  allocateHiddenClassId(): number {
+    return this.nextHiddenClassId++;
+  }
+
+  register(hiddenClass: HiddenClass): void {
+    this.allHiddenClasses.set(hiddenClass.id, hiddenClass);
+  }
+
+  getInitialMap(instanceType: string): HiddenClass {
+    if (this.initialMapCache.has(instanceType)) return this.initialMapCache.get(instanceType)!;
+    const hc = new HiddenClass(this.root, null, null, 0);
+    hc.instanceType = instanceType;
+    this.root.transitions.set(`@@${instanceType}`, hc);
+    this.initialMapCache.set(instanceType, hc);
+    return hc;
+  }
+
+  reset(): void {
+    this.nextHiddenClassId = 1;
+    this.root.id = 0;
+    this.root.parent = null;
+    this.root.transitions.clear();
+    this.root.deleteTransitions.clear();
+    this.root.integrityTransitions.clear();
+    this.root.reconfigureTransitions.clear();
+    this.root.isStable = true;
+    this.root.isDeprecated = false;
+    this.root.migrationTarget = null;
+    this.root.deprecationCount = 0;
+    this.root.version = 0;
+    this.root.prototypeValidityCell = { version: 0 };
+    this.root._descMap = new Map();
+    this.root._sharedExtended = false;
+    this.root.descriptorVersion = 0;
+    this.root.propertyCount = 0;
+    this.root.integrityLevel = INTEGRITY_NONE;
+    this.root.objectCount = 0;
+    this.root.totalTransitionCount = 0;
+    this.root.transitionType = null;
+    this.root.transitionKey = null;
+    this.root.instanceType = null;
+    this.root.registry = this;
+    this.allHiddenClasses.clear();
+    this.allHiddenClasses.set(0, this.root);
+    this.deprecatedMaps.clear();
+    this.migrationTargetCache.clear();
+    this.initialMapCache.clear();
+  }
+
+  getHiddenClassById(id: number): HiddenClass | null {
+    return this.allHiddenClasses.get(id) || null;
+  }
+
+  isMapDeprecated(hiddenClassId: number): boolean {
+    return this.deprecatedMaps.has(hiddenClassId);
+  }
+
+  getMigrationTarget(hiddenClassId: number): HiddenClass | null {
+    return this.deprecatedMaps.get(hiddenClassId) || null;
+  }
+
+  getDeprecatedMapCount(): number {
+    return this.deprecatedMaps.size;
+  }
+}
 
 export class PropertyDescriptor {
   offset: number;
@@ -187,14 +264,17 @@ export class HiddenClass {
   _sharedExtended: boolean;
   _descMap: Map<string, PropertyDescriptor>;
   propertyCount: number;
+  registry: HiddenClassRegistry;
 
   constructor(
     parent: HiddenClass | null,
     transitionType: TransitionType | null,
     transitionKey: string | null,
     offset: number,
+    registry?: HiddenClassRegistry,
   ) {
-    this.id = nextHiddenClassId++;
+    this.registry = parent?.registry ?? registry ?? getCurrentHiddenClassRegistry();
+    this.id = this.registry.allocateHiddenClassId();
     this.parent = parent;
     this.transitions = new Map();
     this.deleteTransitions = new Map();
@@ -253,7 +333,7 @@ export class HiddenClass {
         this.propertyCount = this._descMap.size;
       }
     }
-    allHiddenClasses.set(this.id, this);
+    this.registry.register(this);
   }
 
   _ownEntries(): Array<[string, PropertyDescriptor]> {
@@ -306,7 +386,7 @@ export class HiddenClass {
     const target = this._buildMigrationTarget();
     this.migrationTarget = target;
 
-    deprecatedMaps.set(this.id, target);
+    this.registry.deprecatedMaps.set(this.id, target);
     tracer.log(
       "hidden-class",
       `HC${this.id} deprecated (${reason}) → migrate to HC${target.id}`,
@@ -327,11 +407,10 @@ export class HiddenClass {
     const cacheKey = keyParts.join("|");
 
     
-    const cached = migrationTargetCache.get(cacheKey);
+    const cached = this.registry.migrationTargetCache.get(cacheKey);
     if (cached) return cached;
 
-    let target = new HiddenClass(null, null, null, 0);
-    allHiddenClasses.set(target.id, target);
+    let target = new HiddenClass(null, null, null, 0, this.registry);
 
     for (const [name, desc] of this.properties) {
       const next = new HiddenClass(
@@ -353,7 +432,7 @@ export class HiddenClass {
     target.integrityLevel = this.integrityLevel;
 
     
-    migrationTargetCache.set(cacheKey, target);
+    this.registry.migrationTargetCache.set(cacheKey, target);
     return target;
   }
 
@@ -799,7 +878,32 @@ export class HiddenClass {
   }
 }
 
-export const ROOT_HIDDEN_CLASS = new HiddenClass(null, null, null, 0);
+const defaultHiddenClassRegistry = new HiddenClassRegistry();
+let activeHiddenClassRegistry = defaultHiddenClassRegistry;
+
+export const ROOT_HIDDEN_CLASS = defaultHiddenClassRegistry.root;
+
+export function getCurrentHiddenClassRegistry(): HiddenClassRegistry {
+  return activeHiddenClassRegistry;
+}
+
+export function withHiddenClassRegistry<T>(registry: HiddenClassRegistry, run: () => T): T {
+  const previous = activeHiddenClassRegistry;
+  activeHiddenClassRegistry = registry;
+  try {
+    return run();
+  } finally {
+    activeHiddenClassRegistry = previous;
+  }
+}
+
+export function getDefaultHiddenClassRegistry(): HiddenClassRegistry {
+  return defaultHiddenClassRegistry;
+}
+
+export function getRootHiddenClass(): HiddenClass {
+  return activeHiddenClassRegistry.root;
+}
 
 export const INSTANCE_TYPE_OBJECT = "JS_OBJECT";
 export const INSTANCE_TYPE_MAP = "JS_MAP";
@@ -809,58 +913,28 @@ export const INSTANCE_TYPE_STRING_WRAPPER = "JS_STRING_WRAPPER";
 export const INSTANCE_TYPE_NUMBER_WRAPPER = "JS_NUMBER_WRAPPER";
 export const INSTANCE_TYPE_BOOLEAN_WRAPPER = "JS_BOOLEAN_WRAPPER";
 
-const initialMapCache = new Map<string, HiddenClass>();
-
 export function getInitialMap(instanceType: string): HiddenClass {
-  if (initialMapCache.has(instanceType)) return initialMapCache.get(instanceType)!;
-  const hc = new HiddenClass(ROOT_HIDDEN_CLASS, null, null, 0);
-  hc.instanceType = instanceType;
-  ROOT_HIDDEN_CLASS.transitions.set(`@@${instanceType}`, hc);
-  initialMapCache.set(instanceType, hc);
-  return hc;
+  return activeHiddenClassRegistry.getInitialMap(instanceType);
 }
 
 export function resetHiddenClasses(): void {
-  nextHiddenClassId = 1;
-  ROOT_HIDDEN_CLASS.id = 0;
-  ROOT_HIDDEN_CLASS.transitions.clear();
-  ROOT_HIDDEN_CLASS.deleteTransitions.clear();
-  ROOT_HIDDEN_CLASS.integrityTransitions.clear();
-  ROOT_HIDDEN_CLASS.reconfigureTransitions.clear();
-  ROOT_HIDDEN_CLASS.isStable = true;
-  ROOT_HIDDEN_CLASS.isDeprecated = false;
-  ROOT_HIDDEN_CLASS.migrationTarget = null;
-  ROOT_HIDDEN_CLASS.deprecationCount = 0;
-  ROOT_HIDDEN_CLASS.version = 0;
-  ROOT_HIDDEN_CLASS.prototypeValidityCell = { version: 0 };
-  ROOT_HIDDEN_CLASS._descMap = new Map();
-  ROOT_HIDDEN_CLASS._sharedExtended = false;
-  ROOT_HIDDEN_CLASS.descriptorVersion = 0;
-  ROOT_HIDDEN_CLASS.propertyCount = 0;
-  ROOT_HIDDEN_CLASS.integrityLevel = INTEGRITY_NONE;
-  ROOT_HIDDEN_CLASS.objectCount = 0;
-  ROOT_HIDDEN_CLASS.totalTransitionCount = 0;
-  allHiddenClasses.clear();
-  allHiddenClasses.set(0, ROOT_HIDDEN_CLASS);
-  deprecatedMaps.clear();
-  migrationTargetCache.clear();
-  initialMapCache.clear();
+  activeHiddenClassRegistry.reset();
 }
 
 export function getHiddenClassById(id: number): HiddenClass | null {
-  return allHiddenClasses.get(id) || null;
+  return activeHiddenClassRegistry.getHiddenClassById(id);
 }
 
 export function isMapDeprecated(hiddenClassId: number): boolean {
-  return deprecatedMaps.has(hiddenClassId);
+  return activeHiddenClassRegistry.isMapDeprecated(hiddenClassId);
 }
 
 export function getMigrationTarget(hiddenClassId: number): HiddenClass | null {
-  return deprecatedMaps.get(hiddenClassId) || null;
+  return activeHiddenClassRegistry.getMigrationTarget(hiddenClassId);
 }
 
 export function getDeprecatedMapCount(): number {
-  return deprecatedMaps.size;
+  return activeHiddenClassRegistry.getDeprecatedMapCount();
 }
 
 export {

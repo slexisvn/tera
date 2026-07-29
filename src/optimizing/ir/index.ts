@@ -82,7 +82,42 @@ export const IR_NEW_REGEX = "NewRegex";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 
-let nextNodeId = 0;
+export class IRNodeIdAllocator {
+  private nextNodeId: number;
+
+  constructor() {
+    this.nextNodeId = 0;
+  }
+
+  next(): number {
+    return this.nextNodeId++;
+  }
+
+  reset(): void {
+    this.nextNodeId = 0;
+  }
+}
+
+const defaultIRNodeIdAllocator = new IRNodeIdAllocator();
+let activeIRNodeIdAllocator = defaultIRNodeIdAllocator;
+
+export function withIRNodeIdAllocator<T>(allocator: IRNodeIdAllocator, run: () => T): T {
+  const previous = activeIRNodeIdAllocator;
+  activeIRNodeIdAllocator = allocator;
+  try {
+    return run();
+  } finally {
+    activeIRNodeIdAllocator = previous;
+  }
+}
+
+export function getCurrentIRNodeIdAllocator(): IRNodeIdAllocator {
+  return activeIRNodeIdAllocator;
+}
+
+export function getDefaultIRNodeIdAllocator(): IRNodeIdAllocator {
+  return defaultIRNodeIdAllocator;
+}
 
 export type EffectKind =
   | typeof EFFECT_NONE
@@ -218,7 +253,7 @@ export class CFGValue {
   uses: CFGInstruction[];
 
   constructor(def: CFGInstruction | CFGValue | null = null, props: IRMetadata = {}) {
-    this.id = nextNodeId++;
+    this.id = activeIRNodeIdAllocator.next();
     this.def = def;
     this.rep = props.rep || null;
     this.uses = [];
@@ -247,7 +282,7 @@ export class CFGInstruction {
   _inlineNumericStore?: boolean;
 
   constructor(opcode: string, metadata: IRMetadata = {}) {
-    this.id = nextNodeId++;
+    this.id = activeIRNodeIdAllocator.next();
     this.opcode = opcode;
     this.type = opcode;
     this.metadata = metadata;
@@ -1011,6 +1046,6 @@ export function irInt32And(left: IRValueLike, right: IRValueLike) {
 }
 
 export function resetIRNodeIds() {
-  nextNodeId = 0;
+  activeIRNodeIdAllocator.reset();
 }
 

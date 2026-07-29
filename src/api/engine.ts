@@ -8,26 +8,30 @@ import {
   RegisterFrame,
   updateCallMode,
 } from "../bytecode/register/interpreter/index.js";
-import { RegisterCompiledFunction } from "../bytecode/register/ops/bytecode.js";
+import {
+  CompiledFunctionIdAllocator,
+  RegisterCompiledFunction,
+  withCompiledFunctionIdAllocator,
+} from "../bytecode/register/ops/bytecode.js";
 import type { RegisterConstant, OsrEntry } from "../bytecode/register/ops/bytecode.js";
 import type { GlobalCell } from "../runtime/intrinsics/global-cells.js";
 import { SpeculativeOptimizer } from "../optimizing/optimizer.js";
 import { WasmCodegen } from "../optimizing/wasm/codegen.js";
 import { BaselineCompiler } from "../optimizing/baseline/compiler.js";
 import { Deoptimizer } from "../deopt/deoptimizer.js";
-import { dependencyRegistry } from "../deopt/dependencies.js";
+import { DependencyRegistry, withDependencyRegistry } from "../deopt/dependencies.js";
 import { DEP_CALL_TARGET } from "../deopt/dependencies.js";
 import type { Dependency } from "../deopt/dependencies.js";
 import { tracer } from "../core/tracing/index.js";
-import { getPayload, getTag, isPromise, toDisplayString, resetHeapPayloads } from "../core/value/index.js";
+import { getPayload, getTag, isPromise, toDisplayString, ValueHeap, withValueHeap } from "../core/value/index.js";
 import type { HeapPayload } from "../core/value/index.js";
 import type { TaggedValue } from "../core/value/index.js";
 import {
-  resetHiddenClasses,
-  getDeprecatedMapCount,
+  HiddenClassRegistry,
+  withHiddenClassRegistry,
 } from "../objects/maps/hidden-class.js";
 import { getMigrationStats } from "../objects/heap/js-object.js";
-import { resetIRNodeIds } from "../optimizing/ir/index.js";
+import { IRNodeIdAllocator, resetIRNodeIds, withIRNodeIdAllocator } from "../optimizing/ir/index.js";
 import { createTieringPolicy } from "../runtime/tiering/policy.js";
 import type { TieringPolicyOptions } from "../runtime/tiering/policy.js";
 import {
@@ -37,8 +41,8 @@ import {
 } from "../runtime/microtasks/microtask.js";
 import type { MicrotaskPolicyValue } from "../runtime/microtasks/microtask.js";
 import { GenerationalGC } from "../gc/gc.js";
-import { bindGC } from "../objects/heap/factory.js";
-import { bindHostAsync, taggedToNative } from "../runtime/domain/host.js";
+import { withGC } from "../objects/heap/factory.js";
+import { taggedToNative, withHostAsync } from "../runtime/domain/host.js";
 import {
   checkSource,
   TypecheckError,
@@ -145,8 +149,18 @@ export class Engine {
   output?: (text: string) => void;
   diagnostics: Diagnostic[];
   osrEnabled: boolean;
+  valueHeap: ValueHeap;
+  dependencyRegistry: DependencyRegistry;
+  hiddenClassRegistry: HiddenClassRegistry;
+  irNodeIdAllocator: IRNodeIdAllocator;
+  compiledFunctionIdAllocator: CompiledFunctionIdAllocator;
 
   constructor(options: EngineOptions = {}) {
+    this.valueHeap = new ValueHeap();
+    this.dependencyRegistry = new DependencyRegistry();
+    this.hiddenClassRegistry = new HiddenClassRegistry();
+    this.irNodeIdAllocator = new IRNodeIdAllocator();
+    this.compiledFunctionIdAllocator = new CompiledFunctionIdAllocator();
     this.typecheckMode = options.typecheck || "warn";
     this.output = options.output;
     this.diagnostics = [];
@@ -155,24 +169,21 @@ export class Engine {
     this.microtaskQueue = new MicrotaskQueue({
       policy: options.microtaskPolicy || MicrotaskPolicy.AUTO,
     });
-    this.gc = new GenerationalGC(options.gc || {});
-    bindGC(this.gc);
-    this.interpreter = new RegisterInterpreter(this) as EngineInterpreter;
+    this.gc = new GenerationalGC(options.gc || {}, this.valueHeap);
+    this.interpreter = this.runInRuntime(
+      () => new RegisterInterpreter(this) as EngineInterpreter,
+      false,
+    );
     this.gc.bindRoots(
       this.interpreter,
       this.interpreter.globalCells,
       this.microtaskQueue,
     );
-    bindHostAsync({
-      queue: this.microtaskQueue,
-      drain: () => this.drainMicrotasks(),
-      interpreter: this.interpreter,
-    });
     this.baselineCompiler = new BaselineCompiler();
     this.optimizer = new SpeculativeOptimizer();
     this.wasmCodegen = new WasmCodegen();
     this.deoptimizer = new Deoptimizer(this.interpreter);
-    dependencyRegistry.bindLazyMarker(this.deoptimizer.lazyMarker);
+    this.dependencyRegistry.bindLazyMarker(this.deoptimizer.lazyMarker);
     this.compilationCount = 0;
     this.executionCount = 0;
     this.totalCompileTimeMs = 0;
@@ -186,7 +197,35 @@ export class Engine {
     }
   }
 
+  private hostAsyncBinding() {
+    return {
+      queue: this.microtaskQueue,
+      drain: () => this.drainMicrotasks(),
+      interpreter: this.interpreter,
+      run: <T>(fn: () => T) => this.runInRuntime(fn),
+    };
+  }
+
+  private runInRuntime<T>(run: () => T, bindHost = true): T {
+    const hostBinding = bindHost ? this.hostAsyncBinding() : null;
+    return withValueHeap(this.valueHeap, () =>
+      withDependencyRegistry(this.dependencyRegistry, () =>
+        withHiddenClassRegistry(this.hiddenClassRegistry, () =>
+          withIRNodeIdAllocator(this.irNodeIdAllocator, () =>
+            withCompiledFunctionIdAllocator(this.compiledFunctionIdAllocator, () =>
+              withGC(this.gc, () => withHostAsync(hostBinding, run)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   compile(source: string, options: CompileOptions = {}): RegisterCompiledFunction {
+    return this.runInRuntime(() => this.compileInRuntime(source, options));
+  }
+
+  private compileInRuntime(source: string, options: CompileOptions = {}): RegisterCompiledFunction {
     this.diagnostics = checkSource(source, this.typecheckMode);
     if (this.typecheckMode === "strict" && this.diagnostics.length > 0) {
       throw new TypecheckError(this.diagnostics);
@@ -196,7 +235,7 @@ export class Engine {
     return compiler.compile(ast);
   }
 
-  run(source: string): TaggedValue {
+  private runSource(source: string): TaggedValue {
     this.executionCount++;
     const t0 = performance.now();
 
@@ -205,12 +244,17 @@ export class Engine {
     this.totalCompileTimeMs += compileTime;
 
     const t1 = performance.now();
-    const scope = new MicrotasksScope(
-      this.microtaskQueue,
-      this.interpreter,
-    );
-    const result = this.interpreter.execute(compiled);
-    scope.exit();
+    const result = this.runInRuntime(() => {
+      const scope = new MicrotasksScope(
+        this.microtaskQueue,
+        this.interpreter,
+      );
+      try {
+        return this.interpreter.execute(compiled);
+      } finally {
+        scope.exit();
+      }
+    });
     const execTime = performance.now() - t1;
     this.totalExecTimeMs += execTime;
 
@@ -220,13 +264,20 @@ export class Engine {
     return result;
   }
 
+  run(source: string): TaggedValue {
+    const result = this.runSource(source);
+    this.valueHeap.enableExternalLookup();
+    return result;
+  }
+
   runValue(source: string): EngineValue {
-    const raw = this.run(source);
-    return { tag: getTag(raw), value: getPayload(raw) };
+    const raw = this.runSource(source);
+    return this.runInRuntime(() => ({ tag: getTag(raw), value: getPayload(raw) }));
   }
 
   runNative(source: string): unknown {
-    return this.toNativeResult(this.run(source));
+    const raw = this.runSource(source);
+    return this.runInRuntime(() => this.toNativeResult(raw));
   }
 
   private toNativeResult(value: TaggedValue): unknown {
@@ -237,12 +288,14 @@ export class Engine {
     if (promise.state === "rejected") throw taggedToNative(promise.result);
     return new Promise((resolve, reject) => {
       promise.addReaction((state, result) => {
-        try {
-          if (state === "fulfilled") resolve(taggedToNative(result));
-          else reject(taggedToNative(result));
-        } catch (error) {
-          reject(error);
-        }
+        this.runInRuntime(() => {
+          try {
+            if (state === "fulfilled") resolve(taggedToNative(result));
+            else reject(taggedToNative(result));
+          } catch (error) {
+            reject(error);
+          }
+        });
       });
       this.drainMicrotasks();
     });
@@ -253,20 +306,22 @@ export class Engine {
     args: TaggedValue[] = [],
     thisValue: TaggedValue | null = null,
   ): EngineValue {
-    const raw = this.interpreter.execute(compiledFn, args, thisValue);
-    return { tag: getTag(raw), value: getPayload(raw) };
+    return this.runInRuntime(() => {
+      const raw = this.interpreter.execute(compiledFn, args, thisValue);
+      return { tag: getTag(raw), value: getPayload(raw) };
+    });
   }
 
   runMicrotasks(): boolean {
-    return this.microtaskQueue.runOne(this.interpreter);
+    return this.runInRuntime(() => this.microtaskQueue.runOne(this.interpreter));
   }
 
   drainMicrotasks(): void {
-    return this.microtaskQueue.drain(this.interpreter);
+    return this.runInRuntime(() => this.microtaskQueue.drain(this.interpreter));
   }
 
   performMicrotaskCheckpoint(): void {
-    return this.microtaskQueue.performCheckpoint(this.interpreter);
+    return this.runInRuntime(() => this.microtaskQueue.performCheckpoint(this.interpreter));
   }
 
   setMicrotaskPolicy(policy: MicrotaskPolicyValue): void {
@@ -283,8 +338,9 @@ export class Engine {
       }
     }
 
-    const result = this.interpreter.execute(compiled);
+    const result = this.runInRuntime(() => this.interpreter.execute(compiled));
     this.drainMicrotasks();
+    this.valueHeap.enableExternalLookup();
     return result;
   }
 
@@ -340,7 +396,7 @@ export class Engine {
 
     compiledFn.isLazy = false;
     compiledFn.version = oldVersion + 1;
-    dependencyRegistry.invalidate(
+    this.dependencyRegistry.invalidate(
       DEP_CALL_TARGET,
       compiledFn.id,
       oldVersion,
@@ -353,6 +409,10 @@ export class Engine {
   }
 
   baselineCompile(compiledFn: RegisterCompiledFunction): void {
+    return this.runInRuntime(() => this.baselineCompileInRuntime(compiledFn));
+  }
+
+  private baselineCompileInRuntime(compiledFn: RegisterCompiledFunction): void {
     if (compiledFn.baselineCode) return;
 
     try {
@@ -371,6 +431,10 @@ export class Engine {
   }
 
   compileOsr(compiledFn: RegisterCompiledFunction, offset: number): OsrEntry | null {
+    return this.runInRuntime(() => this.compileOsrInRuntime(compiledFn, offset));
+  }
+
+  private compileOsrInRuntime(compiledFn: RegisterCompiledFunction, offset: number): OsrEntry | null {
     const cached = compiledFn.osrCache.get(offset);
     if (cached !== undefined) return cached;
 
@@ -387,7 +451,7 @@ export class Engine {
         const code = this.wasmCodegen.compile(result, compiledFn);
         if (code) {
           entry = { code, slots: result.graph.osrParamSlots ?? [] };
-          dependencyRegistry.registerOsr(compiledFn, result.graph.dependencies);
+          this.dependencyRegistry.registerOsr(compiledFn, result.graph.dependencies);
           tracer.jitOSR(functionName(compiledFn), offset);
         }
       }
@@ -402,6 +466,10 @@ export class Engine {
   }
 
   optimizeFunction(compiledFn: RegisterCompiledFunction): void {
+    return this.runInRuntime(() => this.optimizeFunctionInRuntime(compiledFn));
+  }
+
+  private optimizeFunctionInRuntime(compiledFn: RegisterCompiledFunction): void {
     if (compiledFn.isAsync || compiledFn.isGenerator) {
       compiledFn.lastCompileFailureReason = "interpreter-only-async-generator";
       tracer.jitCompile(
@@ -431,8 +499,8 @@ export class Engine {
         ) {
           policyHooks.recordCompileSuccess(compiledFn);
         }
-        dependencyRegistry.register(
-          compiledFn as Parameters<typeof dependencyRegistry.register>[0],
+        this.dependencyRegistry.register(
+          compiledFn as Parameters<typeof this.dependencyRegistry.register>[0],
           ((optimizerResult.graph as { dependencies?: Dependency[] }).dependencies || []),
         );
         const elapsed = performance.now() - t0;
@@ -516,7 +584,7 @@ export class Engine {
             `Code aged out (age=${fn.codeAge}, idle=${(idleTime / 1000).toFixed(1)}s) — flushing optimized code`,
           );
           if (fn.optimizedCode._dispose) fn.optimizedCode._dispose();
-          dependencyRegistry.unregister(fn as Parameters<typeof dependencyRegistry.unregister>[0]);
+          this.dependencyRegistry.unregister(fn as Parameters<typeof this.dependencyRegistry.unregister>[0]);
           fn.optimizedCode = null;
           fn.disableOptimization = false;
           updateCallMode(fn);
@@ -542,6 +610,10 @@ export class Engine {
   }
 
   collectFunctions(): RuntimeCompiledFunction[] {
+    return this.runInRuntime(() => this.collectFunctionsInRuntime());
+  }
+
+  private collectFunctionsInRuntime(): RuntimeCompiledFunction[] {
     const functions: RuntimeCompiledFunction[] = [];
     const visited = new Set<TaggedValue | HeapPayload>();
 
@@ -588,7 +660,9 @@ export class Engine {
   }
 
   collectGarbage(type: "minor" | "major" | string = "minor"): void {
-    this.gc.collectGarbage(type as Parameters<GenerationalGC["collectGarbage"]>[0]);
+    this.runInRuntime(() =>
+      this.gc.collectGarbage(type as Parameters<GenerationalGC["collectGarbage"]>[0]),
+    );
   }
 
   getStats(): {
@@ -610,7 +684,7 @@ export class Engine {
       totalExecTimeMs: this.totalExecTimeMs,
       tracerStats: tracer.getStats(),
       deoptStats: this.deoptimizer.getStats(),
-      deprecatedMaps: getDeprecatedMapCount(),
+      deprecatedMaps: this.hiddenClassRegistry.getDeprecatedMapCount(),
       migrations: getMigrationStats(),
       microtasks: this.microtaskQueue.getStats(),
       gc: this.gc.getStats(),
@@ -618,25 +692,27 @@ export class Engine {
   }
 
   reset(): void {
-    dependencyRegistry.clear();
-    resetHiddenClasses();
-    resetHeapPayloads();
-    RegisterCompiledFunction.nextId = 1;
-    resetIRNodeIds();
+    this.dependencyRegistry.clear();
+    this.hiddenClassRegistry.reset();
+    this.valueHeap.resetHeapPayloads();
+    this.compiledFunctionIdAllocator.reset();
+    this.irNodeIdAllocator.reset();
     tracer.reset();
     this.microtaskQueue = new MicrotaskQueue({
       policy: this.microtaskQueue.policy,
     });
-    this.gc = new GenerationalGC();
-    bindGC(this.gc);
-    this.interpreter = new RegisterInterpreter(this) as EngineInterpreter;
+    this.gc = new GenerationalGC({}, this.valueHeap);
+    this.interpreter = this.runInRuntime(
+      () => new RegisterInterpreter(this) as EngineInterpreter,
+      false,
+    );
     this.gc.bindRoots(
       this.interpreter,
       this.interpreter.globalCells,
       this.microtaskQueue,
     );
     this.deoptimizer = new Deoptimizer(this.interpreter);
-    dependencyRegistry.bindLazyMarker(this.deoptimizer.lazyMarker);
+    this.dependencyRegistry.bindLazyMarker(this.deoptimizer.lazyMarker);
     this.compilationCount = 0;
     this.executionCount = 0;
     this.totalCompileTimeMs = 0;

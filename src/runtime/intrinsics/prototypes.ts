@@ -7,7 +7,7 @@ import { MAP_METHODS } from "./map-methods.js";
 import { SET_METHODS } from "./set-methods.js";
 import { WEAKMAP_METHODS } from "./weakmap-methods.js";
 import { createJSObject } from "../../objects/heap/factory.js";
-import { mkFunction, wellKnownSymbols } from "../../core/value/index.js";
+import { getWellKnownSymbols, mkFunction } from "../../core/value/index.js";
 import type { RuntimeFunctionPayload } from "../../core/value/index.js";
 import type { JSObject } from "../../objects/heap/js-object.js";
 import { camelToSnake } from "../../utils/naming.js";
@@ -29,6 +29,7 @@ export function createBuiltinPrototypes(): Record<string, JSObject> {
   const mapPrototype = populatePrototype(MAP_METHODS);
   const setPrototype = populatePrototype(SET_METHODS);
   const weakMapPrototype = populatePrototype(WEAKMAP_METHODS);
+  const wellKnownSymbols = getWellKnownSymbols();
 
   if (wellKnownSymbols.iterator) {
     const mapEntries = mapPrototype.getProperty("entries");

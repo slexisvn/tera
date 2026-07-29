@@ -164,7 +164,6 @@ export type FunctionAccessor = {
 };
 
 export type RuntimeFunctionPayload = {
-  __heapId?: number;
   name?: string;
   metadata?: RuntimeFunctionMetadata;
   paramCount?: number;
@@ -186,7 +185,6 @@ export type RuntimeFunctionPayload = {
 };
 
 export type PromisePayload = {
-  __heapId?: number;
   state: string;
   result: TaggedValue;
   reactions: Array<(state: string, value: TaggedValue) => void>;
@@ -197,14 +195,12 @@ export type PromisePayload = {
 };
 
 export type IteratorPayload = {
-  __heapId?: number;
   next(interpreter?: object | null): TaggedValue;
   nextValue(interpreter?: object | null): TaggedValue;
   [Symbol.iterator]?: () => IteratorPayload;
 };
 
 export type GeneratorPayload = {
-  __heapId?: number;
   frame: RegisterFrame;
   state: string;
   next?: (value?: TaggedValue) => TaggedValue;
@@ -243,18 +239,6 @@ const TAG_TO_CODE: Map<ValueTag, number> = new Map([
   [TAG_SYMBOL, CODE_SYMBOL],
 ]);
 
-const heapPayloads: Array<HeapPayload | null> = [null];
-const heapFreeList: number[] = [];
-const pinnedHeapIds = new Set<number>();
-
-type HeapIdentifiedPayload = Extract<HeapPayload, object> & {
-  __heapId?: number;
-};
-
-function hasHeapIdentity(payload: HeapPayload): payload is HeapIdentifiedPayload {
-  return payload !== null && typeof payload === "object";
-}
-
 export function codeOf(v: RuntimeValue | HeapPayload): number {
   if (typeof v !== "number") return CODE_UNDEFINED;
   return v & TAG_MASK;
@@ -264,50 +248,334 @@ function heapId(v: number): number {
   return (v - (v & TAG_MASK)) * TAG_SHIFT_DIV;
 }
 
-function heapValue(tag: ValueTag, payload: HeapPayload): TaggedValue {
-  const code = TAG_TO_CODE.get(tag);
-  if (code === undefined) return CODE_UNDEFINED;
-  const taggable = hasHeapIdentity(payload);
-  if (
-    taggable &&
-    payload.__heapId !== undefined &&
-    heapPayloads[payload.__heapId] === payload
-  ) {
-    return payload.__heapId * TAG_SHIFT_MULT + code;
-  }
-  let id: number;
-  if (heapFreeList.length > 0) {
-    id = heapFreeList.pop()!;
-    heapPayloads[id] = payload;
-  } else {
-    id = heapPayloads.length;
-    heapPayloads.push(payload);
-  }
-  if (taggable) payload.__heapId = id;
-  return id * TAG_SHIFT_MULT + code;
-}
-
-export function freeHeapObjectSlot(obj: HeapPayload): boolean {
-  if (!obj || typeof obj !== "object") return false;
-  const payload = obj as HeapIdentifiedPayload;
-  const id = payload.__heapId;
-  if (id === undefined || id <= 0) return false;
-  if (heapPayloads[id] !== obj) return false;
-  if (pinnedHeapIds.has(id)) return false;
-  heapPayloads[id] = null;
-  heapFreeList.push(id);
-  payload.__heapId = undefined;
-  return true;
-}
-
 const TAG_SHIFT_MULT = 1 << TAG_BITS;
+const TAG_SHIFT_DIV = 1 / TAG_SHIFT_MULT;
+
+function hasHeapIdentity(payload: HeapPayload): payload is Extract<HeapPayload, object> {
+  return payload !== null && typeof payload === "object";
+}
+
+type HeapEntry = {
+  id: number;
+  payload: HeapPayload;
+};
+
+let nextHeapPayloadId = 1;
+const heapOwners = new Map<number, WeakRef<ValueHeap>>();
+const heapOwnerFinalizer = new FinalizationRegistry<Set<number>>((ids) => {
+  for (const id of ids) heapOwners.delete(id);
+});
+
+export class ValueHeap {
+  private heapPayloads: Array<HeapEntry | null>;
+  private heapFreeList: number[];
+  private heapIndices: Map<number, number>;
+  private pinnedHeapIds: Set<number>;
+  private objectHeapIds: WeakMap<object, number>;
+  private allocatedHeapIds: Set<number>;
+  private externalLookupIds: Set<number>;
+  private externalLookupRef: WeakRef<ValueHeap> | null;
+  private externalLookupRegistered: boolean;
+  private globalSymbolRegistry: Map<string, TaggedValue>;
+  private globalSymbolReverseRegistry: Map<JSSymbol | symbol, string>;
+  wellKnownSymbols: Record<string, TaggedValue>;
+
+  constructor() {
+    this.heapPayloads = [null];
+    this.heapFreeList = [];
+    this.heapIndices = new Map();
+    this.pinnedHeapIds = new Set();
+    this.objectHeapIds = new WeakMap();
+    this.allocatedHeapIds = new Set();
+    this.externalLookupIds = new Set();
+    this.externalLookupRef = null;
+    this.externalLookupRegistered = false;
+    this.globalSymbolRegistry = new Map();
+    this.globalSymbolReverseRegistry = new Map();
+    this.wellKnownSymbols = {};
+  }
+
+  private localPayload(id: number): HeapPayload {
+    const index = this.heapIndices.get(id);
+    if (index === undefined) return undefined;
+    return this.heapPayloads[index]?.payload ?? undefined;
+  }
+
+  private resolvePayload(id: number): HeapPayload {
+    const payload = this.localPayload(id);
+    if (payload !== undefined) return payload;
+    const owner = heapOwners.get(id)?.deref();
+    return owner && owner !== this ? owner.localPayload(id) : undefined;
+  }
+
+  private heapValue(tag: ValueTag, payload: HeapPayload): TaggedValue {
+    const code = TAG_TO_CODE.get(tag);
+    if (code === undefined) return CODE_UNDEFINED as TaggedValue;
+    if (hasHeapIdentity(payload)) {
+      const existingId = this.objectHeapIds.get(payload);
+      if (
+        existingId !== undefined &&
+        existingId > 0 &&
+        this.localPayload(existingId) === payload
+      ) {
+        return existingId * TAG_SHIFT_MULT + code as TaggedValue;
+      }
+    }
+    const id = nextHeapPayloadId++;
+    let index: number;
+    if (this.heapFreeList.length > 0) {
+      index = this.heapFreeList.pop()!;
+      this.heapPayloads[index] = { id, payload };
+    } else {
+      index = this.heapPayloads.length;
+      this.heapPayloads.push({ id, payload });
+    }
+    this.heapIndices.set(id, index);
+    this.allocatedHeapIds.add(id);
+    if (hasHeapIdentity(payload)) this.objectHeapIds.set(payload, id);
+    return id * TAG_SHIFT_MULT + code as TaggedValue;
+  }
+
+  enableExternalLookup(): void {
+    if (!this.externalLookupRef) this.externalLookupRef = new WeakRef(this);
+    if (!this.externalLookupRegistered) {
+      heapOwnerFinalizer.register(this, this.externalLookupIds, this);
+      this.externalLookupRegistered = true;
+    }
+    for (const id of this.allocatedHeapIds) {
+      if (this.externalLookupIds.has(id)) continue;
+      heapOwners.set(id, this.externalLookupRef);
+      this.externalLookupIds.add(id);
+    }
+  }
+
+  mkDouble(n: number): DoubleValue {
+    return this.heapValue(TAG_DOUBLE, +n) as DoubleValue;
+  }
+
+  mkString(s: string | number | boolean | symbol | null | undefined): StringValue {
+    return this.heapValue(TAG_STRING, String(s)) as StringValue;
+  }
+
+  mkObject(obj: JSObject | JSProxy): ObjectValue {
+    return this.heapValue(TAG_OBJECT, obj) as ObjectValue;
+  }
+
+  mkFunction(fn: RuntimeFunctionPayload): FunctionValue {
+    return this.heapValue(TAG_FUNCTION, fn) as FunctionValue;
+  }
+
+  mkArray(arr: JSArray): ArrayValue {
+    return this.heapValue(TAG_ARRAY, arr) as ArrayValue;
+  }
+
+  mkPromise(promise: PromisePayload): PromiseValue {
+    return this.heapValue(TAG_PROMISE, promise) as PromiseValue;
+  }
+
+  mkIterator(iterator: IteratorPayload): IteratorValue {
+    return this.heapValue(TAG_ITERATOR, iterator) as IteratorValue;
+  }
+
+  mkGenerator(gen: GeneratorPayload): GeneratorValue {
+    return this.heapValue(TAG_GENERATOR, gen) as GeneratorValue;
+  }
+
+  mkRegex(nativeRegex: RegExp): RegexValue {
+    return this.heapValue(TAG_REGEX, { nativeRegex, lastIndex: 0 }) as RegexValue;
+  }
+
+  mkSymbol(sym: symbol | JSSymbol): SymbolValue {
+    return this.heapValue(TAG_SYMBOL, sym) as SymbolValue;
+  }
+
+  mkNumber(n: number): TaggedValue {
+    if (n === 0 && (1 / n) === -Infinity) return this.mkDouble(n);
+    if (Number.isInteger(n) && n >= SMI_MIN && n <= SMI_MAX) {
+      return mkSmi(n);
+    }
+    return this.mkDouble(n);
+  }
+
+  getPayload(v: SmiValue | DoubleValue): number;
+  getPayload(v: BoolValue): boolean;
+  getPayload(v: StringValue): string;
+  getPayload(v: ObjectValue): JSObject;
+  getPayload(v: FunctionValue): RuntimeFunctionPayload;
+  getPayload(v: ArrayValue): JSArray;
+  getPayload(v: PromiseValue): PromisePayload;
+  getPayload(v: IteratorValue): IteratorPayload;
+  getPayload(v: GeneratorValue): GeneratorPayload;
+  getPayload(v: RegexValue): RegExpPayload;
+  getPayload(v: SymbolValue): symbol | JSSymbol;
+  getPayload(v: UndefinedValue): undefined;
+  getPayload(v: NullValue): null;
+  getPayload(v: TaggedValue): HeapPayload;
+  getPayload(v: number): HeapPayload {
+    const code = v & TAG_MASK;
+    switch (code) {
+      case CODE_SMI:
+        return v * TAG_SHIFT_DIV;
+      case CODE_FALSE:
+        return false;
+      case CODE_TRUE:
+        return true;
+      case CODE_NULL:
+        return null;
+      case CODE_UNDEFINED:
+        return undefined;
+      case CODE_DOUBLE:
+      case CODE_STRING:
+      case CODE_OBJECT:
+      case CODE_FUNCTION:
+      case CODE_ARRAY:
+      case CODE_PROMISE:
+      case CODE_ITERATOR:
+      case CODE_GENERATOR:
+      case CODE_REGEX:
+      case CODE_SYMBOL:
+        return this.resolvePayload((v - code) * TAG_SHIFT_DIV);
+      default:
+        return undefined;
+    }
+  }
+
+  isTaggedValue(v: RuntimeValue | HeapPayload): v is TaggedValue {
+    if (typeof v !== "number" || !Number.isFinite(v)) return false;
+    const code = v & TAG_MASK;
+    if (code === CODE_SMI) return Number.isInteger(v * TAG_SHIFT_DIV);
+    if (
+      code === CODE_FALSE ||
+      code === CODE_TRUE ||
+      code === CODE_UNDEFINED ||
+      code === CODE_NULL
+    )
+      return v === code;
+    const id = (v - code) * TAG_SHIFT_DIV;
+    return id > 0 && this.resolvePayload(id) !== undefined;
+  }
+
+  getObjectHeapId(payload: HeapPayload | object | null | undefined): number {
+    if (!payload || typeof payload !== "object") return -1;
+    return this.objectHeapIds.get(payload) ?? -1;
+  }
+
+  freeHeapObjectSlot(obj: HeapPayload): boolean {
+    if (!obj || typeof obj !== "object") return false;
+    const id = this.objectHeapIds.get(obj);
+    if (id === undefined || id <= 0) return false;
+    const index = this.heapIndices.get(id);
+    if (index === undefined) return false;
+    if (this.heapPayloads[index]?.payload !== obj) return false;
+    if (this.pinnedHeapIds.has(id)) return false;
+    this.heapPayloads[index] = null;
+    this.heapFreeList.push(index);
+    this.heapIndices.delete(id);
+    this.allocatedHeapIds.delete(id);
+    if (this.externalLookupIds.delete(id)) heapOwners.delete(id);
+    this.objectHeapIds.delete(obj);
+    return true;
+  }
+
+  pinHeapSlot(v: TaggedValue): void {
+    const id = getHeapId(v);
+    if (id > 0) this.pinnedHeapIds.add(id);
+  }
+
+  sweepHeapPayloads(liveIds: Set<number>): number {
+    let freed = 0;
+    for (let i = 1; i < this.heapPayloads.length; i++) {
+      const entry = this.heapPayloads[i];
+      if (entry !== null && !this.pinnedHeapIds.has(entry.id) && !liveIds.has(entry.id)) {
+        const payload = entry.payload;
+        this.heapPayloads[i] = null;
+        if (payload && typeof payload === "object") this.objectHeapIds.delete(payload);
+        this.heapIndices.delete(entry.id);
+        this.allocatedHeapIds.delete(entry.id);
+        if (this.externalLookupIds.delete(entry.id)) heapOwners.delete(entry.id);
+        this.heapFreeList.push(i);
+        freed++;
+      }
+    }
+    return freed;
+  }
+
+  heapPayloadCount(): number {
+    return this.heapPayloads.length - 1 - this.heapFreeList.length;
+  }
+
+  resetHeapPayloads(): void {
+    for (const id of this.externalLookupIds) heapOwners.delete(id);
+    this.heapPayloads.length = 1;
+    this.heapPayloads[0] = null;
+    this.heapFreeList.length = 0;
+    this.heapIndices.clear();
+    this.pinnedHeapIds.clear();
+    this.objectHeapIds = new WeakMap();
+    this.allocatedHeapIds.clear();
+    this.externalLookupIds.clear();
+    this.externalLookupRef = null;
+    this.globalSymbolRegistry.clear();
+    this.globalSymbolReverseRegistry.clear();
+    this.wellKnownSymbols = {};
+  }
+
+  heapPayloadLiveBytesEstimate(): number {
+    return this.heapPayloads.length - this.heapFreeList.length;
+  }
+
+  symbolFor(key: string): TaggedValue {
+    if (this.globalSymbolRegistry.has(key)) return this.globalSymbolRegistry.get(key)!;
+    const tagged = this.mkSymbol(new JSSymbol(key));
+    this.globalSymbolRegistry.set(key, tagged);
+    this.globalSymbolReverseRegistry.set(this.getPayload(tagged) as JSSymbol, key);
+    return tagged;
+  }
+
+  symbolKeyFor(taggedSym: TaggedValue): string | undefined {
+    if (!isSymbol(taggedSym)) return undefined;
+    return this.globalSymbolReverseRegistry.get(this.getPayload(taggedSym) as JSSymbol | symbol);
+  }
+
+  initWellKnownSymbols(): void {
+    this.wellKnownSymbols.iterator = this.mkSymbol(new JSSymbol("Symbol.iterator"));
+    this.wellKnownSymbols.hasInstance = this.mkSymbol(new JSSymbol("Symbol.hasInstance"));
+    this.wellKnownSymbols.toPrimitive = this.mkSymbol(new JSSymbol("Symbol.toPrimitive"));
+    this.wellKnownSymbols.toStringTag = this.mkSymbol(new JSSymbol("Symbol.toStringTag"));
+  }
+}
+
+const defaultValueHeap = new ValueHeap();
+let activeValueHeap: ValueHeap = defaultValueHeap;
+
+export function getCurrentValueHeap(): ValueHeap {
+  return activeValueHeap;
+}
+
+export function withValueHeap<T>(heap: ValueHeap, run: () => T): T {
+  const previous = activeValueHeap;
+  activeValueHeap = heap;
+  try {
+    return run();
+  } finally {
+    activeValueHeap = previous;
+  }
+}
+
+export function getDefaultValueHeap(): ValueHeap {
+  return defaultValueHeap;
+}
+
+export function getWellKnownSymbols(): Record<string, TaggedValue> {
+  return activeValueHeap.wellKnownSymbols;
+}
 
 export function mkSmi(n: number): SmiValue {
   return ((n | 0) * TAG_SHIFT_MULT) as SmiValue;
 }
 
 export function mkDouble(n: number): DoubleValue {
-  return heapValue(TAG_DOUBLE, +n) as DoubleValue;
+  return activeValueHeap.mkDouble(n);
 }
 
 export function mkBool(b: boolean): BoolValue {
@@ -315,39 +583,39 @@ export function mkBool(b: boolean): BoolValue {
 }
 
 export function mkString(s: string | number | boolean | symbol | null | undefined): StringValue {
-  return heapValue(TAG_STRING, String(s)) as StringValue;
+  return activeValueHeap.mkString(s);
 }
 
 export function mkObject(obj: JSObject | JSProxy): ObjectValue {
-  return heapValue(TAG_OBJECT, obj) as ObjectValue;
+  return activeValueHeap.mkObject(obj);
 }
 
 export function mkFunction(fn: RuntimeFunctionPayload): FunctionValue {
-  return heapValue(TAG_FUNCTION, fn) as FunctionValue;
+  return activeValueHeap.mkFunction(fn);
 }
 
 export function mkArray(arr: JSArray): ArrayValue {
-  return heapValue(TAG_ARRAY, arr) as ArrayValue;
+  return activeValueHeap.mkArray(arr);
 }
 
 export function mkPromise(promise: PromisePayload): PromiseValue {
-  return heapValue(TAG_PROMISE, promise) as PromiseValue;
+  return activeValueHeap.mkPromise(promise);
 }
 
 export function mkIterator(iterator: IteratorPayload): IteratorValue {
-  return heapValue(TAG_ITERATOR, iterator) as IteratorValue;
+  return activeValueHeap.mkIterator(iterator);
 }
 
 export function mkGenerator(gen: GeneratorPayload): GeneratorValue {
-  return heapValue(TAG_GENERATOR, gen) as GeneratorValue;
+  return activeValueHeap.mkGenerator(gen);
 }
 
 export function mkRegex(nativeRegex: RegExp): RegexValue {
-  return heapValue(TAG_REGEX, { nativeRegex, lastIndex: 0 }) as RegexValue;
+  return activeValueHeap.mkRegex(nativeRegex);
 }
 
 export function mkSymbol(sym: symbol | JSSymbol): SymbolValue {
-  return heapValue(TAG_SYMBOL, sym) as SymbolValue;
+  return activeValueHeap.mkSymbol(sym);
 }
 
 export function mkUndefined(): UndefinedValue {
@@ -359,18 +627,12 @@ export function mkNull(): NullValue {
 }
 
 export function mkNumber(n: number): TaggedValue {
-  if (n === 0 && (1 / n) === -Infinity) return mkDouble(n);
-  if (Number.isInteger(n) && n >= SMI_MIN && n <= SMI_MAX) {
-    return mkSmi(n);
-  }
-  return mkDouble(n);
+  return activeValueHeap.mkNumber(n);
 }
 
 export function getTag(v: RuntimeValue | HeapPayload): ValueTag {
   return CODE_TO_TAG[codeOf(v)] || TAG_UNDEFINED;
 }
-
-const TAG_SHIFT_DIV = 1 / TAG_SHIFT_MULT;
 
 export function smiPayload(v: number): number {
   return v * TAG_SHIFT_DIV;
@@ -391,47 +653,11 @@ export function getPayload(v: UndefinedValue): undefined;
 export function getPayload(v: NullValue): null;
 export function getPayload(v: TaggedValue): HeapPayload;
 export function getPayload(v: number): HeapPayload {
-  const code = v & TAG_MASK;
-  switch (code) {
-    case CODE_SMI:
-      return v * TAG_SHIFT_DIV;
-    case CODE_FALSE:
-      return false;
-    case CODE_TRUE:
-      return true;
-    case CODE_NULL:
-      return null;
-    case CODE_UNDEFINED:
-      return undefined;
-    case CODE_DOUBLE:
-    case CODE_STRING:
-    case CODE_OBJECT:
-    case CODE_FUNCTION:
-    case CODE_ARRAY:
-    case CODE_PROMISE:
-    case CODE_ITERATOR:
-    case CODE_GENERATOR:
-    case CODE_REGEX:
-    case CODE_SYMBOL:
-      return heapPayloads[(v - code) * TAG_SHIFT_DIV] ?? undefined;
-    default:
-      return undefined;
-  }
+  return activeValueHeap.getPayload(v);
 }
 
 export function isTaggedValue(v: RuntimeValue | HeapPayload): v is TaggedValue {
-  if (typeof v !== "number" || !Number.isFinite(v)) return false;
-  const code = v & TAG_MASK;
-  if (code === CODE_SMI) return Number.isInteger(v * TAG_SHIFT_DIV);
-  if (
-    code === CODE_FALSE ||
-    code === CODE_TRUE ||
-    code === CODE_UNDEFINED ||
-    code === CODE_NULL
-  )
-    return v === code;
-  const id = (v - code) * TAG_SHIFT_DIV;
-  return id > 0 && id < heapPayloads.length && heapPayloads[id] !== undefined;
+  return activeValueHeap.isTaggedValue(v);
 }
 
 export function isSmi(v: RuntimeValue | HeapPayload): v is SmiValue {
@@ -792,61 +1018,47 @@ export function getHeapId(v: RuntimeValue | HeapPayload): number {
   return (v - code) * TAG_SHIFT_DIV;
 }
 
+export function getHeapObjectId(payload: HeapPayload | object | null | undefined): number {
+  return activeValueHeap.getObjectHeapId(payload);
+}
+
 export function pinHeapSlot(v: TaggedValue): void {
-  const id = getHeapId(v);
-  if (id > 0) pinnedHeapIds.add(id);
+  activeValueHeap.pinHeapSlot(v);
+}
+
+export function freeHeapObjectSlot(obj: HeapPayload): boolean {
+  return activeValueHeap.freeHeapObjectSlot(obj);
 }
 
 export function sweepHeapPayloads(liveIds: Set<number>): number {
-  let freed = 0;
-  for (let i = 1; i < heapPayloads.length; i++) {
-    if (heapPayloads[i] !== null && !pinnedHeapIds.has(i) && !liveIds.has(i)) {
-      heapPayloads[i] = null;
-      heapFreeList.push(i);
-      freed++;
-    }
-  }
-  return freed;
+  return activeValueHeap.sweepHeapPayloads(liveIds);
 }
 
 export function heapPayloadCount(): number {
-  return heapPayloads.length - 1 - heapFreeList.length;
+  return activeValueHeap.heapPayloadCount();
 }
 
 export function resetHeapPayloads(): void {
-  heapPayloads.length = 1;
-  heapPayloads[0] = null;
-  heapFreeList.length = 0;
-  pinnedHeapIds.clear();
+  activeValueHeap.resetHeapPayloads();
 }
 
 
 
 
 export function heapPayloadLiveBytesEstimate(): number {
-  return heapPayloads.length - heapFreeList.length;
+  return activeValueHeap.heapPayloadLiveBytesEstimate();
 }
 
-const globalSymbolRegistry = new Map<string, TaggedValue>();
-const globalSymbolReverseRegistry = new Map<JSSymbol | symbol, string>();
 export function symbolFor(key: string): TaggedValue {
-  if (globalSymbolRegistry.has(key)) return globalSymbolRegistry.get(key)!;
-  const tagged = mkSymbol(new JSSymbol(key));
-  globalSymbolRegistry.set(key, tagged);
-  globalSymbolReverseRegistry.set(getPayload(tagged), key);
-  return tagged;
+  return activeValueHeap.symbolFor(key);
 }
 export function symbolKeyFor(taggedSym: TaggedValue): string | undefined {
-  if (!isSymbol(taggedSym)) return undefined;
-  return globalSymbolReverseRegistry.get(getPayload(taggedSym));
+  return activeValueHeap.symbolKeyFor(taggedSym);
 }
 
-export const wellKnownSymbols: Record<string, TaggedValue> = {};
+export const wellKnownSymbols: Record<string, TaggedValue> = defaultValueHeap.wellKnownSymbols;
 export function initWellKnownSymbols(): void {
-  wellKnownSymbols.iterator = mkSymbol(new JSSymbol("Symbol.iterator"));
-  wellKnownSymbols.hasInstance = mkSymbol(new JSSymbol("Symbol.hasInstance"));
-  wellKnownSymbols.toPrimitive = mkSymbol(new JSSymbol("Symbol.toPrimitive"));
-  wellKnownSymbols.toStringTag = mkSymbol(new JSSymbol("Symbol.toStringTag"));
+  activeValueHeap.initWellKnownSymbols();
 }
 
 let nextSymbolId = 0;

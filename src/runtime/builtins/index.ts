@@ -33,7 +33,6 @@ import {
   JSSymbol,
   symbolFor,
   symbolKeyFor,
-  wellKnownSymbols,
   type TaggedValue,
   type GeneratorPayload,
 } from "../../core/value/index.js";

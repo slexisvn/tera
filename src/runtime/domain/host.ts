@@ -42,6 +42,7 @@ type HostAsyncBinding = {
   queue: MicrotaskQueue;
   drain: () => void;
   interpreter: HostInterpreter;
+  run?: <T>(fn: () => T) => T;
 };
 
 let hostAsync: HostAsyncBinding | null = null;
@@ -49,6 +50,16 @@ let modelBridge: ((model: TaggedValue, interpreter: HostInterpreter) => unknown)
 
 export function bindHostAsync(binding: HostAsyncBinding | null): void {
   hostAsync = binding;
+}
+
+export function withHostAsync<T>(binding: HostAsyncBinding | null, run: () => T): T {
+  const previous = hostAsync;
+  hostAsync = binding;
+  try {
+    return run();
+  } finally {
+    hostAsync = previous;
+  }
 }
 
 export function bindModelBridge(bridge: typeof modelBridge): void {
@@ -64,12 +75,18 @@ function thenableToTagged(value: PromiseLike<unknown>): TaggedValue {
   const { capability, value: promise } = mkPromiseCapability(binding.queue);
   value.then(
     (settled) => {
-      capability.resolve(nativeToTagged(settled));
-      binding.drain();
+      const run = binding.run ?? ((fn: () => void) => fn());
+      run(() => {
+        capability.resolve(nativeToTagged(settled));
+        binding.drain();
+      });
     },
     (reason) => {
-      capability.reject(nativeToTagged(reason));
-      binding.drain();
+      const run = binding.run ?? ((fn: () => void) => fn());
+      run(() => {
+        capability.reject(nativeToTagged(reason));
+        binding.drain();
+      });
     },
   );
   return promise;
@@ -94,16 +111,20 @@ type PromiseRecord = {
 };
 
 export function taggedToPromise(value: TaggedValue): Promise<unknown> {
+  const binding = hostAsync;
   const record = getPayload(value) as PromiseRecord;
-  hostAsync?.drain();
+  binding?.drain();
   if (record.state === "fulfilled") return Promise.resolve(taggedToNative(record.result));
   if (record.state === "rejected") return Promise.reject(taggedToNative(record.result));
   return new Promise((resolve, reject) => {
     record.addReaction((state, result) => {
-      if (state === "fulfilled") resolve(taggedToNative(result));
-      else reject(taggedToNative(result));
+      const run = binding?.run ?? ((fn: () => void) => fn());
+      run(() => {
+        if (state === "fulfilled") resolve(taggedToNative(result));
+        else reject(taggedToNative(result));
+      });
     });
-    hostAsync?.drain();
+    binding?.drain();
   });
 }
 

@@ -281,6 +281,46 @@ export class RegisterInstruction {
   }
 }
 
+export class CompiledFunctionIdAllocator {
+  nextId: number;
+
+  constructor(nextId = 1) {
+    this.nextId = nextId;
+  }
+
+  next(): number {
+    return this.nextId++;
+  }
+
+  reset(): void {
+    this.nextId = 1;
+  }
+}
+
+const defaultCompiledFunctionIdAllocator = new CompiledFunctionIdAllocator();
+let activeCompiledFunctionIdAllocator = defaultCompiledFunctionIdAllocator;
+
+export function withCompiledFunctionIdAllocator<T>(
+  allocator: CompiledFunctionIdAllocator,
+  run: () => T,
+): T {
+  const previous = activeCompiledFunctionIdAllocator;
+  activeCompiledFunctionIdAllocator = allocator;
+  try {
+    return run();
+  } finally {
+    activeCompiledFunctionIdAllocator = previous;
+  }
+}
+
+export function getCurrentCompiledFunctionIdAllocator(): CompiledFunctionIdAllocator {
+  return activeCompiledFunctionIdAllocator;
+}
+
+export function getDefaultCompiledFunctionIdAllocator(): CompiledFunctionIdAllocator {
+  return defaultCompiledFunctionIdAllocator;
+}
+
 export class RegisterCompiledFunction {
   static nextId = 1;
   id: number;
@@ -331,7 +371,16 @@ export class RegisterCompiledFunction {
   simpleConstructorInfo?: SimpleConstructorField[] | null;
 
   constructor(name: string | null = null, paramCount = 0) {
-    this.id = RegisterCompiledFunction.nextId++;
+    if (
+      activeCompiledFunctionIdAllocator === defaultCompiledFunctionIdAllocator &&
+      RegisterCompiledFunction.nextId !== defaultCompiledFunctionIdAllocator.nextId
+    ) {
+      defaultCompiledFunctionIdAllocator.nextId = RegisterCompiledFunction.nextId;
+    }
+    this.id = activeCompiledFunctionIdAllocator.next();
+    if (activeCompiledFunctionIdAllocator === defaultCompiledFunctionIdAllocator) {
+      RegisterCompiledFunction.nextId = defaultCompiledFunctionIdAllocator.nextId;
+    }
     this.name = name;
     this.paramCount = paramCount;
     this.instructions = [];
