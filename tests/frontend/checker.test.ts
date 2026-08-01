@@ -965,6 +965,48 @@ describe("checker pipeline", () => {
       ]);
     });
 
+    it("requires a visibility modifier on class field declarations", () => {
+      const source = [
+        "class Report:",
+        "  title: string",
+        "  private sections: string[]",
+        "  static count: int = 0",
+        "  constructor(title: string, sections: string[]):",
+        "    this.title = title",
+        "    this.sections = sections",
+      ].join("\n");
+
+      expect(messages(source)).toEqual([
+        "Field 'title' must declare a visibility modifier ('public', 'private', or 'protected')",
+        "Field 'count' must declare a visibility modifier ('public', 'private', or 'protected')",
+      ]);
+    });
+
+    it("accepts class fields that declare a visibility modifier", () => {
+      const source = [
+        "class Report:",
+        "  public title: string",
+        "  private sections: string[]",
+        "  protected static count: int = 0",
+        "  constructor(title: string, sections: string[]):",
+        "    this.title = title",
+        "    this.sections = sections",
+      ].join("\n");
+
+      expect(messages(source)).toEqual([]);
+    });
+
+    it("does not require visibility for fields introduced only by constructor assignment", () => {
+      const source = [
+        "class Point:",
+        "  constructor(x: float, y: float):",
+        "    this.x = x",
+        "    this.y = y",
+      ].join("\n");
+
+      expect(messages(source)).toEqual([]);
+    });
+
     it("enforces private constructors while allowing static factories", () => {
       const source = [
         "class Token:",

@@ -96,7 +96,12 @@ describe("speculation → deopt: CheckSmi guard feeds Deoptimizer", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("CheckSmi frameState has correct compiledFunction, Deoptimizer restores pc from it", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph, frameStates } = compileIR(fn);
 
@@ -117,7 +122,12 @@ describe("speculation → deopt: CheckSmi guard feeds Deoptimizer", () => {
   });
 
   it("Deoptimizer sets deoptCount and clears optimizedCode via handleDisableOptimization", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph, frameStates } = compileIR(fn);
 
@@ -134,7 +144,12 @@ describe("speculation → deopt: CheckSmi guard feeds Deoptimizer", () => {
   });
 
   it("reaching maxDeoptCount via speculation frameState disables optimization", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph, frameStates } = compileIR(fn);
 
@@ -150,7 +165,13 @@ describe("speculation → deopt: CheckSmi guard feeds Deoptimizer", () => {
   });
 
   it("frameState locals are materialized into RegisterFrame by Deoptimizer", () => {
-    engine.run("function f(a,b){var c=a+b;return c;} for(var i=0;i<10;i++) f(i,i);");
+    engine.run(`fn f(a, b):
+  c = a+b
+  return c
+i = 0
+while i < 10:
+  f(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph, frameStates } = compileIR(fn);
 
@@ -175,7 +196,12 @@ describe("speculation → deopt: CheckSmi guard feeds Deoptimizer", () => {
   });
 
   it("each CheckSmi guard has a distinct frameState ID matching frameStates array", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph, frameStates } = compileIR(fn);
 
@@ -194,7 +220,12 @@ describe("speculation → deopt: Int32 arithmetic overflow guard", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("Int32Add frameState feeds Deoptimizer with DEOPT_OVERFLOW reason", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph, frameStates } = compileIR(fn);
 
@@ -213,7 +244,12 @@ describe("speculation → deopt: Int32 arithmetic overflow guard", () => {
   });
 
   it("Int32Sub frameState is usable for overflow deopt", () => {
-    engine.run("function sub(a,b){return a-b;} for(var i=0;i<10;i++) sub(i,1);");
+    engine.run(`fn sub(a, b):
+  return a-b
+i = 0
+while i < 10:
+  sub(i,1)
+  i = i + 1`);
     const fn = getFn(engine, "sub");
     const { graph, frameStates } = compileIR(fn);
 
@@ -230,7 +266,12 @@ describe("speculation → deopt: Int32 arithmetic overflow guard", () => {
   });
 
   it("Int32Mul frameState is usable for overflow deopt", () => {
-    engine.run("function mul(a,b){return a*b;} for(var i=0;i<10;i++) mul(i,2);");
+    engine.run(`fn mul(a, b):
+  return a*b
+i = 0
+while i < 10:
+  mul(i,2)
+  i = i + 1`);
     const fn = getFn(engine, "mul");
     const { graph, frameStates } = compileIR(fn);
 
@@ -251,11 +292,13 @@ describe("speculation → deopt: CheckMap guard feeds Deoptimizer", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("CheckMap frameState feeds Deoptimizer with MAP_CHECK_FAILED", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      var obj={x:10,y:20};
-      for(var i=0;i<10;i++) getX(obj);
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+obj = {x:10,y:20}
+i = 0
+while i < 10:
+  getX(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph, frameStates } = compileIR(fn);
 
@@ -274,11 +317,13 @@ describe("speculation → deopt: CheckMap guard feeds Deoptimizer", () => {
   });
 
   it("CheckMap guard's map dependency matches graph dependencies", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      var obj={x:10};
-      for(var i=0;i<10;i++) getX(obj);
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+obj = {x:10}
+i = 0
+while i < 10:
+  getX(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph } = compileIR(fn);
 
@@ -290,11 +335,13 @@ describe("speculation → deopt: CheckMap guard feeds Deoptimizer", () => {
   });
 
   it("dependency invalidation marks function for lazy deopt", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      var obj={x:10};
-      for(var i=0;i<10;i++) getX(obj);
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+obj = {x:10}
+i = 0
+while i < 10:
+  getX(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph } = compileIR(fn);
 
@@ -321,7 +368,12 @@ describe("speculation → deopt: Int32Div/Mod division-by-zero guard", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("uses Float64Div for / (no int32 division-by-zero trap; / 0 is Infinity)", () => {
-    engine.run("function div(a,b){return a/b;} for(var i=1;i<10;i++) div(10,i);");
+    engine.run(`fn div(a, b):
+  return a/b
+i = 1
+while i < 10:
+  div(10,i)
+  i = i + 1`);
     const fn = getFn(engine, "div");
     const { graph } = compileIR(fn);
 
@@ -332,7 +384,12 @@ describe("speculation → deopt: Int32Div/Mod division-by-zero guard", () => {
   });
 
   it("Int32Mod frameState feeds Deoptimizer with DIVISION_BY_ZERO", () => {
-    engine.run("function mod(a,b){return a%b;} for(var i=1;i<10;i++) mod(10,i);");
+    engine.run(`fn mod(a, b):
+  return a%b
+i = 1
+while i < 10:
+  mod(10,i)
+  i = i + 1`);
     const fn = getFn(engine, "mod");
     const { graph, frameStates } = compileIR(fn);
 
@@ -354,7 +411,12 @@ describe("speculation → deopt: CheckNumber guard feeds Deoptimizer", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("CheckNumber frameState feeds Deoptimizer with NUMBER_CHECK_FAILED", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i*0.1,i*0.2);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i*0.1,i*0.2)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph, frameStates } = compileIR(fn);
 
@@ -376,7 +438,12 @@ describe("speculation → deopt: frameState consistency across guard types", () 
   beforeEach(() => { engine = jitEngine(); });
 
   it("all guard nodes in a graph have frameStates indexable in the frameStates array", () => {
-    engine.run("function f(a,b){return a+b;} for(var i=0;i<10;i++) f(i,i);");
+    engine.run(`fn f(a, b):
+  return a+b
+i = 0
+while i < 10:
+  f(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph, frameStates } = compileIR(fn);
 
@@ -394,7 +461,15 @@ describe("speculation → deopt: frameState consistency across guard types", () 
   });
 
   it("arithmetic nodes with frameState are also indexable in frameStates array", () => {
-    engine.run("function f(a,b){var c=a+b;var d=a-b;var e=a*b;return c+d+e;} for(var i=0;i<10;i++) f(i,i);");
+    engine.run(`fn f(a, b):
+  c = a+b
+  d = a-b
+  e = a*b
+  return c+d+e
+i = 0
+while i < 10:
+  f(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph, frameStates } = compileIR(fn);
 
@@ -411,12 +486,22 @@ describe("speculation → deopt: frameState consistency across guard types", () 
   });
 
   it("deopt stats accumulate correctly across multiple speculation-sourced deopts", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn1 = getFn(engine, "add");
     const { graph: g1, frameStates: fs1 } = compileIR(fn1);
     const check1 = nodesOfType(g1, IR_CHECK_SMI)[0];
 
-    engine.run("function mul(a,b){return a*b;} for(var i=0;i<10;i++) mul(i,2);");
+    engine.run(`fn mul(a, b):
+  return a*b
+i = 0
+while i < 10:
+  mul(i,2)
+  i = i + 1`);
     const fn2 = getFn(engine, "mul");
     const { graph: g2, frameStates: fs2 } = compileIR(fn2);
     const check2 = nodesOfType(g2, IR_CHECK_SMI)[0];
@@ -449,7 +534,12 @@ describe("speculation → deopt: comparison guard feeds Deoptimizer", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("Int32Compare guard's CheckSmi frameState restores frame on type-check failure", () => {
-    engine.run("function lt(a,b){return a<b;} for(var i=0;i<10;i++) lt(i,5);");
+    engine.run(`fn lt(a, b):
+  return a<b
+i = 0
+while i < 10:
+  lt(i,5)
+  i = i + 1`);
     const fn = getFn(engine, "lt");
     const { graph, frameStates } = compileIR(fn);
 
@@ -468,7 +558,12 @@ describe("speculation → deopt: comparison guard feeds Deoptimizer", () => {
   });
 
   it("Float64Compare guard's CheckNumber frameState feeds Deoptimizer", () => {
-    engine.run("function gt(a,b){return a>b;} for(var i=0;i<10;i++) gt(i*0.1,0.5);");
+    engine.run(`fn gt(a, b):
+  return a>b
+i = 0
+while i < 10:
+  gt(i*0.1,0.5)
+  i = i + 1`);
     const fn = getFn(engine, "gt");
     const { graph, frameStates } = compileIR(fn);
 
@@ -486,7 +581,13 @@ describe("speculation → deopt: comparison guard feeds Deoptimizer", () => {
   });
 
   it("comparison and arithmetic in same function produce independent frameStates", () => {
-    engine.run("function f(a,b){var c=a+b;return c<10;} for(var i=0;i<10;i++) f(i,i);");
+    engine.run(`fn f(a, b):
+  c = a+b
+  return c<10
+i = 0
+while i < 10:
+  f(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph, frameStates } = compileIR(fn);
 
@@ -504,7 +605,12 @@ describe("speculation → deopt: unary Neg guard feeds Deoptimizer", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("CheckSmi from Neg speculation feeds Deoptimizer", () => {
-    engine.run("function neg(a){return -a;} for(var i=1;i<10;i++) neg(i);");
+    engine.run(`fn neg(a):
+  return -a
+i = 1
+while i < 10:
+  neg(i)
+  i = i + 1`);
     const fn = getFn(engine, "neg");
     const { graph, frameStates } = compileIR(fn);
 
@@ -522,7 +628,12 @@ describe("speculation → deopt: unary Neg guard feeds Deoptimizer", () => {
   });
 
   it("CheckNumber from Neg with float feedback feeds Deoptimizer", () => {
-    engine.run("function neg(a){return -a;} for(var i=0;i<10;i++) neg(i*0.5);");
+    engine.run(`fn neg(a):
+  return -a
+i = 0
+while i < 10:
+  neg(i*0.5)
+  i = i + 1`);
     const fn = getFn(engine, "neg");
     const { graph, frameStates } = compileIR(fn);
 
@@ -545,11 +656,13 @@ describe("speculation → deopt: multiple guard types in one function", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("function with arithmetic + property access has both CheckSmi and CheckMap guards", () => {
-    engine.run(`
-      function compute(o,a,b){return o.x + a + b;}
-      var obj={x:1};
-      for(var i=0;i<10;i++) compute(obj,i,i);
-    `);
+    engine.run(`fn compute(o, a, b):
+  return o.x + a + b
+obj = {x:1}
+i = 0
+while i < 10:
+  compute(obj,i,i)
+  i = i + 1`);
     const fn = getFn(engine, "compute");
     const { graph, frameStates } = compileIR(fn);
 
@@ -574,11 +687,13 @@ describe("speculation → deopt: multiple guard types in one function", () => {
   });
 
   it("deopt from CheckMap guard vs CheckSmi guard restore to different bytecodeOffsets", () => {
-    engine.run(`
-      function compute(o,a,b){return o.x + a + b;}
-      var obj={x:1};
-      for(var i=0;i<10;i++) compute(obj,i,i);
-    `);
+    engine.run(`fn compute(o, a, b):
+  return o.x + a + b
+obj = {x:1}
+i = 0
+while i < 10:
+  compute(obj,i,i)
+  i = i + 1`);
     const fn = getFn(engine, "compute");
     const { graph, frameStates } = compileIR(fn);
 
@@ -606,7 +721,12 @@ describe("speculation → deopt: repeated deopts on same function", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("deoptCount increments on each deopt from same guard's frameState", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph, frameStates } = compileIR(fn);
     const fs = nodesOfType(graph, IR_CHECK_SMI)[0].frameState;
@@ -629,7 +749,12 @@ describe("speculation → deopt: repeated deopts on same function", () => {
   });
 
   it("disableOptimization triggers exactly at maxDeoptCount boundary", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph, frameStates } = compileIR(fn);
     const fs = nodesOfType(graph, IR_CHECK_SMI)[0].frameState;
@@ -656,7 +781,13 @@ describe("speculation → deopt: stack values in frameState → acc restoration"
   beforeEach(() => { engine = jitEngine(); });
 
   it("frameState with stack values: Deoptimizer sets acc from last stack entry", () => {
-    engine.run("function f(a,b){var c=a+b;return c;} for(var i=0;i<10;i++) f(i,i);");
+    engine.run(`fn f(a, b):
+  c = a+b
+  return c
+i = 0
+while i < 10:
+  f(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph, frameStates } = compileIR(fn);
 
@@ -696,12 +827,16 @@ describe("speculation → deopt: dependency invalidation across multiple functio
   beforeEach(() => { engine = jitEngine(); });
 
   it("two functions sharing same map dependency both get marked for lazy deopt", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      function getY(o){return o.y;}
-      var obj={x:1,y:2};
-      for(var i=0;i<10;i++){getX(obj);getY(obj);}
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+fn getY(o):
+  return o.y
+obj = {x:1,y:2}
+i = 0
+while i < 10:
+  getX(obj)
+  getY(obj)
+  i = i + 1`);
     const fn1 = getFn(engine, "getX");
     const fn2 = getFn(engine, "getY");
     const { graph: g1 } = compileIR(fn1);
@@ -731,11 +866,13 @@ describe("speculation → deopt: dependency invalidation across multiple functio
   });
 
   it("invalidating unrelated map ID does not affect registered functions", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      var obj={x:1};
-      for(var i=0;i<10;i++) getX(obj);
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+obj = {x:1}
+i = 0
+while i < 10:
+  getX(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph } = compileIR(fn);
 
@@ -756,7 +893,14 @@ describe("speculation → deopt: deopt from different frameState IDs in same fun
   beforeEach(() => { engine = jitEngine(); });
 
   it("function with multiple operations: deopt from each guard's frameState restores correct offset", () => {
-    engine.run("function f(a,b){var c=a+b;var d=a-b;return c*d;} for(var i=0;i<10;i++) f(i,i);");
+    engine.run(`fn f(a, b):
+  c = a+b
+  d = a-b
+  return c*d
+i = 0
+while i < 10:
+  f(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph, frameStates } = compileIR(fn);
 
@@ -779,7 +923,14 @@ describe("speculation → deopt: deopt from different frameState IDs in same fun
   });
 
   it("arithmetic nodes at different bytecodeOffsets produce distinct frameState IDs", () => {
-    engine.run("function f(a,b){var c=a+b;var d=a*b;return c-d;} for(var i=0;i<10;i++) f(i,i);");
+    engine.run(`fn f(a, b):
+  c = a+b
+  d = a*b
+  return c-d
+i = 0
+while i < 10:
+  f(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph, frameStates } = compileIR(fn);
 
@@ -802,7 +953,12 @@ describe("speculation → deopt: Float64 arithmetic guard interaction", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("Float64Add with CheckNumber: deopt from CheckNumber guard restores frame", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i*0.1,i*0.2);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i*0.1,i*0.2)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph, frameStates } = compileIR(fn);
 
@@ -821,7 +977,12 @@ describe("speculation → deopt: Float64 arithmetic guard interaction", () => {
   });
 
   it("Float64Div with CheckNumber: deopt restores correct function", () => {
-    engine.run("function div(a,b){return a/b;} for(var i=0;i<10;i++) div(i*0.1,i*0.2+1);");
+    engine.run(`fn div(a, b):
+  return a/b
+i = 0
+while i < 10:
+  div(i*0.1,i*0.2+1)
+  i = i + 1`);
     const fn = getFn(engine, "div");
     const { graph, frameStates } = compileIR(fn);
 
@@ -840,7 +1001,12 @@ describe("speculation → deopt: Float64 arithmetic guard interaction", () => {
   });
 
   it("Float64Sub and Float64Mul guards share similar frameState pattern", () => {
-    engine.run("function f(a,b){return (a-b)*(a+b);} for(var i=0;i<10;i++) f(i*0.1,i*0.2);");
+    engine.run(`fn f(a, b):
+  return (a-b)*(a+b)
+i = 0
+while i < 10:
+  f(i*0.1,i*0.2)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph, frameStates } = compileIR(fn);
 
@@ -859,16 +1025,21 @@ describe("speculation → deopt: recompilation produces different IR after feedb
   beforeEach(() => { engine = jitEngine(); });
 
   it("smi-trained function recompiled after mixed feedback produces generic ops", () => {
-    engine.run(`
-      function add(a,b){return a+b;}
-      for(var i=0;i<10;i++) add(i,i);
-    `);
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn1 = getFn(engine, "add");
     const { graph: g1 } = compileIR(fn1);
     expect(hasNodeType(g1, IR_CHECK_SMI)).toBe(true);
     expect(hasNodeType(g1, IR_INT32_ADD)).toBe(true);
 
-    engine.run('for(var i=0;i<10;i++) add("a","b");');
+    engine.run(`i = 0
+while i < 10:
+  add("a","b")
+  i = i + 1`);
     const fn2 = getFn(engine, "add");
     const { graph: g2 } = compileIR(fn2);
 
@@ -877,12 +1048,20 @@ describe("speculation → deopt: recompilation produces different IR after feedb
   });
 
   it("smi-trained comparison recompiled after float feedback uses Float64Compare", () => {
-    engine.run("function lt(a,b){return a<b;} for(var i=0;i<10;i++) lt(i,5);");
+    engine.run(`fn lt(a, b):
+  return a<b
+i = 0
+while i < 10:
+  lt(i,5)
+  i = i + 1`);
     const fn1 = getFn(engine, "lt");
     const { graph: g1 } = compileIR(fn1);
     expect(hasNodeType(g1, IR_INT32_COMPARE)).toBe(true);
 
-    engine.run("for(var i=0;i<10;i++) lt(i*0.1,0.5);");
+    engine.run(`i = 0
+while i < 10:
+  lt(i*0.1,0.5)
+  i = i + 1`);
     const fn2 = getFn(engine, "lt");
     const { graph: g2 } = compileIR(fn2);
 
@@ -897,11 +1076,16 @@ describe("speculation → deopt: PolymorphicLoad frameState feeds Deoptimizer", 
   beforeEach(() => { engine = jitEngine(); });
 
   it("PolymorphicLoad node has frameState usable by Deoptimizer", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      for(var i=0;i<5;i++) getX({x:i});
-      for(var i=0;i<5;i++) getX({x:i, y:i});
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+i = 0
+while i < 5:
+  getX({x:i})
+  i = i + 1
+i = 0
+while i < 5:
+  getX({x:i, y:i})
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph, frameStates } = compileIR(fn);
 
@@ -932,11 +1116,13 @@ describe("speculation → deopt: CheckArray/CheckElementsKind guard feeds Deopti
   beforeEach(() => { engine = jitEngine(); });
 
   it("array.length speculation produces CheckArray with frameState", () => {
-    engine.run(`
-      function len(arr){return arr.length;}
-      var a=[1,2,3];
-      for(var i=0;i<10;i++) len(a);
-    `);
+    engine.run(`fn len(arr):
+  return arr.length
+a = [1,2,3]
+i = 0
+while i < 10:
+  len(a)
+  i = i + 1`);
     const fn = getFn(engine, "len");
     const { graph, frameStates } = compileIR(fn);
 
@@ -967,7 +1153,14 @@ describe("speculation → deopt: frameState bytecodeOffset ordering", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("guards earlier in bytecode have <= bytecodeOffset than later guards", () => {
-    engine.run("function f(a,b){var c=a+b;var d=a-b;return c*d;} for(var i=0;i<10;i++) f(i,i);");
+    engine.run(`fn f(a, b):
+  c = a+b
+  d = a-b
+  return c*d
+i = 0
+while i < 10:
+  f(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { frameStates } = compileIR(fn);
 
@@ -977,7 +1170,12 @@ describe("speculation → deopt: frameState bytecodeOffset ordering", () => {
   });
 
   it("each frameState in the array has id matching its index", () => {
-    engine.run("function f(a,b){return a+b+a*b;} for(var i=0;i<10;i++) f(i,i);");
+    engine.run(`fn f(a, b):
+  return a+b+a*b
+i = 0
+while i < 10:
+  f(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { frameStates } = compileIR(fn);
 
@@ -992,7 +1190,12 @@ describe("speculation → deopt: CheckSmi guards share frameState within same by
   beforeEach(() => { engine = jitEngine(); });
 
   it("left and right CheckSmi for binary op share the same frameState", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph } = compileIR(fn);
 
@@ -1002,7 +1205,12 @@ describe("speculation → deopt: CheckSmi guards share frameState within same by
   });
 
   it("the shared frameState is also the same as Int32Add's frameState", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph } = compileIR(fn);
 
@@ -1017,11 +1225,13 @@ describe("speculation → deopt: thisValue restoration through frameState", () =
   beforeEach(() => { engine = jitEngine(); });
 
   it("method call frameState captures thisValue, Deoptimizer restores it", () => {
-    engine.run(`
-      function inc(self,n){return self.v+n;}
-      var c={v:10};
-      for(var i=0;i<10;i++) inc(c,i);
-    `);
+    engine.run(`fn inc(self, n):
+  return self.v+n
+c = {v:10}
+i = 0
+while i < 10:
+  inc(c,i)
+  i = i + 1`);
     const fn = getFn(engine, "inc");
     const { graph, frameStates } = compileIR(fn);
 
@@ -1055,8 +1265,18 @@ describe("speculation → deopt: cascaded deopt through callerFrameState", () =>
   beforeEach(() => { engine = jitEngine(); });
 
   it("manually constructed inlined frameState chain triggers resumeCascaded", () => {
-    engine.run("function inner(a){return a+1;} for(var i=0;i<10;i++) inner(i);");
-    engine.run("function outer(x){return inner(x)+2;} for(var i=0;i<10;i++) outer(i);");
+    engine.run(`fn inner(a):
+  return a+1
+i = 0
+while i < 10:
+  inner(i)
+  i = i + 1`);
+    engine.run(`fn outer(x):
+  return inner(x)+2
+i = 0
+while i < 10:
+  outer(i)
+  i = i + 1`);
 
     const innerFn = getFn(engine, "inner");
     const outerFn = getFn(engine, "outer");
@@ -1101,11 +1321,13 @@ describe("speculation → deopt: after deopt, optimizedCode is null so lazy mark
   beforeEach(() => { engine = jitEngine(); });
 
   it("invalidation after deopt does not mark function for lazy deopt because optimizedCode is null", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      var obj={x:1};
-      for(var i=0;i<10;i++) getX(obj);
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+obj = {x:1}
+i = 0
+while i < 10:
+  getX(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph, frameStates } = compileIR(fn);
 
@@ -1138,7 +1360,12 @@ describe("speculation → deopt: comparison operators produce correct IR and deo
   beforeEach(() => { engine = jitEngine(); });
 
   it("greater-than-or-equal with smi produces Int32Compare with >= op", () => {
-    engine.run("function gte(a,b){return a>=b;} for(var i=0;i<10;i++) gte(i,5);");
+    engine.run(`fn gte(a, b):
+  return a>=b
+i = 0
+while i < 10:
+  gte(i,5)
+  i = i + 1`);
     const fn = getFn(engine, "gte");
     const { graph, frameStates } = compileIR(fn);
 
@@ -1157,7 +1384,12 @@ describe("speculation → deopt: comparison operators produce correct IR and deo
   });
 
   it("less-than-or-equal with smi produces Int32Compare with <= op", () => {
-    engine.run("function lte(a,b){return a<=b;} for(var i=0;i<10;i++) lte(i,5);");
+    engine.run(`fn lte(a, b):
+  return a<=b
+i = 0
+while i < 10:
+  lte(i,5)
+  i = i + 1`);
     const fn = getFn(engine, "lte");
     const { graph, frameStates } = compileIR(fn);
 
@@ -1176,7 +1408,12 @@ describe("speculation → deopt: comparison operators produce correct IR and deo
   });
 
   it("not-equal with smi produces Int32Compare with != op", () => {
-    engine.run("function neq(a,b){return a!==b;} for(var i=0;i<10;i++) neq(i,5);");
+    engine.run(`fn neq(a, b):
+  return a!==b
+i = 0
+while i < 10:
+  neq(i,5)
+  i = i + 1`);
     const fn = getFn(engine, "neq");
     const { graph, frameStates } = compileIR(fn);
 
@@ -1191,8 +1428,18 @@ describe("speculation → deopt: multiple functions compiled and deopted interle
   beforeEach(() => { engine = jitEngine(); });
 
   it("deopt on fn1 does not affect fn2's optimizedCode or deoptCount", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
-    engine.run("function sub(a,b){return a-b;} for(var i=0;i<10;i++) sub(i,1);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
+    engine.run(`fn sub(a, b):
+  return a-b
+i = 0
+while i < 10:
+  sub(i,1)
+  i = i + 1`);
 
     const fn1 = getFn(engine, "add");
     const fn2 = getFn(engine, "sub");
@@ -1216,8 +1463,18 @@ describe("speculation → deopt: multiple functions compiled and deopted interle
   });
 
   it("interleaved deopts on two functions track independent deoptCounts", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
-    engine.run("function mul(a,b){return a*b;} for(var i=0;i<10;i++) mul(i,2);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
+    engine.run(`fn mul(a, b):
+  return a*b
+i = 0
+while i < 10:
+  mul(i,2)
+  i = i + 1`);
 
     const fn1 = getFn(engine, "add");
     const fn2 = getFn(engine, "mul");
@@ -1249,7 +1506,12 @@ describe("speculation → deopt: frameState localValues mapping completeness", (
   beforeEach(() => { engine = jitEngine(); });
 
   it("function with 3 params: frameState captures all param slots as localValues", () => {
-    engine.run("function f(a,b,c){return a+b+c;} for(var i=0;i<10;i++) f(i,i+1,i+2);");
+    engine.run(`fn f(a, b, c):
+  return a+b+c
+i = 0
+while i < 10:
+  f(i,i+1,i+2)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph, frameStates } = compileIR(fn);
 
@@ -1278,7 +1540,13 @@ describe("speculation → deopt: frameState localValues mapping completeness", (
   });
 
   it("function with local var: frameState includes the local in localValues", () => {
-    engine.run("function f(a){var x=a+1;return x+2;} for(var i=0;i<10;i++) f(i);");
+    engine.run(`fn f(a):
+  x = a+1
+  return x+2
+i = 0
+while i < 10:
+  f(i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { frameStates } = compileIR(fn);
 
@@ -1293,14 +1561,14 @@ describe("speculation → deopt: deopt reason propagation through full pipeline"
 
   it("each deopt reason from speculation guard is stored on compiledFn.lastDeoptReason", () => {
     const reasons = [
-      { code: "function f(a,b){return a+b;}", loop: "for(var i=0;i<10;i++) f(i,i);", guard: IR_CHECK_SMI, reason: DEOPT_SMI_CHECK_FAILED },
-      { code: "function g(a,b){return a+b;}", loop: "for(var i=0;i<10;i++) g(i*0.1,i*0.2);", guard: IR_CHECK_NUMBER, reason: DEOPT_NUMBER_CHECK_FAILED },
+      { name: "f", src: `fn f(a, b):\n  return a + b\ni = 0\nwhile i < 10:\n  f(i, i)\n  i = i + 1`, guard: IR_CHECK_SMI, reason: DEOPT_SMI_CHECK_FAILED },
+      { name: "g", src: `fn g(a, b):\n  return a + b\ni = 0\nwhile i < 10:\n  g(i*0.1, i*0.2)\n  i = i + 1`, guard: IR_CHECK_NUMBER, reason: DEOPT_NUMBER_CHECK_FAILED },
     ];
 
-    for (const { code, loop, guard, reason } of reasons) {
+    for (const { name, src, guard, reason } of reasons) {
       const e = jitEngine();
-      e.run(code + loop);
-      const fn = getFn(e, code.match(/function (\w+)/)[1]);
+      e.run(src);
+      const fn = getFn(e, name);
       const { graph, frameStates } = compileIR(fn);
 
       const check = nodesOfType(graph, guard)[0];
@@ -1323,11 +1591,13 @@ describe("speculation → deopt: array.length CheckArray → Deoptimizer pipelin
   beforeEach(() => { engine = jitEngine(); });
 
   it("CheckArray frameState feeds Deoptimizer and deoptCount increments", () => {
-    engine.run(`
-      function len(arr){return arr.length;}
-      var a=[1,2,3];
-      for(var i=0;i<10;i++) len(a);
-    `);
+    engine.run(`fn len(arr):
+  return arr.length
+a = [1,2,3]
+i = 0
+while i < 10:
+  len(a)
+  i = i + 1`);
     const fn = getFn(engine, "len");
     const { graph, frameStates } = compileIR(fn);
 
@@ -1350,11 +1620,13 @@ describe("speculation → deopt: array.length CheckArray → Deoptimizer pipelin
   });
 
   it("CheckElementsKind frameState is valid and Deoptimizer can consume it", () => {
-    engine.run(`
-      function len(arr){return arr.length;}
-      var a=[1,2,3];
-      for(var i=0;i<10;i++) len(a);
-    `);
+    engine.run(`fn len(arr):
+  return arr.length
+a = [1,2,3]
+i = 0
+while i < 10:
+  len(a)
+  i = i + 1`);
     const fn = getFn(engine, "len");
     const { graph, frameStates } = compileIR(fn);
 
@@ -1381,11 +1653,13 @@ describe("speculation → deopt: LoadField after CheckMap shares map dependency 
   beforeEach(() => { engine = jitEngine(); });
 
   it("LoadField node follows CheckMap in node ordering", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      var obj={x:10};
-      for(var i=0;i<10;i++) getX(obj);
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+obj = {x:10}
+i = 0
+while i < 10:
+  getX(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph } = compileIR(fn);
 
@@ -1399,11 +1673,13 @@ describe("speculation → deopt: LoadField after CheckMap shares map dependency 
   });
 
   it("deopt at CheckMap means LoadField never executes, frame restores correctly", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      var obj={x:10};
-      for(var i=0;i<10;i++) getX(obj);
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+obj = {x:10}
+i = 0
+while i < 10:
+  getX(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph, frameStates } = compileIR(fn);
 
@@ -1428,7 +1704,12 @@ describe("speculation → deopt: deopt with no runtimeValues falls back to undef
   beforeEach(() => { engine = jitEngine(); });
 
   it("deopt signal without runtimeValues sets locals to undefined", () => {
-    engine.run("function f(a,b){return a+b;} for(var i=0;i<10;i++) f(i,i);");
+    engine.run(`fn f(a, b):
+  return a+b
+i = 0
+while i < 10:
+  f(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph, frameStates } = compileIR(fn);
 
@@ -1451,7 +1732,12 @@ describe("speculation → deopt: Float64 comparison guard pipeline", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("Float64Compare's CheckNumber guards each have frameState usable by Deoptimizer", () => {
-    engine.run("function cmp(a,b){return a<b;} for(var i=0;i<10;i++) cmp(i*0.1,i*0.2);");
+    engine.run(`fn cmp(a, b):
+  return a<b
+i = 0
+while i < 10:
+  cmp(i*0.1,i*0.2)
+  i = i + 1`);
     const fn = getFn(engine, "cmp");
     const { graph, frameStates } = compileIR(fn);
 
@@ -1478,7 +1764,15 @@ describe("speculation → deopt: multi-expression function has distinct frameSta
   beforeEach(() => { engine = jitEngine(); });
 
   it("function with add, mul, div each has own frameState ID", () => {
-    engine.run("function f(a,b){var x=a+b;var y=a*b;var z=x/y;return z;} for(var i=1;i<10;i++) f(i,i);");
+    engine.run(`fn f(a, b):
+  x = a+b
+  y = a*b
+  z = x/y
+  return z
+i = 1
+while i < 10:
+  f(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph, frameStates } = compileIR(fn);
 

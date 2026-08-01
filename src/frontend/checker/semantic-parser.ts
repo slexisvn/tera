@@ -1,6 +1,5 @@
 import {
   NodeType,
-  Literal,
   type ASTNode,
   type BindingIdentifier,
   type BindingPattern,
@@ -224,9 +223,10 @@ function classFieldNode(field: AstClassFieldNode): ClassFieldNode {
   return {
     name: field.name,
     declaredType: field.declaredType,
-    value: field.init ?? Literal(undefined, "undefined"),
+    value: field.init ?? undefined,
     static: !!field.static,
     visibility: field.visibility ?? DEFAULT_CLASS_VISIBILITY,
+    explicitVisibility: !!field.explicitVisibility,
     span: spanOf(field),
     nameSpan: nameSpanOf(field),
   };

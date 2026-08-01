@@ -548,12 +548,12 @@ describe("checker fuzz invariants", () => {
       "seq = (true, 42)",
       "waited = await 1",
       "yielded = yield \"x\"",
-      "fn_value = function(x) { return x }",
+      "fn_value = x => x",
       "word_and = true and false",
       "word_or = false or true",
       "word_not = not false",
       "bad_template: int = `v=${1}`",
-      "bad_function: int = function(x) { return x }",
+      "bad_function: int = x => x",
     ].join("\n");
     const symbols = inferSymbolTypes(expressionSource);
     for (const expected of [
@@ -561,7 +561,7 @@ describe("checker fuzz invariants", () => {
       { name: "seq", type: "int" },
       { name: "waited", type: "int" },
       { name: "yielded", type: "string" },
-      { name: "fn_value", type: "Function" },
+      { name: "fn_value", type: "(any) -> any" },
       { name: "word_and", type: "bool" },
       { name: "word_or", type: "bool" },
       { name: "word_not", type: "bool" },
@@ -578,7 +578,7 @@ describe("checker fuzz invariants", () => {
     expectDiagnostic(failures, "function-not-int", expressionSource, {
       line: 10,
       column: 21,
-      message: "Type 'Function' is not assignable to 'int'",
+      message: "Type '(any) -> any' is not assignable to 'int'",
     });
     expectDiagnostic(failures, "word-and-bad-operand", "value = true and 1", {
       line: 1,

@@ -83,6 +83,7 @@ export type ClassFieldNode = {
   value?: ASTNode;
   static: boolean;
   visibility: ClassVisibility;
+  explicitVisibility: boolean;
   span: SourceSpan;
   nameSpan: SourceSpan;
 };

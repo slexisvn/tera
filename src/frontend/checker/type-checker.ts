@@ -210,6 +210,9 @@ export class TypeChecker {
   }
 
   checkClassField(field: Extract<SemanticNode, { kind: "Class" }>["fields"][number], scope: Scope): void {
+    if (!field.explicitVisibility) {
+      this.add(field.nameSpan.line, field.nameSpan.column, `Field '${field.name}' must declare a visibility modifier ('public', 'private', or 'protected')`);
+    }
     if (!field.value) return;
     if (field.declaredType) this.checkAssignableValue(field.value, cleanType(field.declaredType), scope, field.span.line, field.span.column, `'${field.name}: ${cleanType(field.declaredType)}'`);
     else this.checkExpression(field.value, scope, field.span.line, field.span.column);

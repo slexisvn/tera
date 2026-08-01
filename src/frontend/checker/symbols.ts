@@ -290,15 +290,18 @@ class SymbolTableBuilder {
     if (node.kind !== "Expr" || node.value.type !== NodeType.AssignmentExpression) return;
     const target = node.value.target as ASTNode;
     if (target.type !== NodeType.MemberExpression || (target.object as ASTNode)?.type !== NodeType.ThisExpression || typeof target.property !== "string") return;
+    const members = this.fieldsByType.get(owner);
+    const existing = members?.find((member) => member.name === target.property);
+    if (existing && existing.line > 0) return;
     const at = nodePosition(target, node.span);
-    upsertMember(this.fieldsByType.get(owner), {
+    upsertMember(members, {
       name: target.property,
       kind: "field",
       line: at.line,
       column: at.column,
-      typeName: this.localType(target.property, at.line),
-      visibility: existingVisibility(this.fieldsByType.get(owner), target.property),
-      owner: existingOwner(this.fieldsByType.get(owner), target.property),
+      typeName: existing?.typeName ?? this.localType(target.property, at.line),
+      visibility: existing?.visibility,
+      owner: existing?.owner,
     });
   }
 
@@ -365,14 +368,6 @@ function upsertMember(members: SourceSymbol[] | undefined, member: SourceSymbol)
   const index = members.findIndex((entry) => entry.name === member.name);
   if (index >= 0) members[index] = member;
   else members.push(member);
-}
-
-function existingVisibility(members: SourceSymbol[] | undefined, name: string): ClassVisibility | undefined {
-  return members?.find((member) => member.name === name)?.visibility;
-}
-
-function existingOwner(members: SourceSymbol[] | undefined, name: string): string | undefined {
-  return members?.find((member) => member.name === name)?.owner;
 }
 
 function upsertInferredMember(members: SourceSymbol[] | undefined, member: SourceSymbol): void {

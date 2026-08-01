@@ -92,6 +92,25 @@ describe("definition", () => {
     expect(location?.range.end).toEqual({ line: 1, character: "  question".length });
   });
 
+  it("jumps from a this-member access to the class field declaration, not the constructor assignment", () => {
+    const source = [
+      "class Report:",
+      "  public title: string",
+      "  public sections: string[]",
+      "  constructor(title: string, sections: string[]):",
+      "    this.title = title",
+      "    this.sections = sections",
+    ].join("\n");
+
+    const location = computeDefinition(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 5, character: "    this.sections".length },
+    });
+
+    expect(location?.range.start).toEqual({ line: 2, character: "  public ".length });
+    expect(location?.range.end).toEqual({ line: 2, character: "  public sections".length });
+  });
+
   it("jumps from a super constructor call to the base constructor", () => {
     const source = [
       "class Handler:",

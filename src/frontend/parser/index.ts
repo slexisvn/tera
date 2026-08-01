@@ -91,9 +91,9 @@ type StatementResult = ASTNode | ASTNode[];
 type ClassMemberModifiers = {
   isStatic: boolean;
   visibility: ClassVisibility;
+  explicitVisibility: boolean;
   isAbstract: boolean;
 };
-type BlockDelimiter = typeof TokenType.Punctuator | typeof TokenType.Indent;
 type ParamsParseResult = {
   params: ParamNode[];
   info: FunctionParamInfo[];
@@ -336,33 +336,22 @@ export class Parser {
     while (this.isStatementSeparator()) this.advance();
   }
 
-  isBlockEnd(tok = this.current()): boolean {
-    return tok.type === TokenType.Dedent ||
-      tok.type === TokenType.EOF ||
-      (tok.type === TokenType.Punctuator && tok.value === "}");
-  }
-
   isBodyStart(): boolean {
-    return this.check(TokenType.Punctuator, "{") || this.check(TokenType.Punctuator, ":");
+    return this.check(TokenType.Punctuator, ":");
   }
 
-  isBodyEnd(kind: BlockDelimiter): boolean {
-    return kind === TokenType.Indent
-      ? this.check(TokenType.Dedent)
-      : this.check(TokenType.Punctuator, "}");
+  isBodyEnd(): boolean {
+    return this.check(TokenType.Dedent);
   }
 
-  parseBodyStart(): BlockDelimiter {
-    if (this.match(TokenType.Punctuator, "{")) return TokenType.Punctuator;
+  parseBodyStart(): void {
     this.expect(TokenType.Punctuator, ":");
     while (this.match(TokenType.Newline)) {}
     this.expect(TokenType.Indent);
-    return TokenType.Indent;
   }
 
-  parseBodyEnd(kind: BlockDelimiter): void {
-    if (kind === TokenType.Indent) this.expect(TokenType.Dedent);
-    else this.expect(TokenType.Punctuator, "}");
+  parseBodyEnd(): void {
+    this.expect(TokenType.Dedent);
   }
 
   tokenStringValue(value: string | ASTNode): string {
@@ -403,7 +392,7 @@ export class Parser {
       }
       break;
     }
-    return { isStatic, isAbstract, visibility: classVisibilityOrDefault(visibility) };
+    return { isStatic, isAbstract, visibility: classVisibilityOrDefault(visibility), explicitVisibility: visibility !== null };
   }
 
   isStaticModifierAhead(): boolean {
@@ -530,17 +519,6 @@ export class Parser {
       return LabeledStatement(label, body);
     }
 
-    if (
-      tok.type === TokenType.Identifier &&
-      this.peek().type === TokenType.Punctuator &&
-      this.peek().value === "{"
-    ) {
-      const label = this.tokenString(this.advance(), "label");
-      let body = this.parseBlock();
-      if (Array.isArray(body)) body = BlockStatement(body);
-      return LabeledStatement(label, body);
-    }
-
     if (this.isBodyStart()) {
       return this.parseBlock();
     }
@@ -578,18 +556,18 @@ export class Parser {
         if (!this.match(TokenType.Punctuator, ",")) break;
       }
     }
-    const bodyKind = this.parseBodyStart();
+    this.parseBodyStart();
     const fields: InterfaceFieldAstNode[] = [];
     const indexers: InterfaceIndexAstNode[] = [];
     this.skipStatementSeparators();
-    while (!this.isBodyEnd(bodyKind) && !this.isAtEnd()) {
+    while (!this.isBodyEnd() && !this.isAtEnd()) {
       const entry = this.parseInterfaceEntry();
       if ("valueType" in entry) indexers.push(entry);
       else fields.push(entry);
       this.consumeSemicolon();
       this.skipStatementSeparators();
     }
-    this.parseBodyEnd(bodyKind);
+    this.parseBodyEnd();
     return withNameSpan(withSpan(InterfaceDeclaration(name, typeParams, parents.filter(Boolean), fields, indexers), start), nameToken);
   }
 
@@ -1248,16 +1226,16 @@ export class Parser {
 
   parseBlock(): ASTNode {
     const start = this.current();
-    const kind = this.parseBodyStart();
+    this.parseBodyStart();
     const body = [];
     this.skipStatementSeparators();
-    while (!this.isBodyEnd(kind) && !this.isAtEnd()) {
+    while (!this.isBodyEnd() && !this.isAtEnd()) {
       const stmt = this.parseStatement();
       if (Array.isArray(stmt)) body.push(...stmt);
       else body.push(stmt);
       this.skipStatementSeparators();
     }
-    this.parseBodyEnd(kind);
+    this.parseBodyEnd();
     return withSpan(BlockStatement(body), start);
   }
 
@@ -1635,11 +1613,11 @@ export class Parser {
   parseSwitchStatement(): ASTNode {
     const start = this.expect(TokenType.Keyword, "switch");
     const discriminant = this.parseControlCondition();
-    const kind = this.parseBodyStart();
+    this.parseBodyStart();
 
     const cases = [];
     this.skipStatementSeparators();
-    while (!this.isBodyEnd(kind) && !this.isAtEnd()) {
+    while (!this.isBodyEnd() && !this.isAtEnd()) {
       let test = null;
       if (this.match(TokenType.Keyword, "case")) {
         test = this.parseExpression();
@@ -1647,29 +1625,17 @@ export class Parser {
         this.error("Expected case or default", this.current());
       }
 
-      const consequent = this.parseSwitchCaseConsequent(kind);
+      const consequent = this.parseSwitchCaseConsequent();
       cases.push(SwitchCase(test, consequent));
       this.skipStatementSeparators();
     }
 
-    this.parseBodyEnd(kind);
+    this.parseBodyEnd();
     return withSpan(SwitchStatement(discriminant, cases), start);
   }
 
-  parseSwitchCaseConsequent(switchKind: BlockDelimiter): ASTNode[] {
+  parseSwitchCaseConsequent(): ASTNode[] {
     const consequent: ASTNode[] = [];
-    if (this.match(TokenType.Punctuator, "{")) {
-      this.skipStatementSeparators();
-      while (!this.check(TokenType.Punctuator, "}") && !this.isAtEnd()) {
-        const stmt = this.parseStatement();
-        if (Array.isArray(stmt)) consequent.push(...stmt);
-        else consequent.push(stmt);
-        this.skipStatementSeparators();
-      }
-      this.expect(TokenType.Punctuator, "}");
-      return consequent;
-    }
-
     this.expect(TokenType.Punctuator, ":");
     if (this.match(TokenType.Newline)) {
       while (this.match(TokenType.Newline)) {}
@@ -1688,7 +1654,7 @@ export class Parser {
     while (
       !this.check(TokenType.Keyword, "case") &&
       !this.check(TokenType.Keyword, "default") &&
-      !this.isBodyEnd(switchKind) &&
+      !this.isBodyEnd() &&
       !this.isAtEnd()
     ) {
       const stmt = this.parseStatement();
@@ -1790,14 +1756,14 @@ export class Parser {
       } while (this.match(TokenType.Punctuator, ","));
     }
 
-    const bodyKind = this.parseBodyStart();
+    this.parseBodyStart();
 
     let constructorNode = null;
     const methods = [];
     const fields = [];
 
     this.skipStatementSeparators();
-    while (!this.isBodyEnd(bodyKind) && !this.check(TokenType.EOF)) {
+    while (!this.isBodyEnd() && !this.check(TokenType.EOF)) {
       const memberStart = this.current();
       const modifiers = this.parseClassMemberModifiers();
       let memberNameToken = this.current();
@@ -1818,13 +1784,14 @@ export class Parser {
         const declaredType = this.skipTypeAnnotation(new Set(["=", ";", "}"]));
         const init = this.match(TokenType.Punctuator, "=")
           ? this.parseExpression()
-          : Literal(undefined, "undefined");
+          : null;
         this.consumeSemicolon();
         fields.push({
           name: memberName,
           init,
           static: modifiers.isStatic,
           visibility: modifiers.visibility,
+          explicitVisibility: modifiers.explicitVisibility,
           declaredType,
           __line: memberStart.line,
           __column: memberStart.column,
@@ -1845,10 +1812,10 @@ export class Parser {
         this.error("Static class members cannot be abstract", memberStart);
       }
       const body = modifiers.isAbstract ? BlockStatement([]) : this.parseBlock();
-      if (modifiers.isAbstract) {
-        if (this.isBodyStart()) this.error("Abstract class members cannot have a body", this.current());
-        this.consumeSemicolon();
+      if (modifiers.isAbstract && this.isBodyStart()) {
+        this.error("Abstract class members cannot have a body", this.current());
       }
+      if (modifiers.isAbstract) this.consumeSemicolon();
 
       const funcNode = FunctionDeclaration(memberName, params, body);
       funcNode._paramInfo = parsedParams.info;
@@ -1873,7 +1840,7 @@ export class Parser {
       this.skipStatementSeparators();
     }
 
-    this.parseBodyEnd(bodyKind);
+    this.parseBodyEnd();
 
     const node = ClassDeclaration(className, superClass, constructorNode, methods, fields, isAbstract);
     node.implements = implemented;
@@ -1891,14 +1858,14 @@ export class Parser {
     const classNameToken = this.expect(TokenType.Identifier);
     const className = this.tokenString(classNameToken, "model name");
     const parsedParams = this.check(TokenType.Punctuator, "(") ? this._parseParamsWithInfo() : { params: [], info: [] };
-    const bodyKind = this.parseBodyStart();
+    this.parseBodyStart();
 
     const fields: ModelFieldAstNode[] = [];
     const methods = [];
     const sections: ModelSectionNode[] = [];
 
     this.skipStatementSeparators();
-    while (!this.isBodyEnd(bodyKind) && !this.isAtEnd()) {
+    while (!this.isBodyEnd() && !this.isAtEnd()) {
       const entryStart = this.current();
       if (!this.check(TokenType.Identifier)) {
         this.error("Expected model field or method", this.current());
@@ -1941,7 +1908,7 @@ export class Parser {
       }
       this.skipStatementSeparators();
     }
-    this.parseBodyEnd(bodyKind);
+    this.parseBodyEnd();
     const node = ModelDeclaration(className, parsedParams.params, fields, methods, sections);
     node._paramInfo = parsedParams.info;
     return withNameSpan(withSpan(node, start), classNameToken);
@@ -2057,10 +2024,6 @@ export class Parser {
     }
     this.expect(TokenType.Punctuator, "=>");
 
-    if (this.check(TokenType.Punctuator, "{")) {
-      const body = this.parseBlock();
-      return withSpan(ArrowFunctionExpression(params, body, false), start);
-    }
     const expr = this.parseExpression();
     return withSpan(ArrowFunctionExpression(params, expr, true), start);
   }

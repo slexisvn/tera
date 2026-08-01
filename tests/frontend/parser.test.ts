@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parse } from "../../src/frontend/parser/index.js";
+import { parse } from "../../src/frontend/parser/language.js";
 import { NodeType } from "../../src/frontend/ast/index.js";
 
 function parseExpr(src) {
@@ -333,17 +333,12 @@ describe("Parser", () => {
       expect(prop.spread).toBe(true);
     });
 
-    it("method shorthand", () => {
-      const ast = parse("x = { foo(a) { return a } }");
-      const prop = ast.body[0].expression.value.properties[0];
-      expect(prop.value.type).toBe(NodeType.FunctionExpression);
+    it("rejects method shorthand with a brace body (blocks are offside-only)", () => {
+      expect(() => parse("x = { foo(a) { return a } }")).toThrow();
     });
 
-    it("getter and setter", () => {
-      const ast = parse("x = { get a() { return 1 }, set a(v) { } }");
-      const props = ast.body[0].expression.value.properties;
-      expect(props[0].kind).toBe("get");
-      expect(props[1].kind).toBe("set");
+    it("rejects object getter/setter with a brace body", () => {
+      expect(() => parse("x = { get a() { return 1 }, set a(v) { } }")).toThrow();
     });
   });
 
@@ -368,10 +363,8 @@ describe("Parser", () => {
       expect(expr.params).toEqual([]);
     });
 
-    it("block body", () => {
-      const expr = parseExpr("(x) => { return x }");
-      expect(expr.isExpression).toBe(false);
-      expect(expr.body.type).toBe(NodeType.BlockStatement);
+    it("rejects a brace block body (arrows take an expression body)", () => {
+      expect(() => parse("f = (x) => { return x }")).toThrow();
     });
 
     it("default params", () => {
@@ -386,17 +379,12 @@ describe("Parser", () => {
   });
 
   describe("function expression", () => {
-    it("named", () => {
-      const expr = parseExpr("(function foo(a) { return a })");
-      expect(expr).toMatchObject({
-        type: NodeType.FunctionExpression,
-        name: "foo",
-      });
+    it("rejects a named function expression with a brace body", () => {
+      expect(() => parse("g = (function foo(a) { return a })")).toThrow();
     });
 
-    it("anonymous", () => {
-      const expr = parseExpr("(function(x) { return x })");
-      expect(expr.name).toBe(null);
+    it("rejects an anonymous function expression with a brace body", () => {
+      expect(() => parse("g = (function(x) { return x })")).toThrow();
     });
   });
 
@@ -489,7 +477,7 @@ describe("Parser", () => {
 
   describe("function declaration", () => {
     it("basic function", () => {
-      const stmt = parseStmt("function foo(a, b) { return a + b }");
+      const stmt = parseStmt("fn foo(a, b):\n  return a + b");
       expect(stmt).toMatchObject({
         type: NodeType.FunctionDeclaration,
         name: "foo",
@@ -499,7 +487,7 @@ describe("Parser", () => {
     });
 
     it("async function", () => {
-      const stmt = parseStmt("async function bar() { await x }");
+      const stmt = parseStmt("async fn bar():\n  await x");
       expect(stmt).toMatchObject({
         type: NodeType.FunctionDeclaration,
         name: "bar",
@@ -508,7 +496,7 @@ describe("Parser", () => {
     });
 
     it("generator function", () => {
-      const stmt = parseStmt("function* gen() { yield 1 }");
+      const stmt = parseStmt("fn* gen():\n  yield 1");
       expect(stmt).toMatchObject({
         type: NodeType.FunctionDeclaration,
         generator: true,
@@ -516,13 +504,13 @@ describe("Parser", () => {
     });
 
     it("default parameters", () => {
-      const stmt = parseStmt("function f(a, b = 1) {}");
+      const stmt = parseStmt("fn f(a, b = 1):\n  return a");
       expect(stmt.params[0]).toBe("a");
       expect(stmt.params[1]).toHaveProperty("default");
     });
 
     it("rest parameters", () => {
-      const stmt = parseStmt("function f(...args) {}");
+      const stmt = parseStmt("fn f(...args):\n  return args");
       expect(stmt.params[0]).toMatchObject({ name: "args", rest: true });
     });
   });
@@ -538,12 +526,12 @@ describe("Parser", () => {
     });
 
     it("if else", () => {
-      const stmt = parseStmt("if (x) { a } else { b }");
+      const stmt = parseStmt("if x:\n  a\nelse:\n  b");
       expect(stmt.alternate).not.toBe(null);
     });
 
     it("if else if", () => {
-      const stmt = parseStmt("if (a) { x } else if (b) { y } else { z }");
+      const stmt = parseStmt("if a:\n  x\nelse if b:\n  y\nelse:\n  z");
       expect(stmt.alternate.type).toBe(NodeType.IfStatement);
     });
 
@@ -570,7 +558,7 @@ describe("Parser", () => {
 
   describe("do while statement", () => {
     it("basic do while", () => {
-      const stmt = parseStmt("do { x } while (y)");
+      const stmt = parseStmt("do:\n  x\nwhile (y)");
       expect(stmt).toMatchObject({
         type: NodeType.DoWhileStatement,
         test: { name: "y" },
@@ -607,7 +595,7 @@ describe("Parser", () => {
 
   describe("return statement", () => {
     it("return with value", () => {
-      const ast = parse("function f() { return 42 }");
+      const ast = parse("fn f():\n  return 42");
       const ret = ast.body[0].body.body[0];
       expect(ret).toMatchObject({
         type: NodeType.ReturnStatement,
@@ -616,7 +604,7 @@ describe("Parser", () => {
     });
 
     it("return without value", () => {
-      const ast = parse("function f() { return }");
+      const ast = parse("fn f():\n  return");
       const ret = ast.body[0].body.body[0];
       expect(ret.argument).toBe(null);
     });
@@ -625,7 +613,7 @@ describe("Parser", () => {
   describe("switch statement", () => {
     it("switch with cases", () => {
       const stmt = parseStmt(
-        "switch (x) { case 1: y; break; default: z; }",
+        "switch x:\n  case 1:\n    y\n    break\n  default:\n    z",
       );
       expect(stmt.type).toBe(NodeType.SwitchStatement);
       expect(stmt.cases).toHaveLength(2);
@@ -636,19 +624,19 @@ describe("Parser", () => {
 
   describe("break and continue", () => {
     it("break", () => {
-      const ast = parse("while (true) { break }");
+      const ast = parse("while true:\n  break");
       const brk = ast.body[0].body.body[0];
       expect(brk.type).toBe(NodeType.BreakStatement);
     });
 
     it("continue", () => {
-      const ast = parse("while (true) { continue }");
+      const ast = parse("while true:\n  continue");
       const cnt = ast.body[0].body.body[0];
       expect(cnt.type).toBe(NodeType.ContinueStatement);
     });
 
     it("break with label", () => {
-      const ast = parse("outer: while (true) { break outer }");
+      const ast = parse("outer: while true:\n  break outer");
       const loop = ast.body[0].body;
       const brk = loop.body.body[0];
       expect(brk.label).toBe("outer");
@@ -657,31 +645,31 @@ describe("Parser", () => {
 
   describe("try catch finally", () => {
     it("try catch", () => {
-      const stmt = parseStmt("try { x } catch (e) { y }");
+      const stmt = parseStmt("try:\n  x\ncatch e:\n  y");
       expect(stmt.type).toBe(NodeType.TryStatement);
       expect(stmt.handler.param).toBe("e");
       expect(stmt.finalizer).toBe(null);
     });
 
     it("try finally", () => {
-      const stmt = parseStmt("try { x } finally { y }");
+      const stmt = parseStmt("try:\n  x\nfinally:\n  y");
       expect(stmt.handler).toBe(null);
       expect(stmt.finalizer).not.toBe(null);
     });
 
     it("try catch finally", () => {
-      const stmt = parseStmt("try { x } catch (e) { y } finally { z }");
+      const stmt = parseStmt("try:\n  x\ncatch e:\n  y\nfinally:\n  z");
       expect(stmt.handler).not.toBe(null);
       expect(stmt.finalizer).not.toBe(null);
     });
 
     it("catch without param", () => {
-      const stmt = parseStmt("try { x } catch { y }");
+      const stmt = parseStmt("try:\n  x\ncatch:\n  y");
       expect(stmt.handler.param).toBe(null);
     });
 
     it("try without catch or finally throws", () => {
-      expect(() => parse("try { x }")).toThrow(/Missing catch or finally/);
+      expect(() => parse("try:\n  x")).toThrow(/Missing catch or finally/);
     });
   });
 
@@ -695,7 +683,7 @@ describe("Parser", () => {
 
   describe("class declaration", () => {
     it("basic class", () => {
-      const stmt = parseStmt("class Foo { constructor() {} bar() {} }");
+      const stmt = parseStmt("class Foo:\n  constructor():\n    this.x = 1\n  bar():\n    return 1");
       expect(stmt).toMatchObject({
         type: NodeType.ClassDeclaration,
         name: "Foo",
@@ -706,7 +694,7 @@ describe("Parser", () => {
     });
 
     it("extends", () => {
-      const stmt = parseStmt("class Bar extends Foo { constructor() {} }");
+      const stmt = parseStmt("class Bar extends Foo:\n  constructor():\n    this.x = 1");
       expect(stmt.superClass).toMatchObject({
         type: NodeType.Identifier,
         name: "Foo",
@@ -715,7 +703,7 @@ describe("Parser", () => {
 
     it("getter and setter", () => {
       const stmt = parseStmt(
-        "class C { get x() { return 1 } set x(v) { } }",
+        "class C:\n  get x():\n    return 1\n  set x(v):\n    this.v = v",
       );
       expect(stmt.methods[0].kind).toBe("get");
       expect(stmt.methods[1].kind).toBe("set");
@@ -723,38 +711,52 @@ describe("Parser", () => {
 
     it("parses visibility modifiers and class fields", () => {
       const stmt = parseStmt([
-        "class Account {",
+        "class Account:",
         "  private balance: float = 0.0",
         "  static protected instances: int = 0",
         "  private static token",
-        "  public constructor(owner: string) { this.owner = owner }",
-        "  private get hidden() -> int { return 1 }",
-        "  protected set hidden(value: int) { this.value = value }",
-        "}",
+        "  public constructor(owner: string):",
+        "    this.owner = owner",
+        "  private get hidden() -> int:",
+        "    return 1",
+        "  protected set hidden(value: int):",
+        "    this.value = value",
       ].join("\n"));
 
       expect(stmt.fields).toEqual([
-        expect.objectContaining({ name: "balance", static: false, visibility: "private", init: expect.objectContaining({ kind: "number" }) }),
-        expect.objectContaining({ name: "instances", static: true, visibility: "protected", init: expect.objectContaining({ kind: "number" }) }),
-        expect.objectContaining({ name: "token", static: true, visibility: "private", init: expect.objectContaining({ kind: "undefined", value: undefined }) }),
+        expect.objectContaining({ name: "balance", static: false, visibility: "private", explicitVisibility: true, init: expect.objectContaining({ kind: "number" }) }),
+        expect.objectContaining({ name: "instances", static: true, visibility: "protected", explicitVisibility: true, init: expect.objectContaining({ kind: "number" }) }),
+        expect.objectContaining({ name: "token", static: true, visibility: "private", explicitVisibility: true, init: null }),
       ]);
       expect(stmt.constructor).toMatchObject({ name: "constructor", visibility: "public" });
       expect(stmt.methods.find((method) => method.kind === "get" && method.name === "hidden")).toMatchObject({ visibility: "private", static: false });
       expect(stmt.methods.find((method) => method.kind === "set" && method.name === "hidden")).toMatchObject({ visibility: "protected", static: false });
     });
 
+    it("marks fields declared without a visibility keyword as not explicit", () => {
+      const stmt = parseStmt([
+        "class Report:",
+        "  title: string",
+        "  public sections: string[]",
+      ].join("\n"));
+
+      expect(stmt.fields).toEqual([
+        expect.objectContaining({ name: "title", explicitVisibility: false }),
+        expect.objectContaining({ name: "sections", visibility: "public", explicitVisibility: true }),
+      ]);
+    });
+
     it("rejects duplicate and conflicting class member modifiers", () => {
-      expect(() => parse("class C { private public value }")).toThrow(/Conflicting class member visibility/);
-      expect(() => parse("class C { private private value }")).toThrow(/Conflicting class member visibility/);
-      expect(() => parse("class C { static static value }")).toThrow(/Duplicate class member modifier 'static'/);
+      expect(() => parse("class C:\n  private public value")).toThrow(/Conflicting class member visibility/);
+      expect(() => parse("class C:\n  private private value")).toThrow(/Conflicting class member visibility/);
+      expect(() => parse("class C:\n  static static value")).toThrow(/Duplicate class member modifier 'static'/);
     });
 
     it("parses abstract classes and abstract member signatures", () => {
       const stmt = parseStmt([
-        "abstract class Shape {",
+        "abstract class Shape:",
         "  protected abstract area() -> float",
         "  abstract label() -> string",
-        "}",
       ].join("\n"));
       expect(stmt.abstract).toBe(true);
       expect(stmt.methods).toEqual([
@@ -765,16 +767,16 @@ describe("Parser", () => {
     });
 
     it("rejects invalid abstract class members", () => {
-      expect(() => parse("abstract class C { abstract value }")).toThrow(/Abstract class fields are not supported/);
-      expect(() => parse("abstract class C { abstract constructor() }")).toThrow(/Constructors cannot be abstract/);
-      expect(() => parse("abstract class C { static abstract value() }")).toThrow(/Static class members cannot be abstract/);
-      expect(() => parse("abstract class C { abstract value() { return 1 } }")).toThrow(/Abstract class members cannot have a body/);
+      expect(() => parse("abstract class C:\n  abstract value")).toThrow(/Abstract class fields are not supported/);
+      expect(() => parse("abstract class C:\n  abstract constructor()")).toThrow(/Constructors cannot be abstract/);
+      expect(() => parse("abstract class C:\n  static abstract value()")).toThrow(/Static class members cannot be abstract/);
+      expect(() => parse("abstract class C:\n  abstract value() -> int:\n    return 1")).toThrow(/Abstract class members cannot have a body/);
     });
   });
 
   describe("labeled statement", () => {
     it("label", () => {
-      const stmt = parseStmt("loop: while (true) { break loop }");
+      const stmt = parseStmt("loop: while true:\n  break loop");
       expect(stmt.type).toBe(NodeType.LabeledStatement);
       expect(stmt.label).toBe("loop");
     });
@@ -782,7 +784,7 @@ describe("Parser", () => {
 
   describe("yield expression", () => {
     it("yield", () => {
-      const ast = parse("function* g() { yield 1 }");
+      const ast = parse("fn* g():\n  yield 1");
       const yld = ast.body[0].body.body[0].expression;
       expect(yld).toMatchObject({
         type: NodeType.YieldExpression,
@@ -791,7 +793,7 @@ describe("Parser", () => {
     });
 
     it("yield delegate", () => {
-      const ast = parse("function* g() { yield* other() }");
+      const ast = parse("fn* g():\n  yield* other()");
       const yld = ast.body[0].body.body[0].expression;
       expect(yld.delegate).toBe(true);
     });
@@ -799,7 +801,7 @@ describe("Parser", () => {
 
   describe("await expression", () => {
     it("await", () => {
-      const ast = parse("async function f() { await promise }");
+      const ast = parse("async fn f():\n  await promise");
       const awaitExpr = ast.body[0].body.body[0].expression;
       expect(awaitExpr.type).toBe(NodeType.AwaitExpression);
     });
@@ -808,7 +810,7 @@ describe("Parser", () => {
   describe("super call", () => {
     it("super()", () => {
       const ast = parse(
-        "class B extends A { constructor() { super(1) } }",
+        "class B extends A:\n  constructor():\n    super(1)",
       );
       const superCall = ast.body[0].constructor.body.body[0].expression;
       expect(superCall.type).toBe(NodeType.SuperCallExpression);
@@ -830,27 +832,17 @@ describe("Parser", () => {
 
   describe("complex programs", () => {
     it("fibonacci", () => {
-      const ast = parse(`
-        function fib(n) {
-          if (n <= 1) return n
-          return fib(n - 1) + fib(n - 2)
-        }
-      `);
+      const ast = parse(
+        "fn fib(n):\n  if n <= 1:\n    return n\n  return fib(n - 1) + fib(n - 2)",
+      );
       expect(ast.body[0].type).toBe(NodeType.FunctionDeclaration);
       expect(ast.body[0].name).toBe("fib");
     });
 
     it("class with methods", () => {
-      const ast = parse(`
-        class Counter extends Base {
-          constructor(start) {
-            super(start)
-          }
-          increment() {
-            this.count++
-          }
-        }
-      `);
+      const ast = parse(
+        "class Counter extends Base:\n  constructor(start):\n    super(start)\n  increment():\n    this.count = this.count + 1",
+      );
       expect(ast.body[0].type).toBe(NodeType.ClassDeclaration);
     });
 
@@ -866,11 +858,9 @@ describe("Parser", () => {
     });
 
     it("for of with destructuring body", () => {
-      const ast = parse(`
-        for (let item of items) {
-          const { a, b } = item
-        }
-      `);
+      const ast = parse(
+        "for item of items:\n  const { a, b } = item",
+      );
       expect(ast.body[0].type).toBe(NodeType.ForOfStatement);
     });
   });
@@ -1013,29 +1003,29 @@ describe("Parser", () => {
     });
 
     it("skips an object type in return position", () => {
-      const stmt = parseStmt("function f() -> { id: int, name: string } { return x }");
+      const stmt = parseStmt("fn f() -> { id: int, name: string }:\n  return x");
       expect(stmt).toMatchObject({ type: NodeType.FunctionDeclaration, name: "f" });
       expect(stmt.body.body).toHaveLength(1);
     });
 
     it("skips a function type in return position", () => {
-      const stmt = parseStmt("function f() -> (int) -> bool { return g }");
+      const stmt = parseStmt("fn f() -> (int) -> bool:\n  return g");
       expect(stmt).toMatchObject({ type: NodeType.FunctionDeclaration, name: "f" });
     });
 
     it("skips a fn-prefixed function type in return position", () => {
-      const stmt = parseStmt("function adder(base: int) -> fn(int) -> int { return add }");
+      const stmt = parseStmt("fn adder(base: int) -> fn(int) -> int:\n  return add");
       expect(stmt).toMatchObject({ type: NodeType.FunctionDeclaration, name: "adder" });
     });
 
     it("accepts a return type annotation on a class getter", () => {
-      const stmt = parseStmt("class C { get value() -> int { return 1 } }");
+      const stmt = parseStmt("class C:\n  get value() -> int:\n    return 1");
       const accessor = stmt.methods.find((m) => m.name === "value");
       expect(accessor).toMatchObject({ kind: "get" });
     });
 
     it("accepts a typed parameter on a class setter", () => {
-      const stmt = parseStmt("class C { set value(v: int) { } }");
+      const stmt = parseStmt("class C:\n  set value(v: int):\n    return");
       const accessor = stmt.methods.find((m) => m.name === "value");
       expect(accessor).toMatchObject({ kind: "set" });
       expect(accessor.func.params).toEqual(["v"]);

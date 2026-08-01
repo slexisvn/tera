@@ -71,7 +71,12 @@ describe("IR speculation: smi arithmetic guards", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("add with smi feedback inserts CheckSmi + Int32Add", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph } = compileIR(fn);
 
@@ -81,7 +86,12 @@ describe("IR speculation: smi arithmetic guards", () => {
   });
 
   it("sub with smi feedback inserts CheckSmi + Int32Sub", () => {
-    engine.run("function sub(a,b){return a-b;} for(var i=0;i<10;i++) sub(i,1);");
+    engine.run(`fn sub(a, b):
+  return a-b
+i = 0
+while i < 10:
+  sub(i,1)
+  i = i + 1`);
     const fn = getFn(engine, "sub");
     const { graph } = compileIR(fn);
 
@@ -91,7 +101,12 @@ describe("IR speculation: smi arithmetic guards", () => {
   });
 
   it("mul with smi feedback inserts CheckSmi + Int32Mul", () => {
-    engine.run("function mul(a,b){return a*b;} for(var i=0;i<10;i++) mul(i,2);");
+    engine.run(`fn mul(a, b):
+  return a*b
+i = 0
+while i < 10:
+  mul(i,2)
+  i = i + 1`);
     const fn = getFn(engine, "mul");
     const { graph } = compileIR(fn);
 
@@ -100,7 +115,12 @@ describe("IR speculation: smi arithmetic guards", () => {
   });
 
   it("div with smi feedback inserts CheckSmi + Float64Div (JS / is float)", () => {
-    engine.run("function div(a,b){return a/b;} for(var i=0;i<10;i++) div(i*2,2);");
+    engine.run(`fn div(a, b):
+  return a/b
+i = 0
+while i < 10:
+  div(i*2,2)
+  i = i + 1`);
     const fn = getFn(engine, "div");
     const { graph } = compileIR(fn);
 
@@ -110,7 +130,12 @@ describe("IR speculation: smi arithmetic guards", () => {
   });
 
   it("mod with smi feedback inserts CheckSmi + Int32Mod", () => {
-    engine.run("function mod(a,b){return a%b;} for(var i=0;i<10;i++) mod(i,3);");
+    engine.run(`fn mod(a, b):
+  return a%b
+i = 0
+while i < 10:
+  mod(i,3)
+  i = i + 1`);
     const fn = getFn(engine, "mod");
     const { graph } = compileIR(fn);
 
@@ -119,7 +144,12 @@ describe("IR speculation: smi arithmetic guards", () => {
   });
 
   it("CheckSmi nodes have frameState attached", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph, frameStates } = compileIR(fn);
 
@@ -131,7 +161,12 @@ describe("IR speculation: smi arithmetic guards", () => {
   });
 
   it("Int32Add/Sub/Mul have frameState for overflow deopt", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph } = compileIR(fn);
 
@@ -147,7 +182,12 @@ describe("IR speculation: number arithmetic guards", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("add with float feedback inserts CheckNumber + Float64Add", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i*0.1, i*0.2);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i*0.1, i*0.2)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph } = compileIR(fn);
 
@@ -157,7 +197,12 @@ describe("IR speculation: number arithmetic guards", () => {
   });
 
   it("sub with float feedback inserts CheckNumber + Float64Sub", () => {
-    engine.run("function sub(a,b){return a-b;} for(var i=0;i<10;i++) sub(i*0.5, 0.1);");
+    engine.run(`fn sub(a, b):
+  return a-b
+i = 0
+while i < 10:
+  sub(i*0.5, 0.1)
+  i = i + 1`);
     const fn = getFn(engine, "sub");
     const { graph } = compileIR(fn);
 
@@ -171,7 +216,12 @@ describe("IR speculation: comparison guards", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("less-than with smi feedback inserts CheckSmi + Int32Compare", () => {
-    engine.run("function lt(a,b){return a<b;} for(var i=0;i<10;i++) lt(i,5);");
+    engine.run(`fn lt(a, b):
+  return a<b
+i = 0
+while i < 10:
+  lt(i,5)
+  i = i + 1`);
     const fn = getFn(engine, "lt");
     const { graph } = compileIR(fn);
 
@@ -181,7 +231,12 @@ describe("IR speculation: comparison guards", () => {
   });
 
   it("Int32Compare node has correct compare op", () => {
-    engine.run("function lt(a,b){return a<b;} for(var i=0;i<10;i++) lt(i,5);");
+    engine.run(`fn lt(a, b):
+  return a<b
+i = 0
+while i < 10:
+  lt(i,5)
+  i = i + 1`);
     const fn = getFn(engine, "lt");
     const { graph } = compileIR(fn);
 
@@ -191,7 +246,12 @@ describe("IR speculation: comparison guards", () => {
   });
 
   it("equality with smi feedback uses Int32Compare with ==", () => {
-    engine.run("function eq(a,b){return a===b;} for(var i=0;i<10;i++) eq(i,i);");
+    engine.run(`fn eq(a, b):
+  return a===b
+i = 0
+while i < 10:
+  eq(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "eq");
     const { graph } = compileIR(fn);
 
@@ -201,7 +261,12 @@ describe("IR speculation: comparison guards", () => {
   });
 
   it("comparison with float feedback inserts CheckNumber + Float64Compare", () => {
-    engine.run("function gt(a,b){return a>b;} for(var i=0;i<10;i++) gt(i*0.1, 0.5);");
+    engine.run(`fn gt(a, b):
+  return a>b
+i = 0
+while i < 10:
+  gt(i*0.1, 0.5)
+  i = i + 1`);
     const fn = getFn(engine, "gt");
     const { graph } = compileIR(fn);
 
@@ -215,7 +280,12 @@ describe("IR speculation: unary operator guards", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("negate with smi feedback inserts CheckSmi + Neg", () => {
-    engine.run("function neg(a){return -a;} for(var i=1;i<10;i++) neg(i);");
+    engine.run(`fn neg(a):
+  return -a
+i = 1
+while i < 10:
+  neg(i)
+  i = i + 1`);
     const fn = getFn(engine, "neg");
     const { graph } = compileIR(fn);
 
@@ -224,7 +294,12 @@ describe("IR speculation: unary operator guards", () => {
   });
 
   it("negate with float feedback inserts CheckNumber + Neg", () => {
-    engine.run("function neg(a){return -a;} for(var i=0;i<10;i++) neg(i*0.5);");
+    engine.run(`fn neg(a):
+  return -a
+i = 0
+while i < 10:
+  neg(i*0.5)
+  i = i + 1`);
     const fn = getFn(engine, "neg");
     const { graph } = compileIR(fn);
 
@@ -238,11 +313,13 @@ describe("IR speculation: property access guards", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("monomorphic property access inserts CheckMap + LoadField", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      var obj={x:10,y:20};
-      for(var i=0;i<10;i++) getX(obj);
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+obj = {x:10,y:20}
+i = 0
+while i < 10:
+  getX(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph } = compileIR(fn);
 
@@ -252,11 +329,13 @@ describe("IR speculation: property access guards", () => {
   });
 
   it("CheckMap node has expectedMapId set", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      var obj={x:10,y:20};
-      for(var i=0;i<10;i++) getX(obj);
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+obj = {x:10,y:20}
+i = 0
+while i < 10:
+  getX(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph } = compileIR(fn);
 
@@ -267,11 +346,13 @@ describe("IR speculation: property access guards", () => {
   });
 
   it("LoadField node has correct offset", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      var obj={x:10,y:20};
-      for(var i=0;i<10;i++) getX(obj);
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+obj = {x:10,y:20}
+i = 0
+while i < 10:
+  getX(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph } = compileIR(fn);
 
@@ -281,11 +362,13 @@ describe("IR speculation: property access guards", () => {
   });
 
   it("CheckMap has frameState for deopt", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      var obj={x:10,y:20};
-      for(var i=0;i<10;i++) getX(obj);
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+obj = {x:10,y:20}
+i = 0
+while i < 10:
+  getX(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph } = compileIR(fn);
 
@@ -296,11 +379,16 @@ describe("IR speculation: property access guards", () => {
   });
 
   it("polymorphic property access inserts PolymorphicLoad", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      for(var i=0;i<5;i++) getX({x:i});
-      for(var i=0;i<5;i++) getX({x:i, y:i});
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+i = 0
+while i < 5:
+  getX({x:i})
+  i = i + 1
+i = 0
+while i < 5:
+  getX({x:i, y:i})
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph } = compileIR(fn);
 
@@ -317,11 +405,16 @@ describe("IR speculation: no guards without feedback", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("mixed-type feedback produces generic operations", () => {
-    engine.run(`
-      function add(a,b){return a+b;}
-      for(var i=0;i<5;i++) add(i,i);
-      for(var i=0;i<5;i++) add("a","b");
-    `);
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 5:
+  add(i,i)
+  i = i + 1
+i = 0
+while i < 5:
+  add("a","b")
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph } = compileIR(fn);
 
@@ -336,7 +429,12 @@ describe("IR speculation: graph structure", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("graph has Return node", () => {
-    engine.run("function f(a){return a+1;} for(var i=0;i<10;i++) f(i);");
+    engine.run(`fn f(a):
+  return a+1
+i = 0
+while i < 10:
+  f(i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph } = compileIR(fn);
 
@@ -344,7 +442,12 @@ describe("IR speculation: graph structure", () => {
   });
 
   it("graph has parameters matching function paramCount", () => {
-    engine.run("function f(a,b,c){return a+b+c;} for(var i=0;i<10;i++) f(i,i,i);");
+    engine.run(`fn f(a, b, c):
+  return a+b+c
+i = 0
+while i < 10:
+  f(i,i,i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph } = compileIR(fn);
 
@@ -352,7 +455,12 @@ describe("IR speculation: graph structure", () => {
   });
 
   it("graph has at least one block", () => {
-    engine.run("function f(a){return a;} for(var i=0;i<10;i++) f(i);");
+    engine.run(`fn f(a):
+  return a
+i = 0
+while i < 10:
+  f(i)
+  i = i + 1`);
     const fn = getFn(engine, "f");
     const { graph } = compileIR(fn);
 
@@ -360,7 +468,12 @@ describe("IR speculation: graph structure", () => {
   });
 
   it("all CheckSmi inputs come from parameters or other nodes", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph } = compileIR(fn);
 
@@ -372,7 +485,12 @@ describe("IR speculation: graph structure", () => {
   });
 
   it("Int32Add inputs come from CheckSmi nodes", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { graph } = compileIR(fn);
 
@@ -390,7 +508,12 @@ describe("IR speculation: frame states", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("frame states are created for speculative operations", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { frameStates } = compileIR(fn);
 
@@ -398,7 +521,12 @@ describe("IR speculation: frame states", () => {
   });
 
   it("frame states reference the correct compiled function", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { frameStates } = compileIR(fn);
 
@@ -408,7 +536,12 @@ describe("IR speculation: frame states", () => {
   });
 
   it("frame states have valid bytecode offsets", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { frameStates } = compileIR(fn);
 
@@ -419,7 +552,12 @@ describe("IR speculation: frame states", () => {
   });
 
   it("frame states have sequential IDs", () => {
-    engine.run("function add(a,b){return a+b;} for(var i=0;i<10;i++) add(i,i);");
+    engine.run(`fn add(a, b):
+  return a+b
+i = 0
+while i < 10:
+  add(i,i)
+  i = i + 1`);
     const fn = getFn(engine, "add");
     const { frameStates } = compileIR(fn);
 
@@ -434,11 +572,13 @@ describe("IR speculation: dependency tracking", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("monomorphic property access adds map dependency to graph", () => {
-    engine.run(`
-      function getX(o){return o.x;}
-      var obj={x:42};
-      for(var i=0;i<10;i++) getX(obj);
-    `);
+    engine.run(`fn getX(o):
+  return o.x
+obj = {x:42}
+i = 0
+while i < 10:
+  getX(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getX");
     const { graph } = compileIR(fn);
 
@@ -447,11 +587,13 @@ describe("IR speculation: dependency tracking", () => {
   });
 
   it("multiple property accesses add multiple dependencies", () => {
-    engine.run(`
-      function getXY(o){return o.x + o.y;}
-      var obj={x:1,y:2};
-      for(var i=0;i<10;i++) getXY(obj);
-    `);
+    engine.run(`fn getXY(o):
+  return o.x + o.y
+obj = {x:1,y:2}
+i = 0
+while i < 10:
+  getXY(obj)
+  i = i + 1`);
     const fn = getFn(engine, "getXY");
     const { graph } = compileIR(fn);
 
@@ -464,7 +606,12 @@ describe("IR speculation: div/mod frameState attachment", () => {
   beforeEach(() => { engine = jitEngine(); });
 
   it("Float64Div node has frameState for deopt recovery", () => {
-    engine.run("function div(a,b){return a/b;} for(var i=1;i<10;i++) div(10,i);");
+    engine.run(`fn div(a, b):
+  return a/b
+i = 1
+while i < 10:
+  div(10,i)
+  i = i + 1`);
     const fn = getFn(engine, "div");
     const { graph } = compileIR(fn);
 
@@ -476,7 +623,12 @@ describe("IR speculation: div/mod frameState attachment", () => {
   });
 
   it("Int32Mod node has frameState for deopt recovery", () => {
-    engine.run("function mod(a,b){return a%b;} for(var i=1;i<10;i++) mod(10,i);");
+    engine.run(`fn mod(a, b):
+  return a%b
+i = 1
+while i < 10:
+  mod(10,i)
+  i = i + 1`);
     const fn = getFn(engine, "mod");
     const { graph } = compileIR(fn);
 

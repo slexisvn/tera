@@ -370,9 +370,11 @@ describe("GenerationalGC", () => {
 describe("heap-payload reachability sweep (boxed-primitive reclamation)", () => {
   it("keeps the boxed-primitive slab bounded under a double-heavy loop", () => {
     const engine = new Engine();
-    engine.run(
-      "var s=0.0; for(var i=0;i<1500000;i++){ s = s + (i*1.5) - 0.25; } return s;",
-    );
+    engine.run(`s = 0.0
+i = 0
+while i < 1500000:
+  s = s + (i * 1.5) - 0.25
+  i = i + 1`);
     
     
     expect(heapPayloadLiveBytesEstimate()).toBeLessThan(1 << 20);
@@ -380,17 +382,29 @@ describe("heap-payload reachability sweep (boxed-primitive reclamation)", () => 
 
   it("preserves live state (objects, arrays, closures, generators) across sweeps", () => {
     const engine = new Engine();
-    engine.run(`
-      var keep = [];
-      for (var i=0;i<30;i++) keep.push({ v: i*1.5 + 0.5 });
-      function mk(b){ return function(){ return b; }; }
-      var clo = mk(7.75);
-      function* g(){ var a=1.25; while(true){ yield a; a = a + 0.5; } }
-      var it = g();
-      var first = it.next().value;
-    `);
-    
-    engine.run("var t=0.0; for(var i=0;i<1500000;i++){ t = t + keep[i%30].v*1.5; }");
+    engine.run(`keep = []
+i = 0
+while i < 30:
+  keep.push({v: i * 1.5 + 0.5})
+  i = i + 1
+fn mk(b):
+  fn inner():
+    return b
+  return inner
+clo = mk(7.75)
+fn* g():
+  a = 1.25
+  while true:
+    yield a
+    a = a + 0.5
+it = g()
+first = it.next().value`);
+
+    engine.run(`t = 0.0
+i = 0
+while i < 1500000:
+  t = t + keep[i%30].v * 1.5
+  i = i + 1`);
     expect(engine.runValue("return keep[0].v;").value).toBe(0.5);
     expect(engine.runValue("return keep[20].v;").value).toBe(30.5);
     expect(engine.runValue("return keep.length;").value).toBe(30);

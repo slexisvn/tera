@@ -1,6 +1,7 @@
 import completion from "./completion.ts";
 import definition from "./definition.ts";
 import diagnostics from "./diagnostics.ts";
+import documentHighlight from "./document-highlight.ts";
 import formatter from "./formatter.ts";
 import hover from "./hover.ts";
 import semanticTokens from "./semantic-tokens.ts";
@@ -11,6 +12,7 @@ export const providers: Provider[] = [
   completion,
   definition,
   diagnostics,
+  documentHighlight,
   formatter,
   hover,
   semanticTokens,

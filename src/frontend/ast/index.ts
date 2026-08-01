@@ -126,6 +126,7 @@ export type ClassFieldNode = {
   init?: ASTNode | null;
   static?: boolean;
   visibility?: ClassVisibility;
+  explicitVisibility?: boolean;
   declaredType?: string;
   __line?: number;
   __column?: number;

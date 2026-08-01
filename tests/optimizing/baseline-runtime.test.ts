@@ -500,8 +500,15 @@ describe("baseline compiler bails to interpreter on unsupported opcodes", () => 
   it("object-rest destructuring stays correct past the baseline threshold", () => {
     expect(
       run(
-        `function f(o){var {a,...rest}=o;return a+Object.keys(rest).length;}
-         var s=0;for(var i=0;i<10;i++)s=f({a:i,b:1,c:2});return s;`,
+        `fn f(o):
+  {a, ...rest} = o
+  return a + Object.keys(rest).length
+s = 0
+i = 0
+while i < 10:
+  s = f({a: i, b: 1, c: 2})
+  i = i + 1
+s`,
       ),
     ).toBe(11);
   });
@@ -509,8 +516,15 @@ describe("baseline compiler bails to interpreter on unsupported opcodes", () => 
   it("array-rest destructuring stays correct past the baseline threshold", () => {
     expect(
       run(
-        `function f(arr){var [x,...y]=arr;return x+y.length;}
-         var s=0;for(var i=0;i<10;i++)s=f([i,1,2,3]);return s;`,
+        `fn f(arr):
+  [x, ...y] = arr
+  return x + y.length
+s = 0
+i = 0
+while i < 10:
+  s = f([i, 1, 2, 3])
+  i = i + 1
+s`,
       ),
     ).toBe(12);
   });
@@ -518,8 +532,19 @@ describe("baseline compiler bails to interpreter on unsupported opcodes", () => 
   it("arguments object stays correct past the baseline threshold", () => {
     expect(
       run(
-        `function f(){var t=0;for(var i=0;i<arguments.length;i++)t+=arguments[i];return t;}
-         var s=0;for(var i=0;i<10;i++)s=f(1,2,3);return s;`,
+        `fn f():
+  t = 0
+  j = 0
+  while j < arguments.length:
+    t = t + arguments[j]
+    j = j + 1
+  return t
+s = 0
+i = 0
+while i < 10:
+  s = f(1, 2, 3)
+  i = i + 1
+s`,
       ),
     ).toBe(6);
   });

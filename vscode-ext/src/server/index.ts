@@ -44,6 +44,7 @@ export function startServer(connection: Connection = createConnection(ProposedFe
         completionProvider: { triggerCharacters: [".", "(", " "], resolveProvider: false },
         hoverProvider: true,
         definitionProvider: true,
+        documentHighlightProvider: true,
         signatureHelpProvider: { triggerCharacters: ["(", ","] },
         documentFormattingProvider: true,
         semanticTokensProvider: { legend, full: true },
