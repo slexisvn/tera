@@ -6,17 +6,17 @@ interface CloneableDocument:
   addTag(tag: string) -> CloneableDocument
 
 class Document implements CloneableDocument:
-  title: string
-  tags: string[]
-  constructor(title: string, tags: string[]):
+  public title: string
+  public tags: string[]
+  public constructor(title: string, tags: string[]):
     this.title = title
     this.tags = tags
-  clone() -> CloneableDocument:
+  public clone() -> CloneableDocument:
     return Document(this.title, this.tags.slice())
-  rename(title: string) -> CloneableDocument:
+  public rename(title: string) -> CloneableDocument:
     this.title = title
     return this
-  addTag(tag: string) -> CloneableDocument:
+  public addTag(tag: string) -> CloneableDocument:
     this.tags.push(tag)
     return this
 

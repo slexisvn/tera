@@ -7,27 +7,27 @@ interface Builder:
   build() -> BuiltReport
 
 class Report implements BuiltReport:
-  title: string
-  sections: string[]
-  constructor(title: string, sections: string[]):
+  public title: string
+  public sections: string[]
+  public constructor(title: string, sections: string[]):
     this.title = title
     this.sections = sections
-  text() -> string:
+  public text() -> string:
     return this.title + ": " + this.sections.join(", ")
 
 class ReportBuilder implements Builder:
   private title: string = "untitled"
   private sections: string[] = []
-  constructor():
+  public constructor():
     this.title = "untitled"
     this.sections = []
-  setTitle(title: string) -> Builder:
+  public setTitle(title: string) -> Builder:
     this.title = title
     return this
-  addSection(name: string) -> Builder:
+  public addSection(name: string) -> Builder:
     this.sections.push(name)
     return this
-  build() -> BuiltReport:
+  public build() -> BuiltReport:
     return Report(this.title, this.sections)
 
 report = ReportBuilder()

@@ -3,12 +3,12 @@ interface Participant:
 
 class ChatRoom:
   private users: User[] = []
-  constructor():
+  public constructor():
     this.users = []
-  join(user: User) -> void:
+  public join(user: User) -> void:
     this.users.push(user)
     user.setRoom(this)
-  send(from: User, text: string) -> string:
+  public send(from: User, text: string) -> string:
     messages = []
     for user of this.users:
       if user.name != from.name:
@@ -16,18 +16,18 @@ class ChatRoom:
     return messages.join(" | ")
 
 class User implements Participant:
-  name: string
+  public name: string
   private room: ChatRoom | null = null
-  constructor(name: string):
+  public constructor(name: string):
     this.name = name
-  setRoom(room: ChatRoom) -> void:
+  public setRoom(room: ChatRoom) -> void:
     this.room = room
-  say(text: string) -> string:
+  public say(text: string) -> string:
     room = this.room
     if room != null:
       return room.send(this, text)
     return "offline"
-  receive(from: string, text: string) -> string:
+  public receive(from: string, text: string) -> string:
     return this.name + "<-" + from + ":" + text
 
 room = ChatRoom()

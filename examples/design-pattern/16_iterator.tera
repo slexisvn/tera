@@ -4,11 +4,11 @@ interface IntIterator:
   next() -> IteratorStep
 
 class RangeIterator implements IntIterator:
-  constructor(start, stop):
+  public constructor(start, stop):
     this.current = start
     this.stop = stop
     this["@@iterator"] = () => this
-  next() -> IteratorStep:
+  public next() -> IteratorStep:
     if this.current >= this.stop:
       return { done: true, value: null }
     value = this.current

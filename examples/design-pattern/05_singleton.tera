@@ -5,9 +5,9 @@ class Config implements AppConfig:
   private static instance: AppConfig = Config("prod")
   private constructor(env):
     this.env = env
-  static getInstance() -> AppConfig:
+  public static getInstance() -> AppConfig:
     return Config.instance
-  describe() -> string:
+  public describe() -> string:
     return "config:" + this.env
 
 a = Config.getInstance()

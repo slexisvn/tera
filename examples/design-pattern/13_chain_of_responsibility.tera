@@ -3,26 +3,26 @@ interface RequestHandler:
 
 class Handler implements RequestHandler:
   protected next: RequestHandler | null = null
-  constructor(next: RequestHandler | null = null):
+  public constructor(next: RequestHandler | null = null):
     this.next = next
-  handle(request: string) -> string:
+  public handle(request: string) -> string:
     next = this.next
     if next != null:
       return next.handle(request)
     return "unhandled"
 
 class AuthHandler extends Handler:
-  constructor(next: RequestHandler | null = null):
+  public constructor(next: RequestHandler | null = null):
     super(next)
-  handle(request: string) -> string:
+  public handle(request: string) -> string:
     if request == "auth":
       return "auth ok"
     return super.handle(request)
 
 class CacheHandler extends Handler:
-  constructor(next: RequestHandler | null = null):
+  public constructor(next: RequestHandler | null = null):
     super(next)
-  handle(request: string) -> string:
+  public handle(request: string) -> string:
     if request == "cache":
       return "cache hit"
     return super.handle(request)

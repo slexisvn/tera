@@ -2,18 +2,18 @@ interface DocumentState:
   publish(document: Document) -> string
 
 class DraftState implements DocumentState:
-  publish(document: Document) -> string:
+  public publish(document: Document) -> string:
     document.state = PublishedState()
     return "published"
 
 class PublishedState implements DocumentState:
-  publish(document: Document) -> string:
+  public publish(document: Document) -> string:
     return "already published"
 
 class Document:
-  constructor():
+  public constructor():
     this.state = DraftState()
-  publish() -> string:
+  public publish() -> string:
     return this.state.publish(this)
 
 doc = Document()

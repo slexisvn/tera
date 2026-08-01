@@ -181,7 +181,7 @@ function modelNode(node: ModelAst): ModelNode {
 
 function classNode(node: ClassAst): ClassNode {
   const constructorMember = node.constructor
-    ? [classMemberNode(node.constructor, "constructor", false, node.constructor.visibility ?? DEFAULT_CLASS_VISIBILITY)]
+    ? [classMemberNode(node.constructor, "constructor", false, node.constructor.visibility ?? DEFAULT_CLASS_VISIBILITY, !!node.constructor.explicitVisibility)]
     : [];
   return {
     kind: "Class",
@@ -194,7 +194,7 @@ function classNode(node: ClassAst): ClassNode {
       ...constructorMember,
       ...arrayOf<AstClassMemberNode>(node.methods).map((member) => {
         const kind: ClassMemberKind = member.kind === "get" ? "getter" : member.kind === "set" ? "setter" : "method";
-        return classMemberNode(member.func as FunctionAst, kind, !!member.static, member.visibility ?? DEFAULT_CLASS_VISIBILITY, member.name ?? undefined, !!member.abstract);
+        return classMemberNode(member.func as FunctionAst, kind, !!member.static, member.visibility ?? DEFAULT_CLASS_VISIBILITY, !!member.explicitVisibility, member.name ?? undefined, !!member.abstract);
       }),
     ],
     span: spanOf(node),
@@ -207,6 +207,7 @@ function classMemberNode(
   memberKind: ClassMemberKind,
   isStatic: boolean,
   visibility: ClassVisibility,
+  explicitVisibility: boolean,
   fallbackName?: string,
   isAbstract = !!fn.abstract,
 ): ClassMemberNode {
@@ -214,6 +215,7 @@ function classMemberNode(
     memberKind,
     static: isStatic,
     visibility,
+    explicitVisibility,
     abstract: isAbstract,
     fn: functionNode(fn, fallbackName),
   };

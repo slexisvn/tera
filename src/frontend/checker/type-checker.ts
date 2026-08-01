@@ -49,6 +49,7 @@ export class TypeChecker {
         this.registerClassShape(node, child);
         for (const field of node.fields) this.checkClassField(field, child);
         for (const member of node.members) {
+          this.requireMemberVisibility(member);
           if (!member.abstract) this.checkNode(member.fn, child);
         }
         break;
@@ -207,6 +208,16 @@ export class TypeChecker {
         }
       }
     }
+  }
+
+  requireMemberVisibility(member: ClassMemberNode): void {
+    if (member.explicitVisibility) return;
+    const label = member.memberKind === "constructor" ? "Constructor"
+      : member.memberKind === "getter" ? "Getter"
+      : member.memberKind === "setter" ? "Setter"
+      : "Method";
+    const subject = member.memberKind === "constructor" ? label : `${label} '${member.fn.name}'`;
+    this.add(member.fn.nameSpan.line, member.fn.nameSpan.column, `${subject} must declare a visibility modifier ('public', 'private', or 'protected')`);
   }
 
   checkClassField(field: Extract<SemanticNode, { kind: "Class" }>["fields"][number], scope: Scope): void {

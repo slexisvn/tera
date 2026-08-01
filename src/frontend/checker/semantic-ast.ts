@@ -73,6 +73,7 @@ export type ClassMemberNode = {
   memberKind: ClassMemberKind;
   static: boolean;
   visibility: ClassVisibility;
+  explicitVisibility: boolean;
   abstract: boolean;
   fn: FunctionNode;
 };

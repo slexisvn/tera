@@ -3,25 +3,25 @@ interface Expression:
 
 class NumberExpression implements Expression:
   private value: int
-  constructor(value: int):
+  public constructor(value: int):
     this.value = value
-  eval(context: Map) -> int:
+  public eval(context: Map) -> int:
     return this.value
 
 class VariableExpression implements Expression:
   private name: string
-  constructor(name: string):
+  public constructor(name: string):
     this.name = name
-  eval(context: Map) -> int:
+  public eval(context: Map) -> int:
     return context.get(this.name)
 
 class AddExpression implements Expression:
   private left: Expression
   private right: Expression
-  constructor(left: Expression, right: Expression):
+  public constructor(left: Expression, right: Expression):
     this.left = left
     this.right = right
-  eval(context: Map) -> int:
+  public eval(context: Map) -> int:
     return this.left.eval(context) + this.right.eval(context)
 
 context = Map()

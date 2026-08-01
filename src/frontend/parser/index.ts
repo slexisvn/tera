@@ -1826,6 +1826,7 @@ export class Parser {
 
       if (memberName === "constructor" && !accessorKind && !modifiers.isStatic) {
         funcNode.visibility = modifiers.visibility;
+        funcNode.explicitVisibility = modifiers.explicitVisibility;
         constructorNode = funcNode;
       } else {
         methods.push({
@@ -1834,6 +1835,7 @@ export class Parser {
           kind: accessorKind,
           static: modifiers.isStatic,
           visibility: modifiers.visibility,
+          explicitVisibility: modifiers.explicitVisibility,
           abstract: modifiers.isAbstract,
         });
       }

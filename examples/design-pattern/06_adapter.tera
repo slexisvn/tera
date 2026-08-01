@@ -2,14 +2,14 @@ interface Printer:
   print(message: string) -> string
 
 class LegacyPrinter:
-  printText(text: string) -> string:
+  public printText(text: string) -> string:
     return "legacy:" + text
 
 class PrinterAdapter implements Printer:
   private legacy: LegacyPrinter = LegacyPrinter()
-  constructor(legacy):
+  public constructor(legacy):
     this.legacy = legacy
-  print(message: string) -> string:
+  public print(message: string) -> string:
     return this.legacy.printText(message)
 
 fn render(printer: Printer) -> string:

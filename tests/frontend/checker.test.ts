@@ -7,7 +7,7 @@ describe("checker pipeline", () => {
   it("reports undefined identifiers in expressions", () => {
     const source = [
       "class Account:",
-      "  constructor(owner: string, balance: float = 0.0):",
+      "  public constructor(owner: string, balance: float = 0.0):",
       "    this.owner = owner",
       "    this.balance = balance",
       "acc = Account(ashdasr)",
@@ -838,7 +838,7 @@ describe("checker pipeline", () => {
     it("models a constructor call and instance fields", () => {
       const source = [
         "class Point:",
-        "  constructor(x: float, y: float):",
+        "  public constructor(x: float, y: float):",
         "    this.x = x",
         "    this.y = y",
         "p: Point = Point(3.0, 4.0)",
@@ -850,13 +850,13 @@ describe("checker pipeline", () => {
     it("types this, methods returning this, and getters", () => {
       const source = [
         "class Account:",
-        "  constructor(owner: string, balance: float = 0.0):",
+        "  public constructor(owner: string, balance: float = 0.0):",
         "    this.owner = owner",
         "    this.balance = balance",
-        "  deposit(amount: float) -> Account:",
+        "  public deposit(amount: float) -> Account:",
         "    this.balance += amount",
         "    return this",
-        "  get summary() -> string:",
+        "  public get summary() -> string:",
         "    return `${this.owner}: ${this.balance}`",
         'acc: Account = Account("alice")',
         "s: string = acc.deposit(100.0).summary",
@@ -867,9 +867,9 @@ describe("checker pipeline", () => {
     it("checks a field member accessed through this against a return type", () => {
       const source = [
         "class Counter:",
-        "  constructor():",
+        "  public constructor():",
         "    this.n = 0",
-        "  inc() -> int:",
+        "  public inc() -> int:",
         "    this.n += 1",
         "    return this.n",
       ].join("\n");
@@ -879,15 +879,15 @@ describe("checker pipeline", () => {
     it("inherits members from a parent class via extends", () => {
       const source = [
         "class Shape:",
-        "  constructor(name: string):",
+        "  public constructor(name: string):",
         "    this.name = name",
-        "  area() -> float:",
+        "  public area() -> float:",
         "    return 0.0",
         "class Circle extends Shape:",
-        "  constructor(r: float):",
+        "  public constructor(r: float):",
         '    super(name="circle")',
         "    this.r = r",
-        "  area() -> float:",
+        "  public area() -> float:",
         "    return 3.14 * this.r * this.r",
         "c: Circle = Circle(2.0)",
         "n: string = c.name",
@@ -899,24 +899,24 @@ describe("checker pipeline", () => {
     it("uses nominal least-upper-bound for arrays of subclass instances", () => {
       const source = [
         "class Shape:",
-        "  constructor(name: string):",
+        "  public constructor(name: string):",
         "    this.name = name",
-        "  area() -> float:",
+        "  public area() -> float:",
         "    return 0.0",
-        "  describe() -> string:",
+        "  public describe() -> string:",
         "    return `${this.name} with area ${this.area()}`",
         "class Circle extends Shape:",
-        "  constructor(r: float):",
+        "  public constructor(r: float):",
         "    super(name=\"circle\")",
         "    this.r = r",
-        "  area() -> float:",
+        "  public area() -> float:",
         "    return 3.14159 * this.r * this.r",
         "class Rectangle extends Shape:",
-        "  constructor(w: float, h: float):",
+        "  public constructor(w: float, h: float):",
         "    super(name=\"rectangle\")",
         "    this.w = w",
         "    this.h = h",
-        "  area() -> float:",
+        "  public area() -> float:",
         "    return this.w * this.h",
         "shapes = [Circle(2.0), Rectangle(3.0, 4.0), Circle(1.0)]",
         "for s of shapes:",
@@ -933,7 +933,7 @@ describe("checker pipeline", () => {
     it("reports an argument mismatch on a constructor call", () => {
       const source = [
         "class Point:",
-        "  constructor(x: float, y: float):",
+        "  public constructor(x: float, y: float):",
         "    this.x = x",
         'Point("a", 4.0)',
       ].join("\n");
@@ -947,12 +947,12 @@ describe("checker pipeline", () => {
         "class Account:",
         "  private balance: float = 0.0",
         "  protected owner: string = \"alice\"",
-        "  constructor():",
+        "  public constructor():",
         "    this.balance = 1.0",
-        "  read() -> float:",
+        "  public read() -> float:",
         "    return this.balance",
         "class Savings extends Account:",
-        "  read_owner() -> string:",
+        "  public read_owner() -> string:",
         "    return this.owner",
         "acc = Account()",
         "bad_balance: float = acc.balance",
@@ -971,7 +971,7 @@ describe("checker pipeline", () => {
         "  title: string",
         "  private sections: string[]",
         "  static count: int = 0",
-        "  constructor(title: string, sections: string[]):",
+        "  public constructor(title: string, sections: string[]):",
         "    this.title = title",
         "    this.sections = sections",
       ].join("\n");
@@ -988,7 +988,7 @@ describe("checker pipeline", () => {
         "  public title: string",
         "  private sections: string[]",
         "  protected static count: int = 0",
-        "  constructor(title: string, sections: string[]):",
+        "  public constructor(title: string, sections: string[]):",
         "    this.title = title",
         "    this.sections = sections",
       ].join("\n");
@@ -999,7 +999,7 @@ describe("checker pipeline", () => {
     it("does not require visibility for fields introduced only by constructor assignment", () => {
       const source = [
         "class Point:",
-        "  constructor(x: float, y: float):",
+        "  public constructor(x: float, y: float):",
         "    this.x = x",
         "    this.y = y",
       ].join("\n");
@@ -1007,12 +1007,34 @@ describe("checker pipeline", () => {
       expect(messages(source)).toEqual([]);
     });
 
+    it("requires a visibility modifier on class methods, constructors, and accessors", () => {
+      const source = [
+        "class Report:",
+        "  public title: string",
+        "  constructor(title: string):",
+        "    this.title = title",
+        "  text() -> string:",
+        "    return this.title",
+        "  get name() -> string:",
+        "    return this.title",
+        "  set name(value: string):",
+        "    this.title = value",
+      ].join("\n");
+
+      expect(messages(source)).toEqual([
+        "Constructor must declare a visibility modifier ('public', 'private', or 'protected')",
+        "Method 'text' must declare a visibility modifier ('public', 'private', or 'protected')",
+        "Getter 'name' must declare a visibility modifier ('public', 'private', or 'protected')",
+        "Setter 'name' must declare a visibility modifier ('public', 'private', or 'protected')",
+      ]);
+    });
+
     it("enforces private constructors while allowing static factories", () => {
       const source = [
         "class Token:",
         "  private constructor(value: int):",
         "    this.value = value",
-        "  static make(value: int) -> Token:",
+        "  public static make(value: int) -> Token:",
         "    return Token(value)",
         "ok: Token = Token.make(1)",
         "bad = Token(2)",
@@ -1029,7 +1051,7 @@ describe("checker pipeline", () => {
         "  private static key: int = 5",
         "  private static secret() -> int:",
         "    return Vault.key",
-        "  static read() -> int:",
+        "  public static read() -> int:",
         "    return Vault.secret()",
         "value: int = Vault.read()",
         "bad: int = Vault.key",
@@ -1047,11 +1069,11 @@ describe("checker pipeline", () => {
         "interface Image:",
         "  display() -> string",
         "class RealImage implements Image:",
-        "  display() -> string:",
+        "  public display() -> string:",
         "    return \"ok\"",
         "class ProxyImage implements Image:",
         "  private real: Image | null = null",
-        "  display() -> string:",
+        "  public display() -> string:",
         "    real = this.real",
         "    if real != null:",
         "      return real.display()",
@@ -1059,10 +1081,10 @@ describe("checker pipeline", () => {
         "    this.real = real",
         "    return real.display()",
         "class Handler:",
-        "  handle() -> string:",
+        "  public handle() -> string:",
         "    return \"base\"",
         "class Child extends Handler:",
-        "  handle() -> string:",
+        "  public handle() -> string:",
         "    return super.handle()",
       ].join("\n");
       expect(messages(source)).toEqual([]);
@@ -1074,7 +1096,7 @@ describe("checker pipeline", () => {
         "interface IntIterator:",
         "  next() -> IteratorStep",
         "class RangeIterator implements IntIterator:",
-        "  next() -> IteratorStep:",
+        "  public next() -> IteratorStep:",
         "    return { done: false, value: 1 }",
         "for value of RangeIterator():",
         "  n: int = value",
@@ -1097,9 +1119,9 @@ describe("checker pipeline", () => {
   describe("static class members", () => {
     const factory = [
       "class Vec:",
-      "  static create(x: int, y: int) -> Vec:",
+      "  public static create(x: int, y: int) -> Vec:",
       "    return Vec()",
-      "  constructor():",
+      "  public constructor():",
       "    this.x = 0",
     ].join("\n");
 
@@ -1115,11 +1137,11 @@ describe("checker pipeline", () => {
     it("exposes static members on the class type and keeps them off instances", () => {
       const source = [
         "class Reg:",
-        "  static make() -> Reg:",
+        "  public static make() -> Reg:",
         "    return Reg()",
-        "  constructor():",
+        "  public constructor():",
         "    this.v = 1",
-        "  read() -> int:",
+        "  public read() -> int:",
         "    return this.v",
       ].join("\n");
       const statics = inferSymbolTypes(source).filter((s) => s.name.startsWith("typeof Reg."));
@@ -1132,10 +1154,10 @@ describe("checker pipeline", () => {
     it("inherits static members from a superclass", () => {
       const source = [
         "class Base:",
-        "  static tag() -> string:",
+        "  public static tag() -> string:",
         "    return \"b\"",
         "class Sub extends Base:",
-        "  step() -> int:",
+        "  public step() -> int:",
         "    return 1",
         "Sub.tag()",
       ].join("\n");
@@ -1154,9 +1176,9 @@ describe("checker pipeline", () => {
       const source = [
         shape,
         "class Sq implements Shape:",
-        "  constructor():",
+        "  public constructor():",
         "    this.name = \"sq\"",
-        "  area() -> int:",
+        "  public area() -> int:",
         "    return 4",
       ].join("\n");
       expect(messages(source)).toEqual([]);
@@ -1166,7 +1188,7 @@ describe("checker pipeline", () => {
       const source = [
         shape,
         "class Sq implements Shape:",
-        "  constructor():",
+        "  public constructor():",
         "    this.name = \"sq\"",
       ].join("\n");
       expect(messages(source)).toContain("Class 'Sq' is missing 'area' required by interface 'Shape'");
@@ -1177,7 +1199,7 @@ describe("checker pipeline", () => {
         "interface Shape:",
         "  area() -> int",
         "class Sq implements Shape:",
-        "  area() -> string:",
+        "  public area() -> string:",
         "    return \"x\"",
       ].join("\n");
       expect(messages(source)).toContain("Property 'area: () -> string' in 'Sq' is not assignable to 'area: () -> int' required by interface 'Shape'");
@@ -1197,7 +1219,7 @@ describe("checker pipeline", () => {
     it("reports an unknown interface", () => {
       const source = [
         "class Sq implements Ghost:",
-        "  area() -> int:",
+        "  public area() -> int:",
         "    return 1",
       ].join("\n");
       expect(messages(source)).toContain("Cannot find interface 'Ghost' implemented by 'Sq'");
@@ -1210,7 +1232,7 @@ describe("checker pipeline", () => {
         "interface B:",
         "  b() -> int",
         "class C implements A, B:",
-        "  a() -> int:",
+        "  public a() -> int:",
         "    return 1",
       ].join("\n");
       expect(messages(source)).toContain("Class 'C' is missing 'b' required by interface 'B'");
@@ -1221,7 +1243,7 @@ describe("checker pipeline", () => {
         "interface Shape:",
         "  area() -> int",
         "class Sq implements Shape:",
-        "  area() -> int:",
+        "  public area() -> int:",
         "    return 4",
         "s: Shape = Sq()",
       ].join("\n");
@@ -1233,7 +1255,7 @@ describe("checker pipeline", () => {
     it("rejects instantiating an abstract class", () => {
       const source = [
         "abstract class Exporter:",
-        "  abstract write() -> string",
+        "  public abstract write() -> string",
         "Exporter()",
       ].join("\n");
       expect(messages(source)).toContain("Cannot instantiate abstract class 'Exporter'");
@@ -1242,9 +1264,9 @@ describe("checker pipeline", () => {
     it("requires concrete subclasses to implement inherited abstract members", () => {
       const source = [
         "abstract class Exporter:",
-        "  abstract write() -> string",
+        "  public abstract write() -> string",
         "class CsvExporter extends Exporter:",
-        "  label() -> string:",
+        "  public label() -> string:",
         "    return \"csv\"",
       ].join("\n");
       expect(messages(source)).toContain("Class 'CsvExporter' must implement abstract member 'write' inherited from 'Exporter'");
@@ -1253,12 +1275,12 @@ describe("checker pipeline", () => {
     it("accepts concrete overrides and abstract intermediate classes", () => {
       const source = [
         "abstract class Exporter:",
-        "  abstract write() -> string",
+        "  public abstract write() -> string",
         "abstract class BaseExporter extends Exporter:",
-        "  label() -> string:",
+        "  public label() -> string:",
         "    return \"base\"",
         "class CsvExporter extends BaseExporter:",
-        "  write() -> string:",
+        "  public write() -> string:",
         "    return this.label() + \":csv\"",
         "CsvExporter().write()",
       ].join("\n");
@@ -1278,9 +1300,9 @@ describe("checker pipeline", () => {
         "interface Exporter:",
         "  write() -> string",
         "abstract class BaseExporter implements Exporter:",
-        "  abstract write() -> string",
+        "  public abstract write() -> string",
         "class CsvExporter extends BaseExporter:",
-        "  write() -> string:",
+        "  public write() -> string:",
         "    return \"csv\"",
         "e: Exporter = CsvExporter()",
       ].join("\n");

@@ -119,6 +119,7 @@ export type ClassMethodNode = {
   kind: string | null;
   static?: boolean;
   visibility?: ClassVisibility;
+  explicitVisibility?: boolean;
   abstract?: boolean;
 };
 export type ClassFieldNode = {

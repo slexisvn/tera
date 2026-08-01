@@ -2,19 +2,19 @@ interface Notifier:
   send(message: string) -> string
 
 class PlainNotifier implements Notifier:
-  send(message: string) -> string:
+  public send(message: string) -> string:
     return message
 
 class EmailDecorator implements Notifier:
-  constructor(next: Notifier):
+  public constructor(next: Notifier):
     this.next = next
-  send(message: string) -> string:
+  public send(message: string) -> string:
     return "email(" + this.next.send(message) + ")"
 
 class SmsDecorator implements Notifier:
-  constructor(next: Notifier):
+  public constructor(next: Notifier):
     this.next = next
-  send(message: string) -> string:
+  public send(message: string) -> string:
     return "sms(" + this.next.send(message) + ")"
 
 notifier = SmsDecorator(EmailDecorator(PlainNotifier()))

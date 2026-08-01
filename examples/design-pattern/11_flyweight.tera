@@ -5,11 +5,11 @@ class Glyph implements DrawableGlyph:
   private static cache = Map()
   private constructor(char):
     this.char = char
-  static of(char: string) -> DrawableGlyph:
+  public static of(char: string) -> DrawableGlyph:
     if !Glyph.cache.has(char):
       Glyph.cache.set(char, Glyph(char))
     return Glyph.cache.get(char)
-  draw(x: int, y: int) -> string:
+  public draw(x: int, y: int) -> string:
     return this.char + "@" + x + "," + y
 
 a: DrawableGlyph = Glyph.of("A")

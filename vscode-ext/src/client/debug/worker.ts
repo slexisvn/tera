@@ -178,13 +178,12 @@ function pauseHandler(event: DebugPauseEvent): DebugCommand {
 function startDebug(command: Extract<WorkerCommand, { type: "start" }>): void {
   const program = normalizeDebugPath(command.launch.program, command.launch.cwd);
   sourceRoot = normalizeDebugPath(command.launch.cwd, dirname(program)) || dirname(program);
-  const breakpoints = command.breakpoints.map(normalizeBreakpoint);
   controller = new DebugController({
-    pauseOnEntry: command.launch.stopOnEntry ?? breakpoints.length === 0,
+    pauseOnEntry: command.launch.stopOnEntry,
     pauseRequested: () => Atomics.exchange(commandState, STATE_PAUSE, 0) === 1,
     onPause: pauseHandler,
   });
-  applyBreakpoints(breakpoints);
+  applyBreakpoints(command.breakpoints);
 
   const engine = new Engine({
     typecheck: command.launch.typecheck ?? "off",

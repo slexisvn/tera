@@ -2,24 +2,24 @@ interface FileSystemNode:
   size() -> int
 
 class FileItem implements FileSystemNode:
-  name: string
-  sizeValue: int
-  constructor(name: string, size: int):
+  public name: string
+  public sizeValue: int
+  public constructor(name: string, size: int):
     this.name = name
     this.sizeValue = size
-  size() -> int:
+  public size() -> int:
     return this.sizeValue
 
 class Folder implements FileSystemNode:
-  name: string
-  children: FileSystemNode[] = []
-  constructor(name: string):
+  public name: string
+  public children: FileSystemNode[] = []
+  public constructor(name: string):
     this.name = name
     this.children = []
-  add(child: FileSystemNode) -> Folder:
+  public add(child: FileSystemNode) -> Folder:
     this.children.push(child)
     return this
-  size() -> int:
+  public size() -> int:
     total = 0
     for child of this.children:
       total += child.size()

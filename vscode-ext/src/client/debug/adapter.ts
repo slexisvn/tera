@@ -380,7 +380,7 @@ export class TeraDebugAdapter {
       ...this.launchArguments,
       cwd: cwd || undefined,
       program: normalizedProgram,
-      stopOnEntry: this.launchArguments.stopOnEntry ?? breakpoints.length === 0,
+      stopOnEntry: this.launchArguments.stopOnEntry ?? false,
     };
     this.worker = new Worker(pathToFileURL(this.workerPath), {
       workerData: { commandBuffer: this.commandState.buffer },

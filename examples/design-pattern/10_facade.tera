@@ -2,20 +2,20 @@ interface ScriptRunner:
   execute(source: string) -> string
 
 class Compiler:
-  parse(source: string) -> string:
+  public parse(source: string) -> string:
     return "ast(" + source + ")"
-  emit(ast: string) -> string:
+  public emit(ast: string) -> string:
     return "bytecode(" + ast + ")"
 
 class Runtime:
-  run(code: string) -> string:
+  public run(code: string) -> string:
     return "result(" + code + ")"
 
 class ScriptFacade implements ScriptRunner:
-  constructor():
+  public constructor():
     this.compiler = Compiler()
     this.runtime = Runtime()
-  execute(source: string) -> string:
+  public execute(source: string) -> string:
     ast = this.compiler.parse(source)
     code = this.compiler.emit(ast)
     return this.runtime.run(code)

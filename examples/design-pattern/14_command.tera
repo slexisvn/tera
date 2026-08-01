@@ -2,30 +2,30 @@ interface Command:
   execute() -> void
 
 class Editor:
-  parts: string[] = []
-  constructor():
+  public parts: string[] = []
+  public constructor():
     this.parts = []
-  append(value: string) -> void:
+  public append(value: string) -> void:
     this.parts.push(value)
-  clear() -> void:
+  public clear() -> void:
     this.parts = []
-  text() -> string:
+  public text() -> string:
     return this.parts.join("")
 
 class AppendCommand implements Command:
   private editor: Editor
   private value: string
-  constructor(editor: Editor, value: string):
+  public constructor(editor: Editor, value: string):
     this.editor = editor
     this.value = value
-  execute() -> void:
+  public execute() -> void:
     this.editor.append(this.value)
 
 class Button:
   private command: Command
-  constructor(command: Command):
+  public constructor(command: Command):
     this.command = command
-  click() -> void:
+  public click() -> void:
     this.command.execute()
 
 editor = Editor()

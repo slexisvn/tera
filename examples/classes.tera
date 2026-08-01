@@ -1,25 +1,25 @@
 
 class Shape:
-  constructor(name: string):
+  public constructor(name: string):
     this.name = name
-  area() -> float:
+  public area() -> float:
     return 0.0
-  describe() -> string:
+  public describe() -> string:
     return `${this.name} with area ${this.area()}`
 
 class Circle extends Shape:
-  constructor(r: float):
+  public constructor(r: float):
     super(name="circle")
     this.r = r
-  area() -> float:
+  public area() -> float:
     return 3.14159 * this.r * this.r
 
 class Rectangle extends Shape:
-  constructor(w: float, h: float):
+  public constructor(w: float, h: float):
     super(name="rectangle")
     this.w = w
     this.h = h
-  area() -> float:
+  public area() -> float:
     return this.w * this.h
 
 shapes = [Circle(2.0), Rectangle(3.0, 4.0), Circle(1.0)]
@@ -27,18 +27,18 @@ for s of shapes:
   print(s.describe())
 
 class Account:
-  constructor(owner: string, balance: float = 0.0):
+  public constructor(owner: string, balance: float = 0.0):
     this.owner = owner
     this.balance = balance
-  deposit(amount: float):
+  public deposit(amount: float):
     this.balance += amount
     return this
-  withdraw(amount: float):
+  public withdraw(amount: float):
     if amount > this.balance:
       throw "insufficient funds"
     this.balance -= amount
     return this
-  get summary():
+  public get summary():
     return `${this.owner}: ${this.balance}`
 
 acc = Account("alice")
@@ -46,9 +46,9 @@ acc.deposit(100.0).withdraw(30.0).deposit(5.5)
 print(acc.summary)
 
 class Counter:
-  constructor():
+  public constructor():
     this.n = 0
-  inc():
+  public inc():
     this.n += 1
     return this.n
 
@@ -60,11 +60,11 @@ d.inc()
 print("independent instances:", c.n, d.n)
 
 class Temperature:
-  constructor(celsius: float):
+  public constructor(celsius: float):
     this.c = celsius
-  get fahrenheit():
+  public get fahrenheit():
     return this.c * 9.0 / 5.0 + 32.0
-  set fahrenheit(f):
+  public set fahrenheit(f):
     this.c = (f - 32.0) * 5.0 / 9.0
 
 t = Temperature(25.0)

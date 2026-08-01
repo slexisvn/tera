@@ -6,31 +6,31 @@ interface WidgetFactory:
   createCheckbox() -> Widget
 
 class WinButton implements Widget:
-  render() -> string:
+  public render() -> string:
     return "win button"
 
 class WinCheckbox implements Widget:
-  render() -> string:
+  public render() -> string:
     return "win checkbox"
 
 class MacButton implements Widget:
-  render() -> string:
+  public render() -> string:
     return "mac button"
 
 class MacCheckbox implements Widget:
-  render() -> string:
+  public render() -> string:
     return "mac checkbox"
 
 class WinFactory implements WidgetFactory:
-  createButton() -> Widget:
+  public createButton() -> Widget:
     return WinButton()
-  createCheckbox() -> Widget:
+  public createCheckbox() -> Widget:
     return WinCheckbox()
 
 class MacFactory implements WidgetFactory:
-  createButton() -> Widget:
+  public createButton() -> Widget:
     return MacButton()
-  createCheckbox() -> Widget:
+  public createCheckbox() -> Widget:
     return MacCheckbox()
 
 fn paint(factory: WidgetFactory) -> string:
