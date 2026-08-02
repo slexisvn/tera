@@ -25,6 +25,7 @@ export type BoundProgram = {
   env: TypeEnv;
   root: Scope;
   scopes: WeakMap<SemanticNode, Scope>;
+  reserved: ReadonlySet<string>;
 };
 
 export type ExternalBuiltinParam = {
@@ -240,14 +241,25 @@ function createScope(parent: Scope | null, signature?: Signature): Scope {
 export function bindProgram(program: SemanticProgram, options: BindOptions = {}): BoundProgram {
   validateBindOptions(options);
   const root = createScope(null);
-  for (const [name, sig] of BUILTIN_SIGNATURES) root.signatures.set(name, sig);
-  for (const spec of options.builtins ?? []) root.signatures.set(spec.name, signatureFromExternal(spec));
-  for (const [name, type] of GLOBAL_NAMESPACE_BINDINGS) root.locals.set(name, { type, optional: false, declared: true });
+  const reserved = new Set<string>();
+  for (const [name, sig] of BUILTIN_SIGNATURES) {
+    root.signatures.set(name, sig);
+    reserved.add(name);
+  }
+  for (const spec of options.builtins ?? []) {
+    root.signatures.set(spec.name, signatureFromExternal(spec));
+    reserved.add(spec.name);
+  }
+  for (const [name, type] of GLOBAL_NAMESPACE_BINDINGS) {
+    root.locals.set(name, { type, optional: false, declared: true });
+    reserved.add(name);
+  }
   const bound: BoundProgram = {
     program,
     env: createTypeEnv(),
     root,
     scopes: new WeakMap(),
+    reserved,
   };
   bindExternalTypes(bound, options);
   for (const node of program.body) bindNode(node, bound, root);

@@ -193,14 +193,14 @@ describe("Tera reactive syntax", () => {
 
   it("typechecks reactive syntax and exposes signal member types", () => {
     const source = [
-      "signal count = 1",
-      "computed doubled = count * 2",
+      "signal tally = 1",
+      "computed doubled = tally * 2",
       "value = doubled",
     ].join("\n");
 
     expect(diagnoseSource(source, createReactiveCheckOptions())).toEqual([]);
-    expect(inferSymbolTypes(source, createReactiveCheckOptions()).filter((symbol) => symbol.name === "count" || symbol.name === "doubled" || symbol.name === "value")).toEqual([
-      expect.objectContaining({ name: "count", type: "ReactiveSignal<int>" }),
+    expect(inferSymbolTypes(source, createReactiveCheckOptions()).filter((symbol) => symbol.name === "tally" || symbol.name === "doubled" || symbol.name === "value")).toEqual([
+      expect.objectContaining({ name: "tally", type: "ReactiveSignal<int>" }),
       expect.objectContaining({ name: "doubled", type: "ReactiveComputed<int>" }),
       expect.objectContaining({ name: "value", type: "int" }),
     ]);
@@ -208,8 +208,8 @@ describe("Tera reactive syntax", () => {
 
   it("desugars reactive reads to internal value access", () => {
     const ast = parse([
-      "signal count = 1",
-      "computed doubled = count * 2",
+      "signal tally = 1",
+      "computed doubled = tally * 2",
       "value = doubled",
     ].join("\n"), { syntaxPlugins: [reactiveSyntaxPlugin()] });
 
@@ -222,7 +222,7 @@ describe("Tera reactive syntax", () => {
       type: "BinaryExpression",
       left: {
         type: "MemberExpression",
-        object: { type: "Identifier", name: "count" },
+        object: { type: "Identifier", name: "tally" },
         property: "value",
       },
     });
@@ -235,8 +235,8 @@ describe("Tera reactive syntax", () => {
 
   it("lowers resource declarations to resource calls and direct reads", () => {
     const ast = parse([
-      "signal count = 1",
-      "resource doubled = count * 2",
+      "signal tally = 1",
+      "resource doubled = tally * 2",
       "value = doubled",
     ].join("\n"), { syntaxPlugins: [reactiveSyntaxPlugin()] });
 
@@ -253,7 +253,7 @@ describe("Tera reactive syntax", () => {
       type: "BinaryExpression",
       left: {
         type: "MemberExpression",
-        object: { type: "Identifier", name: "count" },
+        object: { type: "Identifier", name: "tally" },
         property: "value",
       },
     });
@@ -266,9 +266,9 @@ describe("Tera reactive syntax", () => {
 
   it("does not unwrap reactive handles used as mutation receivers", () => {
     const ast = parse([
-      "signal count = 1",
-      "count.set(2)",
-      "count.update(x => x + 1)",
+      "signal tally = 1",
+      "tally.set(2)",
+      "tally.update(x => x + 1)",
     ].join("\n"), { syntaxPlugins: [reactiveSyntaxPlugin()] });
 
     const setCall = (statementsOf(ast)[1].expression as ASTNode);
@@ -278,7 +278,7 @@ describe("Tera reactive syntax", () => {
       type: "CallExpression",
       callee: {
         type: "MemberExpression",
-        object: { type: "Identifier", name: "count" },
+        object: { type: "Identifier", name: "tally" },
         property: "set",
       },
     });
@@ -286,7 +286,7 @@ describe("Tera reactive syntax", () => {
       type: "CallExpression",
       callee: {
         type: "MemberExpression",
-        object: { type: "Identifier", name: "count" },
+        object: { type: "Identifier", name: "tally" },
         property: "update",
       },
     });
@@ -294,47 +294,47 @@ describe("Tera reactive syntax", () => {
 
   it("passes direct reactive identifiers as watch source handles", () => {
     const ast = parse([
-      "signal count = 1",
-      "watch(count, (value, previous) => value)",
+      "signal tally = 1",
+      "watch(tally, (value, previous) => value)",
     ].join("\n"), { syntaxPlugins: [reactiveSyntaxPlugin()] });
 
     const watchCall = statementsOf(ast)[1].expression as ASTNode;
 
-    expect(callArg(watchCall, 0)).toMatchObject({ type: "Identifier", name: "count" });
+    expect(callArg(watchCall, 0)).toMatchObject({ type: "Identifier", name: "tally" });
   });
 
   it("lets plugin options preserve reactive handles for custom call arguments", () => {
     const ast = parse([
-      "signal count = 1",
-      "take(count)",
+      "signal tally = 1",
+      "take(tally)",
     ].join("\n"), { syntaxPlugins: [reactiveSyntaxPlugin({ preserveHandleArgs: { take: [0] } })] });
 
     const takeCall = statementsOf(ast)[1].expression as ASTNode;
 
-    expect(callArg(takeCall, 0)).toMatchObject({ type: "Identifier", name: "count" });
+    expect(callArg(takeCall, 0)).toMatchObject({ type: "Identifier", name: "tally" });
   });
 
   it("honors lexical shadowing inside callbacks", () => {
     const source = [
-      "signal count = 1",
-      "fn read(count: int) -> int:",
-      "  return count + 1",
+      "signal tally = 1",
+      "fn read(tally: int) -> int:",
+      "  return tally + 1",
       "value = read(2)",
     ].join("\n");
 
     expect(diagnoseSource(source, createReactiveCheckOptions())).toEqual([]);
     expect(inferSymbolTypes(source, createReactiveCheckOptions())).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "count", type: "ReactiveSignal<int>" }),
+      expect.objectContaining({ name: "tally", type: "ReactiveSignal<int>" }),
       expect.objectContaining({ name: "value", type: "int" }),
     ]));
   });
 
   it("honors ordinary local declarations that shadow reactive handles", () => {
     const ast = parse([
-      "signal count = 1",
+      "signal tally = 1",
       "fn read() -> int:",
-      "  let count = 2",
-      "  return count",
+      "  let tally = 2",
+      "  return tally",
       "value = read()",
     ].join("\n"), { syntaxPlugins: [reactiveSyntaxPlugin()] });
     const read = statementsOf(ast).find((statement) => statement.type === "FunctionDeclaration" && (statement as { name?: unknown }).name === "read") as ASTNode;
@@ -343,12 +343,12 @@ describe("Tera reactive syntax", () => {
     const prints: string[] = [];
     const engine = new Engine({ ...createReactiveTeraOptions(converters), output: (text) => prints.push(String(text)) });
 
-    expect(returned).toMatchObject({ type: "Identifier", name: "count" });
+    expect(returned).toMatchObject({ type: "Identifier", name: "tally" });
     expect(engine.runNative([
-      "signal count = 1",
+      "signal tally = 1",
       "fn read() -> int:",
-      "  let count = 2",
-      "  return count",
+      "  let tally = 2",
+      "  return tally",
       "read()",
     ].join("\n"))).toBe(2);
   });
@@ -369,16 +369,16 @@ describe("Tera reactive syntax", () => {
 
   it("does not preserve handles for lexically declared functions named like reactive builtins", () => {
     const ast = parse([
-      "signal count = 1",
+      "signal tally = 1",
       "fn watch(source, cb):",
       "  return source",
-      "value = watch(count, (value, previous) => value)",
+      "value = watch(tally, (value, previous) => value)",
     ].join("\n"), { syntaxPlugins: [reactiveSyntaxPlugin()] });
     const valueRead = assignmentValue(statementsOf(ast)[2]);
 
     expect(callArg(valueRead, 0)).toMatchObject({
       type: "MemberExpression",
-      object: { type: "Identifier", name: "count" },
+      object: { type: "Identifier", name: "tally" },
       property: "value",
     });
   });
@@ -388,12 +388,12 @@ describe("Tera reactive syntax", () => {
     const engine = new Engine({ ...createReactiveTeraOptions(converters), output: (text) => prints.push(String(text)) });
 
     engine.runNative([
-      "signal count = 1",
-      "computed doubled = count * 2",
+      "signal tally = 1",
+      "computed doubled = tally * 2",
       "effect:",
       "  print(doubled)",
-      "count.set(2)",
-      "count.update(x => x + 1)",
+      "tally.set(2)",
+      "tally.update(x => x + 1)",
     ].join("\n"));
 
     expect(prints).toEqual(["2", "4", "6"]);
@@ -404,11 +404,11 @@ describe("Tera reactive syntax", () => {
     const engine = new Engine({ ...createReactiveTeraOptions(converters), output: (text) => prints.push(String(text)) });
 
     engine.runNative([
-      "signal count = 1",
-      "resource doubled = count * 2",
+      "signal tally = 1",
+      "resource doubled = tally * 2",
       "effect:",
       "  print(doubled)",
-      "count.set(2)",
+      "tally.set(2)",
     ].join("\n"));
 
     expect(prints).toEqual(["2", "4"]);
@@ -419,10 +419,10 @@ describe("Tera reactive syntax", () => {
     const engine = new Engine({ ...createReactiveTeraOptions(converters), output: (text) => prints.push(String(text)) });
 
     engine.runNative([
-      "signal count = 1",
-      "watch(count, (value, previous) => print(previous, \"->\", value))",
-      "count.set(2)",
-      "count.set(3)",
+      "signal tally = 1",
+      "watch(tally, (value, previous) => print(previous, \"->\", value))",
+      "tally.set(2)",
+      "tally.set(3)",
     ].join("\n"));
 
     expect(prints).toEqual(["1 -> 2", "2 -> 3"]);

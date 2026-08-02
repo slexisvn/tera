@@ -31,8 +31,8 @@ describe("analyzeDiagnostics", () => {
 
   it("accepts reactive syntax and reports reactive member type errors", () => {
     const valid = [
-      "signal count = 1",
-      "computed doubled = count * 2",
+      "signal tally = 1",
+      "computed doubled = tally * 2",
       "resource remote = doubled + 1",
       "effect:",
       "  print(remote)",
@@ -40,12 +40,12 @@ describe("analyzeDiagnostics", () => {
 
     expect(analyzeDiagnostics(valid)).toEqual([]);
     expect(analyzeDiagnostics([
-      "signal count = 1",
-      "count.set(\"bad\")",
+      "signal tally = 1",
+      "tally.set(\"bad\")",
     ].join("\n"))).toEqual([
       expect.objectContaining({
         line: 2,
-        column: "count.set(".length + 1,
+        column: "tally.set(".length + 1,
         message: "Type 'string' is not assignable to parameter 'value: int'",
       }),
     ]);

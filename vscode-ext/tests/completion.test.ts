@@ -80,8 +80,8 @@ describe("completion", () => {
     ].join("\n"))).toEqual(expect.arrayContaining(["to_string", "to_fixed", "to_precision", "to_exponential", "value_of"]));
 
     expect(labelsAtEnd([
-      "count: int = 7",
-      "count.",
+      "tally: int = 7",
+      "tally.",
     ].join("\n"))).toEqual(expect.arrayContaining(["to_string", "to_fixed", "value_of"]));
 
     expect(labelsAtEnd([
@@ -92,8 +92,8 @@ describe("completion", () => {
 
   it("suggests reactive signal members after reactive syntax declarations", () => {
     const memberLabels = labelsAtEnd([
-      "signal count = 1",
-      "count.",
+      "signal tally = 1",
+      "tally.",
     ].join("\n"));
 
     expect(memberLabels).toEqual(expect.arrayContaining(["set", "update", "subscribe", "dispose"]));

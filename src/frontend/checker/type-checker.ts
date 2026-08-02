@@ -316,6 +316,10 @@ export class TypeChecker {
   }
 
   checkVar(node: Extract<SemanticNode, { kind: "Var" }>, scope: Scope): void {
+    if (this.reportBuiltinRedeclaration(node.name, node.nameSpan.line, node.nameSpan.column)) {
+      this.checkExpression(node.value, scope, node.span.line, node.span.column);
+      return;
+    }
     const previous = node.declaredType ? null : lookup(scope, node.name);
     const declared = cleanType(node.declaredType);
     const expectedType = node.declaredType ? declared : previous?.type ?? null;
@@ -351,15 +355,15 @@ export class TypeChecker {
     const itemTypes = this.destructureTypes(valueType, node.names.length);
     for (let i = 0; i < node.names.length; i++) {
       const name = node.names[i];
+      const at = node.variableSpans[i] ?? node.span;
+      if (this.reportBuiltinRedeclaration(name, at.line, at.column)) continue;
       const previous = lookup(scope, name);
       const actual = itemTypes[i] ?? "unknown";
       if (previous && !this.isUnknownish(actual) && !compatible(actual, previous.type, this.bound.env)) {
-        const at = node.variableSpans[i] ?? node.span;
         this.add(at.line, at.column, `Type '${actual}' is not assignable to '${previous.type}'`);
       }
       const stored = previous?.declared ? previous.type : previous ? this.widenType(previous.type, actual) : actual;
       scope.locals.set(name, { type: stored, optional: false, declared: !!previous?.declared });
-      const at = node.variableSpans[i] ?? node.span;
       this.onDeclare?.({ name, line: at.line, column: at.column, type: stored });
     }
   }
@@ -904,6 +908,12 @@ export class TypeChecker {
 
   add(line: number, column: number, message: string): void {
     this.diagnostics.push(diagnostic(line, column, message, this.strict));
+  }
+
+  reportBuiltinRedeclaration(name: string, line: number, column: number): boolean {
+    if (!this.bound.reserved.has(name)) return false;
+    this.add(line, column, `Cannot redeclare built-in '${name}'`);
+    return true;
   }
 
   isContextualExpression(node: ASTNode): boolean {

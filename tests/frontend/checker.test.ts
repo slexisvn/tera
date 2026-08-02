@@ -47,7 +47,7 @@ describe("checker pipeline", () => {
   });
 
   it("reports assignment type errors with strict severity", () => {
-    const diagnostics = checkSource("count: float = \"nope\"", "strict");
+    const diagnostics = checkSource("total: float = \"nope\"", "strict");
 
     expect(diagnostics).toEqual([
       expect.objectContaining({
@@ -209,8 +209,8 @@ describe("checker pipeline", () => {
       "score: float = 3.14159",
       "fixed: string = score.to_fixed(2)",
       "same_score: float = score.value_of()",
-      "count: int = 7",
-      "same_count: int = count.value_of()",
+      "total: int = 7",
+      "same_total: int = total.value_of()",
       "ready: bool = true",
       "ready_text: string = ready.to_string()",
       "same_ready: bool = ready.value_of()",
@@ -220,7 +220,7 @@ describe("checker pipeline", () => {
     expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "fixed", type: "string" }),
       expect.objectContaining({ name: "same_score", type: "float" }),
-      expect.objectContaining({ name: "same_count", type: "int" }),
+      expect.objectContaining({ name: "same_total", type: "int" }),
       expect.objectContaining({ name: "ready_text", type: "string" }),
       expect.objectContaining({ name: "same_ready", type: "bool" }),
     ]));

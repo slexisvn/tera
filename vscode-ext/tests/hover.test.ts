@@ -287,13 +287,13 @@ describe("hover", () => {
 
   it("shows reactive mutation method hovers and direct read types", () => {
     const source = [
-      "signal count = 1",
-      "current = count",
-      "count.set(2)",
+      "signal tally = 1",
+      "current = tally",
+      "tally.set(2)",
     ].join("\n");
 
     const currentText = hoverText(source, 1, "current".length);
-    const setText = hoverText(source, 2, "count.set".length);
+    const setText = hoverText(source, 2, "tally.set".length);
 
     expect(currentText).toContain("`current` — *variable*");
     expect(currentText).toContain("type: `int`");
