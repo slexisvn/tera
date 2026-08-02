@@ -12,6 +12,7 @@ import {
   type ParamNode,
 } from "../ast/index.js";
 import { parse } from "../parser/language.js";
+import type { ParserOptions } from "../parser/index.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
 import type {
   BlockNode,
@@ -73,8 +74,8 @@ type ModelAst = ASTNode & {
 
 const UNKNOWN_SPAN = { line: 1, column: 1 };
 
-export function parseSemanticProgram(source: string): SemanticProgram {
-  return astToSemanticProgram(parse(source));
+export function parseSemanticProgram(source: string, options: ParserOptions = {}): SemanticProgram {
+  return astToSemanticProgram(parse(source, options));
 }
 
 export function astToSemanticProgram(ast: ASTNode): SemanticProgram {

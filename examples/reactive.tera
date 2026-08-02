@@ -1,0 +1,29 @@
+print("=== reactive cart ===")
+
+signal price = 12.5
+signal quantity = 2
+signal coupon = 0.0
+
+computed subtotal = price * quantity
+computed discount = subtotal * coupon
+computed total = subtotal - discount
+resource tax = total * 0.08
+
+effect:
+  print("render subtotal =", subtotal, "| discount =", discount, "| total =", total, "| tax =", tax)
+
+print("=== single updates ===")
+quantity.set(3)
+coupon.set(0.1)
+price.update(p => p + 2.5)
+
+fn checkout_update() -> float:
+  quantity.set(4)
+  coupon.set(0.2)
+  return total
+
+print("=== batched checkout update ===")
+batch(checkout_update)
+
+print("peek total without subscribing =", untrack(() => total))
+print("resource state =", tax.state, "| loading =", tax.loading)

@@ -109,6 +109,7 @@ export const ROP_CALL_METHOD_SPREAD_NAMED = 0x8f;
 
 export const ROP_LDA_KEYED_SLICE = 0x90;
 export const ROP_ASSERT_CLASS_CONTRACTS = 0x91;
+export const ROP_CALL_INTRINSIC = 0x92;
 
 export type RegisterOpcode = number;
 export type RegisterOperand = number;
@@ -270,6 +271,7 @@ const ROPCODE_NAMES: Record<number, string> = {
   [ROP_CALL_METHOD_SPREAD_NAMED]: "CallMethodSpreadNamed",
   [ROP_LDA_KEYED_SLICE]: "LdaKeyedSlice",
   [ROP_ASSERT_CLASS_CONTRACTS]: "AssertClassContracts",
+  [ROP_CALL_INTRINSIC]: "CallIntrinsic",
 };
 
 export function rOpcodeName(opcode: RegisterOpcode): string {
@@ -581,7 +583,8 @@ export class RegisterCompiledFunction {
           parts.push(`[${op}] (${display})`);
         } else if (
           (instr.opcode === ROP_LDA_GLOBAL ||
-            instr.opcode === ROP_STA_GLOBAL) &&
+            instr.opcode === ROP_STA_GLOBAL ||
+            instr.opcode === ROP_CALL_INTRINSIC) &&
           j === 0
         ) {
           parts.push(`[${op}] (${String(this.constants[op as number])})`);

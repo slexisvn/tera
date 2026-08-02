@@ -230,7 +230,7 @@
     "annotations": {
       "patterns": [
         {
-          "match": "(->)\\s*(PromiseConstructor|ObjectConstructor|MetricCollection|QuillProduct|GroupedData|IndexTensor|LRScheduler|MLTransform|DataLoader|DataFrame|Optimizer|Tokenizer|undefined|Callback|boolean|Boolean|Dataset|MLModel|Promise|Trainer|unknown|Column|Logger|Metric|Module|Number|Object|string|String|Tensor|Array|float|Model|bool|JSON|Math|void|any|int|Map|Set)\\b",
+          "match": "(->)\\s*(PromiseConstructor|ObjectConstructor|MetricCollection|ReactiveComputed|ReactiveResource|ReactiveSignal|QuillProduct|GroupedData|IndexTensor|LRScheduler|MLTransform|DataLoader|DataFrame|Optimizer|Tokenizer|undefined|Callback|boolean|Boolean|Dataset|MLModel|Promise|Trainer|unknown|Column|Logger|Metric|Module|Number|Object|string|String|Tensor|Array|float|Model|bool|JSON|Math|void|any|int|Map|Set)\\b",
           "captures": {
             "1": {
               "name": "keyword.operator.arrow.tera"
@@ -241,7 +241,7 @@
           }
         },
         {
-          "match": "(->)\\s*(?!(?:implements|instanceof|interface|protected|abstract|continue|default|extends|finally|private|delete|public|return|static|switch|typeof|async|await|break|catch|class|const|false|model|super|throw|while|yield|case|else|null|this|true|type|and|for|get|let|new|not|set|try|var|do|fn|if|in|of|or)\\b)([A-Za-z_$][A-Za-z0-9_$]*)",
+          "match": "(->)\\s*(?!(?:implements|instanceof|interface|protected|abstract|computed|continue|resource|default|extends|finally|private|delete|effect|public|return|signal|static|switch|typeof|async|await|break|catch|class|const|false|model|super|throw|while|yield|case|else|null|this|true|type|and|for|get|let|new|not|set|try|var|do|fn|if|in|of|or)\\b)([A-Za-z_$][A-Za-z0-9_$]*)",
           "captures": {
             "1": {
               "name": "keyword.operator.arrow.tera"
@@ -257,11 +257,11 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.tera",
-          "match": "\\b(?:implements|interface|protected|abstract|extends|private|public|static|class|const|model|type|get|let|set|var|fn)\\b"
+          "match": "\\b(?:implements|interface|protected|abstract|computed|resource|extends|private|public|signal|static|class|const|model|type|get|let|set|var|fn)\\b"
         },
         {
           "name": "keyword.control.tera",
-          "match": "\\b(?:continue|default|finally|return|switch|async|await|break|catch|throw|while|yield|case|else|for|try|do|if|of)\\b"
+          "match": "\\b(?:continue|default|finally|effect|return|switch|async|await|break|catch|throw|while|yield|case|else|for|try|do|if|of)\\b"
         },
         {
           "name": "keyword.operator.word.tera",
@@ -281,12 +281,16 @@
       "patterns": [
         {
           "name": "storage.type.tera",
-          "match": "\\b(?:PromiseConstructor|ObjectConstructor|MetricCollection|QuillProduct|GroupedData|IndexTensor|LRScheduler|MLTransform|DataLoader|DataFrame|Optimizer|Tokenizer|undefined|Callback|boolean|Boolean|Dataset|MLModel|Promise|Trainer|unknown|Column|Logger|Metric|Module|Number|Object|string|String|Tensor|Array|float|Model|bool|JSON|Math|void|any|int|Map|Set)\\b"
+          "match": "\\b(?:PromiseConstructor|ObjectConstructor|MetricCollection|ReactiveComputed|ReactiveResource|ReactiveSignal|QuillProduct|GroupedData|IndexTensor|LRScheduler|MLTransform|DataLoader|DataFrame|Optimizer|Tokenizer|undefined|Callback|boolean|Boolean|Dataset|MLModel|Promise|Trainer|unknown|Column|Logger|Metric|Module|Number|Object|string|String|Tensor|Array|float|Model|bool|JSON|Math|void|any|int|Map|Set)\\b"
         }
       ]
     },
     "builtins": {
       "patterns": [
+        {
+          "name": "support.function.tera",
+          "match": "\\b(?:computed|resource|cleanup|untrack|effect|signal|Signal|batch|watch|root)\\b(?=\\s*(?:\\(|\\.))"
+        },
         {
           "name": "support.function.factory.tera",
           "match": "\\b(?:empty_like|randn_like|zeros_like|full_like|ones_like|linspace|randperm|arange|scalar|tensor|empty|randn|zeros|full|ones|eye)\\b(?=\\s*(?:\\(|\\.))"

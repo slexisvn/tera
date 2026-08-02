@@ -1,5 +1,6 @@
 import { memfs } from '@slexisvn/mlfw';
-import { Engine } from '../../../src/index';
+import { createReactiveTeraOptions } from '@slexisvn/reactive/tera';
+import { Engine, nativeToTagged, taggedToNative } from '../../../src/index';
 import type { ChartSpec, CsvRow, DataFrameRow, KernelRunResult, KernelValue } from "../types/notebook";
 import type { DataFrameLike, FigureBuilderLike, KernelRequest, RuntimeLike } from "../types/kernel";
 import { errorMessage } from "../types/kernel";
@@ -38,7 +39,7 @@ function makeRuntime(): void {
   dataframes.clear();
   dataframeId = 0;
   csvBuilders.clear();
-  runtime = new Engine({ output: (text: unknown) => prints.push(String(text)) }) as RuntimeLike;
+  runtime = new Engine({ ...createReactiveTeraOptions({ nativeToTagged, taggedToNative }), output: (text: unknown) => prints.push(String(text)) }) as RuntimeLike;
 }
 
 makeRuntime();

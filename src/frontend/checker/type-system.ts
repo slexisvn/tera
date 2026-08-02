@@ -377,12 +377,45 @@ export function parseFunctionType(type: TypeName): Signature | null {
   const required = new Set<string>();
   const rawParams = splitTopLevel(fn.params, ",").map((part) => part.trim()).filter(Boolean);
   for (let i = 0; i < rawParams.length; i++) {
-    const name = `arg${i}`;
-    params.set(name, { type: cleanType(rawParams[i]), optional: false });
+    const parsed = parseFunctionParam(rawParams[i], i);
+    const name = parsed.name;
+    params.set(name, { type: parsed.type, optional: false });
     positional.push(name);
     required.add(name);
   }
   return { name: "<function>", typeParams: [], params, positional, required, returns: cleanType(fn.returns) };
+}
+
+function parseFunctionParam(source: string, index: number): { name: string; type: TypeName } {
+  const colon = topLevelColon(source);
+  if (colon > 0) {
+    const name = source.slice(0, colon).trim();
+    if (/^[A-Za-z_$][\w$]*$/.test(name)) {
+      return { name, type: cleanType(source.slice(colon + 1)) };
+    }
+  }
+  return { name: `arg${index}`, type: cleanType(source) };
+}
+
+function topLevelColon(source: string): number {
+  let depth = 0;
+  let quote = "";
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    if (quote) {
+      if (ch === "\\") i++;
+      else if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === "\"" || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth--;
+    else if (ch === ":" && depth === 0) return i;
+  }
+  return -1;
 }
 
 export function signatureType(sig: Signature): TypeName {

@@ -285,6 +285,39 @@ describe("hover", () => {
     expect(hoverText(boolSource, 1, "ready.to_string".length)).toContain("type: `() -> string`");
   });
 
+  it("shows reactive mutation method hovers and direct read types", () => {
+    const source = [
+      "signal count = 1",
+      "current = count",
+      "count.set(2)",
+    ].join("\n");
+
+    const currentText = hoverText(source, 1, "current".length);
+    const setText = hoverText(source, 2, "count.set".length);
+
+    expect(currentText).toContain("`current` — *variable*");
+    expect(currentText).toContain("type: `int`");
+    expect(setText).toContain("`ReactiveSignal<int>.set`");
+    expect(setText).toContain("*method of ReactiveSignal<int>*");
+    expect(setText).toContain("type: `(value: int) -> ReactiveSignal<int>`");
+  });
+
+  it("shows reactive resource direct read and state member hovers", () => {
+    const source = [
+      "resource profile = 42",
+      "current = profile",
+      "profile.loading",
+    ].join("\n");
+
+    const currentText = hoverText(source, 1, "current".length);
+    const loadingText = hoverText(source, 2, "profile.loading".length);
+
+    expect(currentText).toContain("`current` — *variable*");
+    expect(currentText).toContain("type: `int | undefined`");
+    expect(loadingText).toContain("`ReactiveResource<int>.loading`");
+    expect(loadingText).toContain("type: `bool`");
+  });
+
   it("does not resolve symbols inside quoted string literal text", () => {
     const source = [
       "a = tensor(0)",

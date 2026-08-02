@@ -77,6 +77,7 @@ export type BaselineInterpreter = {
   }>;
   _lookupBuiltinPrototype(proto: object, propName: string): TaggedValue;
   callFunctionValue(fn: TaggedValue, args: TaggedValue[], thisValue: TaggedValue): TaggedValue;
+  callRuntimeIntrinsic(name: string, args: TaggedValue[]): TaggedValue;
   constructFunctionValue(fn: TaggedValue, args: TaggedValue[]): TaggedValue;
   tieringPolicy?: { jitThreshold: number } | null;
   jitEngine?: { optimizeFunction?: (fn: bytecode.RegisterCompiledFunction) => void } | null;
@@ -841,6 +842,10 @@ export class BaselineRuntime {
     const fast = this.fastBaselineCall(callee, 2);
     if (fast) return fast(a0, a1, this.u, this.interp);
     return this.invokeCall(callee, [a0, a1], this.u, fbSlot, null);
+  }
+
+  invokeIntrinsic(nameIdx: number, args: TaggedValue[]) {
+    return this.interp.callRuntimeIntrinsic(constantString(this.cf.constants, nameIdx), args);
   }
 
   fastOptimizedCall(callee: TaggedValue, args: TaggedValue[]) {

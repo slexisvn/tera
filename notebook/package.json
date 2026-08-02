@@ -19,6 +19,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@slexisvn/reactive": "^0.1.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.0",

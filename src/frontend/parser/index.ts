@@ -78,9 +78,10 @@ import {
 import { CLASS_ABSTRACT_MODIFIER, CLASS_MEMBER_MODIFIER_KEYWORDS, CLASS_STATIC_MODIFIER, CLASS_VISIBILITY_KEYWORDS, DEFAULT_CLASS_VISIBILITY, classVisibilityOrDefault, isClassVisibility, type ClassVisibility } from "../../core/class-visibility.js";
 import { Lexer, TokenType, type Token, type TokenTypeName, type TokenValue } from "../lexer/index.js";
 import { typeSourceFromTokens } from "../type-source.js";
+import { applySyntaxTransforms, buildSyntaxPluginIndex, normalizeSyntaxPlugins, syntaxPluginsFor, type ParserCheckpoint, type ParserContext, type ParserSyntaxOptions, type StatementParseResult, type SyntaxPlugin, type SyntaxPluginIndex } from "./extensions.js";
 export { MODEL_MARKER } from "../model.js";
 
-type ParserOptions = {
+export type ParserOptions = ParserSyntaxOptions & {
   lazy?: boolean;
   source?: string | null;
   depth?: number;
@@ -241,6 +242,9 @@ export class Parser {
   lazy: boolean;
   source: string | null;
   depth: number;
+  syntaxPlugins: readonly SyntaxPlugin[];
+  syntaxPluginIndex: SyntaxPluginIndex;
+  private readonly parserContext: ParserContext;
 
   constructor(tokens: Token[], options: ParserOptions = {}) {
     this.tokens = tokens;
@@ -248,6 +252,30 @@ export class Parser {
     this.lazy = options.lazy || false;
     this.source = options.source || null;
     this.depth = options.depth || 0;
+    this.syntaxPlugins = normalizeSyntaxPlugins(options.syntaxPlugins);
+    this.syntaxPluginIndex = buildSyntaxPluginIndex(this.syntaxPlugins);
+    this.parserContext = this.createParserContext();
+  }
+
+  private createParserContext(): ParserContext {
+    return {
+      current: () => this.current(),
+      peek: (offset?: number) => this.peek(offset),
+      advance: () => this.advance(),
+      check: (type, value) => this.check(type, value),
+      match: (type, value) => this.match(type, value),
+      expect: (type, value) => this.expect(type, value),
+      tokenString: (token, context) => this.tokenString(token, context),
+      parseExpression: (minPrecedence?: number) => this.parseExpression(minPrecedence),
+      parseBlock: () => this.parseBlock(),
+      parseStatement: () => this.parseStatement(),
+      parseStatementBody: () => this.parseStatementBody(),
+      withSpan: (node, token) => this.withSpan(node, token),
+      copySpan: (node, source) => this.copySpan(node, source),
+      checkpoint: () => this.checkpoint(),
+      restore: (checkpoint) => this.restore(checkpoint),
+      error: (message, token) => this.error(message, token),
+    };
   }
 
   current(): ParserToken {
@@ -322,6 +350,25 @@ export class Parser {
       this.error(`Expected string ${context}`, tok);
     }
     return tok.value;
+  }
+
+  withSpan<T extends ASTNode>(node: T, token: ParserToken | null | undefined): T {
+    return withSpan(node, token);
+  }
+
+  copySpan<T extends ASTNode>(node: T, source: ASTNode): T {
+    return copySpan(node, source);
+  }
+
+  checkpoint(): ParserCheckpoint {
+    return { position: this.pos };
+  }
+
+  restore(checkpoint: ParserCheckpoint): void {
+    if (!Number.isInteger(checkpoint.position) || checkpoint.position < 0 || checkpoint.position > this.tokens.length) {
+      this.error(`Invalid parser checkpoint '${checkpoint.position}'`);
+    }
+    this.pos = checkpoint.position;
   }
 
   expectString(type: TokenTypeName, value?: string): string {
@@ -438,6 +485,9 @@ export class Parser {
       this.advance();
       return EmptyStatement();
     }
+
+    const extension = this.parseExtensionStatement();
+    if (extension) return extension;
 
     if (tok.type === TokenType.Keyword) {
       switch (tok.value) {
@@ -1294,6 +1344,12 @@ export class Parser {
     let left = this.parsePrimary();
 
     while (true) {
+      const extension = this.parseExtensionInfix(left, minPrec);
+      if (extension) {
+        left = extension;
+        continue;
+      }
+
       const tok = this.current();
 
       if (tok.type === TokenType.Punctuator) {
@@ -1431,6 +1487,8 @@ export class Parser {
 
   parsePrimary(): ASTNode {
     const tok = this.current();
+    const extension = this.parseExtensionPrefix();
+    if (extension) return extension;
 
     if (tok.type === TokenType.Number) {
       this.advance();
@@ -1459,7 +1517,7 @@ export class Parser {
       const exprs = exprSources.map((src: string) => {
         const lexer = new Lexer(src);
         const tokens = lexer.tokenize();
-        const parser = new Parser(tokens);
+        const parser = new Parser(tokens, { syntaxPlugins: this.syntaxPlugins });
         return parser.parseExpression();
       });
       return withSpan(TemplateLiteral(parts, exprs), tok);
@@ -1608,6 +1666,48 @@ export class Parser {
     }
 
     this.error(`Unexpected token '${tok.value}' (${tok.type})`, tok);
+  }
+
+  private parseExtensionStatement(): StatementParseResult {
+    for (const plugin of syntaxPluginsFor(this.syntaxPluginIndex.statement, this.syntaxPluginIndex.statementFallback, this.current())) {
+      if (!plugin.parseStatement) continue;
+      const start = this.pos;
+      const result = plugin.parseStatement(this.parserContext);
+      if (result !== null && result !== undefined) {
+        if (this.pos === start) this.error(`Syntax plugin '${plugin.name}' produced a statement without consuming tokens`);
+        return result;
+      }
+      if (this.pos !== start) this.error(`Syntax plugin '${plugin.name}' consumed tokens without producing a statement`);
+    }
+    return null;
+  }
+
+  private parseExtensionPrefix(): ASTNode | null {
+    for (const plugin of syntaxPluginsFor(this.syntaxPluginIndex.prefix, this.syntaxPluginIndex.prefixFallback, this.current())) {
+      if (!plugin.parseExpressionPrefix) continue;
+      const start = this.pos;
+      const result = plugin.parseExpressionPrefix(this.parserContext);
+      if (result) {
+        if (this.pos === start) this.error(`Syntax plugin '${plugin.name}' produced an expression without consuming tokens`);
+        return result;
+      }
+      if (this.pos !== start) this.error(`Syntax plugin '${plugin.name}' consumed tokens without producing an expression`);
+    }
+    return null;
+  }
+
+  private parseExtensionInfix(left: ASTNode, minPrec: number): ASTNode | null {
+    for (const plugin of syntaxPluginsFor(this.syntaxPluginIndex.infix, this.syntaxPluginIndex.infixFallback, this.current())) {
+      if (!plugin.parseExpressionInfix) continue;
+      const start = this.pos;
+      const result = plugin.parseExpressionInfix(this.parserContext, left, minPrec);
+      if (result) {
+        if (this.pos === start) this.error(`Syntax plugin '${plugin.name}' produced an infix expression without consuming tokens`);
+        return result;
+      }
+      if (this.pos !== start) this.error(`Syntax plugin '${plugin.name}' consumed tokens without producing an infix expression`);
+    }
+    return null;
   }
 
   parseSwitchStatement(): ASTNode {
@@ -2143,5 +2243,5 @@ export function parse(source: string, options: ParserOptions = {}): ASTNode {
     ...options,
     source: options.lazy ? source : null,
   });
-  return parser.parse();
+  return applySyntaxTransforms(parser.parse(), parser.syntaxPlugins);
 }

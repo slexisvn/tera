@@ -27,6 +27,42 @@ export type BoundProgram = {
   scopes: WeakMap<SemanticNode, Scope>;
 };
 
+export type ExternalBuiltinParam = {
+  name: string;
+  type?: string;
+  optional?: boolean;
+};
+
+export type ExternalBuiltinSignature = {
+  name: string;
+  typeParams?: string[];
+  params?: ExternalBuiltinParam[];
+  returns?: string;
+};
+
+export type ExternalTypeAlias = {
+  name: string;
+  typeParams?: string[];
+  type: string;
+};
+
+export type ExternalInterfaceField = {
+  type: string;
+  optional?: boolean;
+};
+
+export type ExternalInterface = {
+  name: string;
+  typeParams?: string[];
+  fields: Record<string, ExternalInterfaceField>;
+};
+
+export type BindOptions = {
+  builtins?: readonly ExternalBuiltinSignature[];
+  aliases?: readonly ExternalTypeAlias[];
+  interfaces?: readonly ExternalInterface[];
+};
+
 function signatureFromParams(name: string, typeParams: string[], params: Array<{ name: string; type: string; optional: boolean }>, returns: string, meta: Pick<Signature, "visibility" | "owner" | "abstract"> = {}): Signature {
   const paramMap = new Map<string, Binding>();
   const required = new Set<string>();
@@ -37,6 +73,54 @@ function signatureFromParams(name: string, typeParams: string[], params: Array<{
     if (!param.optional) required.add(param.name);
   }
   return { name, typeParams, params: paramMap, required, positional, returns: cleanType(returns), ...meta };
+}
+
+function signatureFromExternal(spec: ExternalBuiltinSignature): Signature {
+  return signatureFromParams(
+    spec.name,
+    spec.typeParams ?? [],
+    (spec.params ?? []).map((param) => ({
+      name: param.name,
+      type: param.type ?? "any",
+      optional: param.optional ?? false,
+    })),
+    spec.returns ?? "any",
+  );
+}
+
+function assertExternalName(name: string, kind: string): void {
+  if (!name) throw new Error(`Unnamed ${kind}`);
+}
+
+function assertUniqueExternalNames<T extends { name: string }>(values: readonly T[] | undefined, kind: string, seen = new Set<string>()): Set<string> {
+  for (const value of values ?? []) {
+    assertExternalName(value.name, kind);
+    if (seen.has(value.name)) throw new Error(`Duplicate ${kind} '${value.name}'`);
+    seen.add(value.name);
+  }
+  return seen;
+}
+
+function validateBindOptions(options: BindOptions): void {
+  assertUniqueExternalNames(options.builtins, "checker builtin");
+  const types = assertUniqueExternalNames(options.aliases, "checker type");
+  assertUniqueExternalNames(options.interfaces, "checker type", types);
+}
+
+function bindExternalTypes(bound: BoundProgram, options: BindOptions): void {
+  for (const alias of options.aliases ?? []) {
+    bound.env.aliases.set(alias.name, {
+      typeParams: alias.typeParams ?? [],
+      type: cleanType(alias.type),
+    });
+  }
+  for (const spec of options.interfaces ?? []) {
+    const shape: ObjectShape = { typeParams: spec.typeParams, fields: new Map() };
+    for (const [name, field] of Object.entries(spec.fields)) {
+      shape.fields.set(name, { type: cleanType(field.type), optional: field.optional ?? false });
+    }
+    bound.env.interfaces.set(spec.name, shape);
+  }
 }
 
 function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
@@ -153,9 +237,11 @@ function createScope(parent: Scope | null, signature?: Signature): Scope {
   return { parent, locals: new Map(), signatures: new Map(), signature, classOwner: parent?.classOwner ?? null };
 }
 
-export function bindProgram(program: SemanticProgram): BoundProgram {
+export function bindProgram(program: SemanticProgram, options: BindOptions = {}): BoundProgram {
+  validateBindOptions(options);
   const root = createScope(null);
   for (const [name, sig] of BUILTIN_SIGNATURES) root.signatures.set(name, sig);
+  for (const spec of options.builtins ?? []) root.signatures.set(spec.name, signatureFromExternal(spec));
   for (const [name, type] of GLOBAL_NAMESPACE_BINDINGS) root.locals.set(name, { type, optional: false, declared: true });
   const bound: BoundProgram = {
     program,
@@ -163,6 +249,7 @@ export function bindProgram(program: SemanticProgram): BoundProgram {
     root,
     scopes: new WeakMap(),
   };
+  bindExternalTypes(bound, options);
   for (const node of program.body) bindNode(node, bound, root);
   return bound;
 }

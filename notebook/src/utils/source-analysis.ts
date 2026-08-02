@@ -1,3 +1,4 @@
+import { createReactiveCheckOptions } from "@slexisvn/reactive/tera";
 import { buildSourceSymbolTable, inferSymbolTypes, recoverMemberCompletionSource, type SourceSymbolTable, type SymbolPosition } from "../../../src/frontend";
 
 export type AnalysisCell = {
@@ -14,7 +15,8 @@ export type NotebookSourceAnalysis = {
 export function analyzeNotebookSource(cells: AnalysisCell[]): NotebookSourceAnalysis {
   const combined = cells.map((cell) => cell.source).join("\n");
   const recovered = recoverMemberCompletionSource(combined);
-  const symbols = buildSourceSymbolTable(recovered, inferSafely(recovered));
+  const options = createReactiveCheckOptions();
+  const symbols = buildSourceSymbolTable(recovered, inferSafely(recovered), { syntaxPlugins: options.syntaxPlugins });
   const starts = new Map<string, number>();
   let line = 0;
   for (const cell of cells) {
@@ -33,7 +35,7 @@ export function analyzeNotebookSource(cells: AnalysisCell[]): NotebookSourceAnal
 
 function inferSafely(source: string) {
   try {
-    return inferSymbolTypes(source);
+    return inferSymbolTypes(source, createReactiveCheckOptions());
   } catch {
     return [];
   }

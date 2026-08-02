@@ -1,5 +1,6 @@
 import { memfs } from '@slexisvn/mlfw';
-import { Engine } from '@slexisvn/tera';
+import { createReactiveTeraOptions } from '@slexisvn/reactive/tera';
+import { Engine, nativeToTagged, taggedToNative } from '@slexisvn/tera';
 import { isChartSpec } from '../../../notebook/src/chart';
 import type { DataFrameLike, FigureBuilderLike, RuntimeLike, VscodeKernel, VscodeKernelRunResult } from "../../../notebook/src/types/kernel";
 import type { ChartSpec, DataFrameRow, KernelValue } from "../../../notebook/src/types/notebook";
@@ -72,7 +73,7 @@ export function createKernel(): VscodeKernel {
 
   function make(): void {
     prints = [];
-    runtime = new Engine({ output: (text: unknown) => prints.push(String(text)) }) as RuntimeLike;
+    runtime = new Engine({ ...createReactiveTeraOptions({ nativeToTagged, taggedToNative }), output: (text: unknown) => prints.push(String(text)) }) as RuntimeLike;
   }
 
   make();

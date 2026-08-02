@@ -73,12 +73,17 @@ function memberHover(
   position: HoverParams["position"],
 ): Hover | null {
   const element = arrayElement(receiverType);
+  const field = document.symbols.resolveField(receiverType, name, position);
+  if (field && genericBase(receiverType) !== receiverType) return fieldHover(context, receiverType, field);
+
   const lookup = context.types.lookupMethod(element ? "Array" : receiverType, name) ?? context.types.lookupMethod(receiverType, name);
   if (lookup) return methodHover(lookup);
 
-  const field = document.symbols.resolveField(receiverType, name, position);
   if (!field) return null;
+  return fieldHover(context, receiverType, field);
+}
 
+function fieldHover(context: ProviderContext, receiverType: string, field: NonNullable<ReturnType<AnalyzedDocument["symbols"]["resolveField"]>>): Hover {
   const role = field.kind === "method" ? "method" : field.kind === "property" ? "property" : "field";
   const lines = [`\`${receiverType}.${field.name}\` — *${role} of ${receiverType}*`];
   if (field.typeName) lines.push("", `type: \`${field.typeName}\``);
@@ -86,6 +91,11 @@ function memberHover(
   if (builtin?.signature) lines.push("", "```tera", builtin.signature.display, "```");
   if (builtin?.description) lines.push("", builtin.description);
   return markdown(lines);
+}
+
+function genericBase(typeName: string): string {
+  const open = typeName.indexOf("<");
+  return open >= 0 ? typeName.slice(0, open).trim() : typeName;
 }
 
 function arrayElement(type: string): string | null {

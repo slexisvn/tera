@@ -29,10 +29,32 @@ describe("analyzeDiagnostics", () => {
     expect(analyzeDiagnostics("x = 1\n")).toEqual([]);
   });
 
+  it("accepts reactive syntax and reports reactive member type errors", () => {
+    const valid = [
+      "signal count = 1",
+      "computed doubled = count * 2",
+      "resource remote = doubled + 1",
+      "effect:",
+      "  print(remote)",
+    ].join("\n");
+
+    expect(analyzeDiagnostics(valid)).toEqual([]);
+    expect(analyzeDiagnostics([
+      "signal count = 1",
+      "count.set(\"bad\")",
+    ].join("\n"))).toEqual([
+      expect.objectContaining({
+        line: 2,
+        column: "count.set(".length + 1,
+        message: "Type 'string' is not assignable to parameter 'value: int'",
+      }),
+    ]);
+  });
+
   it("reports undefined identifiers through checker diagnostics", () => {
     const source = [
       "class Account:",
-      "  constructor(owner: string, balance: float = 0.0):",
+      "  public constructor(owner: string, balance: float = 0.0):",
       "    this.owner = owner",
       "    this.balance = balance",
       "acc = Account(ashdasr)",
@@ -190,13 +212,13 @@ describe("analyzeDiagnostics", () => {
       "interface Notifier:",
       "  send(message: string) -> string",
       "class PlainNotifier implements Notifier:",
-      "  send(message: string) -> string:",
+      "  public send(message: string) -> string:",
       "    return message",
       "class SmsDecorator implements Notifier:",
       "  private next: Notifier = PlainNotifier()",
-      "  constructor(next: Notifier):",
+      "  public constructor(next: Notifier):",
       "    this.next = next",
-      "  send(message: string) -> string:",
+      "  public send(message: string) -> string:",
       "    return this.next.send()",
     ].join("\n");
     const analyzer = new DocumentAnalyzer();

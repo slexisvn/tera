@@ -118,6 +118,12 @@ function requireAssignmentValue(node: CompilerNode): CompilerNode {
   );
 }
 
+function isRuntimeIntrinsicCallee(ctx: ExpressionCompilerThis, node: CompilerNode): boolean {
+  return node.type === NodeType.Identifier &&
+    ctx.runtimeIntrinsics.has(node.name) &&
+    ctx.scope.resolve(node.name) === null;
+}
+
 function emitLoadSuperPrototypeProperty(ctx: ExpressionCompilerThis, property: string): void {
   const className = ctx._currentSuperClassName;
   if (!className) throw new Error("[RegCompiler] super property used outside of a class method");
@@ -144,6 +150,7 @@ type ExpressionCompilerThis = {
   temps: TempAllocator;
   _yieldStarCount?: number;
   _currentSuperClassName?: string | null;
+  runtimeIntrinsics: ReadonlySet<string>;
   _withSourceNode<T>(node: ASTNode, run: () => T): T;
   compileExpression(node: CompilerNode): number | void;
   compileLiteral(node: CompilerNode): number | void;
@@ -501,6 +508,23 @@ export const expressionMethods: ExpressionMethodMap = {
     const hasSpread = node.args.some(
       (a: CompilerNode | null) => a !== null && a.type === NodeType.SpreadElement,
     );
+
+    if (!hasSpread && parts.named.length === 0 && isRuntimeIntrinsicCallee(this, node.callee)) {
+      const argCount = parts.positional.length;
+      const firstArgReg = argCount > 0 ? this.temps.allocContiguous(argCount) : 0;
+      for (let i = 0; i < argCount; i++) {
+        this.compileExpression(parts.positional[i]!);
+        this.func.emit(bytecode.ROP_STAR, firstArgReg + i);
+      }
+      this.func.emit(
+        bytecode.ROP_CALL_INTRINSIC,
+        this.func.addConstant(node.callee.name),
+        firstArgReg,
+        argCount,
+      );
+      for (let i = argCount - 1; i >= 0; i--) this.temps.free(firstArgReg + i);
+      return;
+    }
 
     if (hasSpread) {
       if (node.callee.type === NodeType.MemberExpression) {

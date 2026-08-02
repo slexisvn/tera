@@ -134,6 +134,15 @@ export function taggedToNative(value: TaggedValue): unknown {
   if (isPromise(value)) return taggedToPromise(value);
   if (isString(value) || isSmi(value) || isDouble(value) || isBool(value)) return getPayload(value);
   if (isArray(value)) return getPayload(value).elements.map((item) => item === undefined ? undefined : taggedToNative(item));
+  if (isFunction(value)) {
+    const binding = hostAsync;
+    if (!binding) return value;
+    return (...args: unknown[]) => {
+      const run = binding.run ?? ((fn: () => TaggedValue) => fn());
+      const result = run(() => binding.interpreter.callFunctionValue(value, args.map(nativeToTagged), mkUndefined()));
+      return taggedToNative(result);
+    };
+  }
   if (isObject(value)) {
     const object = getPayload(value) as HostObject;
     if (object._hostValue !== undefined) return object._hostValue;
@@ -157,7 +166,6 @@ export function taggedToNative(value: TaggedValue): unknown {
     }
     return isNamedArguments(object) ? markNamedArguments(out) : out;
   }
-  if (isFunction(value)) return value;
   return getPayload(value);
 }
 

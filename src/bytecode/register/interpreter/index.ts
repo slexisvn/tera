@@ -82,8 +82,7 @@ import {
   FEEDBACK_CALL,
 } from "../../../feedback/vector/index.js";
 import { tracer } from "../../../core/tracing/index.js";
-import { builtins } from "../../../runtime/builtins/index.js";
-import type { BuiltinRegistryEntry } from "../../../runtime/builtins/index.js";
+import { builtins, installBuiltinEntries } from "../../../runtime/builtins/index.js";
 import { Environment } from "../../../runtime/intrinsics/environment.js";
 import { GlobalCellMap } from "../../../runtime/intrinsics/global-cells.js";
 import { MicrotaskQueue } from "../../../runtime/microtasks/microtask.js";
@@ -212,14 +211,6 @@ type RegexConstant = {
   pattern: string;
   flags: string;
 };
-type BuiltinNamespaceValue =
-  | RuntimeFunctionPayload
-  | string
-  | number
-  | boolean
-  | null
-  | undefined;
-type BuiltinNamespace = Record<string, BuiltinNamespaceValue>;
 type NamedRuntimeArg = {
   name: string;
   value: TaggedValue;
@@ -236,28 +227,6 @@ type ThrownValue =
   | symbol
   | null
   | undefined;
-
-function isRuntimeFunctionPayload(
-  value: object | string | number | boolean | symbol | null | undefined,
-): value is RuntimeFunctionPayload {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (("call" in value && typeof value.call === "function") ||
-      ("construct" in value && typeof value.construct === "function"))
-  );
-}
-
-function hasGlobalConst(
-  value: object | string | number | boolean | symbol | null | undefined,
-): value is { globalConst: () => TaggedValue } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "globalConst" in value &&
-    typeof value.globalConst === "function"
-  );
-}
 
 export function updateCallMode(compiled: CompiledFunctionLike): void {
   if (compiled.isGenerator) compiled.callMode = CALL_GENERATOR;
@@ -662,6 +631,7 @@ export class RegisterInterpreter {
   microtaskQueue: MicrotaskQueue;
   builtinPrototypes: Record<string, JSObject>;
   debugger: RuntimeDebugger | null;
+  runtimeIntrinsics: Map<string, RuntimeFunctionPayload>;
 
   constructor(jitEngine: JitEngineLike | null) {
     this.jitEngine = jitEngine;
@@ -674,41 +644,13 @@ export class RegisterInterpreter {
     this._heapSweepThreshold = 1 << 18;
     this.icManager = new InlineCacheManager();
     this.debugger = null;
+    this.runtimeIntrinsics = new Map();
     this.microtaskQueue =
       jitEngine && jitEngine.microtaskQueue
         ? jitEngine.microtaskQueue
         : new MicrotaskQueue();
 
-    for (const [name, builtin] of Object.entries(builtins)) {
-      if (hasGlobalConst(builtin)) {
-        this.globalCells.write(name, builtin.globalConst());
-      } else if (isRuntimeFunctionPayload(builtin)) {
-        const fnProperties: Record<string, TaggedValue> = {};
-        const fn: RuntimeFunctionPayload = { ...builtin, properties: fnProperties };
-        for (const [k, v] of Object.entries(builtin)) {
-          if (k === "call" || k === "construct" || k === "name") continue;
-          if (isRuntimeFunctionPayload(v)) {
-            fnProperties[k] = mkFunction(v);
-          } else if (typeof v === "number") {
-            fnProperties[k] = mkNumber(v);
-          }
-        }
-        this.globalCells.write(name, mkFunction(fn));
-      } else if (typeof builtin === "object" && builtin !== null) {
-        const nsProperties: Record<string, TaggedValue> = {};
-        const ns: RuntimeFunctionPayload = { name, properties: nsProperties };
-        const namespace = builtin as BuiltinNamespace;
-        for (const [methodName, method] of Object.entries(namespace)) {
-          if (methodName === "name") continue;
-          if (isRuntimeFunctionPayload(method)) {
-            nsProperties[methodName] = mkFunction(method);
-          } else if (typeof method === "number" && Number.isFinite(method)) {
-            nsProperties[methodName] = mkDouble(method);
-          }
-        }
-        this.globalCells.write(name, mkFunction(ns));
-      }
-    }
+    installBuiltinEntries(this.globalCells, builtins);
     installPromiseBuiltin(this);
     this._wireWellKnownSymbols();
     this.builtinPrototypes = createBuiltinPrototypes();
@@ -746,6 +688,16 @@ export class RegisterInterpreter {
         getPayload(cell).prototypeObj = proto;
       }
     }
+  }
+
+  installRuntimeIntrinsic(name: string, fn: RuntimeFunctionPayload): void {
+    this.runtimeIntrinsics.set(name, fn);
+  }
+
+  callRuntimeIntrinsic(name: string, args: TaggedValue[]): TaggedValue {
+    const intrinsic = this.runtimeIntrinsics.get(name);
+    if (!intrinsic?.call) throw new Error(`Runtime intrinsic '${name}' is not installed`);
+    return intrinsic.call(args, mkUndefined(), this);
   }
 
   _lookupBuiltinPrototype(proto: JSObject, propName: string): TaggedValue {
@@ -1846,6 +1798,17 @@ export class RegisterInterpreter {
                 this,
                 frame,
               );
+              break;
+            }
+
+            case bytecode.ROP_CALL_INTRINSIC: {
+              const name = constantString(compiledFn, operands[0], "CallIntrinsic");
+              const firstArgReg = operands[1];
+              const argCount = operands[2];
+              const args = [];
+              for (let i = 0; i < argCount; i++)
+                args.push(frame.getReg(firstArgReg + i));
+              frame.acc = this.callRuntimeIntrinsic(name, args);
               break;
             }
 

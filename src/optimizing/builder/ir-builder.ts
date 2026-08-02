@@ -37,6 +37,7 @@ import {
   recordInlineDecision,
   tryInline,
 } from "./inline.js";
+import { createIntrinsicOptimizationMetadata, intrinsicCallMetadata, type IntrinsicOptimizationMetadata } from "../metadata/intrinsics.js";
 
 type AnyNode = ir.CFGInstruction | null;
 type AnyBlock = ir.CFGBlock;
@@ -61,6 +62,7 @@ export function buildIR(
   compiledFn: AnyCompiledFunction,
   feedback: FeedbackSource,
   frameStates: FrameStateList,
+  intrinsicMetadata: IntrinsicOptimizationMetadata = createIntrinsicOptimizationMetadata(),
 ): void {
   const nexus =
     feedback instanceof FeedbackNexus ? feedback : new FeedbackNexus(feedback);
@@ -163,6 +165,7 @@ export function buildIR(
       loopPhiMap,
       frameStates,
       savedBlockRegs,
+      intrinsicMetadata,
     );
     acc = currentBlock._lastAcc !== undefined ? currentBlock._lastAcc : acc;
   }
@@ -193,6 +196,7 @@ function compileInstruction(
   loopPhiMap: LoopPhiMap,
   frameStates: FrameStateList,
   savedBlockRegs: SavedBlockRegs,
+  intrinsicMetadata: IntrinsicOptimizationMetadata,
 ): AnyBlock {
   const op = instr.opcode;
   const operands = instr.operands;
@@ -1215,6 +1219,30 @@ function compileInstruction(
         bytecodeIdx,
         regs,
         [callee],
+        frameStates,
+      );
+      block.addNode(node);
+      block._lastAcc = node;
+      break;
+    }
+
+    case bytecode.ROP_CALL_INTRINSIC: {
+      const name = constantString(compiledFn.constants, operands[0]);
+      const arg0Reg = operands[1];
+      const argCount = operands[2];
+      const args = [];
+      for (let i = 0; i < argCount; i++) {
+        args.push(regs.get(arg0Reg + i) || ir.irConstant(undefined));
+      }
+      const node = new ir.IRNode(ir.IR_CALL_INTRINSIC, {
+        ...intrinsicCallMetadata(name, argCount, intrinsicMetadata),
+      });
+      for (const arg of args) node.addInput(arg);
+      node.frameState = captureFrameState(
+        compiledFn,
+        bytecodeIdx,
+        regs,
+        [],
         frameStates,
       );
       block.addNode(node);

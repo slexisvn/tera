@@ -1,3 +1,4 @@
+import { createReactiveCheckOptions } from "@slexisvn/reactive/tera";
 import { diagnoseSource, type Diagnostic } from "../../../src/frontend";
 
 export type NotebookDiagnostic = {
@@ -23,7 +24,7 @@ export function analyzeCells(cells: { id: string; source: string }[]) {
   }
   const combined = cells.map((cell) => cell.source).join("\n");
   const diagnostics = new Map<string, NotebookDiagnostic[]>();
-  const raw = [...diagnoseSource(combined, "strict")].sort(compareDiagnostics);
+  const raw = [...diagnoseSource(combined, createReactiveCheckOptions())].sort(compareDiagnostics);
   for (const diagnostic of raw) {
     const range = rangeForLine(ranges, diagnostic.line);
     if (!range) continue;

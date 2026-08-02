@@ -286,6 +286,18 @@ export class BaselineCompiler {
         return `acc=$.callMethod(acc,r[${receiverReg}],[${argArr}],${fbSlot});`;
       }
 
+      case bytecode.ROP_CALL_INTRINSIC: {
+        const nameIdx = o[0];
+        const arg0Reg = o[1];
+        const argCount = o[2];
+        let argArr = "";
+        for (let i = 0; i < argCount; i++) {
+          if (i > 0) argArr += ",";
+          argArr += `r[${arg0Reg + i}]`;
+        }
+        return `acc=$.invokeIntrinsic(${nameIdx},[${argArr}]);`;
+      }
+
       case bytecode.ROP_NEW: {
         const calleeReg = o[0];
         const arg0Reg = o[1];

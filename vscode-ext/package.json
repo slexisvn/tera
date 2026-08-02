@@ -194,6 +194,7 @@
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
+    "@slexisvn/reactive": "^0.1.1",
     "@slexisvn/tera": "file:..",
     "@types/node": "^26.1.1",
     "@types/vscode": "^1.85.0",

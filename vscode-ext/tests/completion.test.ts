@@ -89,4 +89,24 @@ describe("completion", () => {
       "ready.",
     ].join("\n"))).toEqual(expect.arrayContaining(["to_string", "value_of"]));
   });
+
+  it("suggests reactive signal members after reactive syntax declarations", () => {
+    const memberLabels = labelsAtEnd([
+      "signal count = 1",
+      "count.",
+    ].join("\n"));
+
+    expect(memberLabels).toEqual(expect.arrayContaining(["set", "update", "subscribe", "dispose"]));
+    expect(memberLabels).not.toContain("value");
+  });
+
+  it("suggests resource state members after reactive resource declarations", () => {
+    const memberLabels = labelsAtEnd([
+      "resource profile = 42",
+      "profile.",
+    ].join("\n"));
+
+    expect(memberLabels).toEqual(expect.arrayContaining(["latest", "state", "loading", "error", "peek", "refetch", "mutate", "subscribe", "dispose"]));
+    expect(memberLabels).not.toContain("value");
+  });
 });

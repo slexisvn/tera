@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { DocsPanel } from "../components/layout/DocsPanel";
 import { Sidebar } from "../components/layout/Sidebar";
 import { NotebookCell } from "../components/notebook/NotebookCell";
-import { SEED_CELLS, STORAGE_KEY, THEME_KEY } from "../config/constants";
+import { SEED_CELLS, STORAGE_KEY } from "../config/constants";
 import { parseCsvInWorker, parseCsvOnMainThread } from "../services/csv-upload";
 import { analyzeCells, type NotebookDiagnostic } from "../services/diagnostics";
 import { fileExt, isBinaryFile, loadCommandFor } from "../utils/file-utils";
 import { KernelClient } from "../services/kernel-client";
 import { serializeNotebook, parseNotebook } from "../utils/tenb";
-import { initDocsRuntime } from "../services/docs-runtime";
 import { makeCompletionSource } from "../utils/completion";
-import { languageData } from "../utils/language-data";
 import { analyzeNotebookSource } from "../utils/source-analysis";
+import { navigateTo } from "../utils/hash-route";
+import { useTheme } from "../utils/use-theme";
 import type { AddCellOptions, CellOutput, CellState, CsvRow, KernelRunResult, UploadedFileMeta } from "../types/notebook";
 
 const makeId = () => `cell-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -34,10 +33,7 @@ export default function App() {
   const [uploadedFiles, setUploadedFiles] = useState(() => new Map<string, UploadedFileMeta>());
   const [kernelText, setKernelText] = useState("ready");
   const [kernelBusy, setKernelBusy] = useState(false);
-  const [docsOpen, setDocsOpen] = useState(true);
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem(THEME_KEY) || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  });
+  const [theme, toggleTheme] = useTheme();
   const [completionNames, setCompletionNames] = useState<string[]>([]);
   const [diagnostics, setDiagnostics] = useState(() => new Map<string, NotebookDiagnostic[]>());
   const [sourceAnalysis, setSourceAnalysis] = useState(() => analyzeNotebookSource(cells));
@@ -66,11 +62,6 @@ export default function App() {
   }, [bootKernel]);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem(THEME_KEY, theme);
-  }, [theme]);
-
-  useEffect(() => {
     cellsRef.current = cells;
     const snapshot = cells;
     const handle = window.setTimeout(() => {
@@ -86,15 +77,6 @@ export default function App() {
   useEffect(() => {
     sourceAnalysisRef.current = sourceAnalysis;
   }, [sourceAnalysis]);
-
-  useEffect(() => {
-    void initDocsRuntime({ createCell: (source = "") => addCell(source, { focus: true }) }, languageData);
-  }, []);
-
-  useEffect(() => {
-    document.body.classList.toggle("docs-closed", !docsOpen);
-    document.body.classList.toggle("docs-open", docsOpen);
-  }, [docsOpen]);
 
   useEffect(() => {
     const syncToolbarHeight = () => {
@@ -292,7 +274,7 @@ export default function App() {
           <span className="sub">notebook</span>
         </div>
         <div className="actions">
-          <button id="docs-toggle" className="docs-toggle" type="button" title="Open Tera docs" aria-controls="docs-panel" aria-expanded={docsOpen} onClick={() => setDocsOpen((open) => !open)}>Docs</button>
+          <button id="docs-toggle" className="docs-toggle" type="button" title="Open Tera docs" onClick={() => navigateTo("/docs")}>Docs</button>
           <button type="button" title="Upload files" onClick={() => fileInputRef.current?.click()}>File</button>
           <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => {
             uploadFiles([...(event.currentTarget.files || [])]);
@@ -302,7 +284,7 @@ export default function App() {
           <button type="button" title="Restart kernel" onClick={restart}>Restart</button>
           <button type="button" title="Clear outputs" onClick={clearOutputs}>Clear</button>
           <button type="button" title="Export notebook (.tenb)" onClick={exportNotebook}>Export</button>
-          <button id="theme-toggle" type="button" title="Toggle dark mode" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "Light" : "Dark"}</button>
+          <button id="theme-toggle" type="button" title="Toggle dark mode" onClick={toggleTheme}>{theme === "dark" ? "Light" : "Dark"}</button>
           <span className={`kernel${kernelBusy ? " busy" : ""}`}>kernel: {kernelText}</span>
         </div>
       </header>
@@ -326,8 +308,6 @@ export default function App() {
               />
             ))}
           </main>
-          <div id="docs-backdrop" className="docs-backdrop" hidden={!docsOpen} onClick={() => setDocsOpen(false)} />
-          <DocsPanel onClose={() => setDocsOpen(false)} />
         </div>
       </div>
       <footer className="hint">

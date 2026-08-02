@@ -229,6 +229,7 @@ type WasmInterpreter = {
   ): TaggedValue;
   constructFunctionValue(callee: TaggedValue, args: TaggedValue[]): TaggedValue;
   callBuiltin(name: string, args: TaggedValue[]): TaggedValue;
+  callRuntimeIntrinsic(name: string, args: TaggedValue[]): TaggedValue;
   consumePendingLazyDeopt?(
     compiledFn: RegisterCompiledFunction,
     bytecodeOffset: number,
@@ -649,6 +650,7 @@ export class WasmCodegen {
       ir.IR_GENERIC_CALL,
       ir.IR_CALL_KNOWN_FUNCTION,
       ir.IR_CALL_BUILTIN,
+      ir.IR_CALL_INTRINSIC,
       ir.IR_GENERIC_GET_PROP,
       ir.IR_GENERIC_SET_PROP,
       ir.IR_GENERIC_GET_INDEX,
@@ -971,7 +973,8 @@ export class WasmCodegen {
           if (
             node.type === ir.IR_GENERIC_CALL ||
             node.type === ir.IR_CALL_KNOWN_FUNCTION ||
-            node.type === ir.IR_CALL_BUILTIN
+            node.type === ir.IR_CALL_BUILTIN ||
+            node.type === ir.IR_CALL_INTRINSIC
           ) {
             hasCalls = true;
             break;

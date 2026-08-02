@@ -105,6 +105,7 @@ const HANDLE_PRODUCERS = new Set([
   ir.IR_NEW_OBJECT,
   ir.IR_NEW_ARRAY,
   ir.IR_CALL_BUILTIN,
+  ir.IR_CALL_INTRINSIC,
   ir.IR_TYPEOF,
 ]);
 
@@ -365,6 +366,8 @@ export function representationSelection(graph: ReprGraph): number {
         nodeRep.set(node.id, REP_TAGGED_NUMBER);
       } else if (node.type === ir.IR_GENERIC_CALL) {
         nodeRep.set(node.id, unboxedRepForDemand(node));
+      } else if (isOpaqueIntrinsicResult(node)) {
+        nodeRep.set(node.id, REP_HANDLE);
       } else if (HANDLE_PRODUCERS.has(node.type)) {
         const operandsNumeric =
           !OVERLOADABLE_ARITHMETIC.has(node.type) ||
@@ -408,6 +411,8 @@ export function representationSelection(graph: ReprGraph): number {
     if (FLOAT64_CONSUMERS.has(consumer.type)) return REP_FLOAT64;
     if (consumer.type === ir.IR_RETURN)
       return nodeRep.get(consumer.inputs[inputIndex]?.id) || REP_HANDLE;
+    if (consumer.type === ir.IR_CHECK_SMI) return REP_INT32;
+    if (consumer.type === ir.IR_CHECK_NUMBER) return REP_FLOAT64;
     if (consumer.type === ir.IR_BRANCH) return REP_BOOL;
     if (
       consumer.type === ir.IR_STORE_FIELD ||
@@ -602,4 +607,13 @@ export function representationSelection(graph: ReprGraph): number {
   }
 
   return insertCount;
+}
+
+function isOpaqueIntrinsicResult(node: ReprNode): boolean {
+  if (node.type !== ir.IR_CALL_INTRINSIC) return false;
+  const returns = node.props.returns;
+  if (returns === "T" || returns === "any") return true;
+  if (typeof returns === "string" && returns.startsWith("Reactive")) return true;
+  const effects = node.props.intrinsicEffects;
+  return Array.isArray(effects) && effects.length === 1 && effects[0] === "reactive-read";
 }

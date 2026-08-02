@@ -12,6 +12,7 @@ import {
   irConstant,
   irInt32Add,
   irFloat64Add,
+  irFloat64Sub,
   irInt32Compare,
   irFloat64Compare,
   irGenericSub,
@@ -20,7 +21,11 @@ import {
   irCheckNumber,
   irReturn,
   irNewObject,
+  CFGInstruction,
+  EFFECT_CALL,
+  EFFECT_READ,
   IR_BOX,
+  IR_CALL_INTRINSIC,
   IR_UNBOX,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
@@ -195,6 +200,71 @@ describe("representationSelection", () => {
       representationSelection(graph);
 
       expect(param.props._rep).toBeDefined();
+    });
+
+    it("unboxes non-parameter reactive-read handles before number checks", () => {
+      const graph = new CFGFunction("test");
+      const block = graph.addBlock();
+      const handle = irConstant("signal");
+      const read = new CFGInstruction(IR_CALL_INTRINSIC, {
+        name: "__tera_reactive_read",
+        argCount: 1,
+        intrinsicEffects: ["reactive-read"],
+        effectKind: EFFECT_CALL,
+      });
+      read.addInput(handle);
+      const check = irCheckNumber(read);
+      const zero = irConstant(0);
+      const sub = irFloat64Sub(check, zero);
+
+      block.addNode(handle);
+      block.addNode(read);
+      block.addNode(check);
+      block.addNode(zero);
+      block.addNode(sub);
+      block.addNode(irReturn(sub));
+
+      representationSelection(graph);
+
+      const unboxNodes = block.nodes.filter((node) => node.type === IR_UNBOX);
+      expect(unboxNodes).toHaveLength(1);
+      expect(unboxNodes[0].inputs[0]).toBe(read);
+      expect(unboxNodes[0].props.toType).toBe("float64");
+      expect(check.inputs[0]).toBe(unboxNodes[0]);
+      expect(check.props._rep).toBe(REP_FLOAT64);
+    });
+
+    it("unboxes generic readonly intrinsic handles before number checks", () => {
+      const graph = new CFGFunction("test");
+      const block = graph.addBlock();
+      const handle = irConstant("signal");
+      const peek = new CFGInstruction(IR_CALL_INTRINSIC, {
+        name: "__tera_reactive_peek",
+        argCount: 1,
+        intrinsicEffects: ["read"],
+        effectKind: EFFECT_READ,
+        returns: "T",
+      });
+      peek.addInput(handle);
+      const check = irCheckNumber(peek);
+      const one = irConstant(1);
+      const add = irFloat64Add(check, one);
+
+      block.addNode(handle);
+      block.addNode(peek);
+      block.addNode(check);
+      block.addNode(one);
+      block.addNode(add);
+      block.addNode(irReturn(add));
+
+      representationSelection(graph);
+
+      const unboxNodes = block.nodes.filter((node) => node.type === IR_UNBOX);
+      expect(peek.props._rep).toBe(REP_HANDLE);
+      expect(unboxNodes).toHaveLength(1);
+      expect(unboxNodes[0].inputs[0]).toBe(peek);
+      expect(unboxNodes[0].props.toType).toBe("float64");
+      expect(check.inputs[0]).toBe(unboxNodes[0]);
     });
 
     it("does not insert box/unbox when reps already match", () => {

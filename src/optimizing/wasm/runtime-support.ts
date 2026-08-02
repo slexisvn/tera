@@ -96,6 +96,7 @@ type RuntimeInterpreterLike = {
   ): TaggedValue;
   constructFunctionValue(callee: TaggedValue, args: TaggedValue[]): TaggedValue;
   callBuiltin(name: string, args: TaggedValue[]): TaggedValue;
+  callRuntimeIntrinsic(name: string, args: TaggedValue[]): TaggedValue;
   consumePendingLazyDeopt?(
     compiledFn: RegisterCompiledFunction,
     bytecodeOffset: number,
@@ -743,6 +744,18 @@ export function executeRuntimeStub(
       if (node.props.toType === "bool")
         return runtimeReturn(isTruthy(args[0]), runtime, stub.outputRep);
       return runtimeReturn(taggedToNumber(args[0]), runtime, stub.outputRep);
+    case ir.IR_CALL_INTRINSIC: {
+      const builtinName = propNameFromMetadata(node.props.name);
+      const builtinArgs = args.slice(0, numberFromMetadata(node.props.argCount));
+      if (runtime.interpreter?.callRuntimeIntrinsic) {
+        return runtimeReturn(
+          runtime.interpreter.callRuntimeIntrinsic(builtinName, builtinArgs),
+          runtime,
+          stub.outputRep,
+        );
+      }
+      return runtimeReturn(mkUndefined(), runtime, stub.outputRep);
+    }
     case ir.IR_CALL_BUILTIN: {
       const builtinName = propNameFromMetadata(node.props.name);
       const builtinArgs = args.slice(0, numberFromMetadata(node.props.argCount));

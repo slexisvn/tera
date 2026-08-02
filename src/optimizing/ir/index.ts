@@ -49,6 +49,7 @@ export const IR_BOX = "Box";
 export const IR_UNBOX = "Unbox";
 export const IR_LOAD_CONST = "LoadConst";
 export const IR_CALL_BUILTIN = "CallBuiltin";
+export const IR_CALL_INTRINSIC = "CallIntrinsic";
 export const IR_NEW_OBJECT = "NewObject";
 export const IR_NEW_ARRAY = "NewArray";
 export const IR_TYPEOF = "TypeOf";
@@ -176,6 +177,7 @@ const WRITES = new Set([
 const CALLS = new Set([
   IR_GENERIC_CALL,
   IR_CALL_BUILTIN,
+  IR_CALL_INTRINSIC,
   IR_CALL_KNOWN_FUNCTION,
 ]);
 const ALLOCS = new Set([IR_NEW_OBJECT, IR_NEW_ARRAY, IR_NEW_REGEX]);
@@ -210,6 +212,7 @@ const DEOPT_CAPABLE = new Set([
   IR_DEOPTIMIZE,
   IR_GENERIC_CALL,
   IR_CALL_BUILTIN,
+  IR_CALL_INTRINSIC,
   IR_CALL_KNOWN_FUNCTION,
   IR_NEW_OBJECT,
   IR_NEW_ARRAY,

@@ -4,6 +4,22 @@ import { checkSource, inferSymbolTypes } from "../../src/index.js";
 const messages = (source: string) => checkSource(source, "strict").map((d) => d.message);
 
 describe("checker pipeline", () => {
+  it("rejects duplicate external checker declarations", () => {
+    expect(() => checkSource("twice(1)", {
+      mode: "strict",
+      builtins: [
+        { name: "twice", params: [{ name: "value", type: "int" }], returns: "int" },
+        { name: "twice", params: [{ name: "value", type: "float" }], returns: "float" },
+      ],
+    })).toThrow(/Duplicate checker builtin 'twice'/);
+
+    expect(() => checkSource("x = 1", {
+      mode: "strict",
+      aliases: [{ name: "Box", type: "int" }],
+      interfaces: [{ name: "Box", fields: { value: { type: "int" } } }],
+    })).toThrow(/Duplicate checker type 'Box'/);
+  });
+
   it("reports undefined identifiers in expressions", () => {
     const source = [
       "class Account:",

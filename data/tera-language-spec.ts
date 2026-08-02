@@ -236,6 +236,48 @@ function field(type: string, optional = false): TeraInterfaceFieldSpec {
   return optional ? { type, optional } : { type };
 }
 
+function fnType(params: string[], returns: string): string {
+  return `(${params.join(", ")}) -> ${returns}`;
+}
+
+const reactiveCleanupType = fnType([], "void");
+
+const reactiveSignalMethods: TeraMethodSpec[] = [
+  { name: "value", params: [], returns: "T", isGetter: true, description: "Low-level current value getter kept for host interop and compatibility; reactive syntax reads the binding directly." },
+  { name: "peek", params: [], returns: "T", description: "Read the current value without subscribing the active reactive observer; the optimizer treats this as a readonly reactive-value read." },
+  { name: "set", params: [param("value", "T")], returns: "ReactiveSignal<T>", description: "Set the signal value and notify dependent observers when it changes; the optimizer treats this as a reactive-value write." },
+  { name: "update", params: [param("update", "(T) -> T")], returns: "ReactiveSignal<T>", description: "Replace the signal value with the result of an updater function. Simple single-use updater expressions can be lowered to peek plus write in optimized code." },
+  { name: "subscribe", params: [param("listener", "(T) -> void")], returns: reactiveCleanupType, description: "Subscribe a listener and return a cleanup function." },
+  { name: "dispose", params: [], returns: "void", description: "Dispose the signal and detach all listeners." }
+];
+
+const reactiveComputedMethods: TeraMethodSpec[] = [
+  { name: "value", params: [], returns: "T", isGetter: true, description: "Low-level memoized value getter kept for host interop and compatibility; reactive syntax reads the binding directly." },
+  { name: "peek", params: [], returns: "T", description: "Read the memoized value without subscribing the active reactive observer; the optimizer treats this as a readonly reactive-value read." },
+  { name: "subscribe", params: [param("listener", "(T) -> void")], returns: reactiveCleanupType, description: "Subscribe a listener and return a cleanup function." },
+  { name: "dispose", params: [], returns: "void", description: "Dispose the computation and detach its dependencies." }
+];
+
+const reactiveResourceMethods: TeraMethodSpec[] = [
+  { name: "value", params: [], returns: "T | undefined", isGetter: true, description: "Low-level resource value getter kept for host interop and compatibility; reactive syntax reads the binding directly." },
+  { name: "latest", params: [], returns: "T | undefined", isGetter: true, description: "Read the latest resolved value while the resource is pending or refreshing." },
+  { name: "state", params: [], returns: "string", isGetter: true, description: "Current resource state: unresolved, pending, ready, refreshing, or errored." },
+  { name: "loading", params: [], returns: "bool", isGetter: true, description: "True while the resource request is pending or refreshing." },
+  { name: "error", params: [], returns: "any", isGetter: true, description: "The last resource error, if the current request failed." },
+  { name: "peek", params: [], returns: "T | undefined", description: "Read the latest resource value without subscribing the active reactive observer; the optimizer treats this as a readonly reactive-value read." },
+  { name: "refetch", params: [], returns: "Promise<T | undefined>", description: "Run the resource fetcher again and ignore any stale pending result; this reads and writes the resource value domain." },
+  { name: "mutate", params: [param("value", "T")], returns: "ReactiveResource<T>", description: "Optimistically replace the resource value and mark it ready; the optimizer treats this as a reactive-value write." },
+  { name: "subscribe", params: [param("listener", "(T | undefined) -> void")], returns: reactiveCleanupType, description: "Subscribe a listener and return a cleanup function." },
+  { name: "dispose", params: [], returns: "void", description: "Dispose the resource and abort its current request." }
+];
+
+function interfaceFields(methods: TeraMethodSpec[]): Record<string, TeraInterfaceFieldSpec> {
+  return Object.fromEntries(methods.map((method) => [
+    method.name,
+    field(method.isGetter ? method.returns ?? "any" : fnType(method.params.map((param) => `${param.name}: ${param.type ?? "any"}`), method.returns ?? "void")),
+  ]));
+}
+
 export const TERA_KEYWORD_GROUPS = {
   "declaration": [
     "fn",
@@ -247,6 +289,9 @@ export const TERA_KEYWORD_GROUPS = {
     "let",
     "const",
     "var",
+    "signal",
+    "computed",
+    "resource",
     "extends",
     "implements",
     "static",
@@ -257,6 +302,7 @@ export const TERA_KEYWORD_GROUPS = {
   "control": [
     "if",
     "else",
+    "effect",
     "of",
     "for",
     "while",
@@ -329,7 +375,10 @@ export const TERA_PRIMITIVE_TYPES = [
   "DataFrame",
   "Column",
   "GroupedData",
-  "Trainer"
+  "Trainer",
+  "ReactiveSignal",
+  "ReactiveComputed",
+  "ReactiveResource"
 ];
 
 export const TERA_PRIMITIVE_PSEUDO_TYPES = {
@@ -402,6 +451,18 @@ export const TERA_BUILTIN_ALIASES = {
 } satisfies Record<string, TeraTypeAliasSpec>;
 
 export const TERA_BUILTIN_INTERFACES = {
+  "ReactiveSignal": {
+    "typeParams": ["T"],
+    "fields": interfaceFields(reactiveSignalMethods)
+  },
+  "ReactiveComputed": {
+    "typeParams": ["T"],
+    "fields": interfaceFields(reactiveComputedMethods)
+  },
+  "ReactiveResource": {
+    "typeParams": ["T"],
+    "fields": interfaceFields(reactiveResourceMethods)
+  },
   "TensorOptions": {
     "fields": {
       "shape": field("int[]", true),
@@ -856,6 +917,93 @@ export const TERA_OPERATORS = {
 } satisfies TeraOperators;
 
 export const TERA_BUILTINS = {
+  "Signal": {
+    "description": "Create a writable reactive signal from an initial value. In Tera source, prefer `signal name = expr` and read `name` directly; fresh signal allocation is compiler-visible and does not alias existing reactive-value reads.",
+    "kind": "reactive",
+    "typeParams": ["T"],
+    "returns": "ReactiveSignal<T>",
+    "params": [
+      param("value", "T")
+    ]
+  },
+  "signal": {
+    "description": "Create a writable reactive signal from an initial value. In Tera source, prefer `signal name = expr` and read `name` directly; fresh signal allocation is compiler-visible and does not alias existing reactive-value reads.",
+    "kind": "reactive",
+    "typeParams": ["T"],
+    "returns": "ReactiveSignal<T>",
+    "params": [
+      param("value", "T")
+    ]
+  },
+  "computed": {
+    "description": "Create a memoized reactive computation that tracks the signals it reads. In Tera source, prefer `computed name = expr` and read `name` directly.",
+    "kind": "reactive",
+    "typeParams": ["T"],
+    "returns": "ReactiveComputed<T>",
+    "params": [
+      param("compute", "() -> T")
+    ]
+  },
+  "resource": {
+    "description": "Create an async reactive resource. In Tera source, `resource name = expr` tracks reactive reads in `expr`, stores loading/error state, ignores stale results, and reads `name` directly.",
+    "kind": "reactive",
+    "typeParams": ["T"],
+    "returns": "ReactiveResource<T>",
+    "params": [
+      param("fetch", "() -> T")
+    ]
+  },
+  "effect": {
+    "description": "Run a reactive side effect and return a cleanup function. In Tera source, `effect:` creates an effect block and reactive bindings inside are read directly.",
+    "kind": "reactive",
+    "returns": reactiveCleanupType,
+    "params": [
+      param("run", "() -> any")
+    ]
+  },
+  "batch": {
+    "description": "Batch reactive writes and flush dependent observers once the callback finishes.",
+    "kind": "reactive",
+    "typeParams": ["T"],
+    "returns": "T",
+    "params": [
+      param("run", "() -> T")
+    ]
+  },
+  "untrack": {
+    "description": "Run a callback without collecting reactive dependencies.",
+    "kind": "reactive",
+    "typeParams": ["T"],
+    "returns": "T",
+    "params": [
+      param("run", "() -> T")
+    ]
+  },
+  "watch": {
+    "description": "Watch a signal, computed value, or reader function and return a cleanup function.",
+    "kind": "reactive",
+    "returns": reactiveCleanupType,
+    "params": [
+      param("source", "any"),
+      param("run", "(any, any) -> any")
+    ]
+  },
+  "root": {
+    "description": "Create a reactive owner scope and pass its dispose function to a callback.",
+    "kind": "reactive",
+    "returns": "any",
+    "params": [
+      param("run", "Function")
+    ]
+  },
+  "cleanup": {
+    "description": "Register a cleanup callback on the current reactive owner.",
+    "kind": "reactive",
+    "returns": "void",
+    "params": [
+      param("run", "() -> any")
+    ]
+  },
   "tensor": {
     "description": "Construct a tensor from a literal value, array, or nested array. Accepts `dtype`, `device`, `grad` options.",
     "kind": "factory",
@@ -4704,6 +4852,18 @@ export const TERA_KIND_METHODS = {
 } satisfies Record<string, TeraMethodSpec[]>;
 
 export const TERA_PSEUDO_TYPES = {
+  "ReactiveSignal": {
+    "typeParams": ["T"],
+    "methods": reactiveSignalMethods
+  },
+  "ReactiveComputed": {
+    "typeParams": ["T"],
+    "methods": reactiveComputedMethods
+  },
+  "ReactiveResource": {
+    "typeParams": ["T"],
+    "methods": reactiveResourceMethods
+  },
   "Math": {
     "methods": [
       { "name": "abs", "params": [param("x", "float")], "returns": "float" },

@@ -1175,7 +1175,7 @@ describe("checker fuzz invariants", () => {
         }
         covered.pseudoMethods++;
 
-        const targetParam = typedBadTarget(method.params, method.typeParams);
+        const targetParam = typedBadTarget(method.params, [...(method.typeParams ?? []), ...(spec.typeParams ?? [])]);
         if (!method.isGetter && targetParam) covered.possibleBadParams++;
         const badArgs = targetParam ? validArgsWithBadParam(method.params, targetParam) : null;
         if (!method.isGetter && targetParam && badArgs) {

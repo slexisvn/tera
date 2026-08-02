@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
-import { DebugController, Engine } from "../../../../src/index.ts";
+import { createReactiveTeraOptions } from "@slexisvn/reactive/tera";
+import { DebugController, Engine, nativeToTagged, taggedToNative } from "../../../../src/index.ts";
 import type { DebugCommand, DebugPauseEvent } from "../../../../src/index.ts";
 import { evaluateDebugExpression } from "./evaluate.ts";
 import { normalizeDebugPath } from "./paths.ts";
@@ -186,6 +187,7 @@ function startDebug(command: Extract<WorkerCommand, { type: "start" }>): void {
   applyBreakpoints(command.breakpoints);
 
   const engine = new Engine({
+    ...createReactiveTeraOptions({ nativeToTagged, taggedToNative }),
     typecheck: command.launch.typecheck ?? "off",
     debugger: controller,
     output: (text) => port.postMessage({

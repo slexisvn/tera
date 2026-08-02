@@ -46,6 +46,7 @@ export function deadStoreElimination(graph: StoreGraph): number {
       if (
         node.type === ir.IR_GENERIC_CALL ||
         node.type === ir.IR_CALL_BUILTIN ||
+        node.type === ir.IR_CALL_INTRINSIC ||
         node.type === ir.IR_RETURN
       ) {
         lastStore.clear();
@@ -88,6 +89,7 @@ export function deadStoreElimination(graph: StoreGraph): number {
       } else if (
         node.type === ir.IR_GENERIC_CALL ||
         node.type === ir.IR_CALL_BUILTIN ||
+        node.type === ir.IR_CALL_INTRINSIC ||
         node.type === ir.IR_RETURN
       ) {
         hasCalls = true;

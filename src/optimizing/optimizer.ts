@@ -4,6 +4,8 @@ import type { FrameState } from "../deopt/frame-state.js";
 import type { RegisterCompiledFunction } from "../bytecode/register/ops/bytecode.js";
 
 import { buildIR } from "./builder/ir-builder.js";
+import type { TeraCompilerExtension, TeraCompilerPhase } from "../api/extensions.js";
+import { createIntrinsicOptimizationMetadata, type IntrinsicOptimizationMetadata } from "./metadata/intrinsics.js";
 import {
   hoistLoopInvariants,
   findLoops,
@@ -31,6 +33,7 @@ import {
 } from "./passes/dce.js";
 import { loadElimination } from "./passes/load-elimination.js";
 import { deadStoreElimination } from "./passes/dead-stores.js";
+import { commonSubexpressionIntrinsicReads } from "./passes/intrinsic-cse.js";
 import { typeNarrowing } from "./passes/type-narrowing.js";
 import { validateOptimizedGraph } from "./validation/graph-validator.js";
 import { buildFrameStateIndex, clearFrameStateIndex } from "./passes/frame-state-values.js";
@@ -39,6 +42,7 @@ import { specializeAllocationShapes } from "./passes/allocation-shape.js";
 
 type CompiledFunctionLike = RegisterCompiledFunction;
 type OptimizedGraph = CFGFunction;
+type RequiredCompilerExtension = Required<TeraCompilerExtension>;
 
 export interface SpeculativeCompileResult {
   graph: OptimizedGraph;
@@ -47,9 +51,35 @@ export interface SpeculativeCompileResult {
 
 export class SpeculativeOptimizer {
   frameStates: FrameState[];
+  private compilerExtensions: RequiredCompilerExtension;
+  private intrinsicMetadata: IntrinsicOptimizationMetadata;
 
-  constructor() {
+  constructor(compilerExtensions: RequiredCompilerExtension = emptyCompilerExtensions()) {
     this.frameStates = [];
+    this.compilerExtensions = compilerExtensions;
+    this.intrinsicMetadata = createIntrinsicOptimizationMetadata(compilerExtensions);
+  }
+
+  setCompilerExtensions(compilerExtensions: RequiredCompilerExtension): void {
+    this.compilerExtensions = compilerExtensions;
+    this.intrinsicMetadata = createIntrinsicOptimizationMetadata(compilerExtensions);
+  }
+
+  private runCompilerPasses<T>(phase: TeraCompilerPhase, target: T): T {
+    let current: unknown = target;
+    const context = {
+      phase,
+      intrinsics: this.compilerExtensions.intrinsics,
+      effects: this.compilerExtensions.effects,
+      guards: this.compilerExtensions.guards,
+      deopts: this.compilerExtensions.deopts,
+    };
+    for (const pass of this.compilerExtensions.optimizerPasses) {
+      if (pass.phase !== phase) continue;
+      const next = pass.run(current, context);
+      if (next !== undefined) current = next;
+    }
+    return current as T;
   }
 
   compile(
@@ -67,15 +97,17 @@ export class SpeculativeOptimizer {
 
     tracer.jitCompile(functionName, "Starting speculative compilation");
 
-    const graph = new IRGraph(functionName);
+    let graph: OptimizedGraph = new IRGraph(functionName);
 
     for (let i = 0; i < compiledFn.paramCount; i++) {
       graph.addParameter(i);
     }
 
     const entryBlock = graph.addBlock();
-    buildIR(graph, entryBlock, compiledFn, feedback, this.frameStates);
+    buildIR(graph, entryBlock, compiledFn, feedback, this.frameStates, this.intrinsicMetadata);
     if (graph.bailout) return { graph, frameStates: this.frameStates };
+    graph.rebuildUses();
+    graph = this.runCompilerPasses("ir", graph);
     graph.rebuildUses();
 
     if (
@@ -127,6 +159,8 @@ export class SpeculativeOptimizer {
       propCount += constantPropagation(graph);
       rebuildAll();
     }
+    const intrinsicReadCseCount = commonSubexpressionIntrinsicReads(graph);
+    rebuildAll();
     const gvnCount = globalValueNumbering(graph);
     rebuildAll();
     const boundsElimCount = rangeAnalysisAndBoundsCheckElimination(graph);
@@ -160,6 +194,7 @@ export class SpeculativeOptimizer {
         scalarReplCount +
         sunkCount +
         gvnCount +
+        intrinsicReadCseCount +
         boundsElimCount +
         repSelCount +
         unrollCount +
@@ -171,7 +206,7 @@ export class SpeculativeOptimizer {
     ) {
       tracer.jitCompile(
         functionName,
-        `Optimizer: ${foldCount} folded, ${propCount} propagated, ${strengthCount} strength-reduced, ${loadElimCount} loads-eliminated, ${deadStoreCount} dead-stores, ${scalarReplCount} scalar-replaced, ${sunkCount} alloc-sunk, ${allocShapeCount} alloc-shaped, ${gvnCount} GVN-eliminated, ${boundsElimCount} bounds-eliminated, ${unrollCount} loops-unrolled, ${repSelCount} repr-selected, ${typeNarrowCount} type-narrowed, ${dceCount} dead eliminated, ${unreachCount} blocks pruned`,
+        `Optimizer: ${foldCount} folded, ${propCount} propagated, ${strengthCount} strength-reduced, ${loadElimCount} loads-eliminated, ${deadStoreCount} dead-stores, ${scalarReplCount} scalar-replaced, ${sunkCount} alloc-sunk, ${allocShapeCount} alloc-shaped, ${intrinsicReadCseCount} intrinsic-reads-CSE, ${gvnCount} GVN-eliminated, ${boundsElimCount} bounds-eliminated, ${unrollCount} loops-unrolled, ${repSelCount} repr-selected, ${typeNarrowCount} type-narrowed, ${dceCount} dead eliminated, ${unreachCount} blocks pruned`,
       );
     }
 
@@ -184,4 +219,14 @@ export class SpeculativeOptimizer {
 
     return { graph, frameStates: this.frameStates };
   }
+}
+
+function emptyCompilerExtensions(): RequiredCompilerExtension {
+  return {
+    intrinsics: [],
+    effects: [],
+    guards: [],
+    deopts: [],
+    optimizerPasses: [],
+  };
 }

@@ -1,9 +1,10 @@
 import { NodeType, type ASTNode } from "../ast/index.js";
-import { TERA_PRIMITIVE_PSEUDO_TYPES, TERA_PSEUDO_TYPES } from "../../../data/tera-language-spec.js";
+import { TERA_PRIMITIVE_PSEUDO_TYPES, TERA_PSEUDO_TYPES, type TeraPseudoTypeSpec } from "../../../data/tera-language-spec.js";
 import { parseSemanticProgram } from "./semantic-parser.js";
 import type { ClassFieldNode, ClassMemberNode, FunctionNode, SemanticNode } from "./semantic-ast.js";
 import { builtinMethod, createTypeEnv, signatureType, type Binding } from "./type-system.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
+import type { SyntaxPlugin } from "../parser/extensions.js";
 
 export type SymbolPosition = { line: number; character: number };
 
@@ -45,13 +46,14 @@ export type SourceSymbolTable = {
   membersOf(typeName: string | null, position?: SymbolPosition): SourceSymbol[];
 };
 
-export function buildSourceSymbolTable(source: string, inferredSymbols: Iterable<InferredSymbolInput> = []): SourceSymbolTable {
+export function buildSourceSymbolTable(source: string, inferredSymbols: Iterable<InferredSymbolInput> = [], options: { syntaxPlugins?: readonly SyntaxPlugin[] } = {}): SourceSymbolTable {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const inferred = collectInferredTypes(inferredSymbols);
   const builder = new SymbolTableBuilder(lines, inferred);
   try {
-    builder.visitProgram(parseSemanticProgram(source).body);
+    builder.visitProgram(parseSemanticProgram(source, { syntaxPlugins: options.syntaxPlugins }).body);
   } catch {
+    builder.materializeInferredLocals();
     return builder.finish();
   }
   builder.materializeInferredLocals();
@@ -144,7 +146,9 @@ class SymbolTableBuilder {
       },
       membersOf: (typeName, position) => {
         const scope = position ? findScopeAt(root, position.line + 1) : null;
-        return typeName ? membersFor(typeName, fieldsByType).filter((field) => sourceAccessAllowed(field, typeName, scope, parentsByType)) : [];
+        return typeName ? membersFor(typeName, fieldsByType).filter((field) =>
+          sourceAccessAllowed(field, typeName, scope, parentsByType) && !isHiddenMember(typeName, field.name),
+        ) : [];
       },
     };
   }
@@ -422,7 +426,7 @@ function builtinMethodCandidates(owner: string): string[] {
 }
 
 function builtinField(name: string, binding: Binding): SourceSymbol {
-  return { name, kind: "field", line: 0, column: 0, typeName: binding.type };
+  return { name, kind: binding.type.includes("->") ? "method" : "field", line: 0, column: 0, typeName: binding.type };
 }
 
 function endLine(nodes: Array<SemanticNode | FunctionNode | ClassFieldNode>, fallback: number): number {
@@ -460,6 +464,13 @@ function membersFor(typeName: string, fieldsByType: Map<string, SourceSymbol[]>)
     return commonMembers((concrete.length ? concrete : union).map((part) => membersFor(part, fieldsByType)));
   }
   if (arrayElementType(type)) return fieldsByType.get("Array") ?? [];
+  const generic = genericType(type);
+  if (generic) {
+    const owner = canonicalPseudoMemberOwner(generic.name);
+    const members = fieldsByType.get(owner);
+    const params = typeParamsFor(owner);
+    if (members?.length && params.length) return instantiateMembers(members, params, generic.args);
+  }
   return objectTypeMembers(type) ?? fieldsByType.get(type) ?? fieldsByType.get(canonicalPseudoMemberOwner(type)) ?? [];
 }
 
@@ -510,10 +521,48 @@ function sourceClassExtends(typeName: string, parentName: string, parentsByType:
   return false;
 }
 
+function isHiddenMember(typeName: string, memberName: string): boolean {
+  if (memberName !== "value") return false;
+  const owner = ownerFromType(typeName);
+  return owner === "ReactiveSignal" || owner === "ReactiveComputed" || owner === "ReactiveResource";
+}
+
 function ownerFromType(typeName: string): string {
   const cleaned = typeName.trim().replace(/^typeof\s+/, "");
   const generic = cleaned.match(/^([A-Za-z_$][\w$]*)\s*</);
   return generic ? generic[1] : cleaned;
+}
+
+function genericType(typeName: string): { name: string; args: string[] } | null {
+  const type = typeName.trim();
+  const match = type.match(/^([A-Za-z_$][\w$]*)\s*<(.+)>$/);
+  if (!match) return null;
+  return { name: match[1], args: splitTopLevel(match[2]).map((arg) => arg.trim()) };
+}
+
+function typeParamsFor(owner: string): string[] {
+  const pseudo = (TERA_PSEUDO_TYPES as Record<string, TeraPseudoTypeSpec>)[owner]?.typeParams;
+  if (pseudo?.length) return pseudo;
+  return createTypeEnv().interfaces.get(owner)?.typeParams ?? [];
+}
+
+function instantiateMembers(members: SourceSymbol[], params: string[], args: string[]): SourceSymbol[] {
+  return members.map((member) => ({
+    ...member,
+    typeName: member.typeName ? substituteTypeParams(member.typeName, params, args) : member.typeName,
+  }));
+}
+
+function substituteTypeParams(typeName: string, params: string[], args: string[]): string {
+  let out = typeName;
+  for (let i = 0; i < params.length; i++) {
+    out = out.replace(new RegExp(`\\b${escapeRegExp(params[i])}\\b`, "g"), args[i] ?? "any");
+  }
+  return out;
+}
+
+function escapeRegExp(source: string): string {
+  return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function commonMembers(groups: SourceSymbol[][]): SourceSymbol[] {

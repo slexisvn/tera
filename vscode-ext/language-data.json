@@ -9,11 +9,13 @@
     "case",
     "catch",
     "class",
+    "computed",
     "const",
     "continue",
     "default",
     "delete",
     "do",
+    "effect",
     "else",
     "extends",
     "false",
@@ -36,8 +38,10 @@
     "private",
     "protected",
     "public",
+    "resource",
     "return",
     "set",
+    "signal",
     "static",
     "super",
     "switch",
@@ -63,6 +67,9 @@
       "let",
       "const",
       "var",
+      "signal",
+      "computed",
+      "resource",
       "extends",
       "implements",
       "static",
@@ -75,6 +82,7 @@
     "control": [
       "if",
       "else",
+      "effect",
       "of",
       "for",
       "while",
@@ -142,6 +150,9 @@
     "Promise",
     "PromiseConstructor",
     "QuillProduct",
+    "ReactiveComputed",
+    "ReactiveResource",
+    "ReactiveSignal",
     "Set",
     "String",
     "Tensor",
@@ -222,6 +233,280 @@
     ]
   },
   "pseudoTypes": {
+    "ReactiveSignal": [
+      {
+        "name": "value",
+        "description": "Low-level current value getter kept for host interop and compatibility; reactive syntax reads the binding directly.",
+        "returns": "T",
+        "effect": "sync",
+        "isGetter": true,
+        "signature": {
+          "params": [],
+          "display": "value"
+        }
+      },
+      {
+        "name": "peek",
+        "description": "Read the current value without subscribing the active reactive observer; the optimizer treats this as a readonly reactive-value read.",
+        "returns": "T",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "peek() -> T"
+        }
+      },
+      {
+        "name": "set",
+        "description": "Set the signal value and notify dependent observers when it changes; the optimizer treats this as a reactive-value write.",
+        "returns": "ReactiveSignal<T>",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "value",
+              "type": "T",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "set(value: T) -> ReactiveSignal<T>"
+        }
+      },
+      {
+        "name": "update",
+        "description": "Replace the signal value with the result of an updater function. Simple single-use updater expressions can be lowered to peek plus write in optimized code.",
+        "returns": "ReactiveSignal<T>",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "update",
+              "type": "(T) -> T",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "update(update: (T) -> T) -> ReactiveSignal<T>"
+        }
+      },
+      {
+        "name": "subscribe",
+        "description": "Subscribe a listener and return a cleanup function.",
+        "returns": "() -> void",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "listener",
+              "type": "(T) -> void",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "subscribe(listener: (T) -> void) -> () -> void"
+        }
+      },
+      {
+        "name": "dispose",
+        "description": "Dispose the signal and detach all listeners.",
+        "returns": "void",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "dispose() -> void"
+        }
+      }
+    ],
+    "ReactiveComputed": [
+      {
+        "name": "value",
+        "description": "Low-level memoized value getter kept for host interop and compatibility; reactive syntax reads the binding directly.",
+        "returns": "T",
+        "effect": "sync",
+        "isGetter": true,
+        "signature": {
+          "params": [],
+          "display": "value"
+        }
+      },
+      {
+        "name": "peek",
+        "description": "Read the memoized value without subscribing the active reactive observer; the optimizer treats this as a readonly reactive-value read.",
+        "returns": "T",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "peek() -> T"
+        }
+      },
+      {
+        "name": "subscribe",
+        "description": "Subscribe a listener and return a cleanup function.",
+        "returns": "() -> void",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "listener",
+              "type": "(T) -> void",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "subscribe(listener: (T) -> void) -> () -> void"
+        }
+      },
+      {
+        "name": "dispose",
+        "description": "Dispose the computation and detach its dependencies.",
+        "returns": "void",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "dispose() -> void"
+        }
+      }
+    ],
+    "ReactiveResource": [
+      {
+        "name": "value",
+        "description": "Low-level resource value getter kept for host interop and compatibility; reactive syntax reads the binding directly.",
+        "returns": "T | undefined",
+        "effect": "sync",
+        "isGetter": true,
+        "signature": {
+          "params": [],
+          "display": "value"
+        }
+      },
+      {
+        "name": "latest",
+        "description": "Read the latest resolved value while the resource is pending or refreshing.",
+        "returns": "T | undefined",
+        "effect": "sync",
+        "isGetter": true,
+        "signature": {
+          "params": [],
+          "display": "latest"
+        }
+      },
+      {
+        "name": "state",
+        "description": "Current resource state: unresolved, pending, ready, refreshing, or errored.",
+        "returns": "string",
+        "effect": "sync",
+        "isGetter": true,
+        "signature": {
+          "params": [],
+          "display": "state"
+        }
+      },
+      {
+        "name": "loading",
+        "description": "True while the resource request is pending or refreshing.",
+        "returns": "bool",
+        "effect": "sync",
+        "isGetter": true,
+        "signature": {
+          "params": [],
+          "display": "loading"
+        }
+      },
+      {
+        "name": "error",
+        "description": "The last resource error, if the current request failed.",
+        "returns": "any",
+        "effect": "sync",
+        "isGetter": true,
+        "signature": {
+          "params": [],
+          "display": "error"
+        }
+      },
+      {
+        "name": "peek",
+        "description": "Read the latest resource value without subscribing the active reactive observer; the optimizer treats this as a readonly reactive-value read.",
+        "returns": "T | undefined",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "peek() -> T | undefined"
+        }
+      },
+      {
+        "name": "refetch",
+        "description": "Run the resource fetcher again and ignore any stale pending result; this reads and writes the resource value domain.",
+        "returns": "Promise<T | undefined>",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "refetch() -> Promise<T | undefined>"
+        }
+      },
+      {
+        "name": "mutate",
+        "description": "Optimistically replace the resource value and mark it ready; the optimizer treats this as a reactive-value write.",
+        "returns": "ReactiveResource<T>",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "value",
+              "type": "T",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "mutate(value: T) -> ReactiveResource<T>"
+        }
+      },
+      {
+        "name": "subscribe",
+        "description": "Subscribe a listener and return a cleanup function.",
+        "returns": "() -> void",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "listener",
+              "type": "(T | undefined) -> void",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "subscribe(listener: (T | undefined) -> void) -> () -> void"
+        }
+      },
+      {
+        "name": "dispose",
+        "description": "Dispose the resource and abort its current request.",
+        "returns": "void",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "dispose() -> void"
+        }
+      }
+    ],
     "Math": [
       {
         "name": "abs",
@@ -4094,6 +4379,213 @@
     "Promise": "PromiseConstructor"
   },
   "builtins": [
+    {
+      "name": "Signal",
+      "kind": "reactive",
+      "description": "Create a writable reactive signal from an initial value. In Tera source, prefer `signal name = expr` and read `name` directly; fresh signal allocation is compiler-visible and does not alias existing reactive-value reads.",
+      "returns": "ReactiveSignal<T>",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "value",
+            "type": "T",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "Signal(value: T) -> ReactiveSignal<T>"
+      },
+      "methods": []
+    },
+    {
+      "name": "signal",
+      "kind": "reactive",
+      "description": "Create a writable reactive signal from an initial value. In Tera source, prefer `signal name = expr` and read `name` directly; fresh signal allocation is compiler-visible and does not alias existing reactive-value reads.",
+      "returns": "ReactiveSignal<T>",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "value",
+            "type": "T",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "signal(value: T) -> ReactiveSignal<T>"
+      },
+      "methods": []
+    },
+    {
+      "name": "computed",
+      "kind": "reactive",
+      "description": "Create a memoized reactive computation that tracks the signals it reads. In Tera source, prefer `computed name = expr` and read `name` directly.",
+      "returns": "ReactiveComputed<T>",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "compute",
+            "type": "() -> T",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "computed(compute: () -> T) -> ReactiveComputed<T>"
+      },
+      "methods": []
+    },
+    {
+      "name": "resource",
+      "kind": "reactive",
+      "description": "Create an async reactive resource. In Tera source, `resource name = expr` tracks reactive reads in `expr`, stores loading/error state, ignores stale results, and reads `name` directly.",
+      "returns": "ReactiveResource<T>",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "fetch",
+            "type": "() -> T",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "resource(fetch: () -> T) -> ReactiveResource<T>"
+      },
+      "methods": []
+    },
+    {
+      "name": "effect",
+      "kind": "reactive",
+      "description": "Run a reactive side effect and return a cleanup function. In Tera source, `effect:` creates an effect block and reactive bindings inside are read directly.",
+      "returns": "() -> void",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "run",
+            "type": "() -> any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "effect(run: () -> any) -> () -> void"
+      },
+      "methods": []
+    },
+    {
+      "name": "batch",
+      "kind": "reactive",
+      "description": "Batch reactive writes and flush dependent observers once the callback finishes.",
+      "returns": "T",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "run",
+            "type": "() -> T",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "batch(run: () -> T) -> T"
+      },
+      "methods": []
+    },
+    {
+      "name": "untrack",
+      "kind": "reactive",
+      "description": "Run a callback without collecting reactive dependencies.",
+      "returns": "T",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "run",
+            "type": "() -> T",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "untrack(run: () -> T) -> T"
+      },
+      "methods": []
+    },
+    {
+      "name": "watch",
+      "kind": "reactive",
+      "description": "Watch a signal, computed value, or reader function and return a cleanup function.",
+      "returns": "() -> void",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "source",
+            "type": "any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          },
+          {
+            "name": "run",
+            "type": "(any, any) -> any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "watch(source: any, run: (any, any) -> any) -> () -> void"
+      },
+      "methods": []
+    },
+    {
+      "name": "root",
+      "kind": "reactive",
+      "description": "Create a reactive owner scope and pass its dispose function to a callback.",
+      "returns": "any",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "run",
+            "type": "Function",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "root(run: Function) -> any"
+      },
+      "methods": []
+    },
+    {
+      "name": "cleanup",
+      "kind": "reactive",
+      "description": "Register a cleanup callback on the current reactive owner.",
+      "returns": "void",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "run",
+            "type": "() -> any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "cleanup(run: () -> any) -> void"
+      },
+      "methods": []
+    },
     {
       "name": "tensor",
       "kind": "factory",

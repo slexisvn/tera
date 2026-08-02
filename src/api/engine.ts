@@ -42,13 +42,19 @@ import {
 import type { MicrotaskPolicyValue } from "../runtime/microtasks/microtask.js";
 import { GenerationalGC } from "../gc/gc.js";
 import { withGC } from "../objects/heap/factory.js";
-import { taggedToNative, withHostAsync } from "../runtime/domain/host.js";
+import { hostBuiltin, taggedToNative, withHostAsync } from "../runtime/domain/host.js";
+import { installBuiltinEntries, isRuntimeFunctionPayload, type BuiltinRegistryMap } from "../runtime/builtins/index.js";
 import {
   checkSource,
   TypecheckError,
   type Diagnostic,
+  type BindOptions,
+  type ExternalBuiltinSignature,
 } from "../frontend/checker/index.js";
+import type { ASTNode } from "../frontend/ast/index.js";
+import type { SyntaxPlugin } from "../frontend/parser/extensions.js";
 import type { RuntimeDebugger } from "../debugger/runtime.js";
+import { mergeCompilerExtensions, mergeExtensionRecords, mergeNamedExtensionItems, resolveTeraExtensions, type NativeHostBuiltinRegistry, type TeraCompilerExtension, type TeraCompilerPhase, type TeraExtension } from "./extensions.js";
 
 export type EngineOptions = {
   typecheck?: "off" | "warn" | "strict";
@@ -60,11 +66,24 @@ export type EngineOptions = {
   trace?: boolean;
   traceCategories?: Iterable<string>;
   debugger?: RuntimeDebugger | null;
+  extensions?: readonly TeraExtension[];
+  syntaxPlugins?: readonly SyntaxPlugin[];
+  hostBuiltins?: NativeHostBuiltinRegistry;
+  runtimeBuiltins?: BuiltinRegistryMap;
+  compiler?: TeraCompilerExtension;
+  checkerBuiltins?: readonly ExternalBuiltinSignature[];
+  checkerAliases?: BindOptions["aliases"];
+  checkerInterfaces?: BindOptions["interfaces"];
 };
 
 export type CompileOptions = {
   lazy?: boolean;
   sourceName?: string | null;
+  syntaxPlugins?: readonly SyntaxPlugin[];
+  checkerBuiltins?: readonly ExternalBuiltinSignature[];
+  checkerAliases?: BindOptions["aliases"];
+  checkerInterfaces?: BindOptions["interfaces"];
+  compiler?: TeraCompilerExtension;
 };
 
 export type EngineValue = {
@@ -106,6 +125,10 @@ function isCompiledFunction(
     "instructions" in value &&
     Array.isArray(value.instructions)
   );
+}
+
+function runtimeIntrinsicNames(compiler: Required<TeraCompilerExtension>): ReadonlySet<string> {
+  return new Set(compiler.intrinsics.filter((intrinsic) => intrinsic.lowering === "runtime").map((intrinsic) => intrinsic.name));
 }
 
 function functionName(compiledFn: { name?: string | null }): string {
@@ -158,6 +181,12 @@ export class Engine {
   irNodeIdAllocator: IRNodeIdAllocator;
   compiledFunctionIdAllocator: CompiledFunctionIdAllocator;
   debugger: RuntimeDebugger | null;
+  syntaxPlugins: readonly SyntaxPlugin[];
+  checker: BindOptions;
+  compilerExtensions: Required<TeraCompilerExtension>;
+  functionCompilerExtensions: WeakMap<RegisterCompiledFunction, Required<TeraCompilerExtension>>;
+  hostBuiltinRegistry: NativeHostBuiltinRegistry;
+  runtimeBuiltinRegistry: BuiltinRegistryMap;
 
   constructor(options: EngineOptions = {}) {
     this.valueHeap = new ValueHeap();
@@ -166,6 +195,17 @@ export class Engine {
     this.irNodeIdAllocator = new IRNodeIdAllocator();
     this.compiledFunctionIdAllocator = new CompiledFunctionIdAllocator();
     this.debugger = options.debugger ?? null;
+    const extensions = resolveTeraExtensions(options.extensions);
+    this.syntaxPlugins = mergeNamedExtensionItems("syntax plugin", extensions.syntaxPlugins, options.syntaxPlugins);
+    this.checker = {
+      builtins: mergeNamedExtensionItems("checker builtin", extensions.checker.builtins, options.checkerBuiltins),
+      aliases: mergeNamedExtensionItems("checker alias", extensions.checker.aliases, options.checkerAliases),
+      interfaces: mergeNamedExtensionItems("checker interface", extensions.checker.interfaces, options.checkerInterfaces),
+    };
+    this.compilerExtensions = mergeCompilerExtensions(extensions.compiler, options.compiler);
+    this.functionCompilerExtensions = new WeakMap();
+    this.hostBuiltinRegistry = mergeExtensionRecords("host builtin", extensions.hostBuiltins, options.hostBuiltins);
+    this.runtimeBuiltinRegistry = mergeExtensionRecords("runtime builtin", extensions.runtimeBuiltins, options.runtimeBuiltins);
     this.typecheckMode = options.typecheck || "warn";
     this.output = options.output;
     this.diagnostics = [];
@@ -179,6 +219,7 @@ export class Engine {
       () => new RegisterInterpreter(this) as EngineInterpreter,
       false,
     );
+    this.installExtensionBuiltins();
     this.interpreter.debugger = this.debugger;
     this.gc.bindRoots(
       this.interpreter,
@@ -186,7 +227,7 @@ export class Engine {
       this.microtaskQueue,
     );
     this.baselineCompiler = new BaselineCompiler();
-    this.optimizer = new SpeculativeOptimizer();
+    this.optimizer = new SpeculativeOptimizer(this.compilerExtensions);
     this.wasmCodegen = new WasmCodegen();
     this.deoptimizer = new Deoptimizer(this.interpreter);
     this.dependencyRegistry.bindLazyMarker(this.deoptimizer.lazyMarker);
@@ -227,20 +268,111 @@ export class Engine {
     );
   }
 
+  private installHostBuiltins(registry: NativeHostBuiltinRegistry): void {
+    const entries: BuiltinRegistryMap = {};
+    for (const [name, fn] of Object.entries(registry)) {
+      entries[name] = hostBuiltin(name, fn);
+    }
+    installBuiltinEntries(this.interpreter.globalCells, entries);
+  }
+
+  private installRuntimeBuiltins(registry: BuiltinRegistryMap): void {
+    installBuiltinEntries(this.interpreter.globalCells, registry);
+  }
+
+  private installRuntimeIntrinsics(registry: BuiltinRegistryMap, compiler: Required<TeraCompilerExtension>): void {
+    for (const intrinsic of compiler.intrinsics) {
+      if (intrinsic.lowering !== "runtime") continue;
+      const entry = registry[intrinsic.name];
+      if (!isRuntimeFunctionPayload(entry)) {
+        throw new Error(`Runtime intrinsic '${intrinsic.name}' is not installed`);
+      }
+      this.interpreter.installRuntimeIntrinsic(intrinsic.name, entry);
+    }
+  }
+
+  private installExtensionBuiltins(): void {
+    const needsRuntimeIntrinsics = this.compilerExtensions.intrinsics.some((intrinsic) => intrinsic.lowering === "runtime");
+    if (!Object.keys(this.hostBuiltinRegistry).length && !Object.keys(this.runtimeBuiltinRegistry).length && !needsRuntimeIntrinsics) return;
+    this.runInRuntime(() => {
+      this.installRuntimeBuiltins(this.runtimeBuiltinRegistry);
+      this.installRuntimeIntrinsics(this.runtimeBuiltinRegistry, this.compilerExtensions);
+      this.installHostBuiltins(this.hostBuiltinRegistry);
+    });
+  }
+
+  private compileSyntaxPlugins(options: CompileOptions): readonly SyntaxPlugin[] {
+    return mergeNamedExtensionItems("syntax plugin", this.syntaxPlugins, options.syntaxPlugins);
+  }
+
+  private compileChecker(options: CompileOptions): BindOptions {
+    return {
+      builtins: mergeNamedExtensionItems("checker builtin", this.checker.builtins, options.checkerBuiltins),
+      aliases: mergeNamedExtensionItems("checker alias", this.checker.aliases, options.checkerAliases),
+      interfaces: mergeNamedExtensionItems("checker interface", this.checker.interfaces, options.checkerInterfaces),
+    };
+  }
+
+  private compileCompilerExtensions(options: CompileOptions): Required<TeraCompilerExtension> {
+    return mergeCompilerExtensions(this.compilerExtensions, options.compiler);
+  }
+
+  private rememberCompilerExtensions(compiledFn: RegisterCompiledFunction, compiler: Required<TeraCompilerExtension>): void {
+    this.functionCompilerExtensions.set(compiledFn, compiler);
+    for (const constant of compiledFn.constants) {
+      if (isCompiledFunction(constant)) this.rememberCompilerExtensions(constant, compiler);
+    }
+  }
+
+  private compilerExtensionsFor(compiledFn: RegisterCompiledFunction): Required<TeraCompilerExtension> {
+    return this.functionCompilerExtensions.get(compiledFn) ?? this.compilerExtensions;
+  }
+
+  runCompilerPasses<T>(phase: TeraCompilerPhase, target: T, compiler = this.compilerExtensions): T {
+    let current: unknown = target;
+    const context = {
+      phase,
+      intrinsics: compiler.intrinsics,
+      effects: compiler.effects,
+      guards: compiler.guards,
+      deopts: compiler.deopts,
+    };
+    for (const pass of compiler.optimizerPasses) {
+      if (pass.phase !== phase) continue;
+      const next = pass.run(current, context);
+      if (next !== undefined) current = next;
+    }
+    return current as T;
+  }
+
   compile(source: string, options: CompileOptions = {}): RegisterCompiledFunction {
     return this.runInRuntime(() => this.compileInRuntime(source, options));
   }
 
   private compileInRuntime(source: string, options: CompileOptions = {}): RegisterCompiledFunction {
-    this.diagnostics = checkSource(source, this.typecheckMode);
+    const syntaxPlugins = this.compileSyntaxPlugins(options);
+    const checker = this.compileChecker(options);
+    const compilerExtensions = this.compileCompilerExtensions(options);
+    this.diagnostics = checkSource(source, {
+      mode: this.typecheckMode,
+      syntaxPlugins,
+      builtins: checker.builtins,
+      aliases: checker.aliases,
+      interfaces: checker.interfaces,
+    });
     if (this.typecheckMode === "strict" && this.diagnostics.length > 0) {
       throw new TypecheckError(this.diagnostics);
     }
-    const ast = analyzeEffects(parse(source));
+    this.installRuntimeIntrinsics(this.runtimeBuiltinRegistry, compilerExtensions);
+    const parsed = this.runCompilerPasses("ast", parse(source, { syntaxPlugins }), compilerExtensions);
+    const ast = this.runCompilerPasses("semantic", analyzeEffects(parsed), compilerExtensions) as ASTNode;
     const compiler = new RegisterBytecodeCompiler({
       sourceName: options.sourceName ?? null,
+      runtimeIntrinsics: runtimeIntrinsicNames(compilerExtensions),
     });
-    return compiler.compile(ast);
+    const compiled = this.runCompilerPasses("bytecode", compiler.compile(ast), compilerExtensions);
+    this.rememberCompilerExtensions(compiled, compilerExtensions);
+    return compiled;
   }
 
   private runSource(source: string, options: CompileOptions = {}): TaggedValue {
@@ -370,11 +502,14 @@ export class Engine {
     const bodyTokens = allTokens.slice(bodyStart, bodyEnd);
     bodyTokens.push({ type: "EOF", value: "", line: 0, column: 0 });
 
-    const parser = new Parser(bodyTokens);
+    const parser = new Parser(bodyTokens, { syntaxPlugins: this.syntaxPlugins });
     const body = parser.parseBlock();
+    const compilerExtensions = this.compilerExtensionsFor(compiledFn);
+    this.installRuntimeIntrinsics(this.runtimeBuiltinRegistry, compilerExtensions);
 
     const compiler = new RegisterBytecodeCompiler({
       sourceName: compiledFn.sourceName,
+      runtimeIntrinsics: runtimeIntrinsicNames(compilerExtensions),
     });
     const ast = {
       type: "Program",
@@ -405,6 +540,7 @@ export class Engine {
       compiledFn.sourceName = innerFn.sourceName;
       compiledFn.sourceMap = innerFn.sourceMap;
     }
+    this.rememberCompilerExtensions(compiledFn, compilerExtensions);
 
     compiledFn.isLazy = false;
     compiledFn.version = oldVersion + 1;
@@ -458,6 +594,7 @@ export class Engine {
     let entry: OsrEntry | null = null;
     try {
       resetIRNodeIds();
+      this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
       const result = this.optimizer.compile(compiledFn, offset);
       if (!result.graph.bailout) {
         const code = this.wasmCodegen.compile(result, compiledFn);
@@ -495,6 +632,7 @@ export class Engine {
 
     try {
       resetIRNodeIds();
+      this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
       const optimizerResult = this.optimizer.compile(compiledFn);
       const wasmFn = this.wasmCodegen.compile(optimizerResult, compiledFn);
 
@@ -705,6 +843,7 @@ export class Engine {
 
   reset(): void {
     this.dependencyRegistry.clear();
+    this.functionCompilerExtensions = new WeakMap();
     this.hiddenClassRegistry.reset();
     this.valueHeap.resetHeapPayloads();
     this.compiledFunctionIdAllocator.reset();
@@ -719,6 +858,7 @@ export class Engine {
       false,
     );
     this.interpreter.debugger = this.debugger;
+    this.installExtensionBuiltins();
     this.gc.bindRoots(
       this.interpreter,
       this.interpreter.globalCells,

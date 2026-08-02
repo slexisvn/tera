@@ -15,6 +15,7 @@ export { BINARY_OP_MAP } from "./expressions.js";
 
 export type RegisterBytecodeCompilerOptions = {
   sourceName?: string | null;
+  runtimeIntrinsics?: ReadonlySet<string>;
 };
 
 export interface RegisterBytecodeCompiler {
@@ -35,6 +36,7 @@ export class RegisterBytecodeCompiler {
   interfaceContracts: Map<string, RuntimeInterfaceContract>;
   classAbstractMembers: Map<string, Map<string, string>>;
   sourceName: string | null;
+  runtimeIntrinsics: ReadonlySet<string>;
 
   constructor(options: RegisterBytecodeCompilerOptions = {}) {
     this.func = null;
@@ -46,6 +48,7 @@ export class RegisterBytecodeCompiler {
     this.interfaceContracts = new Map();
     this.classAbstractMembers = new Map();
     this.sourceName = options.sourceName ?? null;
+    this.runtimeIntrinsics = options.runtimeIntrinsics ?? new Set();
   }
 
   compile(ast: ASTNode): bytecode.RegisterCompiledFunction {

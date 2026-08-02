@@ -1,9 +1,16 @@
 #!/usr/bin/env node
+import { createReactiveTeraOptions } from "@slexisvn/reactive/tera";
 import { Engine } from "../api/engine.js";
+import { nativeToTagged, taggedToNative } from "../runtime/domain/host.js";
 import { DebugController } from "../debugger/index.js";
 import type { DebugCommand, DebugFrameSnapshot, DebugPauseEvent } from "../debugger/index.js";
+import type { EngineOptions } from "../api/engine.js";
 import fs from "fs";
 import path from "path";
+
+function reactiveEngineOptions(overrides: Partial<EngineOptions> = {}): EngineOptions {
+  return { ...createReactiveTeraOptions({ nativeToTagged, taggedToNative }), ...overrides };
+}
 
 const args = process.argv.slice(2);
 const file = args[0];
@@ -181,7 +188,7 @@ async function runDebugFile(fileName: string | undefined): Promise<void> {
     onPause: (event, activeController) =>
       promptDebugCommand(event, activeController, lines),
   });
-  const engine = new Engine({ debugger: controller });
+  const engine = new Engine(reactiveEngineOptions({ debugger: controller }));
   try {
     await engine.runNative(source, { sourceName: resolved });
   } catch (error) {
@@ -201,7 +208,7 @@ if (file === "--help" || file === "-h") {
   }
 } else if (file === "-e" || file === "--eval") {
   const source = args.slice(1).join(" ");
-  const engine = new Engine();
+  const engine = new Engine(reactiveEngineOptions());
   try {
     await engine.runNative(source);
   } catch (error) {
@@ -210,7 +217,7 @@ if (file === "--help" || file === "-h") {
   }
 } else if (!file) {
   const { startREPL } = await import("./repl.js");
-  startREPL(new Engine());
+  startREPL(new Engine(reactiveEngineOptions()));
 } else {
   const resolved = path.resolve(file);
   if (!fs.existsSync(resolved)) {
@@ -218,7 +225,7 @@ if (file === "--help" || file === "-h") {
     process.exit(1);
   }
   const source = fs.readFileSync(resolved, "utf8");
-  const engine = new Engine();
+  const engine = new Engine(reactiveEngineOptions());
   try {
     await engine.runNative(source);
   } catch (error) {

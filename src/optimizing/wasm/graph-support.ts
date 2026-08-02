@@ -94,6 +94,7 @@ export const RUNTIME_STUB_NODES = new Set([
   ir.IR_NEG,
   ir.IR_UNBOX,
   ir.IR_CALL_BUILTIN,
+  ir.IR_CALL_INTRINSIC,
   ir.IR_CALL_KNOWN_FUNCTION,
   ir.IR_CHECK_CALL_TARGET,
   ir.IR_DISPATCH_MAP,
@@ -177,6 +178,7 @@ export const VALUE_PRODUCING = new Set([
   ir.IR_LOAD_LOCAL,
   ir.IR_LOAD_CONST,
   ir.IR_CALL_BUILTIN,
+  ir.IR_CALL_INTRINSIC,
   ir.IR_CALL_KNOWN_FUNCTION,
 ]);
 
@@ -449,7 +451,7 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
     }
   }
 
-  if (node.type === ir.IR_CALL_BUILTIN) {
+  if (node.type === ir.IR_CALL_BUILTIN || node.type === ir.IR_CALL_INTRINSIC) {
     const argCount = metadataNumber(node.props.argCount);
     if (
       !Number.isInteger(argCount) ||
@@ -457,7 +459,7 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
       argCount < 0 ||
       node.inputs.length !== argCount
     ) {
-      return `${nodeLocation(node, block)} has invalid builtin arity`;
+      return `${nodeLocation(node, block)} has invalid ${node.type === ir.IR_CALL_INTRINSIC ? "intrinsic" : "builtin"} arity`;
     }
   }
 

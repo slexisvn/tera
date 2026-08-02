@@ -13,6 +13,7 @@ type LoadState = Map<number, ObjectState>;
 const CALL_LIKE = new Set([
   ir.IR_GENERIC_CALL,
   ir.IR_CALL_BUILTIN,
+  ir.IR_CALL_INTRINSIC,
   ir.IR_CALL_KNOWN_FUNCTION,
 ]);
 

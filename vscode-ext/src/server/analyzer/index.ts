@@ -1,3 +1,4 @@
+import { createReactiveCheckOptions } from "@slexisvn/reactive/tera";
 import { inferSymbolTypes, parse, recoverMemberCompletionSource } from "../../../../src/frontend/index.ts";
 import type { LanguageData } from "../../shared/language-data.ts";
 import { analyzeDiagnostics } from "./diagnostics.ts";
@@ -41,20 +42,21 @@ export class DocumentAnalyzer {
 function analyze(text: string): AnalyzedDocument {
   const lines = splitLines(text);
   const symbolText = recoverMemberCompletionSource(text);
+  const options = createReactiveCheckOptions();
   const inferred = inferTypesSafely(symbolText);
   return {
     text,
     lines,
     tokens: analyzeTokens(text),
     ast: parseSafely(text),
-    symbols: buildSymbolTable(symbolText, inferred),
+    symbols: buildSymbolTable(symbolText, inferred, options.syntaxPlugins),
     errors: analyzeDiagnostics(text),
   };
 }
 
 function inferTypesSafely(text: string): Array<{ name: string; line: number; column: number; type: string }> {
   try {
-    return inferSymbolTypes(text);
+    return inferSymbolTypes(text, createReactiveCheckOptions());
   } catch {
     return [];
   }
@@ -63,7 +65,7 @@ function inferTypesSafely(text: string): Array<{ name: string; line: number; col
 
 function parseSafely(text: string): unknown {
   try {
-    return parse(text);
+    return parse(text, { syntaxPlugins: createReactiveCheckOptions().syntaxPlugins });
   } catch {
     return null;
   }

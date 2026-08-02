@@ -35,6 +35,7 @@ import {
   symbolKeyFor,
   type TaggedValue,
   type GeneratorPayload,
+  type RuntimeFunctionPayload,
 } from "../../core/value/index.js";
 
 import { createJSObject, createJSArray, createJSMap, createJSSet, createJSWeakMap } from "../../objects/heap/factory.js";
@@ -73,6 +74,19 @@ type BuiltinInterpreter = {
   constructFunctionValue(fn: TaggedValue, args: TaggedValue[]): TaggedValue;
   generatorNext(gen: GeneratorPayload, value: TaggedValue): TaggedValue;
 };
+type BuiltinNamespaceValue =
+  | RuntimeFunctionPayload
+  | string
+  | number
+  | boolean
+  | null
+  | undefined;
+type BuiltinNamespace = Record<string, BuiltinNamespaceValue>;
+export type BuiltinRegistryEntry = RuntimeFunctionPayload | BuiltinNamespace | { globalConst: () => TaggedValue };
+export type BuiltinRegistryMap = Record<string, BuiltinRegistryEntry>;
+export type BuiltinGlobalCells = {
+  write(name: string, value: TaggedValue): void;
+};
 type JsonNativeObject = { [key: string]: JsonNativeValue };
 type JsonNativeValue =
   | string
@@ -84,6 +98,69 @@ type JsonNativeValue =
 type JsonReplacerValue = JsonNativeValue | undefined;
 export function argOrUndefined(args: BuiltinArg[], index: number): TaggedValue {
   return args[index] === undefined ? mkUndefined() : args[index];
+}
+
+export function isRuntimeFunctionPayload(
+  value: object | string | number | boolean | symbol | null | undefined,
+): value is RuntimeFunctionPayload {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (("call" in value && typeof value.call === "function") ||
+      ("construct" in value && typeof value.construct === "function"))
+  );
+}
+
+function hasGlobalConst(
+  value: object | string | number | boolean | symbol | null | undefined,
+): value is { globalConst: () => TaggedValue } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "globalConst" in value &&
+    typeof value.globalConst === "function"
+  );
+}
+
+function namespaceValue(value: BuiltinNamespaceValue): TaggedValue | null {
+  if (isRuntimeFunctionPayload(value)) return mkFunction(value);
+  if (typeof value === "number" && Number.isFinite(value)) return mkDouble(value);
+  if (typeof value === "string") return mkString(value);
+  if (typeof value === "boolean") return mkBool(value);
+  if (value === null) return mkNull();
+  if (value === undefined) return mkUndefined();
+  return null;
+}
+
+function functionValue(payload: RuntimeFunctionPayload): TaggedValue {
+  const fnProperties: Record<string, TaggedValue> = { ...(payload.properties ?? {}) };
+  const fn: RuntimeFunctionPayload = { ...payload, properties: fnProperties };
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === "call" || key === "construct" || key === "name" || key === "properties") continue;
+    if (isRuntimeFunctionPayload(value)) fnProperties[key] = mkFunction(value);
+    else if (typeof value === "number" && Number.isFinite(value)) fnProperties[key] = mkNumber(value);
+  }
+  return mkFunction(fn);
+}
+
+export function builtinValue(name: string, entry: BuiltinRegistryEntry): TaggedValue {
+  if (hasGlobalConst(entry)) return entry.globalConst();
+  if (isRuntimeFunctionPayload(entry)) return functionValue(entry);
+
+  const nsProperties: Record<string, TaggedValue> = {};
+  const namespace = entry as BuiltinNamespace;
+  for (const [methodName, method] of Object.entries(namespace)) {
+    if (methodName === "name") continue;
+    const value = namespaceValue(method);
+    if (value !== null) nsProperties[methodName] = value;
+  }
+  return mkFunction({ name, properties: nsProperties });
+}
+
+export function installBuiltinEntries(globalCells: BuiltinGlobalCells, entries: BuiltinRegistryMap): void {
+  for (const [name, entry] of Object.entries(entries)) {
+    globalCells.write(name, builtinValue(name, entry));
+  }
 }
 
 function extractArgNumber(args: BuiltinArg[], index: number, defaultVal: number) {
@@ -1019,7 +1096,6 @@ export const builtins = {
 };
 
 export type BuiltinRegistry = typeof builtins;
-export type BuiltinRegistryEntry = BuiltinRegistry[keyof BuiltinRegistry];
 
 function taggedToNative(val: TaggedValue, seen?: Set<object>): JsonNativeValue {
   if (isNull(val) || isUndefined(val)) return null;

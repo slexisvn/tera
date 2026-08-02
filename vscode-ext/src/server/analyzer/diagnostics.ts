@@ -1,8 +1,9 @@
+import { createReactiveCheckOptions } from "@slexisvn/reactive/tera";
 import { diagnoseSource } from "../../../../src/frontend/index.ts";
 import type { AnalyzedError } from "./types.ts";
 
 export function analyzeDiagnostics(text: string): AnalyzedError[] {
-  return diagnoseSource(text, "strict").map((diagnostic) => ({
+  return diagnoseSource(text, createReactiveCheckOptions()).map((diagnostic) => ({
     message: diagnostic.message,
     line: diagnostic.line,
     column: diagnostic.column,
