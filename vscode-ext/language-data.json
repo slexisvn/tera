@@ -1822,17 +1822,6 @@
         }
       },
       {
-        "name": "toArray",
-        "description": "Materialize the tensor as a scalar or nested numeric array.",
-        "returns": "T",
-        "effect": "sync",
-        "isGetter": false,
-        "signature": {
-          "params": [],
-          "display": "toArray() -> T"
-        }
-      },
-      {
         "name": "length",
         "description": "Total count of elements (numel).",
         "returns": "int",
