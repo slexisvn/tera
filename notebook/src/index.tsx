@@ -9,7 +9,7 @@ import { useHashRoute } from "./utils/hash-route";
 
 function Root() {
   const route = useHashRoute();
-  return route === "/docs" ? <DocsPage /> : <App />;
+  return route === "/docs" || route.startsWith("/docs/") ? <DocsPage /> : <App />;
 }
 
 createRoot(document.getElementById("root")!).render(

@@ -1,4 +1,5 @@
 import { DiagnosticSeverity, type Connection, type Diagnostic } from "vscode-languageserver/node.js";
+import { highlightSpanEnd, offsetAt, positionAt } from "../../../../src/frontend/index.ts";
 import type { AnalyzedDocument, AnalyzedError } from "../analyzer/index.ts";
 import type { DocumentAnalyzer } from "../analyzer/index.ts";
 import { defineProvider } from "./types.ts";
@@ -64,32 +65,13 @@ function isSuppressed(error: AnalyzedError, names: Set<string> | null): boolean 
 }
 
 export function toDiagnostic(error: AnalyzedError, document: AnalyzedDocument): Diagnostic {
-  const line = Math.max(0, error.line - 1);
-  const character = Math.max(0, error.column - 1);
-  const span = spanRange(document, error.line, error.column);
+  const start = { line: Math.max(0, error.line - 1), character: Math.max(0, error.column - 1) };
+  const from = offsetAt(document.text, start);
+  const end = positionAt(document.text, highlightSpanEnd(document.text, from));
   return {
     severity: error.severity === "warning" ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
-    range: {
-      start: span?.start ?? { line, character },
-      end: span?.end ?? { line, character: character + 1 },
-    },
+    range: { start, end },
     message: error.message,
     source: `tera:${error.source}`,
   };
-}
-
-function spanRange(document: AnalyzedDocument, line: number, column: number) {
-  const token = document.tokens.find((candidate) => contains(candidate, line, column));
-  if (!token) return null;
-  return {
-    start: { line: token.line - 1, character: token.column - 1 },
-    end: { line: token.endLine - 1, character: token.endColumn - 1 },
-  };
-}
-
-function contains(token: AnalyzedDocument["tokens"][number], line: number, column: number): boolean {
-  if (line < token.line || line > token.endLine) return false;
-  if (line === token.line && column < token.column) return false;
-  if (line === token.endLine && column >= token.endColumn) return false;
-  return true;
 }

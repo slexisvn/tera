@@ -11,10 +11,12 @@ export type { BindOptions, CheckSourceOptions, Diagnostic, ExternalBuiltinParam,
 export { buildLanguageData, buildLanguageDataFromSpec, collectLanguageDataSource, parseParams } from "./language-data.js";
 export {
   extractReceiverExpression,
+  highlightSpanEnd,
   isMemberAccessSource,
   isStringLiteralTextOffset,
   isStringLiteralTextPosition,
   offsetAt,
+  positionAt,
   recoverMemberCompletionSource,
   resolveMemberReceiverType,
   stringLiteralTextPredicate,

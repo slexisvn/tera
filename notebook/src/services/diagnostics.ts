@@ -1,5 +1,5 @@
 import { createReactiveCheckOptions } from "@slexisvn/reactive/tera";
-import { diagnoseSource, type Diagnostic } from "../../../src/frontend";
+import { diagnoseSource, highlightSpanEnd, type Diagnostic } from "../../../src/frontend";
 
 export type NotebookDiagnostic = {
   from: number;
@@ -30,7 +30,7 @@ export function analyzeCells(cells: { id: string; source: string }[]) {
     if (!range) continue;
     const localLine = diagnostic.line - range.start + 1;
     const from = offsetOf(range.lineStarts, localLine, diagnostic.column);
-    const to = tokenEnd(range.source, from);
+    const to = highlightSpanEnd(range.source, from);
     const list = diagnostics.get(range.id) ?? [];
     list.push({ from, to, message: diagnostic.message.replace(/ at \d+:\d+$/, ""), severity: diagnostic.severity });
     diagnostics.set(range.id, list);
@@ -73,34 +73,4 @@ function lineStarts(text: string): number[] {
 
 function offsetOf(starts: number[], line: number, column: number) {
   return (starts[line - 1] ?? 0) + Math.max(0, column - 1);
-}
-
-function tokenEnd(text: string, offset: number) {
-  const ch = text[offset];
-  if (ch === undefined) return offset + 1;
-  if (ch === "'" || ch === '"' || ch === "`") return literalEnd(text, offset, ch);
-  if (/[A-Za-z0-9_$]/.test(ch)) {
-    let i = offset;
-    while (i < text.length && /[A-Za-z0-9_.$]/.test(text[i])) i++;
-    return i;
-  }
-  return Math.min(text.length, offset + 1);
-}
-
-function literalEnd(text: string, offset: number, delimiter: string) {
-  let escaped = false;
-  for (let i = offset + 1; i < text.length; i++) {
-    const ch = text[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (ch === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (ch === delimiter) return i + 1;
-    if (delimiter !== "`" && ch === "\n") break;
-  }
-  return Math.min(text.length, offset + 1);
 }

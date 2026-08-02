@@ -18,6 +18,71 @@ export function offsetAt(source: string, position: SymbolPosition): number {
   return Math.min(source.length, offset + position.character);
 }
 
+export function positionAt(source: string, offset: number): SymbolPosition {
+  const target = Math.max(0, Math.min(offset, source.length));
+  let line = 0;
+  let lineStart = 0;
+  for (let i = 0; i < target; i++) {
+    const char = source[i];
+    if (char === "\r") {
+      if (source[i + 1] === "\n") i++;
+      line++;
+      lineStart = i + 1;
+    } else if (char === "\n") {
+      line++;
+      lineStart = i + 1;
+    }
+  }
+  return { line, character: target - lineStart };
+}
+
+export function highlightSpanEnd(source: string, start: number): number {
+  const char = source[start];
+  if (char === undefined) return Math.min(source.length, start + 1);
+  if (char === "'" || char === '"' || char === "`") return stringLiteralSpanEnd(source, start);
+  if (char === "(" || char === "[" || char === "{") return bracketSpanEnd(source, start);
+  if (isWordChar(char)) {
+    let end = start;
+    while (end < source.length && isWordChar(source[end])) end++;
+    return end;
+  }
+  return Math.min(source.length, start + 1);
+}
+
+function isWordChar(char: string): boolean {
+  return /[A-Za-z0-9_$]/.test(char);
+}
+
+function stringLiteralSpanEnd(source: string, start: number): number {
+  const delimiter = source[start];
+  for (let i = start + 1; i < source.length; i++) {
+    const char = source[i];
+    if (char === "\\") {
+      i++;
+      continue;
+    }
+    if (char === delimiter) return i + 1;
+    if (delimiter !== "`" && char === "\n") break;
+  }
+  return Math.min(source.length, start + 1);
+}
+
+function bracketSpanEnd(source: string, start: number): number {
+  let depth = 0;
+  for (let i = start; i < source.length; i++) {
+    const char = source[i];
+    if (char === "'" || char === '"' || char === "`") {
+      i = stringLiteralSpanEnd(source, i) - 1;
+    } else if (char === "(" || char === "[" || char === "{") {
+      depth++;
+    } else if (char === ")" || char === "]" || char === "}") {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return source.length;
+}
+
 export function isStringLiteralTextPosition(source: string, position: SymbolPosition): boolean {
   return isStringLiteralTextOffset(source, offsetAt(source, position));
 }

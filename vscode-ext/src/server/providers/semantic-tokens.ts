@@ -109,10 +109,15 @@ function resolve(
   }
 
   const name = tokens[index].value;
-  if (types.has(name)) return "type";
-
   const builtin = context.types.builtin(name);
-  if (builtin) return TYPE_BY_KIND[builtin.kind] ?? null;
+  if (builtin) {
+    const builtinType = TYPE_BY_KIND[builtin.kind] ?? null;
+    if (builtin.returns === name && builtinType !== "namespace") return "class";
+    if (types.has(name)) return "type";
+    return builtinType;
+  }
+
+  if (types.has(name)) return "type";
 
   const symbol = symbolByName.get(name);
   return symbol ? TYPE_BY_KIND[symbol.kind] ?? null : null;

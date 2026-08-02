@@ -207,6 +207,23 @@ describe("analyzeDiagnostics", () => {
     });
   });
 
+  it("keeps mistyped array-literal diagnostics on the whole bracketed expression", () => {
+    const source = "y: int = [\"a\", 2]";
+    const analyzer = new DocumentAnalyzer();
+    const document = analyzer.update("file:///test.tera", source);
+    const diagnostic = toDiagnostic(document.errors[0], document);
+
+    expect(document.errors[0]).toMatchObject({
+      line: 1,
+      column: 10,
+      message: "Type '[string, int]' is not assignable to 'int'",
+    });
+    expect(diagnostic.range).toEqual({
+      start: { line: 0, character: 9 },
+      end: { line: 0, character: source.length },
+    });
+  });
+
   it("keeps missing member-call argument diagnostics on the method name", () => {
     const source = [
       "interface Notifier:",

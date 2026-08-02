@@ -5363,7 +5363,6 @@ export const TERA_PSEUDO_TYPES = {
         "description": "Read the accumulated gradient of this leaf tensor."
       },
       tensorMaterializeMethod("to_array"),
-      tensorMaterializeMethod("toArray"),
       {
         "name": "length",
         "params": [],

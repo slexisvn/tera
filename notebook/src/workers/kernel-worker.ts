@@ -12,6 +12,9 @@ const dataframes = new Map<string, DataFrameLike>();
 const csvBuilders = new Map<string, CsvRow[]>();
 
 function formatValue(value: unknown): string {
+  if (isTensor(value)) {
+    return JSON.stringify((value).toArray());
+  }
   if (value === undefined) return '';
   if (value === null) return 'null';
   if (typeof value === 'string') return value;
@@ -126,15 +129,15 @@ async function serializeValue(value: unknown): Promise<KernelValue> {
   if (value === undefined) return { kind: 'empty' };
   if (isFigureBuilder(value)) value = await value.build();
   if (isChartSpec(value)) return { kind: 'chart', spec: value as ChartSpec };
-  if (isTensor(value)) {
-    const { shape } = value;
-    return {
-      kind: 'tensor',
-      shape,
-      data: value.toArray(),
-      summary: hasCustomToString(value) ? value.toString() : `Tensor(shape=${JSON.stringify(shape)})`,
-    };
-  }
+  // if (isTensor(value)) {
+  //   const { shape } = value;
+  //   return {
+  //     kind: 'tensor',
+  //     shape,
+  //     data: value.toArray(),
+  //     summary: hasCustomToString(value) ? value.toString() : `Tensor(shape=${JSON.stringify(shape)})`,
+  //   };
+  // }
   if (isDataFrame(value)) {
     const id = `df-${++dataframeId}`;
     dataframes.set(id, value);
