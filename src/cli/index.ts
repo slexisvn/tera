@@ -1,22 +1,25 @@
 #!/usr/bin/env node
-import { createReactiveTeraOptions } from "@slexisvn/reactive/tera";
+import fs from "fs";
+import path from "path";
+import { createReactiveTeraOptions, createReactiveCheckOptions } from "@slexisvn/reactive/tera";
 import { Engine } from "../api/engine.js";
+import type { EngineOptions, OptimizedGraph } from "../api/engine.js";
+import type { TeraExtension } from "../api/extensions.js";
+import type { RegisterCompiledFunction } from "../bytecode/register/ops/bytecode.js";
 import { nativeToTagged, taggedToNative } from "../runtime/domain/host.js";
 import { DebugController } from "../debugger/index.js";
 import type { DebugCommand, DebugFrameSnapshot, DebugPauseEvent } from "../debugger/index.js";
-import type { EngineOptions } from "../api/engine.js";
-import fs from "fs";
-import path from "path";
+import { checkSource } from "../frontend/checker/index.js";
+import type { CheckSourceOptions } from "../frontend/checker/index.js";
+import { parseArgs, CliUsageError } from "./args.js";
+import type { CliConfig } from "./args.js";
+import { printAst } from "./ast-printer.js";
+import { nativesExtension, exposeGcExtension } from "./natives.js";
 
-function reactiveEngineOptions(overrides: Partial<EngineOptions> = {}): EngineOptions {
-  return { ...createReactiveTeraOptions({ nativeToTagged, taggedToNative }), ...overrides };
-}
-
-const args = process.argv.slice(2);
-const file = args[0];
-const DEBUG_PROMPT = "(tera-debug) ";
+type Source = { name: string; code: string };
 
 class DebugQuit extends Error {}
+const DEBUG_PROMPT = "(tera-debug) ";
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -25,14 +28,163 @@ function errorMessage(error: unknown): string {
 }
 
 function printHelp(): void {
-  console.log("Usage: tera [file]");
-  console.log("       tera -e <source>");
-  console.log("       tera debug <file>");
-  console.log("       tera --help");
+  const lines = [
+    "Usage: tera [options] [file ...]",
+    "       tera -e <source>",
+    "       tera debug <file>",
+    "",
+    "Input:",
+    "  -e, --eval <source>       run source passed on the command line",
+    "  -                         read a program from stdin",
+    "  --                        treat remaining arguments as file paths",
+    "",
+    "Inspection:",
+    "  --print-bytecode          disassemble each function as it is compiled",
+    "  --print-ast               print the parsed AST of each program",
+    "  --print-ir, --trace-turbo dump the optimizer CFG of each optimized function",
+    "  --filter=<substr>         restrict name-filtered dumps to matching functions",
+    "  --stats                   print engine statistics after running",
+    "",
+    "Tracing:",
+    "  --trace[=cats]            enable the tracer (all categories, or a comma list)",
+    "  --trace-opt               trace optimizing compilation",
+    "  --trace-deopt             trace deoptimizations",
+    "  --trace-ic                trace inline caches",
+    "  --trace-maps              trace hidden-class transitions",
+    "  --trace-gc                trace garbage collection",
+    "  --trace-feedback          trace feedback vectors",
+    "",
+    "Optimization:",
+    "  --no-opt                  never tier up to the optimizing compiler",
+    "  --always-opt              optimize functions as early as possible",
+    "  --opt-threshold=<n>       call count before optimizing",
+    "  --baseline-threshold=<n>  call count before baseline compilation",
+    "  --max-deopt=<n>           deopts tolerated before optimization is disabled",
+    "  --no-osr                  disable on-stack replacement",
+    "  --allow-natives-syntax    expose OptimizeFunctionOnNextCall and friends",
+    "  --expose-gc               expose a global gc() function",
+    "",
+    "Types:",
+    "  --typecheck=off|warn|strict  set the type checker mode",
+    "  --check                      type-check without running",
+    "",
+    "  -h, --help                show this help",
+    "  -v, --version             show the version",
+  ];
+  console.log(lines.join("\n"));
 }
 
-function readLineSync(): string {
-  const input = [];
+function readVersion(): string {
+  const pkgUrl = new URL("../package.json", import.meta.url);
+  const pkg = JSON.parse(fs.readFileSync(pkgUrl, "utf8")) as { version?: string };
+  return pkg.version ?? "0.0.0";
+}
+
+function matchesFilter(filter: string | null, name: string | null | undefined): boolean {
+  if (filter === null) return true;
+  return typeof name === "string" && name.includes(filter);
+}
+
+type TieringOverrides = {
+  baselineThreshold?: number;
+  jitThreshold?: number;
+  loopOsrThreshold?: number;
+  maxDeoptCount?: number;
+};
+
+function buildTiering(config: CliConfig): TieringOverrides | undefined {
+  const policy: TieringOverrides = {};
+  if (config.optMode === "none") {
+    policy.jitThreshold = Number.MAX_SAFE_INTEGER;
+    policy.loopOsrThreshold = Number.MAX_SAFE_INTEGER;
+  } else if (config.optMode === "always") {
+    policy.baselineThreshold = 2;
+    policy.jitThreshold = 3;
+    policy.loopOsrThreshold = 3;
+  }
+  if (config.jitThreshold !== null) policy.jitThreshold = config.jitThreshold;
+  if (config.baselineThreshold !== null) policy.baselineThreshold = config.baselineThreshold;
+  if (config.maxDeopt !== null) policy.maxDeoptCount = config.maxDeopt;
+  return Object.keys(policy).length > 0 ? policy : undefined;
+}
+
+function buildEngineOptions(config: CliConfig): EngineOptions {
+  const base = createReactiveTeraOptions({ nativeToTagged, taggedToNative });
+  const extensions: TeraExtension[] = [...((base.extensions as TeraExtension[]) ?? [])];
+  if (config.allowNatives) extensions.push(nativesExtension());
+  if (config.exposeGc) extensions.push(exposeGcExtension());
+
+  const options: EngineOptions = { ...base, extensions };
+
+  if (config.typecheck) options.typecheck = config.typecheck;
+  if (!config.osr) options.osr = false;
+
+  const tiering = buildTiering(config);
+  if (tiering) options.tieringPolicy = tiering as EngineOptions["tieringPolicy"];
+
+  if (config.traceCategories.length > 0) {
+    options.trace = true;
+    options.traceCategories = config.traceCategories;
+  }
+
+  if (config.printBytecode) {
+    options.onCompile = (fn: RegisterCompiledFunction) => {
+      if (matchesFilter(config.filter, fn.name)) console.log(fn.disassemble());
+    };
+  }
+  if (config.printIr) {
+    options.onOptimize = (fn: RegisterCompiledFunction, graph: OptimizedGraph) => {
+      if (matchesFilter(config.filter, fn.name)) console.log(graph.dump());
+    };
+  }
+
+  return options;
+}
+
+function readStdin(): string {
+  return fs.readFileSync(0, "utf8");
+}
+
+function gatherSources(config: CliConfig): Source[] {
+  const sources: Source[] = [];
+  if (config.eval !== null) sources.push({ name: "[eval]", code: config.eval });
+  for (const file of config.files) {
+    const resolved = path.resolve(file);
+    if (!fs.existsSync(resolved)) throw new CliUsageError(`file not found: ${file}`);
+    sources.push({ name: resolved, code: fs.readFileSync(resolved, "utf8") });
+  }
+  if (config.readStdin) sources.push({ name: "[stdin]", code: readStdin() });
+  return sources;
+}
+
+function runCheck(sources: Source[]): number {
+  const options = createReactiveCheckOptions("strict") as CheckSourceOptions;
+  let hadError = false;
+  for (const source of sources) {
+    for (const diagnostic of checkSource(source.code, options)) {
+      const location = `${source.name}:${diagnostic.line}:${diagnostic.column}`;
+      console.error(`${location}: ${diagnostic.severity}: ${diagnostic.message}`);
+      if (diagnostic.severity === "error") hadError = true;
+    }
+  }
+  return hadError ? 1 : 0;
+}
+
+async function runSources(config: CliConfig, engine: Engine, sources: Source[]): Promise<void> {
+  for (const source of sources) {
+    if (config.printAst) {
+      console.log(printAst(engine.parseSource(source.code, { sourceName: source.name })));
+    }
+    await engine.runNative(source.code, { sourceName: source.name });
+  }
+}
+
+function currentFrame(event: DebugPauseEvent): DebugFrameSnapshot {
+  return event.snapshot.frames[event.snapshot.frames.length - 1]!;
+}
+
+function debugReadLine(): string {
+  const input: string[] = [];
   const buffer = Buffer.alloc(1);
   while (true) {
     const read = fs.readSync(process.stdin.fd, buffer, 0, 1, null);
@@ -43,19 +195,11 @@ function readLineSync(): string {
   }
 }
 
-function currentFrame(event: DebugPauseEvent): DebugFrameSnapshot {
-  return event.snapshot.frames[event.snapshot.frames.length - 1]!;
-}
-
 function printPause(event: DebugPauseEvent, lines: string[]): void {
   const loc = event.location;
-  console.log(
-    `${event.reason} at ${loc.sourceName}:${loc.line}:${loc.column} in ${loc.functionName}`,
-  );
+  console.log(`${event.reason} at ${loc.sourceName}:${loc.line}:${loc.column} in ${loc.functionName}`);
   const sourceLine = lines[loc.line - 1];
-  if (sourceLine !== undefined) {
-    console.log(`${String(loc.line).padStart(4)} | ${sourceLine}`);
-  }
+  if (sourceLine !== undefined) console.log(`${String(loc.line).padStart(4)} | ${sourceLine}`);
 }
 
 function printLocals(event: DebugPauseEvent): void {
@@ -64,9 +208,7 @@ function printLocals(event: DebugPauseEvent): void {
     console.log("locals: <empty>");
     return;
   }
-  for (const local of frame.locals) {
-    console.log(`${local.name} = ${local.value.display}`);
-  }
+  for (const local of frame.locals) console.log(`${local.name} = ${local.value.display}`);
 }
 
 function printBacktrace(event: DebugPauseEvent): void {
@@ -80,15 +222,18 @@ function printBacktrace(event: DebugPauseEvent): void {
 }
 
 function printDebugHelp(): void {
-  console.log("c, continue       continue");
-  console.log("s, step           step into");
-  console.log("n, next           step over");
-  console.log("o, out            step out");
-  console.log("b <line>          set breakpoint");
-  console.log("clear <line>      clear breakpoint");
-  console.log("locals            show locals");
-  console.log("bt                show backtrace");
-  console.log("q, quit           quit");
+  const lines = [
+    "c, continue       continue",
+    "s, step           step into",
+    "n, next           step over",
+    "o, out            step out",
+    "b <line>          set breakpoint",
+    "clear <line>      clear breakpoint",
+    "locals            show locals",
+    "bt                show backtrace",
+    "q, quit           quit",
+  ];
+  console.log(lines.join("\n"));
 }
 
 function parseDebugCommand(
@@ -118,10 +263,7 @@ function parseDebugCommand(
         console.log("breakpoint line must be a positive integer");
         return null;
       }
-      const bp = controller.setBreakpoint({
-        sourceName: event.location.sourceName,
-        line,
-      });
+      const bp = controller.setBreakpoint({ sourceName: event.location.sourceName, line });
       console.log(`breakpoint ${bp.id} at ${bp.sourceName}:${bp.line}`);
       return null;
     }
@@ -166,70 +308,81 @@ function promptDebugCommand(
   printPause(event, lines);
   while (true) {
     fs.writeSync(1, DEBUG_PROMPT);
-    const parsed = parseDebugCommand(readLineSync(), event, controller);
+    const parsed = parseDebugCommand(debugReadLine(), event, controller);
     if (parsed) return parsed;
   }
 }
 
-async function runDebugFile(fileName: string | undefined): Promise<void> {
+async function runDebug(config: CliConfig, options: EngineOptions): Promise<number> {
+  const fileName = config.files[0];
   if (!fileName) {
     printHelp();
-    process.exit(1);
+    return 1;
   }
   const resolved = path.resolve(fileName);
   if (!fs.existsSync(resolved)) {
     console.error(`Error: file not found: ${fileName}`);
-    process.exit(1);
+    return 1;
   }
   const source = fs.readFileSync(resolved, "utf8");
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const controller = new DebugController({
     pauseOnEntry: true,
-    onPause: (event, activeController) =>
-      promptDebugCommand(event, activeController, lines),
+    onPause: (event, activeController) => promptDebugCommand(event, activeController, lines),
   });
-  const engine = new Engine(reactiveEngineOptions({ debugger: controller }));
+  const engine = new Engine({ ...options, debugger: controller });
   try {
     await engine.runNative(source, { sourceName: resolved });
   } catch (error) {
-    if (error instanceof DebugQuit) return;
+    if (error instanceof DebugQuit) return 0;
     throw error;
   }
+  return 0;
 }
 
-if (file === "--help" || file === "-h") {
-  printHelp();
-} else if (file === "debug" || file === "--debug") {
+async function main(): Promise<number> {
+  let config: CliConfig;
   try {
-    await runDebugFile(args[1]);
+    config = parseArgs(process.argv.slice(2));
   } catch (error) {
-    console.error(errorMessage(error));
-    process.exit(1);
+    if (error instanceof CliUsageError) {
+      console.error(`tera: ${error.message}`);
+      return 2;
+    }
+    throw error;
   }
-} else if (file === "-e" || file === "--eval") {
-  const source = args.slice(1).join(" ");
-  const engine = new Engine(reactiveEngineOptions());
-  try {
-    await engine.runNative(source);
-  } catch (error) {
-    console.error(errorMessage(error));
-    process.exit(1);
+
+  if (config.command === "help") {
+    printHelp();
+    return 0;
   }
-} else if (!file) {
-  const { startREPL } = await import("./repl.js");
-  startREPL(new Engine(reactiveEngineOptions()));
-} else {
-  const resolved = path.resolve(file);
-  if (!fs.existsSync(resolved)) {
-    console.error(`Error: file not found: ${file}`);
-    process.exit(1);
+  if (config.command === "version") {
+    console.log(readVersion());
+    return 0;
   }
-  const source = fs.readFileSync(resolved, "utf8");
-  const engine = new Engine(reactiveEngineOptions());
-  try {
-    await engine.runNative(source);
-  } catch (error) {
-    console.error(errorMessage(error));
-    process.exit(1);
+
+  const options = buildEngineOptions(config);
+
+  if (config.command === "debug") return runDebug(config, options);
+
+  if (config.command === "repl") {
+    const { startREPL } = await import("./repl.js");
+    await startREPL(new Engine(options));
+    return 0;
   }
+
+  const sources = gatherSources(config);
+  if (config.check) return runCheck(sources);
+
+  const engine = new Engine(options);
+  await runSources(config, engine, sources);
+  if (config.stats) console.log(JSON.stringify(engine.getStats(), null, 2));
+  return 0;
+}
+
+try {
+  process.exitCode = await main();
+} catch (error) {
+  console.error(errorMessage(error));
+  process.exitCode = 1;
 }

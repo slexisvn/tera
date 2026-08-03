@@ -74,7 +74,11 @@ export type EngineOptions = {
   checkerBuiltins?: readonly ExternalBuiltinSignature[];
   checkerAliases?: BindOptions["aliases"];
   checkerInterfaces?: BindOptions["interfaces"];
+  onCompile?: (fn: RegisterCompiledFunction) => void;
+  onOptimize?: (fn: RegisterCompiledFunction, graph: OptimizedGraph) => void;
 };
+
+export type OptimizedGraph = { dump(): string };
 
 export type CompileOptions = {
   lazy?: boolean;
@@ -187,6 +191,8 @@ export class Engine {
   functionCompilerExtensions: WeakMap<RegisterCompiledFunction, Required<TeraCompilerExtension>>;
   hostBuiltinRegistry: NativeHostBuiltinRegistry;
   runtimeBuiltinRegistry: BuiltinRegistryMap;
+  onCompile?: (fn: RegisterCompiledFunction) => void;
+  onOptimize?: (fn: RegisterCompiledFunction, graph: OptimizedGraph) => void;
 
   constructor(options: EngineOptions = {}) {
     this.valueHeap = new ValueHeap();
@@ -210,6 +216,8 @@ export class Engine {
     this.output = options.output;
     this.diagnostics = [];
     this.osrEnabled = options.osr !== false;
+    this.onCompile = options.onCompile;
+    this.onOptimize = options.onOptimize;
     this.tieringPolicy = createTieringPolicy(options.tieringPolicy);
     this.microtaskQueue = new MicrotaskQueue({
       policy: options.microtaskPolicy || MicrotaskPolicy.AUTO,
@@ -372,7 +380,34 @@ export class Engine {
     });
     const compiled = this.runCompilerPasses("bytecode", compiler.compile(ast), compilerExtensions);
     this.rememberCompilerExtensions(compiled, compilerExtensions);
+    this.reportCompiled(compiled);
     return compiled;
+  }
+
+  private reportCompiled(compiled: RegisterCompiledFunction): void {
+    if (!this.onCompile) return;
+    const seen = new Set<RegisterCompiledFunction>();
+    const walk = (fn: RegisterCompiledFunction): void => {
+      if (seen.has(fn) || fn.isLazy) return;
+      seen.add(fn);
+      this.onCompile!(fn);
+      for (const constant of fn.constants) {
+        if (isCompiledFunction(constant)) walk(constant);
+      }
+    };
+    walk(compiled);
+  }
+
+  parseSource(source: string, options: CompileOptions = {}): ASTNode {
+    return this.runInRuntime(() => {
+      const syntaxPlugins = this.compileSyntaxPlugins(options);
+      const compilerExtensions = this.compileCompilerExtensions(options);
+      return this.runCompilerPasses(
+        "ast",
+        parse(source, { syntaxPlugins }),
+        compilerExtensions,
+      ) as ASTNode;
+    });
   }
 
   private runSource(source: string, options: CompileOptions = {}): TaggedValue {
@@ -554,6 +589,7 @@ export class Engine {
     compiledFn.lazyBodyStart = null;
     compiledFn.lazyBodyEnd = null;
     compiledFn.lazyParams = null;
+    this.onCompile?.(compiledFn);
   }
 
   baselineCompile(compiledFn: RegisterCompiledFunction): void {
@@ -634,6 +670,7 @@ export class Engine {
       resetIRNodeIds();
       this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
       const optimizerResult = this.optimizer.compile(compiledFn);
+      this.onOptimize?.(compiledFn, optimizerResult.graph as OptimizedGraph);
       const wasmFn = this.wasmCodegen.compile(optimizerResult, compiledFn);
 
       if (wasmFn) {
@@ -733,11 +770,7 @@ export class Engine {
             functionName(fn),
             `Code aged out (age=${fn.codeAge}, idle=${(idleTime / 1000).toFixed(1)}s) — flushing optimized code`,
           );
-          if (fn.optimizedCode._dispose) fn.optimizedCode._dispose();
-          this.dependencyRegistry.unregister(fn as Parameters<typeof this.dependencyRegistry.unregister>[0]);
-          fn.optimizedCode = null;
-          fn.disableOptimization = false;
-          updateCallMode(fn);
+          this.flushOptimizedCode(fn);
           flushedCount++;
         }
         if (fn.codeAge >= CODE_AGE_THRESHOLD * 2 && fn.baselineCode) {
@@ -813,6 +846,22 @@ export class Engine {
     this.runInRuntime(() =>
       this.gc.collectGarbage(type as Parameters<GenerationalGC["collectGarbage"]>[0]),
     );
+  }
+
+  private flushOptimizedCode(fn: RuntimeCompiledFunction): boolean {
+    if (!fn.optimizedCode) return false;
+    if (fn.optimizedCode._dispose) fn.optimizedCode._dispose();
+    this.dependencyRegistry.unregister(
+      fn as Parameters<typeof this.dependencyRegistry.unregister>[0],
+    );
+    fn.optimizedCode = null;
+    fn.disableOptimization = false;
+    updateCallMode(fn);
+    return true;
+  }
+
+  deoptimizeFunction(compiledFn: RegisterCompiledFunction): boolean {
+    return this.runInRuntime(() => this.flushOptimizedCode(compiledFn));
   }
 
   getStats(): {
