@@ -1,5 +1,5 @@
 import { CODE_UNDEFINED } from "../../../core/value/index.js";
-import type { TaggedValue } from "../../../core/value/index.js";
+import type { RuntimeValue, TaggedValue } from "../../../core/value/index.js";
 import { Environment, UpvalueCell } from "../../../runtime/intrinsics/environment.js";
 import { VMReferenceError } from "../../../core/errors/index.js";
 import type { RegisterCompiledFunction } from "../ops/bytecode.js";

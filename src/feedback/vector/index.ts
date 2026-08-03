@@ -1,3 +1,4 @@
+import type { RuntimeValue } from "../../core/value/index.js";
 import { tracer } from "../../core/tracing/index.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 

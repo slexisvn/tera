@@ -1,6 +1,6 @@
 import type { Dependency } from "../../../deopt/dependencies.js";
 import type { FeedbackVector } from "../../../feedback/vector/index.js";
-import type { TaggedValue } from "../../../core/value/index.js";
+import type { RuntimeValue, TaggedValue } from "../../../core/value/index.js";
 import type { ClassVisibility } from "../../../core/class-visibility.js";
 import type { RuntimeInterfaceContract } from "../../../runtime/interface-contract.js";
 

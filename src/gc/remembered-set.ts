@@ -1,3 +1,5 @@
+import type { RuntimeValue } from "../core/value/index.js";
+
 export class RememberedSet<T = RuntimeValue> {
   private _holders: Set<T>;
 

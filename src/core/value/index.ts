@@ -7,6 +7,24 @@ import type { JSProxy } from "../../objects/exotic/js-proxy.js";
 import type { Environment } from "../../runtime/intrinsics/environment.js";
 import type { ClassVisibility } from "../class-visibility.js";
 
+export type RuntimePrimitive = string | number | boolean | symbol | null | undefined;
+
+export type RuntimeValue =
+  | RuntimePrimitive
+  | RuntimeRecord
+  | RuntimeCallable
+  | RuntimeValue[];
+
+export interface RuntimeRecord {
+  [key: string]: RuntimeValue;
+  [key: number]: RuntimeValue;
+}
+
+export interface RuntimeCallable extends RuntimeRecord {
+  (...args: RuntimeValue[]): RuntimeValue;
+  new (...args: RuntimeValue[]): RuntimeValue;
+}
+
 export const TAG_SMI = "smi";
 export const TAG_DOUBLE = "double";
 export const TAG_BOOL = "bool";

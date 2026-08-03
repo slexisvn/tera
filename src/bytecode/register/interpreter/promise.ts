@@ -9,7 +9,7 @@ import {
   isIterator,
   isPromise,
 } from "../../../core/value/index.js";
-import type { GeneratorPayload, PromisePayload, TaggedValue } from "../../../core/value/index.js";
+import type { GeneratorPayload, PromisePayload, RuntimeValue, TaggedValue } from "../../../core/value/index.js";
 
 import { createJSArray, createJSObject } from "../../../objects/heap/factory.js";
 import { CallbackMicrotask } from "../../../runtime/microtasks/microtask.js";

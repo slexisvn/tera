@@ -1,4 +1,5 @@
 import { getTag } from "../../core/value/index.js";
+import type { RuntimeValue } from "../../core/value/index.js";
 
 export const PACKED_SMI = "PACKED_SMI";
 export const PACKED_DOUBLE = "PACKED_DOUBLE";

@@ -1,3 +1,5 @@
+import type { RuntimeValue } from "../value/index.js";
+
 const STYLE = {
   reset: "\x1b[0m",
   dim: "\x1b[2m",

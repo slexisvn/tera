@@ -1,3 +1,4 @@
+import type { RuntimeValue } from "../../../core/value/index.js";
 import { NodeType } from "../../../frontend/ast/index.js";
 import type { ASTNode } from "../../../frontend/ast/index.js";
 import type {

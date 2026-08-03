@@ -1,3 +1,5 @@
+import type { RuntimeValue } from "../core/value/index.js";
+
 const YOUNG_GEN_SEMI_SPACE_SIZE = 1 << 19;
 
 export class HeapRegion<T = RuntimeValue> {

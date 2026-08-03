@@ -1,3 +1,5 @@
+import type { RuntimeValue } from "../../core/value/index.js";
+
 export const IR_PARAMETER = "Parameter";
 export const IR_CONSTANT = "Constant";
 export const IR_CHECK_MAP = "CheckMap";

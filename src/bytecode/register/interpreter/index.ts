@@ -1,3 +1,4 @@
+import type { RuntimeValue } from "../../../core/value/index.js";
 import * as bytecode from "../ops/bytecode.js";
 import type { RuntimeDebugger } from "../../../debugger/runtime.js";
 

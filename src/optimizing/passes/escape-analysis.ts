@@ -1,3 +1,4 @@
+import type { RuntimeValue } from "../../core/value/index.js";
 import * as ir from "../ir/index.js";
 
 import { tracer } from "../../core/tracing/index.js";

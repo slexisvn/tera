@@ -1,3 +1,4 @@
+import type { RuntimeRecord, RuntimeValue } from "../../../core/value/index.js";
 import {
   NodeType,
   ForOfStatement,

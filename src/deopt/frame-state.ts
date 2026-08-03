@@ -1,5 +1,5 @@
 import { getTag, toDisplayString } from "../core/value/index.js";
-import type { TaggedValue } from "../core/value/index.js";
+import type { RuntimeValue, TaggedValue } from "../core/value/index.js";
 import type { RegisterCompiledFunction } from "../bytecode/register/ops/bytecode.js";
 
 type CompiledFunctionLike = RegisterCompiledFunction;

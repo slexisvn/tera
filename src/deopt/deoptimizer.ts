@@ -1,3 +1,4 @@
+import type { RuntimeValue } from "../core/value/index.js";
 import { FrameState } from "./frame-state.js";
 import {
   RegisterFrame,

@@ -1,3 +1,4 @@
+import type { RuntimeValue } from "../../core/value/index.js";
 import {
   PACKED_SMI,
   PACKED_DOUBLE,

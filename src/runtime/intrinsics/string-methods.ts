@@ -16,7 +16,7 @@ import {
   toNumber,
   toDisplayString,
 } from "../../core/value/index.js";
-import type { TaggedValue } from "../../core/value/index.js";
+import type { RuntimeValue, TaggedValue } from "../../core/value/index.js";
 import { createJSArray } from "../../objects/heap/factory.js";
 import { unwrapPrimitive } from "./primitive-wrapper.js";
 
