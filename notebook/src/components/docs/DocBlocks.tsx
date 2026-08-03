@@ -2,6 +2,18 @@ import type { Block } from "../../docs/guide-content";
 import { CodeBlock } from "./CodeBlock";
 import { renderInline } from "./inline";
 
+function ApiSignature({ signature }: { signature: string }) {
+  const match = signature.match(/^[^\s(]+/);
+  const name = match ? match[0] : signature;
+  const rest = signature.slice(name.length);
+  return (
+    <div className="doc-api-sig">
+      <span className="doc-api-name">{name}</span>
+      {rest}
+    </div>
+  );
+}
+
 function DocBlock({ block }: { block: Block }) {
   switch (block.kind) {
     case "heading":
@@ -18,6 +30,14 @@ function DocBlock({ block }: { block: Block }) {
       );
     case "code":
       return <CodeBlock code={block.code} />;
+    case "api":
+      return (
+        <div className="doc-api">
+          <ApiSignature signature={block.signature} />
+          <p className="doc-api-desc">{renderInline(block.text)}</p>
+          {block.code ? <CodeBlock code={block.code} /> : null}
+        </div>
+      );
   }
 }
 
