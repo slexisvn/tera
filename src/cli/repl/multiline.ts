@@ -105,3 +105,20 @@ export function assess(buffer: string): Completeness {
   }
   return { complete: true, indent: "" };
 }
+
+export function lineContinuation(line: string): boolean {
+  let count = 0;
+  for (let i = line.length - 1; i >= 0 && line[i] === "\\"; i--) count++;
+  return count % 2 === 1;
+}
+
+export function stripLineContinuation(line: string): string {
+  return line.replace(/\\$/, "");
+}
+
+export function nextIndent(buffer: string): string {
+  const status = assess(buffer);
+  if (status.indent) return status.indent;
+  const lines = buffer.replace(/\r\n?/g, "\n").split("\n");
+  return indentString(leadingSpaces(lastNonBlankLine(lines)));
+}

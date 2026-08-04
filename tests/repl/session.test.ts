@@ -22,12 +22,19 @@ afterAll(() => {
   delete process.env.TERA_HISTORY;
 });
 
-function scriptedReadLine(lines: string[]): ReadLine {
+type ScriptLine = string | { text: string; forceContinue?: boolean };
+
+function scriptedReadLine(lines: ScriptLine[]): ReadLine {
   let index = 0;
-  return async () => (index < lines.length ? lines[index++] : null);
+  return async () => {
+    if (index >= lines.length) return null;
+    const item = lines[index++];
+    if (typeof item === "string") return { text: item, forceContinue: false };
+    return { text: item.text, forceContinue: item.forceContinue ?? false };
+  };
 }
 
-async function runScript(lines: string[]): Promise<string> {
+async function runScript(lines: ScriptLine[]): Promise<string> {
   const output: string[] = [];
   const term = ((text: string) => output.push(text)) as unknown as Terminal;
   const language = createLanguage();
@@ -82,5 +89,19 @@ describe("runSession", () => {
   it("reports errors and offers a suggestion for an unknown name", async () => {
     const output = await runScript(["prnt(1)"]);
     expect(output.toLowerCase()).toContain("print");
+  });
+
+  it("keeps typing on a new line when a line ends with a backslash", async () => {
+    const output = await runScript(["a = 40 \\", "a = a + 2", "a"]);
+    expect(output).toContain("42");
+  });
+
+  it("keeps reading after a forced continuation even when the buffer is complete", async () => {
+    const output = await runScript([
+      { text: "y = 40", forceContinue: true },
+      "y = y + 2",
+      "y",
+    ]);
+    expect(output).toContain("42");
   });
 });

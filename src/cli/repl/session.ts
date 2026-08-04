@@ -1,14 +1,14 @@
 import { getPayload, isPromise, toDisplayString, type PromisePayload, type TaggedValue } from "../../core/value/index.js";
 import { COMMAND_PREFIX, CONTINUATION_PROMPT, HELP_PREFIX, PRIMARY_PROMPT } from "./config.js";
-import { assess } from "./multiline.js";
+import { assess, lineContinuation, nextIndent, stripLineContinuation } from "./multiline.js";
 import { showDocumentation, type CommandContext, type CommandRegistry } from "./commands.js";
-import type { Analyzer, ReplEngine } from "./types.js";
+import type { Analyzer, ReadLine, ReplEngine } from "./types.js";
 import type { Printer } from "./display.js";
 import type { Language } from "./language.js";
 import type { History } from "./history.js";
 import type { SessionState } from "./session-state.js";
 
-export type ReadLine = (prompt: string, defaultText: string) => Promise<string | null>;
+export type { ReadLine } from "./types.js";
 
 export type SessionDeps = {
   engine: ReplEngine;
@@ -57,23 +57,29 @@ export async function runSession(deps: SessionDeps): Promise<void> {
   let buffer = "";
   let indentHint = "";
 
+  const resetBuffer = (): void => {
+    buffer = "";
+    indentHint = "";
+  };
+
   while (true) {
     const inBlock = buffer !== "";
     const prompt = inBlock ? CONTINUATION_PROMPT : PRIMARY_PROMPT;
-    const line = await readLine(prompt, inBlock ? indentHint : "");
+    const result = await readLine(prompt, inBlock ? indentHint : "");
 
-    if (line === null) {
+    if (result === null) {
       if (inBlock) {
         printer.line("muted", "^C");
-        buffer = "";
-        indentHint = "";
+        resetBuffer();
         continue;
       }
       break;
     }
 
+    const text = result.text;
+
     if (!inBlock) {
-      const trimmed = line.trim();
+      const trimmed = text.trim();
       if (!trimmed) continue;
       if (trimmed.startsWith(COMMAND_PREFIX)) {
         history.push(trimmed);
@@ -87,8 +93,16 @@ export async function runSession(deps: SessionDeps): Promise<void> {
       }
     }
 
-    if (line.trim() || inBlock) history.push(line);
-    buffer = buffer ? `${buffer}\n${line}` : line;
+    if (text.trim() || inBlock) history.push(text);
+
+    const continued = lineContinuation(text);
+    const body = continued ? stripLineContinuation(text) : text;
+    buffer = buffer === "" ? body : `${buffer}\n${body}`;
+
+    if (continued || result.forceContinue) {
+      indentHint = nextIndent(buffer);
+      continue;
+    }
 
     const status = assess(buffer);
     if (!status.complete) {
@@ -97,8 +111,7 @@ export async function runSession(deps: SessionDeps): Promise<void> {
     }
 
     const code = buffer;
-    buffer = "";
-    indentHint = "";
+    resetBuffer();
     evaluate(code);
   }
 

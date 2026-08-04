@@ -20,6 +20,7 @@ function engineGlobalNames(engine: ReplEngine): string[] {
 function printBanner(printer: Printer): void {
   printer.line("banner", "Tera REPL");
   printer.line("muted", "type .help for commands, ?<name> for docs, .exit to quit");
+  printer.line("muted", "multiline: end a line with \\ (or press Alt+Enter) to continue");
 }
 
 export async function startREPL(engine: ReplEngine): Promise<void> {

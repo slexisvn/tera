@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assess } from "../../src/cli/repl/multiline.js";
+import { assess, lineContinuation, stripLineContinuation } from "../../src/cli/repl/multiline.js";
 import { createLanguage } from "../../src/cli/repl/language.js";
 import { createAnalyzer } from "../../src/cli/repl/analysis.js";
 import { createCompleter } from "../../src/cli/repl/completion.js";
@@ -47,6 +47,21 @@ describe("multiline.assess", () => {
   it("handles nested control flow blocks", () => {
     expect(assess("for i of range(3):\n  if i > 0:\n    print(i)\n").complete).toBe(true);
     expect(assess("for i of range(3):\n  if i > 0:").complete).toBe(false);
+  });
+});
+
+describe("line continuation", () => {
+  it("treats a single trailing backslash as a continuation", () => {
+    expect(lineContinuation("x = 1 \\")).toBe(true);
+    expect(lineContinuation("x = 1")).toBe(false);
+  });
+
+  it("ignores an escaped (even) trailing backslash", () => {
+    expect(lineContinuation("x = 1 \\\\")).toBe(false);
+  });
+
+  it("strips only the final backslash", () => {
+    expect(stripLineContinuation("x = 1 \\")).toBe("x = 1 ");
   });
 });
 

@@ -1,7 +1,7 @@
 import { paint, resolveStyle, type Theme } from "./theme.js";
 import { createTokenHook, TERA_TOKEN_REGEXP } from "./highlight.js";
 import { attachSignatureHint, type SignatureDeps } from "./signature.js";
-import type { Analyzer, InputFieldOptions, Terminal } from "./types.js";
+import type { Analyzer, InputFieldOptions, KeyHandler, ReadLine, Terminal } from "./types.js";
 import type { Language } from "./language.js";
 import type { History } from "./history.js";
 
@@ -36,6 +36,8 @@ const KEY_BINDINGS: Record<string, string> = {
   CTRL_W: "deletePreviousWord",
   CTRL_U: "deleteAllBefore",
   CTRL_K: "deleteAllAfter",
+  ALT_ENTER: "submit",
+  ALT_KP_ENTER: "submit",
 };
 
 export type InputDeps = {
@@ -48,7 +50,7 @@ export type InputDeps = {
   sessionSource: () => string;
 };
 
-export type ReadLine = (prompt: string, defaultText: string) => Promise<string | null>;
+const CONTINUE_KEYS = new Set(["ALT_ENTER", "ALT_KP_ENTER"]);
 
 export function createInput(deps: InputDeps): ReadLine {
   const { term, theme } = deps;
@@ -80,9 +82,19 @@ export function createInput(deps: InputDeps): ReadLine {
 
     const controller = term.inputField(options);
     const detach = attachSignatureHint(signatureDeps, controller);
+
+    let forced = false;
+    const onKey: KeyHandler = (key) => {
+      if (CONTINUE_KEYS.has(key)) forced = true;
+    };
+    term.on("key", onKey);
+
     const line = await controller.promise;
+    term.removeListener("key", onKey);
     detach();
     term("\n");
-    return line === undefined ? null : line;
+
+    if (forced) return { text: line ?? "", forceContinue: true };
+    return line === undefined ? null : { text: line, forceContinue: false };
   };
 }

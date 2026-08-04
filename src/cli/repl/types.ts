@@ -51,6 +51,10 @@ export type InputController = {
   abort(): void;
 };
 
+export type LineResult = { text: string; forceContinue: boolean };
+
+export type ReadLine = (prompt: string, defaultText: string) => Promise<LineResult | null>;
+
 export type Terminal = ((text: string) => void) & {
   inputField(options: InputFieldOptions): InputController;
   grabInput(grab: boolean): void;
