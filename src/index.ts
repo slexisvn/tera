@@ -1,5 +1,5 @@
 export { Engine } from "./api/engine.js";
-export type { EngineOptions, CompileOptions, EngineValue } from "./api/engine.js";
+export type { EngineOptions, CompileOptions, EngineValue, EngineUnhandledRejection } from "./api/engine.js";
 export { mergeCompilerExtensions, resolveTeraExtensions } from "./api/extensions.js";
 export type { NativeHostBuiltin, NativeHostBuiltinRegistry, ResolvedTeraExtensions, TeraCompilerEffect, TeraCompilerExtension, TeraCompilerPhase, TeraDeoptSpec, TeraEffectMetadata, TeraExtension, TeraGuardKind, TeraGuardSpec, TeraIntrinsicSpec, TeraOptimizerPass, TeraOptimizerPassContext } from "./api/extensions.js";
 export { DebugController, TeraDebugSession } from "./debugger/index.js";

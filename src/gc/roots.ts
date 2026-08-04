@@ -50,6 +50,7 @@ type MicrotaskRootRecord = Microtask | {
 };
 type MicrotaskQueueLike = {
   queue: Array<MicrotaskRootRecord | null | undefined>;
+  pendingRejections?: Map<unknown, TaggedValue>;
 };
 type PayloadLike = GCObject & {
   slots?: TaggedValue[];
@@ -171,6 +172,12 @@ export function markReachableHeapIds(
     }
   }
 
+  if (microtaskQueue && microtaskQueue.pendingRejections) {
+    for (const reason of microtaskQueue.pendingRejections.values()) {
+      if (reason !== undefined) seedTagged(reason);
+    }
+  }
+
   while (work.length > 0) {
     const p = work.pop()!;
     if (Array.isArray(p.slots)) {
@@ -272,6 +279,13 @@ export function enumerateRoots(
       if (task && "promise" in task && task.promise && typeof task.promise === "object" && task.promise.gcHeader) {
         roots.push(task.promise);
       }
+    }
+  }
+
+  if (microtaskQueue && microtaskQueue.pendingRejections) {
+    for (const reason of microtaskQueue.pendingRejections.values()) {
+      const obj = extractHeapObject(reason, heap);
+      if (obj) roots.push(obj);
     }
   }
 

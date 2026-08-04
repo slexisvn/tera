@@ -40,7 +40,7 @@ import {
   MicrotaskPolicy,
   MicrotasksScope,
 } from "../runtime/microtasks/microtask.js";
-import type { MicrotaskPolicyValue } from "../runtime/microtasks/microtask.js";
+import type { MicrotaskPolicyValue, UnhandledRejection } from "../runtime/microtasks/microtask.js";
 import { GenerationalGC } from "../gc/gc.js";
 import { withGC } from "../objects/heap/factory.js";
 import { hostBuiltin, taggedToNative, withHostAsync } from "../runtime/domain/host.js";
@@ -79,6 +79,13 @@ export type EngineOptions = {
   checkerInterfaces?: BindOptions["interfaces"];
   onCompile?: (fn: RegisterCompiledFunction) => void;
   onOptimize?: (fn: RegisterCompiledFunction, graph: OptimizedGraph) => void;
+  onUnhandledRejection?: (rejections: EngineUnhandledRejection[]) => void;
+};
+
+
+export type EngineUnhandledRejection = {
+  reason: unknown;
+  message: string;
 };
 
 export type OptimizedGraph = { dump(): string };
@@ -174,13 +181,20 @@ export class TeraThrow extends Error {
   }
 }
 
-function uncaughtMessage(value: TaggedValue): string {
+function describeThrown(value: TaggedValue): string {
   if (isObject(value)) {
     const message = getPayload(value).getProperty("message");
     if (message !== undefined) {
       const name = getPayload(value).getProperty("name");
       return `${name !== undefined ? toDisplayString(name) : "Error"}: ${toDisplayString(message)}`;
     }
+  }
+  return toDisplayString(value);
+}
+
+function uncaughtMessage(value: TaggedValue): string {
+  if (isObject(value) && getPayload(value).getProperty("message") !== undefined) {
+    return describeThrown(value);
   }
   return `Uncaught ${toDisplayString(value)}`;
 }
@@ -216,6 +230,7 @@ export class Engine {
   runtimeBuiltinRegistry: BuiltinRegistryMap;
   onCompile?: (fn: RegisterCompiledFunction) => void;
   onOptimize?: (fn: RegisterCompiledFunction, graph: OptimizedGraph) => void;
+  onUnhandledRejection?: (rejections: EngineUnhandledRejection[]) => void;
 
   constructor(options: EngineOptions = {}) {
     this.valueHeap = new ValueHeap();
@@ -241,10 +256,12 @@ export class Engine {
     this.osrEnabled = options.osr !== false;
     this.onCompile = options.onCompile;
     this.onOptimize = options.onOptimize;
+    this.onUnhandledRejection = options.onUnhandledRejection;
     this.tieringPolicy = createTieringPolicy(options.tieringPolicy);
     this.microtaskQueue = new MicrotaskQueue({
       policy: options.microtaskPolicy || MicrotaskPolicy.AUTO,
     });
+    this.wireUnhandledRejectionReporter();
     this.gc = new GenerationalGC(options.gc || {}, this.valueHeap);
     this.interpreter = this.runInRuntime(
       () => new RegisterInterpreter(this) as EngineInterpreter,
@@ -448,7 +465,13 @@ export class Engine {
         this.interpreter,
       );
       try {
-        return this.interpreter.execute(compiled);
+        const raw = this.interpreter.execute(compiled);
+        if (isPromise(raw)) {
+          this.microtaskQueue.markObserved(
+            getPayload(raw) as unknown as UnhandledRejection["promise"],
+          );
+        }
+        return raw;
       } catch (error) {
         throw this.asUncaught(error);
       } finally {
@@ -536,6 +559,23 @@ export class Engine {
 
   setMicrotaskPolicy(policy: MicrotaskPolicyValue): void {
     this.microtaskQueue.setPolicy(policy);
+  }
+
+  private wireUnhandledRejectionReporter(): void {
+    const report = this.onUnhandledRejection;
+    if (!report) {
+      this.microtaskQueue.setUnhandledRejectionReporter(null);
+      return;
+    }
+    this.microtaskQueue.setUnhandledRejectionReporter((rejections: UnhandledRejection[]) => {
+      const infos = this.runInRuntime(() =>
+        rejections.map(({ reason }) => ({
+          reason: taggedToNative(reason),
+          message: describeThrown(reason),
+        })),
+      );
+      report(infos);
+    });
   }
 
   runWithDisassembly(source: string, options: CompileOptions = {}): TaggedValue {
@@ -936,6 +976,7 @@ export class Engine {
     this.microtaskQueue = new MicrotaskQueue({
       policy: this.microtaskQueue.policy,
     });
+    this.wireUnhandledRejectionReporter();
     this.gc = new GenerationalGC({}, this.valueHeap);
     this.interpreter = this.runInRuntime(
       () => new RegisterInterpreter(this) as EngineInterpreter,

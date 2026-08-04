@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { createReactiveTeraOptions, createReactiveCheckOptions } from "@slexisvn/reactive/tera";
 import { Engine } from "../api/engine.js";
-import type { EngineOptions, OptimizedGraph } from "../api/engine.js";
+import type { EngineOptions, EngineUnhandledRejection, OptimizedGraph } from "../api/engine.js";
 import type { TeraExtension } from "../api/extensions.js";
 import type { RegisterCompiledFunction } from "../bytecode/register/ops/bytecode.js";
 import { nativeToTagged, taggedToNative } from "../runtime/domain/host.js";
@@ -25,6 +25,12 @@ function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   const message = (error as { message?: unknown })?.message;
   return typeof message === "string" ? message : String(error);
+}
+
+function reportUnhandledRejections(rejections: EngineUnhandledRejection[]): void {
+  for (const rejection of rejections) {
+    console.error(`Uncaught (in promise) ${rejection.message}`);
+  }
 }
 
 function printHelp(): void {
@@ -366,6 +372,7 @@ async function main(): Promise<number> {
   if (config.command === "debug") return runDebug(config, options);
 
   if (config.command === "repl") {
+    options.onUnhandledRejection = reportUnhandledRejections;
     const { startREPL } = await import("./repl/index.js");
     await startREPL(new Engine(options));
     return 0;
@@ -374,10 +381,15 @@ async function main(): Promise<number> {
   const sources = gatherSources(config);
   if (config.check) return runCheck(sources);
 
+  let sawUnhandledRejection = false;
+  options.onUnhandledRejection = (rejections) => {
+    reportUnhandledRejections(rejections);
+    sawUnhandledRejection = true;
+  };
   const engine = new Engine(options);
   await runSources(config, engine, sources);
   if (config.stats) console.log(JSON.stringify(engine.getStats(), null, 2));
-  return 0;
+  return sawUnhandledRejection ? 1 : 0;
 }
 
 try {

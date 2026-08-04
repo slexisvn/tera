@@ -49,6 +49,17 @@ type MicrotaskStats = {
 
 type RejectionHandler = (promise: PromiseHandle, type: "reject" | "handle") => void;
 
+export type UnhandledRejection = {
+  promise: PromiseHandle;
+  reason: TaggedValue;
+};
+
+type UnhandledRejectionReporter = (rejections: UnhandledRejection[]) => void;
+
+function isObjectHandle(promise: PromiseHandle): promise is PromiseLikeRecord {
+  return typeof promise === "object" && promise !== null;
+}
+
 function callablePayload(value: TaggedValue): CallablePayload | null {
   const payload = getPayload(value) as Partial<CallablePayload> | null;
   return payload && typeof payload.call === "function"
@@ -183,7 +194,9 @@ export class MicrotaskQueue {
   suppressionDepth: number;
   running: boolean;
   pendingRejections: Map<PromiseHandle, TaggedValue>;
+  observedPromises: WeakSet<PromiseLikeRecord>;
   rejectionHandler: RejectionHandler | null;
+  unhandledRejectionReporter: UnhandledRejectionReporter | null;
   stats: MicrotaskStats;
 
   constructor(options: MicrotaskQueueOptions = {}) {
@@ -200,7 +213,11 @@ export class MicrotaskQueue {
 
     this.pendingRejections = new Map();
 
+    this.observedPromises = new WeakSet();
+
     this.rejectionHandler = null;
+
+    this.unhandledRejectionReporter = null;
 
     this.stats = {
       enqueued: 0,
@@ -286,6 +303,9 @@ export class MicrotaskQueue {
   }
 
   trackRejection(promise: PromiseHandle, value: TaggedValue): void {
+    if (isObjectHandle(promise) && this.observedPromises.has(promise)) {
+      return;
+    }
     this.pendingRejections.set(promise, value);
     tracer.log(
       "microtask",
@@ -293,6 +313,17 @@ export class MicrotaskQueue {
     );
     if (this.rejectionHandler) {
       this.rejectionHandler(promise, "reject");
+    }
+  }
+
+  markObserved(promise: PromiseHandle): void {
+    if (!isObjectHandle(promise)) return;
+    this.observedPromises.add(promise);
+    if (this.pendingRejections.delete(promise)) {
+      tracer.log(
+        "microtask",
+        `Rejection observed by host (pending=${this.pendingRejections.size})`,
+      );
     }
   }
 
@@ -311,7 +342,16 @@ export class MicrotaskQueue {
 
   _checkPendingRejections(): void {
     if (this.pendingRejections.size === 0) return;
-    for (const [promise, value] of this.pendingRejections) {
+    if (this.unhandledRejectionReporter) {
+      const rejections: UnhandledRejection[] = [];
+      for (const [promise, reason] of this.pendingRejections) {
+        rejections.push({ promise, reason });
+      }
+      this.pendingRejections.clear();
+      this.unhandledRejectionReporter(rejections);
+      return;
+    }
+    for (const [, value] of this.pendingRejections) {
       tracer.log(
         "microtask",
         `WARNING: Unhandled promise rejection (value=${value})`,
@@ -321,6 +361,12 @@ export class MicrotaskQueue {
 
   setRejectionHandler(handler: RejectionHandler | null): void {
     this.rejectionHandler = handler;
+  }
+
+  setUnhandledRejectionReporter(
+    reporter: UnhandledRejectionReporter | null,
+  ): void {
+    this.unhandledRejectionReporter = reporter;
   }
 
   getStats() {
