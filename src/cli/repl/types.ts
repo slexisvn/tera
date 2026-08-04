@@ -1,7 +1,10 @@
 import type { TaggedValue } from "../../core/value/index.js";
 import type { GlobalCell } from "../../runtime/intrinsics/global-cells.js";
+import type { IntrospectedMember } from "../../runtime/introspect.js";
 import type { SourceSymbolTable, SymbolPosition } from "../../frontend/index.js";
 import type { Language } from "./language.js";
+
+export type { IntrospectedMember } from "../../runtime/introspect.js";
 
 export type ReplEngine = {
   interpreter: { globalCells?: { cells?: Iterable<[string, GlobalCell]> } };
@@ -10,6 +13,7 @@ export type ReplEngine = {
   reset(): void;
   getStats(): unknown;
   drainMicrotasks?(): void;
+  introspectMembers?(receiver: string): IntrospectedMember[] | null;
 };
 
 export type TermStyle = ((text: string) => void) & {
@@ -97,6 +101,7 @@ export type CompletionContext = {
   language: Language;
   analysis: SessionAnalysis;
   globals: readonly string[];
+  introspect: (receiver: string) => IntrospectedMember[] | null;
 };
 
 export type CompletionProvider = {

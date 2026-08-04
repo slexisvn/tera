@@ -8,6 +8,7 @@ import {
   RegisterFrame,
   updateCallMode,
 } from "../bytecode/register/interpreter/index.js";
+import { RegisterException } from "../bytecode/register/interpreter/helpers.js";
 import {
   CompiledFunctionIdAllocator,
   RegisterCompiledFunction,
@@ -23,7 +24,7 @@ import { DependencyRegistry, withDependencyRegistry } from "../deopt/dependencie
 import { DEP_CALL_TARGET } from "../deopt/dependencies.js";
 import type { Dependency } from "../deopt/dependencies.js";
 import { tracer } from "../core/tracing/index.js";
-import { getPayload, getTag, isPromise, toDisplayString, ValueHeap, withValueHeap } from "../core/value/index.js";
+import { getPayload, getTag, isObject, isPromise, toDisplayString, ValueHeap, withValueHeap } from "../core/value/index.js";
 import type { HeapPayload } from "../core/value/index.js";
 import type { TaggedValue } from "../core/value/index.js";
 import {
@@ -43,6 +44,8 @@ import type { MicrotaskPolicyValue } from "../runtime/microtasks/microtask.js";
 import { GenerationalGC } from "../gc/gc.js";
 import { withGC } from "../objects/heap/factory.js";
 import { hostBuiltin, taggedToNative, withHostAsync } from "../runtime/domain/host.js";
+import { introspectReceiverMembers } from "../runtime/introspect.js";
+import type { IntrospectedMember } from "../runtime/introspect.js";
 import { installBuiltinEntries, isRuntimeFunctionPayload, type BuiltinRegistryMap } from "../runtime/builtins/index.js";
 import {
   checkSource,
@@ -160,6 +163,26 @@ function policyWithCompileHooks(policy: ReturnType<typeof createTieringPolicy>):
     hooks.recordCompileFailure = policy.recordCompileFailure.bind(policy);
   }
   return hooks;
+}
+
+export class TeraThrow extends Error {
+  readonly value: TaggedValue;
+  constructor(message: string, value: TaggedValue) {
+    super(message);
+    this.name = "TeraThrow";
+    this.value = value;
+  }
+}
+
+function uncaughtMessage(value: TaggedValue): string {
+  if (isObject(value)) {
+    const message = getPayload(value).getProperty("message");
+    if (message !== undefined) {
+      const name = getPayload(value).getProperty("name");
+      return `${name !== undefined ? toDisplayString(name) : "Error"}: ${toDisplayString(message)}`;
+    }
+  }
+  return `Uncaught ${toDisplayString(value)}`;
 }
 
 export class Engine {
@@ -426,6 +449,8 @@ export class Engine {
       );
       try {
         return this.interpreter.execute(compiled);
+      } catch (error) {
+        throw this.asUncaught(error);
       } finally {
         scope.exit();
       }
@@ -443,6 +468,16 @@ export class Engine {
     const result = this.runSource(source, options);
     this.valueHeap.enableExternalLookup();
     return result;
+  }
+
+  private asUncaught(error: unknown): unknown {
+    if (!(error instanceof RegisterException)) return error;
+    this.valueHeap.enableExternalLookup();
+    return new TeraThrow(uncaughtMessage(error.value), error.value);
+  }
+
+  introspectMembers(receiver: string): IntrospectedMember[] | null {
+    return this.runInRuntime(() => introspectReceiverMembers(this.interpreter.globalCells, receiver));
   }
 
   runValue(source: string, options: CompileOptions = {}): EngineValue {

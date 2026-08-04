@@ -27,6 +27,11 @@ export function ownerExpression(prefix: string): string | null {
   return receiver || null;
 }
 
+export function joinSource(base: string, next: string): string {
+  if (!next) return base;
+  return base ? `${base}\n${next}` : next;
+}
+
 export function leadingSpaces(line: string): number {
   let count = 0;
   while (count < line.length && line[count] === " ") count++;

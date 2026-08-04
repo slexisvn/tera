@@ -2,7 +2,7 @@ import terminalKit from "terminal-kit";
 import { resolveMemberReceiverType, type SourceScope, type SourceSymbolTable, type SymbolPosition } from "../../frontend/index.js";
 import { COMMAND_PREFIX, HELP_PREFIX, MAX_MENU_ITEMS } from "./config.js";
 import { isMemberAccess, ownerExpression, splitTrailingWord } from "./text.js";
-import type { Analyzer, CompletionContext, CompletionItem, CompletionProvider } from "./types.js";
+import type { Analyzer, CompletionContext, CompletionItem, CompletionProvider, IntrospectedMember } from "./types.js";
 import type { Language } from "./language.js";
 
 type CompleteResult = string | string[];
@@ -17,6 +17,7 @@ export type CompleterDeps = {
   sessionSource: () => string;
   engineGlobals: () => readonly string[];
   commandNames: () => readonly string[];
+  introspect: (receiver: string) => IntrospectedMember[] | null;
 };
 
 function scopeNames(symbols: SourceSymbolTable, position: SymbolPosition): string[] {
@@ -33,6 +34,10 @@ function memberCandidates(ctx: CompletionContext): CompletionItem[] {
   const { language, analysis } = ctx;
   if (ctx.ownerExpr === "chart") {
     return language.chartMethods.map((method) => ({ label: method.name, kind: "method", doc: method.description ?? undefined }));
+  }
+  const live = ctx.ownerExpr ? ctx.introspect(ctx.ownerExpr) : null;
+  if (live) {
+    return live.map((member) => ({ label: member.name, kind: member.kind }));
   }
   const position = analysis.positionOf(ctx.line.length);
   const typeName = resolveMemberReceiverType(analysis.source, position, analysis.symbols, language.globalNamespaces);
@@ -105,6 +110,7 @@ export function createCompleter(deps: CompleterDeps): (input: string) => Complet
       language: deps.language,
       analysis,
       globals: deps.engineGlobals(),
+      introspect: deps.introspect,
     };
     const provider = providers.find((candidate) => candidate.match(ctx));
     const labels = provider ? rank(provider.complete(ctx), word) : [];

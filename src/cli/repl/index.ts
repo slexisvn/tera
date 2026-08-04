@@ -8,6 +8,7 @@ import { createInput } from "./input.js";
 import { createCommandRegistry } from "./commands.js";
 import { createSessionState } from "./session-state.js";
 import { runSession } from "./session.js";
+import { joinSource } from "./text.js";
 import { defaultTheme } from "./theme.js";
 import type { Printer } from "./display.js";
 import type { ReplEngine, Terminal } from "./types.js";
@@ -33,15 +34,19 @@ export async function startREPL(engine: ReplEngine): Promise<void> {
   const commander = createCommandRegistry();
   const state = createSessionState();
 
+  let pending = "";
+  const liveSource = () => joinSource(state.source(), pending);
+
   const complete = createCompleter({
     language,
     analyzer,
-    sessionSource: state.source,
+    sessionSource: liveSource,
     engineGlobals: () => engineGlobalNames(engine),
     commandNames: () => commander.names(),
+    introspect: (receiver) => engine.introspectMembers?.(receiver) ?? null,
   });
 
-  const readLine = createInput({ term, theme, language, analyzer, history, complete, sessionSource: state.source });
+  const readLine = createInput({ term, theme, language, analyzer, history, complete, sessionSource: liveSource });
 
   printBanner(printer);
 
@@ -57,6 +62,7 @@ export async function startREPL(engine: ReplEngine): Promise<void> {
       readLine,
       knownNames: () => new Set<string>([...engineGlobalNames(engine), ...language.keywords, ...language.builtins.keys()]),
       clearScreen: () => term.clear(),
+      publishPending: (source) => { pending = source; },
     });
   } finally {
     term.grabInput(false);

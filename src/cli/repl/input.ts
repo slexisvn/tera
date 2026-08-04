@@ -52,6 +52,14 @@ export type InputDeps = {
 
 const CONTINUE_KEYS = new Set(["ALT_ENTER", "ALT_KP_ENTER"]);
 
+function reserveLineBelow(term: Terminal, column: number): void {
+  try {
+    term("\n");
+    term.up(1);
+    term.column(column);
+  } catch {}
+}
+
 export function createInput(deps: InputDeps): ReadLine {
   const { term, theme } = deps;
   const tokenHook = createTokenHook(deps.language, theme);
@@ -66,6 +74,7 @@ export function createInput(deps: InputDeps): ReadLine {
 
   return async (prompt, defaultText) => {
     term(paint(term, theme.ui.prompt, prompt));
+    reserveLineBelow(term, [...prompt].length + 1);
     const options: InputFieldOptions = {
       history: deps.history.entries,
       autoComplete: deps.complete,

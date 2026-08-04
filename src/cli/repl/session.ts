@@ -21,6 +21,7 @@ export type SessionDeps = {
   readLine: ReadLine;
   knownNames: () => Iterable<string>;
   clearScreen: () => void;
+  publishPending: (source: string) => void;
 };
 
 function settlePromise(engine: ReplEngine, value: TaggedValue): TaggedValue {
@@ -65,6 +66,7 @@ export async function runSession(deps: SessionDeps): Promise<void> {
   while (true) {
     const inBlock = buffer !== "";
     const prompt = inBlock ? CONTINUATION_PROMPT : PRIMARY_PROMPT;
+    deps.publishPending(buffer);
     const result = await readLine(prompt, inBlock ? indentHint : "");
 
     if (result === null) {

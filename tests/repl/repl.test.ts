@@ -96,6 +96,7 @@ describe("completion", () => {
       sessionSource: () => sessionSource,
       engineGlobals: () => [],
       commandNames: () => ["exit", "reset", "help"],
+      introspect: () => null,
     });
 
   it("completes tera builtins", () => {

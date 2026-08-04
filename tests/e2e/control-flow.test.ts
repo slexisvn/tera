@@ -152,6 +152,21 @@ describe("Tera control flow", () => {
     expect(run(source)).toBe(4);
   });
 
+  it("surfaces an uncaught thrown value with a readable message, not [object Object]", () => {
+    expect(() => new Engine().run('throw "kaboom"')).toThrow("Uncaught kaboom");
+    expect(() => new Engine().runNative('throw "kaboom"')).toThrow("Uncaught kaboom");
+    expect(() => new Engine().run("throw 42")).toThrow("Uncaught 42");
+    expect(() => new Engine().run('throw Error("db down")')).toThrow("Error: db down");
+    const classThrow = [
+      "class E:",
+      "  public constructor():",
+      "    this.name = \"E\"",
+      "    this.message = \"custom fail\"",
+      "throw E()",
+    ].join("\n");
+    expect(() => new Engine().run(classThrow)).toThrow("E: custom fail");
+  });
+
   it("runs labeled indentation blocks with labeled break", () => {
     const source = [
       "total = 0",
