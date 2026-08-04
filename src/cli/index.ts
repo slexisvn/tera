@@ -366,7 +366,7 @@ async function main(): Promise<number> {
   if (config.command === "debug") return runDebug(config, options);
 
   if (config.command === "repl") {
-    const { startREPL } = await import("./repl.js");
+    const { startREPL } = await import("./repl/index.js");
     await startREPL(new Engine(options));
     return 0;
   }

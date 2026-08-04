@@ -9,8 +9,8 @@ print("PI, E    =", Math.PI, Math.E)
 print("=== Numbers & parsing ===")
 print("Number   =", Number("128"))
 print("String   =", String(3.14))
-print("parseInt =", parseInt("42"))
-print("parseFloat =", parseFloat("2.718"))
+print("parse_int =", parse_int("42"))
+print("parse_float =", parse_float("2.718"))
 
 print("=== Strings ===")
 s: string = "Tera Language"

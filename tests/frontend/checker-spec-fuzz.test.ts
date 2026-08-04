@@ -151,9 +151,9 @@ function objectExprForInterface(name: string): string {
   if (name === "RootResult") return "{ root: 1.0, iterations: 1, converged: true }";
   if (name === "Fold") return "{ train: [1], test: [2] }";
   if (name === "TokenizerSpecialTokenMap") return "{ pad: \"<pad>\", unk: \"<unk>\", bos: \"<bos>\", eos: \"<eos>\" }";
-  if (name === "TokenizerStrategyData") return "{ lowercase: true, numMerges: 1, endOfWord: \"</w>\", merges: [[\"a\", \"b\"]] }";
-  if (name === "TokenizerConfig") return "{ lowercase: true, numMerges: 1, endOfWord: \"</w>\", merges: [[\"a\", \"b\"]], vocabSize: 100 }";
-  if (name === "TokenizerJSON") return "{ format: \"mlfw-tokenizer\", version: 1, mode: \"word\", config: { vocabSize: 100 }, specialTokens: { pad: \"<pad>\", unk: \"<unk>\", bos: \"<bos>\", eos: \"<eos>\" }, vocab: [\"x\"], strategy: {} }";
+  if (name === "TokenizerStrategyData") return "{ lowercase: true, num_merges: 1, end_of_word: \"</w>\", merges: [[\"a\", \"b\"]] }";
+  if (name === "TokenizerConfig") return "{ lowercase: true, num_merges: 1, end_of_word: \"</w>\", merges: [[\"a\", \"b\"]], vocab_size: 100 }";
+  if (name === "TokenizerJSON") return "{ format: \"mlfw-tokenizer\", version: 1, mode: \"word\", config: { vocab_size: 100 }, special_tokens: { pad: \"<pad>\", unk: \"<unk>\", bos: \"<bos>\", eos: \"<eos>\" }, vocab: [\"x\"], strategy: {} }";
   if (name === "MetricRecord") return "{ acc: 1.0 }";
   if (name === "MetricMap") return "{ acc: Accuracy() }";
   if (name === "ParamGrid") return "{ alpha: [1.0] }";

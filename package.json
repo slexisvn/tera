@@ -1,6 +1,6 @@
 {
   "name": "@slexisvn/tera",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "bin": {
     "tera": "./dist/cli.js"
@@ -45,7 +45,6 @@
     "@slexisvn/quantc": "^0.1.2",
     "@slexisvn/query-engine": "^0.1.4",
     "@slexisvn/reactive": "^0.1.1",
-    "cli-highlight": "^2.1.11",
     "patch-package": "^8.0.1",
     "terminal-kit": "^3.1.2"
   }

@@ -253,8 +253,8 @@ export const builtins = {
     },
   },
 
-  parseInt: {
-    name: "parseInt",
+  parse_int: {
+    name: "parse_int",
     pure: true,
     call(args: BuiltinArg[]) {
       const str = extractArgString(args, 0, "NaN");
@@ -264,8 +264,8 @@ export const builtins = {
     },
   },
 
-  parseFloat: {
-    name: "parseFloat",
+  parse_float: {
+    name: "parse_float",
     pure: true,
     call(args: BuiltinArg[]) {
       const str = extractArgString(args, 0, "NaN");
@@ -274,8 +274,8 @@ export const builtins = {
     },
   },
 
-  isNaN: {
-    name: "isNaN",
+  is_nan: {
+    name: "is_nan",
     pure: true,
     call(args: BuiltinArg[]) {
       const v = (args[0] === undefined ? mkUndefined() : args[0]);
@@ -283,8 +283,8 @@ export const builtins = {
     },
   },
 
-  isFinite: {
-    name: "isFinite",
+  is_finite: {
+    name: "is_finite",
     pure: true,
     call(args: BuiltinArg[]) {
       const v = (args[0] === undefined ? mkUndefined() : args[0]);
@@ -307,8 +307,8 @@ export const builtins = {
     POSITIVE_INFINITY: Infinity,
     NEGATIVE_INFINITY: -Infinity,
     NaN: NaN,
-    isInteger: {
-      name: "Number.isInteger",
+    is_integer: {
+      name: "Number.is_integer",
       pure: true,
       call(args: BuiltinArg[]) {
         return mkBool(
@@ -316,8 +316,8 @@ export const builtins = {
         );
       },
     },
-    isSafeInteger: {
-      name: "Number.isSafeInteger",
+    is_safe_integer: {
+      name: "Number.is_safe_integer",
       pure: true,
       call(args: BuiltinArg[]) {
         return mkBool(
@@ -325,8 +325,8 @@ export const builtins = {
         );
       },
     },
-    isFinite: {
-      name: "Number.isFinite",
+    is_finite: {
+      name: "Number.is_finite",
       pure: true,
       call(args: BuiltinArg[]) {
         return mkBool(
@@ -334,8 +334,8 @@ export const builtins = {
         );
       },
     },
-    isNaN: {
-      name: "Number.isNaN",
+    is_nan: {
+      name: "Number.is_nan",
       pure: true,
       call(args: BuiltinArg[]) {
         return mkBool(
@@ -343,15 +343,15 @@ export const builtins = {
         );
       },
     },
-    parseFloat: {
-      name: "Number.parseFloat",
+    parse_float: {
+      name: "Number.parse_float",
       pure: true,
       call(args: BuiltinArg[]) {
         return mkNumber(parseFloat(extractArgString(args, 0, "NaN")));
       },
     },
-    parseInt: {
-      name: "Number.parseInt",
+    parse_int: {
+      name: "Number.parse_int",
       pure: true,
       call(args: BuiltinArg[]) {
         const radix = args.length > 1 ? extractArgNumber(args, 1, 10) : 10;
@@ -759,8 +759,8 @@ export const builtins = {
         return args[0];
       },
     },
-    isFrozen: {
-      name: "Object.isFrozen",
+    is_frozen: {
+      name: "Object.is_frozen",
       call(args: BuiltinArg[]) {
         if (args.length === 0 || !isObject(args[0])) return mkBool(true);
         return mkBool(!!getPayload(args[0])._frozen);
@@ -777,8 +777,8 @@ export const builtins = {
         return args[0];
       },
     },
-    isSealed: {
-      name: "Object.isSealed",
+    is_sealed: {
+      name: "Object.is_sealed",
       call(args: BuiltinArg[]) {
         if (args.length === 0 || !isObject(args[0])) return mkBool(true);
         const obj = getPayload(args[0]);

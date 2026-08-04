@@ -30,18 +30,8 @@ declare module "terminal-kit" {
 
   const terminalKit: {
     terminal: Terminal;
+    autoComplete(array: string[], startString: string, returnAlternatives?: boolean, prefix?: string, postfix?: string): string | string[];
   };
 
   export default terminalKit;
-}
-
-declare module "cli-highlight" {
-  type HighlightOptions = Record<string, string | number | boolean | RegExp>;
-  type HighlightFn = (code: string, options?: HighlightOptions) => string;
-  const cliHighlight: HighlightFn & {
-    highlight?: HighlightFn;
-    default?: { highlight?: HighlightFn };
-  };
-
-  export default cliHighlight;
 }

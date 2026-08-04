@@ -1,0 +1,88 @@
+import { paint, resolveStyle, type Theme } from "./theme.js";
+import { createTokenHook, TERA_TOKEN_REGEXP } from "./highlight.js";
+import { attachSignatureHint, type SignatureDeps } from "./signature.js";
+import type { Analyzer, InputFieldOptions, Terminal } from "./types.js";
+import type { Language } from "./language.js";
+import type { History } from "./history.js";
+
+const AUTO_CLOSE_PAIRS: Record<string, string> = {
+  "(": ")",
+  "[": "]",
+  "{": "}",
+  '"': '"',
+  "'": "'",
+  "`": "`",
+};
+
+const KEY_BINDINGS: Record<string, string> = {
+  CTRL_C: "cancel",
+  ESCAPE: "cancel",
+  ENTER: "submit",
+  KP_ENTER: "submit",
+  CTRL_D: "cancel",
+  BACKSPACE: "backDelete",
+  DELETE: "delete",
+  LEFT: "backward",
+  RIGHT: "forward",
+  UP: "historyPrevious",
+  DOWN: "historyNext",
+  HOME: "startOfInput",
+  END: "endOfInput",
+  TAB: "autoComplete",
+  CTRL_R: "autoCompleteUsingHistory",
+  CTRL_LEFT: "previousWord",
+  CTRL_RIGHT: "nextWord",
+  ALT_D: "deleteNextWord",
+  CTRL_W: "deletePreviousWord",
+  CTRL_U: "deleteAllBefore",
+  CTRL_K: "deleteAllAfter",
+};
+
+export type InputDeps = {
+  term: Terminal;
+  theme: Theme;
+  language: Language;
+  analyzer: Analyzer;
+  history: History;
+  complete: (input: string) => string | string[];
+  sessionSource: () => string;
+};
+
+export type ReadLine = (prompt: string, defaultText: string) => Promise<string | null>;
+
+export function createInput(deps: InputDeps): ReadLine {
+  const { term, theme } = deps;
+  const tokenHook = createTokenHook(deps.language, theme);
+  const hintStyle = resolveStyle(term, theme.ui.hint);
+  const signatureDeps: SignatureDeps = {
+    term,
+    theme,
+    language: deps.language,
+    analyzer: deps.analyzer,
+    sessionSource: deps.sessionSource,
+  };
+
+  return async (prompt, defaultText) => {
+    term(paint(term, theme.ui.prompt, prompt));
+    const options: InputFieldOptions = {
+      history: deps.history.entries,
+      autoComplete: deps.complete,
+      autoCompleteHint: true,
+      autoCompleteMenu: true,
+      autoClosePairs: AUTO_CLOSE_PAIRS,
+      cancelable: true,
+      keyBindings: KEY_BINDINGS,
+      tokenRegExp: TERA_TOKEN_REGEXP,
+      tokenHook,
+    };
+    if (hintStyle) options.hintStyle = hintStyle;
+    if (defaultText) options.default = defaultText;
+
+    const controller = term.inputField(options);
+    const detach = attachSignatureHint(signatureDeps, controller);
+    const line = await controller.promise;
+    detach();
+    term("\n");
+    return line === undefined ? null : line;
+  };
+}

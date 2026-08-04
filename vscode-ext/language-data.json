@@ -1218,7 +1218,7 @@
         }
       },
       {
-        "name": "isFrozen",
+        "name": "is_frozen",
         "description": null,
         "returns": "bool",
         "effect": "sync",
@@ -1233,7 +1233,7 @@
               "defaultValue": null
             }
           ],
-          "display": "isFrozen(target: Object) -> bool"
+          "display": "is_frozen(target: Object) -> bool"
         }
       },
       {
@@ -1256,7 +1256,7 @@
         }
       },
       {
-        "name": "isSealed",
+        "name": "is_sealed",
         "description": null,
         "returns": "bool",
         "effect": "sync",
@@ -1271,7 +1271,7 @@
               "defaultValue": null
             }
           ],
-          "display": "isSealed(target: Object) -> bool"
+          "display": "is_sealed(target: Object) -> bool"
         }
       }
     ],
@@ -3500,14 +3500,14 @@
         "signature": {
           "params": [
             {
-              "name": "targetType",
+              "name": "target_type",
               "type": null,
               "optional": false,
               "rest": false,
               "defaultValue": null
             }
           ],
-          "display": "cast(targetType) -> Column"
+          "display": "cast(target_type) -> Column"
         }
       }
     ],
@@ -4631,16 +4631,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "tensor(data: TensorDataInput, shape?: int[], dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "tensor(data: TensorDataInput, shape?: int[], dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -4693,16 +4686,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "zeros(shape: NumericShape, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "zeros(shape: NumericShape, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -4755,16 +4741,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "ones(shape: NumericShape, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "ones(shape: NumericShape, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -4817,16 +4796,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "empty(shape: NumericShape, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "empty(shape: NumericShape, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -4886,16 +4858,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "full(shape: NumericShape, value: NumericScalar, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "full(shape: NumericShape, value: NumericScalar, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -4948,16 +4913,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "randn(shape: NumericShape, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "randn(shape: NumericShape, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -5024,16 +4982,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "arange(start: NumericScalar, end?: int | float, step?: int | float, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "arange(start: NumericScalar, end?: int | float, step?: int | float, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -5093,16 +5044,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "eye(n: int, m?: int, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "eye(n: int, m?: int, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -5169,16 +5113,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "linspace(start: NumericScalar, end: NumericScalar, steps: int, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "linspace(start: NumericScalar, end: NumericScalar, steps: int, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -5231,16 +5168,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "randperm(n: int, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "randperm(n: int, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -5293,16 +5223,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "scalar(value: NumericScalar, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "scalar(value: NumericScalar, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -5355,16 +5278,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "zeros_like(tensor: Tensor, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "zeros_like(tensor: Tensor, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -5417,16 +5333,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "ones_like(tensor: Tensor, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "ones_like(tensor: Tensor, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -5479,16 +5388,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "empty_like(tensor: Tensor, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "empty_like(tensor: Tensor, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -5548,16 +5450,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "full_like(tensor: Tensor, value: NumericScalar, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "full_like(tensor: Tensor, value: NumericScalar, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -5610,16 +5505,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "requiresGrad",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "randn_like(tensor: Tensor, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool, requiresGrad?: bool) -> Tensor"
+        "display": "randn_like(tensor: Tensor, dtype?: DType, device?: DeviceLike, offset?: int, grad?: bool, requires_grad?: bool) -> Tensor"
       },
       "methods": []
     },
@@ -5866,7 +5754,7 @@
       "methods": []
     },
     {
-      "name": "parseInt",
+      "name": "parse_int",
       "kind": "function",
       "description": "Parse an integer from a string with an optional radix.",
       "returns": "int",
@@ -5888,12 +5776,12 @@
             "defaultValue": null
           }
         ],
-        "display": "parseInt(text: string, radix?: int) -> int"
+        "display": "parse_int(text: string, radix?: int) -> int"
       },
       "methods": []
     },
     {
-      "name": "parseFloat",
+      "name": "parse_float",
       "kind": "function",
       "description": "Parse a floating-point number from a string.",
       "returns": "float",
@@ -5908,12 +5796,12 @@
             "defaultValue": null
           }
         ],
-        "display": "parseFloat(text: string) -> float"
+        "display": "parse_float(text: string) -> float"
       },
       "methods": []
     },
     {
-      "name": "isNaN",
+      "name": "is_nan",
       "kind": "function",
       "description": "True when the value is NaN after numeric conversion.",
       "returns": "bool",
@@ -5928,12 +5816,12 @@
             "defaultValue": null
           }
         ],
-        "display": "isNaN(value: any) -> bool"
+        "display": "is_nan(value: any) -> bool"
       },
       "methods": []
     },
     {
-      "name": "isFinite",
+      "name": "is_finite",
       "kind": "function",
       "description": "True when the value is a finite number.",
       "returns": "bool",
@@ -5948,7 +5836,7 @@
             "defaultValue": null
           }
         ],
-        "display": "isFinite(value: any) -> bool"
+        "display": "is_finite(value: any) -> bool"
       },
       "methods": []
     },
@@ -5976,13 +5864,6 @@
           },
           {
             "name": "example_inputs",
-            "type": "Tensor[]",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "exampleInputs",
             "type": "Tensor[]",
             "optional": true,
             "rest": false,
@@ -6157,7 +6038,7 @@
             "defaultValue": null
           }
         ],
-        "display": "compile(model: Module, input?: Tensor | Tensor[], example_inputs?: Tensor[], exampleInputs?: Tensor[], target?: CompileTarget, source?: bool, name?: string, mode?: string, verify?: CompileVerifyMode, error_mode?: CompileErrorMode, fold_weights?: bool, dynamic_shapes?: DynamicShapes, shape_buckets?: int[][][], backward?: unknown, fusion?: CompileFusionOptions, scheduling?: CompileSchedulingOptions, matmul_backend?: CompileMatmulBackend, quantization?: CompileQuantizationOptions, optimization?: CompileOptimizationOptions, memory?: CompileMemoryOptions, partition?: CompilePartitionOptions, trace?: CompileTraceOptions, remat_policy?: unknown, remat?: ParamGrid, pass_context?: unknown, lowering_rules?: unknown, codegen_entries?: unknown, options?: CompileOptions) -> unknown"
+        "display": "compile(model: Module, input?: Tensor | Tensor[], example_inputs?: Tensor[], target?: CompileTarget, source?: bool, name?: string, mode?: string, verify?: CompileVerifyMode, error_mode?: CompileErrorMode, fold_weights?: bool, dynamic_shapes?: DynamicShapes, shape_buckets?: int[][][], backward?: unknown, fusion?: CompileFusionOptions, scheduling?: CompileSchedulingOptions, matmul_backend?: CompileMatmulBackend, quantization?: CompileQuantizationOptions, optimization?: CompileOptimizationOptions, memory?: CompileMemoryOptions, partition?: CompilePartitionOptions, trace?: CompileTraceOptions, remat_policy?: unknown, remat?: ParamGrid, pass_context?: unknown, lowering_rules?: unknown, codegen_entries?: unknown, options?: CompileOptions) -> unknown"
       },
       "methods": []
     },
@@ -10486,13 +10367,6 @@
             "defaultValue": "0"
           },
           {
-            "name": "weightDecay",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "0"
-          },
-          {
             "name": "nesterov",
             "type": "bool",
             "optional": true,
@@ -10500,7 +10374,7 @@
             "defaultValue": "false"
           }
         ],
-        "display": "SGD(params: OptimizerParams, lr: float = 0.01, momentum: float = 0, dampening: float = 0, weight_decay: float = 0, weightDecay: float = 0, nesterov: bool = false) -> SGD"
+        "display": "SGD(params: OptimizerParams, lr: float = 0.01, momentum: float = 0, dampening: float = 0, weight_decay: float = 0, nesterov: bool = false) -> SGD"
       },
       "methods": [
         {
@@ -10590,13 +10464,6 @@
             "defaultValue": "0"
           },
           {
-            "name": "weightDecay",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "0"
-          },
-          {
             "name": "amsgrad",
             "type": "bool",
             "optional": true,
@@ -10604,7 +10471,7 @@
             "defaultValue": "false"
           }
         ],
-        "display": "Adam(params: OptimizerParams, lr: float = 0.001, betas?: float[], eps: float = 1e-8, weight_decay: float = 0, weightDecay: float = 0, amsgrad: bool = false) -> Adam"
+        "display": "Adam(params: OptimizerParams, lr: float = 0.001, betas?: float[], eps: float = 1e-8, weight_decay: float = 0, amsgrad: bool = false) -> Adam"
       },
       "methods": [
         {
@@ -10694,13 +10561,6 @@
             "defaultValue": "0.01"
           },
           {
-            "name": "weightDecay",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "0.01"
-          },
-          {
             "name": "amsgrad",
             "type": "bool",
             "optional": true,
@@ -10708,7 +10568,7 @@
             "defaultValue": "false"
           }
         ],
-        "display": "AdamW(params: OptimizerParams, lr: float = 0.001, betas?: float[], eps: float = 1e-8, weight_decay: float = 0.01, weightDecay: float = 0.01, amsgrad: bool = false) -> AdamW"
+        "display": "AdamW(params: OptimizerParams, lr: float = 0.001, betas?: float[], eps: float = 1e-8, weight_decay: float = 0.01, amsgrad: bool = false) -> AdamW"
       },
       "methods": [
         {
@@ -10949,13 +10809,6 @@
             "defaultValue": "rel"
           },
           {
-            "name": "thresholdMode",
-            "type": "string",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "rel"
-          },
-          {
             "name": "cooldown",
             "type": "int",
             "optional": true,
@@ -10970,13 +10823,6 @@
             "defaultValue": "0"
           },
           {
-            "name": "minLR",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "0"
-          },
-          {
             "name": "eps",
             "type": "float",
             "optional": true,
@@ -10984,7 +10830,7 @@
             "defaultValue": "1e-8"
           }
         ],
-        "display": "ReduceLROnPlateau(optimizer: Optimizer, mode: string = min, factor: float = 0.1, patience: int = 10, threshold: float = 0.0001, threshold_mode: string = rel, thresholdMode: string = rel, cooldown: int = 0, min_lr: float = 0, minLR: float = 0, eps: float = 1e-8) -> ReduceLROnPlateau"
+        "display": "ReduceLROnPlateau(optimizer: Optimizer, mode: string = min, factor: float = 0.1, patience: int = 10, threshold: float = 0.0001, threshold_mode: string = rel, cooldown: int = 0, min_lr: float = 0, eps: float = 1e-8) -> ReduceLROnPlateau"
       },
       "methods": [
         {
@@ -11035,21 +10881,7 @@
             "defaultValue": "20"
           },
           {
-            "name": "maxEpochs",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "20"
-          },
-          {
             "name": "max_steps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "maxSteps",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -11091,21 +10923,7 @@
             "defaultValue": "false"
           },
           {
-            "name": "enableCheckpointing",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "false"
-          },
-          {
             "name": "enable_progress",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "true"
-          },
-          {
-            "name": "enableProgress",
             "type": "bool",
             "optional": true,
             "rest": false,
@@ -11119,21 +10937,7 @@
             "defaultValue": null
           },
           {
-            "name": "gradientClipVal",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "gradient_clip_algorithm",
-            "type": "string",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "gradientClipAlgorithm",
             "type": "string",
             "optional": true,
             "rest": false,
@@ -11147,21 +10951,7 @@
             "defaultValue": "1"
           },
           {
-            "name": "accumulateGradBatches",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "1"
-          },
-          {
             "name": "limit_train_batches",
-            "type": "int | null",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "limitTrainBatches",
             "type": "int | null",
             "optional": true,
             "rest": false,
@@ -11175,21 +10965,7 @@
             "defaultValue": null
           },
           {
-            "name": "limitValBatches",
-            "type": "int | null",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "limit_test_batches",
-            "type": "int | null",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "limitTestBatches",
             "type": "int | null",
             "optional": true,
             "rest": false,
@@ -11203,13 +10979,6 @@
             "defaultValue": null
           },
           {
-            "name": "valCheckInterval",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "check_val_every_n_epoch",
             "type": "int",
             "optional": true,
@@ -11217,21 +10986,7 @@
             "defaultValue": "1"
           },
           {
-            "name": "checkValEveryNEpoch",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "1"
-          },
-          {
             "name": "log_every_n_steps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "50"
-          },
-          {
-            "name": "logEveryNSteps",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -11252,21 +11007,7 @@
             "defaultValue": "false"
           },
           {
-            "name": "fastDevRun",
-            "type": "bool | int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "false"
-          },
-          {
             "name": "default_root_dir",
-            "type": "string",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "defaultRootDir",
             "type": "string",
             "optional": true,
             "rest": false,
@@ -11287,21 +11028,7 @@
             "defaultValue": null
           },
           {
-            "name": "compileMode",
-            "type": "string",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "cuda_graph",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "false"
-          },
-          {
-            "name": "cudaGraph",
             "type": "bool",
             "optional": true,
             "rest": false,
@@ -11313,16 +11040,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "cudaGraphWarmupSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "Trainer(max_epochs: int = 20, maxEpochs: int = 20, max_steps?: int, maxSteps?: int, accelerator: string = cpu, precision?: string, callbacks?: Callback[], logger: LoggerConfig = true, enable_checkpointing: bool = false, enableCheckpointing: bool = false, enable_progress: bool = true, enableProgress: bool = true, gradient_clip_val?: float, gradientClipVal?: float, gradient_clip_algorithm?: string, gradientClipAlgorithm?: string, accumulate_grad_batches: int = 1, accumulateGradBatches: int = 1, limit_train_batches?: int | null, limitTrainBatches?: int | null, limit_val_batches?: int | null, limitValBatches?: int | null, limit_test_batches?: int | null, limitTestBatches?: int | null, val_check_interval?: float, valCheckInterval?: float, check_val_every_n_epoch: int = 1, checkValEveryNEpoch: int = 1, log_every_n_steps: int = 50, logEveryNSteps: int = 50, deterministic?: bool, fast_dev_run: bool | int = false, fastDevRun: bool | int = false, default_root_dir?: string, defaultRootDir?: string, compile: bool = false, compile_mode?: string, compileMode?: string, cuda_graph: bool = false, cudaGraph: bool = false, cuda_graph_warmup_steps?: int, cudaGraphWarmupSteps?: int) -> Trainer"
+        "display": "Trainer(max_epochs: int = 20, max_steps?: int, accelerator: string = cpu, precision?: string, callbacks?: Callback[], logger: LoggerConfig = true, enable_checkpointing: bool = false, enable_progress: bool = true, gradient_clip_val?: float, gradient_clip_algorithm?: string, accumulate_grad_batches: int = 1, limit_train_batches?: int | null, limit_val_batches?: int | null, limit_test_batches?: int | null, val_check_interval?: float, check_val_every_n_epoch: int = 1, log_every_n_steps: int = 50, deterministic?: bool, fast_dev_run: bool | int = false, default_root_dir?: string, compile: bool = false, compile_mode?: string, cuda_graph: bool = false, cuda_graph_warmup_steps?: int) -> Trainer"
       },
       "methods": [
         {
@@ -11514,16 +11234,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lrScheduler",
-            "type": "LRScheduler | ReduceLROnPlateau",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "optim_config(optimizer: Optimizer, lr_scheduler?: LRScheduler | ReduceLROnPlateau, lrScheduler?: LRScheduler | ReduceLROnPlateau) -> OptimizerConfig"
+        "display": "optim_config(optimizer: Optimizer, lr_scheduler?: LRScheduler | ReduceLROnPlateau) -> OptimizerConfig"
       },
       "methods": []
     },
@@ -11737,13 +11450,6 @@
             "defaultValue": null
           },
           {
-            "name": "vocabSize",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "lowercase",
             "type": "bool",
             "optional": true,
@@ -11758,21 +11464,7 @@
             "defaultValue": "1000"
           },
           {
-            "name": "numMerges",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "1000"
-          },
-          {
             "name": "special_tokens",
-            "type": "TokenizerSpecialTokens",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "specialTokens",
             "type": "TokenizerSpecialTokens",
             "optional": true,
             "rest": false,
@@ -11784,16 +11476,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "endOfWord",
-            "type": "string",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "Tokenizer(mode: string = word, vocab_size?: int, vocabSize?: int, lowercase: bool = false, num_merges: int = 1000, numMerges: int = 1000, special_tokens?: TokenizerSpecialTokens, specialTokens?: TokenizerSpecialTokens, end_of_word?: string, endOfWord?: string) -> Tokenizer"
+        "display": "Tokenizer(mode: string = word, vocab_size?: int, lowercase: bool = false, num_merges: int = 1000, special_tokens?: TokenizerSpecialTokens, end_of_word?: string) -> Tokenizer"
       },
       "methods": [
         {
@@ -11868,28 +11553,14 @@
                 "defaultValue": null
               },
               {
-                "name": "addBos",
-                "type": "boolean",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
                 "name": "add_eos",
-                "type": "boolean",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "addEos",
                 "type": "boolean",
                 "optional": true,
                 "rest": false,
                 "defaultValue": null
               }
             ],
-            "display": "encode(text: string, add_bos?: boolean, addBos?: boolean, add_eos?: boolean, addEos?: boolean) -> int[]"
+            "display": "encode(text: string, add_bos?: boolean, add_eos?: boolean) -> int[]"
           }
         },
         {
@@ -11913,16 +11584,9 @@
                 "optional": true,
                 "rest": false,
                 "defaultValue": null
-              },
-              {
-                "name": "skipSpecial",
-                "type": "boolean",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
               }
             ],
-            "display": "decode(ids: int[], skip_special?: boolean, skipSpecial?: boolean) -> string"
+            "display": "decode(ids: int[], skip_special?: boolean) -> string"
           }
         },
         {
@@ -11948,21 +11612,7 @@
                 "defaultValue": null
               },
               {
-                "name": "maxLen",
-                "type": "int",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
                 "name": "pad_id",
-                "type": "int",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "padId",
                 "type": "int",
                 "optional": true,
                 "rest": false,
@@ -11976,28 +11626,14 @@
                 "defaultValue": null
               },
               {
-                "name": "addBos",
-                "type": "boolean",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
                 "name": "add_eos",
-                "type": "boolean",
-                "optional": true,
-                "rest": false,
-                "defaultValue": null
-              },
-              {
-                "name": "addEos",
                 "type": "boolean",
                 "optional": true,
                 "rest": false,
                 "defaultValue": null
               }
             ],
-            "display": "encode_batch(texts: string | string[], max_len?: int, maxLen?: int, pad_id?: int, padId?: int, add_bos?: boolean, addBos?: boolean, add_eos?: boolean, addEos?: boolean) -> Tensor"
+            "display": "encode_batch(texts: string | string[], max_len?: int, pad_id?: int, add_bos?: boolean, add_eos?: boolean) -> Tensor"
           }
         },
         {
@@ -13513,28 +13149,14 @@
             "defaultValue": "0"
           },
           {
-            "name": "minDelta",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "0"
-          },
-          {
             "name": "check_on_train_epoch_end",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "checkOnTrainEpochEnd",
             "type": "bool",
             "optional": true,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "EarlyStopping(monitor?: string, patience: int = 3, mode: string = min, min_delta: float = 0, minDelta: float = 0, check_on_train_epoch_end?: bool, checkOnTrainEpochEnd?: bool) -> EarlyStopping"
+        "display": "EarlyStopping(monitor?: string, patience: int = 3, mode: string = min, min_delta: float = 0, check_on_train_epoch_end?: bool) -> EarlyStopping"
       },
       "methods": [
         {
@@ -13687,21 +13309,7 @@
             "defaultValue": "1"
           },
           {
-            "name": "saveTopK",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "1"
-          },
-          {
             "name": "save_last",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "saveLast",
             "type": "bool",
             "optional": true,
             "rest": false,
@@ -13713,16 +13321,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "everyNEpochs",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "ModelCheckpoint(dirpath?: string, filename?: string, monitor?: string | null, mode: string = min, save_top_k: int = 1, saveTopK: int = 1, save_last?: bool, saveLast?: bool, every_n_epochs?: int, everyNEpochs?: int) -> ModelCheckpoint"
+        "display": "ModelCheckpoint(dirpath?: string, filename?: string, monitor?: string | null, mode: string = min, save_top_k: int = 1, save_last?: bool, every_n_epochs?: int) -> ModelCheckpoint"
       },
       "methods": [
         {
@@ -13845,16 +13446,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "barLength",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "ProgressCallback(bar_length?: int, barLength?: int) -> ProgressCallback"
+        "display": "ProgressCallback(bar_length?: int) -> ProgressCallback"
       },
       "methods": [
         {
@@ -13977,16 +13571,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "logMomentum",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "LearningRateMonitor(log_momentum?: bool, logMomentum?: bool) -> LearningRateMonitor"
+        "display": "LearningRateMonitor(log_momentum?: bool) -> LearningRateMonitor"
       },
       "methods": [
         {
@@ -14365,16 +13952,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "logFrequency",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "ConsoleLogger(name?: string, version?: int | null, log_frequency?: int, logFrequency?: int) -> ConsoleLogger"
+        "display": "ConsoleLogger(name?: string, version?: int | null, log_frequency?: int) -> ConsoleLogger"
       },
       "methods": [
         {
@@ -14451,13 +14031,6 @@
             "defaultValue": "logs"
           },
           {
-            "name": "saveDir",
-            "type": "string",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "logs"
-          },
-          {
             "name": "name",
             "type": "string",
             "optional": true,
@@ -14477,16 +14050,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "flushInterval",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "CSVLogger(save_dir: string = logs, saveDir: string = logs, name: string = experiment, version?: int | null, flush_interval?: int, flushInterval?: int) -> CSVLogger"
+        "display": "CSVLogger(save_dir: string = logs, name: string = experiment, version?: int | null, flush_interval?: int) -> CSVLogger"
       },
       "methods": [
         {
@@ -14570,21 +14136,7 @@
             "defaultValue": null
           },
           {
-            "name": "numClasses",
-            "type": "int | null",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "top_k",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "1"
-          },
-          {
-            "name": "topK",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -14598,7 +14150,7 @@
             "defaultValue": null
           }
         ],
-        "display": "Accuracy(task: string = binary, num_classes?: int | null, numClasses?: int | null, top_k: int = 1, topK: int = 1, threshold?: float) -> Accuracy"
+        "display": "Accuracy(task: string = binary, num_classes?: int | null, top_k: int = 1, threshold?: float) -> Accuracy"
       },
       "methods": [
         {
@@ -14700,13 +14252,6 @@
             "defaultValue": null
           },
           {
-            "name": "numClasses",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "average",
             "type": "string",
             "optional": true,
@@ -14714,7 +14259,7 @@
             "defaultValue": "macro"
           }
         ],
-        "display": "Precision(task: string = binary, num_classes?: int, numClasses?: int, average: string = macro) -> Precision"
+        "display": "Precision(task: string = binary, num_classes?: int, average: string = macro) -> Precision"
       },
       "methods": [
         {
@@ -14816,13 +14361,6 @@
             "defaultValue": null
           },
           {
-            "name": "numClasses",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "average",
             "type": "string",
             "optional": true,
@@ -14830,7 +14368,7 @@
             "defaultValue": "macro"
           }
         ],
-        "display": "Recall(task: string = binary, num_classes?: int, numClasses?: int, average: string = macro) -> Recall"
+        "display": "Recall(task: string = binary, num_classes?: int, average: string = macro) -> Recall"
       },
       "methods": [
         {
@@ -14932,13 +14470,6 @@
             "defaultValue": null
           },
           {
-            "name": "numClasses",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "average",
             "type": "string",
             "optional": true,
@@ -14946,7 +14477,7 @@
             "defaultValue": "macro"
           }
         ],
-        "display": "F1Score(task: string = binary, num_classes?: int, numClasses?: int, average: string = macro) -> F1Score"
+        "display": "F1Score(task: string = binary, num_classes?: int, average: string = macro) -> F1Score"
       },
       "methods": [
         {
@@ -15255,16 +14786,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": "true"
-          },
-          {
-            "name": "fitIntercept",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "true"
           }
         ],
-        "display": "LinearRegression(fit_intercept: bool = true, fitIntercept: bool = true) -> LinearRegression"
+        "display": "LinearRegression(fit_intercept: bool = true) -> LinearRegression"
       },
       "methods": [
         {
@@ -15361,16 +14885,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": "true"
-          },
-          {
-            "name": "fitIntercept",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "true"
           }
         ],
-        "display": "Ridge(alpha: float = 1, fit_intercept: bool = true, fitIntercept: bool = true) -> Ridge"
+        "display": "Ridge(alpha: float = 1, fit_intercept: bool = true) -> Ridge"
       },
       "methods": [
         {
@@ -15469,21 +14986,7 @@
             "defaultValue": "true"
           },
           {
-            "name": "fitIntercept",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "true"
-          },
-          {
             "name": "max_iter",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "maxIter",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -15497,7 +15000,7 @@
             "defaultValue": null
           }
         ],
-        "display": "Lasso(alpha: float = 1, fit_intercept: bool = true, fitIntercept: bool = true, max_iter?: int, maxIter?: int, tol?: float) -> Lasso"
+        "display": "Lasso(alpha: float = 1, fit_intercept: bool = true, max_iter?: int, tol?: float) -> Lasso"
       },
       "methods": [
         {
@@ -15596,21 +15099,7 @@
             "defaultValue": null
           },
           {
-            "name": "l1Ratio",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "fit_intercept",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "true"
-          },
-          {
-            "name": "fitIntercept",
             "type": "bool",
             "optional": true,
             "rest": false,
@@ -15624,13 +15113,6 @@
             "defaultValue": null
           },
           {
-            "name": "maxIter",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -15638,7 +15120,7 @@
             "defaultValue": null
           }
         ],
-        "display": "ElasticNet(alpha: float = 1, l1_ratio?: float, l1Ratio?: float, fit_intercept: bool = true, fitIntercept: bool = true, max_iter?: int, maxIter?: int, tol?: float) -> ElasticNet"
+        "display": "ElasticNet(alpha: float = 1, l1_ratio?: float, fit_intercept: bool = true, max_iter?: int, tol?: float) -> ElasticNet"
       },
       "methods": [
         {
@@ -15742,16 +15224,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "maxIter",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "LogisticRegression(C?: float, lr?: float, max_iter?: int, maxIter?: int) -> LogisticRegression"
+        "display": "LogisticRegression(C?: float, lr?: float, max_iter?: int) -> LogisticRegression"
       },
       "methods": [
         {
@@ -15841,16 +15316,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "nNeighbors",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "KNeighborsClassifier(n_neighbors?: int, nNeighbors?: int) -> KNeighborsClassifier"
+        "display": "KNeighborsClassifier(n_neighbors?: int) -> KNeighborsClassifier"
       },
       "methods": [
         {
@@ -15940,16 +15408,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "nNeighbors",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "KNeighborsRegressor(n_neighbors?: int, nNeighbors?: int) -> KNeighborsRegressor"
+        "display": "KNeighborsRegressor(n_neighbors?: int) -> KNeighborsRegressor"
       },
       "methods": [
         {
@@ -16125,21 +15586,7 @@
             "defaultValue": null
           },
           {
-            "name": "maxDepth",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "min_samples_split",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "minSamplesSplit",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -16153,21 +15600,7 @@
             "defaultValue": null
           },
           {
-            "name": "minSamplesLeaf",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "max_features",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "maxFeatures",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -16179,16 +15612,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "randomState",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "DecisionTreeClassifier(max_depth?: int, maxDepth?: int, min_samples_split?: int, minSamplesSplit?: int, min_samples_leaf?: int, minSamplesLeaf?: int, max_features?: int, maxFeatures?: int, random_state?: int, randomState?: int) -> DecisionTreeClassifier"
+        "display": "DecisionTreeClassifier(max_depth?: int, min_samples_split?: int, min_samples_leaf?: int, max_features?: int, random_state?: int) -> DecisionTreeClassifier"
       },
       "methods": [
         {
@@ -16280,21 +15706,7 @@
             "defaultValue": null
           },
           {
-            "name": "maxDepth",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "min_samples_split",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "minSamplesSplit",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -16308,21 +15720,7 @@
             "defaultValue": null
           },
           {
-            "name": "minSamplesLeaf",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "max_features",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "maxFeatures",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -16334,16 +15732,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "randomState",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "DecisionTreeRegressor(max_depth?: int, maxDepth?: int, min_samples_split?: int, minSamplesSplit?: int, min_samples_leaf?: int, minSamplesLeaf?: int, max_features?: int, maxFeatures?: int, random_state?: int, randomState?: int) -> DecisionTreeRegressor"
+        "display": "DecisionTreeRegressor(max_depth?: int, min_samples_split?: int, min_samples_leaf?: int, max_features?: int, random_state?: int) -> DecisionTreeRegressor"
       },
       "methods": [
         {
@@ -16435,21 +15826,7 @@
             "defaultValue": null
           },
           {
-            "name": "nEstimators",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "max_depth",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "maxDepth",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -16463,21 +15840,7 @@
             "defaultValue": null
           },
           {
-            "name": "minSamplesSplit",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "min_samples_leaf",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "minSamplesLeaf",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -16491,28 +15854,14 @@
             "defaultValue": null
           },
           {
-            "name": "maxFeatures",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "random_state",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "randomState",
             "type": "int",
             "optional": true,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "RandomForestClassifier(n_estimators?: int, nEstimators?: int, max_depth?: int, maxDepth?: int, min_samples_split?: int, minSamplesSplit?: int, min_samples_leaf?: int, minSamplesLeaf?: int, max_features?: int, maxFeatures?: int, random_state?: int, randomState?: int) -> RandomForestClassifier"
+        "display": "RandomForestClassifier(n_estimators?: int, max_depth?: int, min_samples_split?: int, min_samples_leaf?: int, max_features?: int, random_state?: int) -> RandomForestClassifier"
       },
       "methods": [
         {
@@ -16604,21 +15953,7 @@
             "defaultValue": null
           },
           {
-            "name": "nEstimators",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "max_depth",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "maxDepth",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -16632,21 +15967,7 @@
             "defaultValue": null
           },
           {
-            "name": "minSamplesSplit",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "min_samples_leaf",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "minSamplesLeaf",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -16660,28 +15981,14 @@
             "defaultValue": null
           },
           {
-            "name": "maxFeatures",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "random_state",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "randomState",
             "type": "int",
             "optional": true,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "RandomForestRegressor(n_estimators?: int, nEstimators?: int, max_depth?: int, maxDepth?: int, min_samples_split?: int, minSamplesSplit?: int, min_samples_leaf?: int, minSamplesLeaf?: int, max_features?: int, maxFeatures?: int, random_state?: int, randomState?: int) -> RandomForestRegressor"
+        "display": "RandomForestRegressor(n_estimators?: int, max_depth?: int, min_samples_split?: int, min_samples_leaf?: int, max_features?: int, random_state?: int) -> RandomForestRegressor"
       },
       "methods": [
         {
@@ -16773,21 +16080,7 @@
             "defaultValue": null
           },
           {
-            "name": "nEstimators",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "learning_rate",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "learningRate",
             "type": "float",
             "optional": true,
             "rest": false,
@@ -16801,21 +16094,7 @@
             "defaultValue": null
           },
           {
-            "name": "maxDepth",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "min_samples_split",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "minSamplesSplit",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -16829,21 +16108,7 @@
             "defaultValue": null
           },
           {
-            "name": "minSamplesLeaf",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "max_features",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "maxFeatures",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -16855,16 +16120,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "randomState",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "GradientBoostingClassifier(n_estimators?: int, nEstimators?: int, learning_rate?: float, learningRate?: float, max_depth?: int, maxDepth?: int, min_samples_split?: int, minSamplesSplit?: int, min_samples_leaf?: int, minSamplesLeaf?: int, max_features?: int, maxFeatures?: int, random_state?: int, randomState?: int) -> GradientBoostingClassifier"
+        "display": "GradientBoostingClassifier(n_estimators?: int, learning_rate?: float, max_depth?: int, min_samples_split?: int, min_samples_leaf?: int, max_features?: int, random_state?: int) -> GradientBoostingClassifier"
       },
       "methods": [
         {
@@ -16956,21 +16214,7 @@
             "defaultValue": null
           },
           {
-            "name": "nEstimators",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "learning_rate",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "learningRate",
             "type": "float",
             "optional": true,
             "rest": false,
@@ -16984,21 +16228,7 @@
             "defaultValue": null
           },
           {
-            "name": "maxDepth",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "min_samples_split",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "minSamplesSplit",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -17012,21 +16242,7 @@
             "defaultValue": null
           },
           {
-            "name": "minSamplesLeaf",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "max_features",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "maxFeatures",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -17038,16 +16254,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "randomState",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "GradientBoostingRegressor(n_estimators?: int, nEstimators?: int, learning_rate?: float, learningRate?: float, max_depth?: int, maxDepth?: int, min_samples_split?: int, minSamplesSplit?: int, min_samples_leaf?: int, minSamplesLeaf?: int, max_features?: int, maxFeatures?: int, random_state?: int, randomState?: int) -> GradientBoostingRegressor"
+        "display": "GradientBoostingRegressor(n_estimators?: int, learning_rate?: float, max_depth?: int, min_samples_split?: int, min_samples_leaf?: int, max_features?: int, random_state?: int) -> GradientBoostingRegressor"
       },
       "methods": [
         {
@@ -17139,28 +16348,14 @@
             "defaultValue": "true"
           },
           {
-            "name": "withMean",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "true"
-          },
-          {
             "name": "with_std",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": "true"
-          },
-          {
-            "name": "withStd",
             "type": "bool",
             "optional": true,
             "rest": false,
             "defaultValue": "true"
           }
         ],
-        "display": "StandardScaler(with_mean: bool = true, withMean: bool = true, with_std: bool = true, withStd: bool = true) -> StandardScaler"
+        "display": "StandardScaler(with_mean: bool = true, with_std: bool = true) -> StandardScaler"
       },
       "methods": [
         {
@@ -17255,16 +16450,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "featureRange",
-            "type": "[float, float]",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "MinMaxScaler(feature_range?: [float, float], featureRange?: [float, float]) -> MinMaxScaler"
+        "display": "MinMaxScaler(feature_range?: [float, float]) -> MinMaxScaler"
       },
       "methods": [
         {
@@ -17518,16 +16706,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "nComponents",
-            "type": "int | null",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "PCA(n_components?: int | null, nComponents?: int | null) -> PCA"
+        "display": "PCA(n_components?: int | null) -> PCA"
       },
       "methods": [
         {
@@ -17624,21 +16805,7 @@
             "defaultValue": null
           },
           {
-            "name": "nClusters",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "max_iter",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "maxIter",
             "type": "int",
             "optional": true,
             "rest": false,
@@ -17652,28 +16819,14 @@
             "defaultValue": null
           },
           {
-            "name": "nInit",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "random_state",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "randomState",
             "type": "int",
             "optional": true,
             "rest": false,
             "defaultValue": null
           }
         ],
-        "display": "KMeans(n_clusters?: int, nClusters?: int, max_iter?: int, maxIter?: int, n_init?: int, nInit?: int, random_state?: int, randomState?: int) -> KMeans"
+        "display": "KMeans(n_clusters?: int, max_iter?: int, n_init?: int, random_state?: int) -> KMeans"
       },
       "methods": [
         {
@@ -17751,13 +16904,6 @@
             "defaultValue": null
           },
           {
-            "name": "nSplits",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "shuffle",
             "type": "bool",
             "optional": true,
@@ -17770,16 +16916,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "randomState",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "KFold(n_splits?: int, nSplits?: int, shuffle?: bool, random_state?: int, randomState?: int) -> KFold"
+        "display": "KFold(n_splits?: int, shuffle?: bool, random_state?: int) -> KFold"
       },
       "methods": [
         {
@@ -17817,16 +16956,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "nSplits",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "TimeSeriesSplit(n_splits?: int, nSplits?: int) -> TimeSeriesSplit"
+        "display": "TimeSeriesSplit(n_splits?: int) -> TimeSeriesSplit"
       },
       "methods": [
         {
@@ -17967,13 +17099,6 @@
             "defaultValue": null
           },
           {
-            "name": "testSize",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "shuffle",
             "type": "bool",
             "optional": true,
@@ -17986,16 +17111,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "randomState",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "train_test_split(X: MLTensor, y?: MLTensor, test_size?: float, testSize?: float, shuffle?: bool, random_state?: int, randomState?: int) -> TrainTestSplitResult"
+        "display": "train_test_split(X: MLTensor, y?: MLTensor, test_size?: float, shuffle?: bool, random_state?: int) -> TrainTestSplitResult"
       },
       "methods": []
     },
@@ -18055,16 +17173,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "randomState",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "cross_val_score(estimator: EstimatorFactory, X: MLTensor, y: MLTensor, cv?: int, scoring?: ScoringFn | null, shuffle?: bool, random_state?: int, randomState?: int) -> float[]"
+        "display": "cross_val_score(estimator: EstimatorFactory, X: MLTensor, y: MLTensor, cv?: int, scoring?: ScoringFn | null, shuffle?: bool, random_state?: int) -> float[]"
       },
       "methods": []
     },
@@ -18434,13 +17545,6 @@
             "defaultValue": null
           },
           {
-            "name": "refineSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -18453,16 +17557,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lowerLimit",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "normal_cdf(x: NumericElementInput, loc?: float, scale?: float, refine_steps?: int, refineSteps?: int, tol?: float, lower_limit?: float, lowerLimit?: float) -> NumericDistResult"
+        "display": "normal_cdf(x: NumericElementInput, loc?: float, scale?: float, refine_steps?: int, tol?: float, lower_limit?: float) -> NumericDistResult"
       },
       "methods": []
     },
@@ -18503,13 +17600,6 @@
             "defaultValue": null
           },
           {
-            "name": "refineSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -18522,16 +17612,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lowerLimit",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "normal_ppf(p: NumericElementInput, loc?: float, scale?: float, refine_steps?: int, refineSteps?: int, tol?: float, lower_limit?: float, lowerLimit?: float) -> NumericDistResult"
+        "display": "normal_ppf(p: NumericElementInput, loc?: float, scale?: float, refine_steps?: int, tol?: float, lower_limit?: float) -> NumericDistResult"
       },
       "methods": []
     },
@@ -18572,13 +17655,6 @@
             "defaultValue": null
           },
           {
-            "name": "refineSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -18591,16 +17667,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lowerLimit",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "normal_pdf(x: NumericElementInput, loc?: float, scale?: float, refine_steps?: int, refineSteps?: int, tol?: float, lower_limit?: float, lowerLimit?: float) -> NumericDistResult"
+        "display": "normal_pdf(x: NumericElementInput, loc?: float, scale?: float, refine_steps?: int, tol?: float, lower_limit?: float) -> NumericDistResult"
       },
       "methods": []
     },
@@ -18648,13 +17717,6 @@
             "defaultValue": null
           },
           {
-            "name": "refineSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -18667,16 +17729,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lowerLimit",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "t_cdf(x: NumericElementInput, df?: float, loc?: float, scale?: float, refine_steps?: int, refineSteps?: int, tol?: float, lower_limit?: float, lowerLimit?: float) -> NumericDistResult"
+        "display": "t_cdf(x: NumericElementInput, df?: float, loc?: float, scale?: float, refine_steps?: int, tol?: float, lower_limit?: float) -> NumericDistResult"
       },
       "methods": []
     },
@@ -18724,13 +17779,6 @@
             "defaultValue": null
           },
           {
-            "name": "refineSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -18743,16 +17791,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lowerLimit",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "t_ppf(p: NumericElementInput, df?: float, loc?: float, scale?: float, refine_steps?: int, refineSteps?: int, tol?: float, lower_limit?: float, lowerLimit?: float) -> NumericDistResult"
+        "display": "t_ppf(p: NumericElementInput, df?: float, loc?: float, scale?: float, refine_steps?: int, tol?: float, lower_limit?: float) -> NumericDistResult"
       },
       "methods": []
     },
@@ -18800,13 +17841,6 @@
             "defaultValue": null
           },
           {
-            "name": "refineSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -18819,16 +17853,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lowerLimit",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "t_pdf(x: NumericElementInput, df?: float, loc?: float, scale?: float, refine_steps?: int, refineSteps?: int, tol?: float, lower_limit?: float, lowerLimit?: float) -> NumericDistResult"
+        "display": "t_pdf(x: NumericElementInput, df?: float, loc?: float, scale?: float, refine_steps?: int, tol?: float, lower_limit?: float) -> NumericDistResult"
       },
       "methods": []
     },
@@ -18876,13 +17903,6 @@
             "defaultValue": null
           },
           {
-            "name": "refineSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -18895,16 +17915,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lowerLimit",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "chi2_cdf(x: NumericElementInput, df?: float, loc?: float, scale?: float, refine_steps?: int, refineSteps?: int, tol?: float, lower_limit?: float, lowerLimit?: float) -> NumericDistResult"
+        "display": "chi2_cdf(x: NumericElementInput, df?: float, loc?: float, scale?: float, refine_steps?: int, tol?: float, lower_limit?: float) -> NumericDistResult"
       },
       "methods": []
     },
@@ -18952,13 +17965,6 @@
             "defaultValue": null
           },
           {
-            "name": "refineSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -18971,16 +17977,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lowerLimit",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "chi2_ppf(p: NumericElementInput, df?: float, loc?: float, scale?: float, refine_steps?: int, refineSteps?: int, tol?: float, lower_limit?: float, lowerLimit?: float) -> NumericDistResult"
+        "display": "chi2_ppf(p: NumericElementInput, df?: float, loc?: float, scale?: float, refine_steps?: int, tol?: float, lower_limit?: float) -> NumericDistResult"
       },
       "methods": []
     },
@@ -19028,13 +18027,6 @@
             "defaultValue": null
           },
           {
-            "name": "refineSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -19047,16 +18039,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lowerLimit",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "chi2_pdf(x: NumericElementInput, df?: float, loc?: float, scale?: float, refine_steps?: int, refineSteps?: int, tol?: float, lower_limit?: float, lowerLimit?: float) -> NumericDistResult"
+        "display": "chi2_pdf(x: NumericElementInput, df?: float, loc?: float, scale?: float, refine_steps?: int, tol?: float, lower_limit?: float) -> NumericDistResult"
       },
       "methods": []
     },
@@ -19111,13 +18096,6 @@
             "defaultValue": null
           },
           {
-            "name": "refineSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -19130,16 +18108,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lowerLimit",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "f_cdf(x: NumericElementInput, d1?: float, d2?: float, loc?: float, scale?: float, refine_steps?: int, refineSteps?: int, tol?: float, lower_limit?: float, lowerLimit?: float) -> NumericDistResult"
+        "display": "f_cdf(x: NumericElementInput, d1?: float, d2?: float, loc?: float, scale?: float, refine_steps?: int, tol?: float, lower_limit?: float) -> NumericDistResult"
       },
       "methods": []
     },
@@ -19194,13 +18165,6 @@
             "defaultValue": null
           },
           {
-            "name": "refineSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -19213,16 +18177,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lowerLimit",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "f_ppf(p: NumericElementInput, d1?: float, d2?: float, loc?: float, scale?: float, refine_steps?: int, refineSteps?: int, tol?: float, lower_limit?: float, lowerLimit?: float) -> NumericDistResult"
+        "display": "f_ppf(p: NumericElementInput, d1?: float, d2?: float, loc?: float, scale?: float, refine_steps?: int, tol?: float, lower_limit?: float) -> NumericDistResult"
       },
       "methods": []
     },
@@ -19277,13 +18234,6 @@
             "defaultValue": null
           },
           {
-            "name": "refineSteps",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "tol",
             "type": "float",
             "optional": true,
@@ -19296,16 +18246,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "lowerLimit",
-            "type": "float",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "f_pdf(x: NumericElementInput, d1?: float, d2?: float, loc?: float, scale?: float, refine_steps?: int, refineSteps?: int, tol?: float, lower_limit?: float, lowerLimit?: float) -> NumericDistResult"
+        "display": "f_pdf(x: NumericElementInput, d1?: float, d2?: float, loc?: float, scale?: float, refine_steps?: int, tol?: float, lower_limit?: float) -> NumericDistResult"
       },
       "methods": []
     },
@@ -19592,16 +18535,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "equalVar",
-            "type": "bool",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "t_test_ind(x: NumericVectorInput, y: NumericVectorInput, popmean?: float, equal_var?: bool, equalVar?: bool) -> TestResult"
+        "display": "t_test_ind(x: NumericVectorInput, y: NumericVectorInput, popmean?: float, equal_var?: bool) -> TestResult"
       },
       "methods": []
     },
@@ -19930,16 +18866,9 @@
             "optional": true,
             "rest": false,
             "defaultValue": null
-          },
-          {
-            "name": "modelDf",
-            "type": "int",
-            "optional": true,
-            "rest": false,
-            "defaultValue": null
           }
         ],
-        "display": "ljung_box(x: NumericVectorInput, lags?: int, model_df?: int, modelDf?: int) -> TestResult"
+        "display": "ljung_box(x: NumericVectorInput, lags?: int, model_df?: int) -> TestResult"
       },
       "methods": []
     },

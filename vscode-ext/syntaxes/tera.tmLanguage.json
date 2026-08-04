@@ -297,7 +297,7 @@
         },
         {
           "name": "support.function.tera",
-          "match": "\\b(?:optim_config|count_star|parseFloat|isFinite|parseInt|compile|Number|String|count|isNaN|range|stack|where|expr|avg|cat|col|lit|max|min|sum)\\b(?=\\s*(?:\\(|\\.))"
+          "match": "\\b(?:optim_config|parse_float|count_star|is_finite|parse_int|compile|is_nan|Number|String|count|range|stack|where|expr|avg|cat|col|lit|max|min|sum)\\b(?=\\s*(?:\\(|\\.))"
         },
         {
           "name": "support.function.tera",

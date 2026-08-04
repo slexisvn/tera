@@ -106,7 +106,6 @@ function tensorOptions(): TeraParam[] {
     namedOptionalParam("offset", "int"),
     namedOptionalParam("grad", "bool"),
     namedOptionalParam("requires_grad", "bool"),
-    namedOptionalParam("requiresGrad", "bool")
   ];
 }
 
@@ -154,30 +153,30 @@ function intOption(name: string, aliases: string[] = [], defaultValue?: number):
 }
 
 function fitInterceptOptions(): TeraParam[] {
-  return boolOption("fit_intercept", ["fitIntercept"], true);
+  return boolOption("fit_intercept", [], true);
 }
 
 function treeOptions(): TeraParam[] {
   return [
-    ...intOption("max_depth", ["maxDepth"]),
-    ...intOption("min_samples_split", ["minSamplesSplit"]),
-    ...intOption("min_samples_leaf", ["minSamplesLeaf"]),
-    ...intOption("max_features", ["maxFeatures"]),
-    ...intOption("random_state", ["randomState"])
+    ...intOption("max_depth", []),
+    ...intOption("min_samples_split", []),
+    ...intOption("min_samples_leaf", []),
+    ...intOption("max_features", []),
+    ...intOption("random_state", [])
   ];
 }
 
 function forestOptions(): TeraParam[] {
   return [
-    ...intOption("n_estimators", ["nEstimators"]),
+    ...intOption("n_estimators", []),
     ...treeOptions()
   ];
 }
 
 function boostingOptions(): TeraParam[] {
   return [
-    ...intOption("n_estimators", ["nEstimators"]),
-    ...floatOption("learning_rate", ["learningRate"]),
+    ...intOption("n_estimators", []),
+    ...floatOption("learning_rate", []),
     ...treeOptions()
   ];
 }
@@ -186,9 +185,9 @@ function distOptions(): TeraParam[] {
   return [
     ...floatOption("loc"),
     ...floatOption("scale"),
-    ...intOption("refine_steps", ["refineSteps"]),
+    ...intOption("refine_steps", []),
     ...floatOption("tol"),
-    ...floatOption("lower_limit", ["lowerLimit"])
+    ...floatOption("lower_limit", [])
   ];
 }
 
@@ -1282,25 +1281,25 @@ export const TERA_BUILTINS = {
     "returns": "string",
     "params": [param("value", "any")]
   },
-  "parseInt": {
+  "parse_int": {
     "description": "Parse an integer from a string with an optional radix.",
     "kind": "function",
     "returns": "int",
     "params": [param("text", "string"), optionalParam("radix", "int")]
   },
-  "parseFloat": {
+  "parse_float": {
     "description": "Parse a floating-point number from a string.",
     "kind": "function",
     "returns": "float",
     "params": [param("text", "string")]
   },
-  "isNaN": {
+  "is_nan": {
     "description": "True when the value is NaN after numeric conversion.",
     "kind": "function",
     "returns": "bool",
     "params": [param("value", "any")]
   },
-  "isFinite": {
+  "is_finite": {
     "description": "True when the value is a finite number.",
     "kind": "function",
     "returns": "bool",
@@ -1314,7 +1313,6 @@ export const TERA_BUILTINS = {
       param("model", "Module"),
       namedOptionalParam("input", "Tensor | Tensor[]"),
       namedOptionalParam("example_inputs", "Tensor[]"),
-      namedOptionalParam("exampleInputs", "Tensor[]"),
       namedOptionalParam("target", "CompileTarget"),
       namedOptionalParam("source", "bool"),
       namedOptionalParam("name", "string"),
@@ -1834,7 +1832,7 @@ export const TERA_BUILTINS = {
       ...floatOption("lr", [], 0.01),
       ...floatOption("momentum", [], 0),
       ...floatOption("dampening", [], 0),
-      ...floatOption("weight_decay", ["weightDecay"], 0),
+      ...floatOption("weight_decay", [], 0),
       ...boolOption("nesterov", [], false)
     ]
   },
@@ -1847,7 +1845,7 @@ export const TERA_BUILTINS = {
       ...floatOption("lr", [], 0.001),
       namedOptionalParam("betas", "float[]"),
       ...floatOption("eps", [], 0.00000001),
-      ...floatOption("weight_decay", ["weightDecay"], 0),
+      ...floatOption("weight_decay", [], 0),
       ...boolOption("amsgrad", [], false)
     ]
   },
@@ -1860,7 +1858,7 @@ export const TERA_BUILTINS = {
       ...floatOption("lr", [], 0.001),
       namedOptionalParam("betas", "float[]"),
       ...floatOption("eps", [], 0.00000001),
-      ...floatOption("weight_decay", ["weightDecay"], 0.01),
+      ...floatOption("weight_decay", [], 0.01),
       ...boolOption("amsgrad", [], false)
     ]
   },
@@ -1897,10 +1895,8 @@ export const TERA_BUILTINS = {
       namedOptionalParam("patience", "int", 10),
       namedOptionalParam("threshold", "float", 0.0001),
       namedOptionalParam("threshold_mode", "string", "rel"),
-      namedOptionalParam("thresholdMode", "string", "rel"),
       namedOptionalParam("cooldown", "int", 0),
       namedOptionalParam("min_lr", "float", 0),
-      namedOptionalParam("minLR", "float", 0),
       namedOptionalParam("eps", "float", 0.00000001)
     ]
   },
@@ -1909,37 +1905,30 @@ export const TERA_BUILTINS = {
     "kind": "trainer",
     "returns": "Trainer",
     "params": [
-      ...intOption("max_epochs", ["maxEpochs"], 20),
-      ...intOption("max_steps", ["maxSteps"]),
+      ...intOption("max_epochs", [], 20),
+      ...intOption("max_steps", []),
       namedOptionalParam("accelerator", "string", "cpu"),
       namedOptionalParam("precision", "string"),
       namedOptionalParam("callbacks", "Callback[]"),
       namedOptionalParam("logger", "LoggerConfig", true),
-      ...boolOption("enable_checkpointing", ["enableCheckpointing"], false),
-      ...boolOption("enable_progress", ["enableProgress"], true),
-      ...floatOption("gradient_clip_val", ["gradientClipVal"]),
+      ...boolOption("enable_checkpointing", [], false),
+      ...boolOption("enable_progress", [], true),
+      ...floatOption("gradient_clip_val", []),
       namedOptionalParam("gradient_clip_algorithm", "string"),
-      namedOptionalParam("gradientClipAlgorithm", "string"),
-      ...intOption("accumulate_grad_batches", ["accumulateGradBatches"], 1),
+      ...intOption("accumulate_grad_batches", [], 1),
       namedOptionalParam("limit_train_batches", "int | null"),
-      namedOptionalParam("limitTrainBatches", "int | null"),
       namedOptionalParam("limit_val_batches", "int | null"),
-      namedOptionalParam("limitValBatches", "int | null"),
       namedOptionalParam("limit_test_batches", "int | null"),
-      namedOptionalParam("limitTestBatches", "int | null"),
-      ...floatOption("val_check_interval", ["valCheckInterval"]),
-      ...intOption("check_val_every_n_epoch", ["checkValEveryNEpoch"], 1),
-      ...intOption("log_every_n_steps", ["logEveryNSteps"], 50),
+      ...floatOption("val_check_interval", []),
+      ...intOption("check_val_every_n_epoch", [], 1),
+      ...intOption("log_every_n_steps", [], 50),
       ...boolOption("deterministic"),
       namedOptionalParam("fast_dev_run", "bool | int", false),
-      namedOptionalParam("fastDevRun", "bool | int", false),
       namedOptionalParam("default_root_dir", "string"),
-      namedOptionalParam("defaultRootDir", "string"),
       ...boolOption("compile", [], false),
       namedOptionalParam("compile_mode", "string"),
-      namedOptionalParam("compileMode", "string"),
-      ...boolOption("cuda_graph", ["cudaGraph"], false),
-      ...intOption("cuda_graph_warmup_steps", ["cudaGraphWarmupSteps"])
+      ...boolOption("cuda_graph", [], false),
+      ...intOption("cuda_graph_warmup_steps", [])
     ],
     "methods": [
       {
@@ -2082,7 +2071,6 @@ export const TERA_BUILTINS = {
     "params": [
       param("optimizer", "Optimizer"),
       namedOptionalParam("lr_scheduler", "LRScheduler | ReduceLROnPlateau"),
-      namedOptionalParam("lrScheduler", "LRScheduler | ReduceLROnPlateau")
     ]
   },
   "TensorDataset": {
@@ -2226,12 +2214,6 @@ export const TERA_BUILTINS = {
         "named": true
       },
       {
-        "name": "vocabSize",
-        "type": "int",
-        "optional": true,
-        "named": true
-      },
-      {
         "name": "lowercase",
         "type": "bool",
         "optional": true,
@@ -2246,32 +2228,13 @@ export const TERA_BUILTINS = {
         "defaultValue": 1000
       },
       {
-        "name": "numMerges",
-        "type": "int",
-        "optional": true,
-        "named": true,
-        "defaultValue": 1000
-      },
-      {
         "name": "special_tokens",
         "type": "TokenizerSpecialTokens",
         "optional": true,
         "named": true
       },
       {
-        "name": "specialTokens",
-        "type": "TokenizerSpecialTokens",
-        "optional": true,
-        "named": true
-      },
-      {
         "name": "end_of_word",
-        "type": "string",
-        "optional": true,
-        "named": true
-      },
-      {
-        "name": "endOfWord",
         "type": "string",
         "optional": true,
         "named": true
@@ -2334,23 +2297,7 @@ export const TERA_BUILTINS = {
             "defaultValue": null
           },
           {
-            "name": "addBos",
-            "type": "boolean",
-            "optional": true,
-            "named": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "add_eos",
-            "type": "boolean",
-            "optional": true,
-            "named": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "addEos",
             "type": "boolean",
             "optional": true,
             "named": true,
@@ -2374,14 +2321,6 @@ export const TERA_BUILTINS = {
           },
           {
             "name": "skip_special",
-            "type": "boolean",
-            "optional": true,
-            "named": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "skipSpecial",
             "type": "boolean",
             "optional": true,
             "named": true,
@@ -2412,23 +2351,7 @@ export const TERA_BUILTINS = {
             "defaultValue": null
           },
           {
-            "name": "maxLen",
-            "type": "int",
-            "optional": true,
-            "named": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "pad_id",
-            "type": "int",
-            "optional": true,
-            "named": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "padId",
             "type": "int",
             "optional": true,
             "named": true,
@@ -2444,23 +2367,7 @@ export const TERA_BUILTINS = {
             "defaultValue": null
           },
           {
-            "name": "addBos",
-            "type": "boolean",
-            "optional": true,
-            "named": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
             "name": "add_eos",
-            "type": "boolean",
-            "optional": true,
-            "named": true,
-            "rest": false,
-            "defaultValue": null
-          },
-          {
-            "name": "addEos",
             "type": "boolean",
             "optional": true,
             "named": true,
@@ -3036,8 +2943,8 @@ export const TERA_BUILTINS = {
       namedOptionalParam("monitor", "string"),
       namedOptionalParam("patience", "int", 3),
       namedOptionalParam("mode", "string", "min"),
-      ...floatOption("min_delta", ["minDelta"], 0),
-      ...boolOption("check_on_train_epoch_end", ["checkOnTrainEpochEnd"])
+      ...floatOption("min_delta", [], 0),
+      ...boolOption("check_on_train_epoch_end", [])
     ]
   },
   "ModelCheckpoint": {
@@ -3049,9 +2956,9 @@ export const TERA_BUILTINS = {
       namedOptionalParam("filename", "string"),
       namedOptionalParam("monitor", "string | null"),
       namedOptionalParam("mode", "string", "min"),
-      ...intOption("save_top_k", ["saveTopK"], 1),
-      ...boolOption("save_last", ["saveLast"]),
-      ...intOption("every_n_epochs", ["everyNEpochs"])
+      ...intOption("save_top_k", [], 1),
+      ...boolOption("save_last", []),
+      ...intOption("every_n_epochs", [])
     ]
   },
   "ProgressCallback": {
@@ -3059,7 +2966,7 @@ export const TERA_BUILTINS = {
     "kind": "callback",
     "returns": "ProgressCallback",
     "params": [
-      ...intOption("bar_length", ["barLength"])
+      ...intOption("bar_length", [])
     ]
   },
   "LearningRateMonitor": {
@@ -3067,7 +2974,7 @@ export const TERA_BUILTINS = {
     "kind": "callback",
     "returns": "LearningRateMonitor",
     "params": [
-      ...boolOption("log_momentum", ["logMomentum"])
+      ...boolOption("log_momentum", [])
     ]
   },
   "Timer": {
@@ -3091,7 +2998,7 @@ export const TERA_BUILTINS = {
     "params": [
       namedOptionalParam("name", "string"),
       namedOptionalParam("version", "int | null"),
-      ...intOption("log_frequency", ["logFrequency"])
+      ...intOption("log_frequency", [])
     ]
   },
   "CSVLogger": {
@@ -3100,10 +3007,9 @@ export const TERA_BUILTINS = {
     "returns": "CSVLogger",
     "params": [
       namedOptionalParam("save_dir", "string", "logs"),
-      namedOptionalParam("saveDir", "string", "logs"),
       namedOptionalParam("name", "string", "experiment"),
       namedOptionalParam("version", "int | null"),
-      ...intOption("flush_interval", ["flushInterval"])
+      ...intOption("flush_interval", [])
     ]
   },
   "Accuracy": {
@@ -3113,8 +3019,7 @@ export const TERA_BUILTINS = {
     "params": [
       namedOptionalParam("task", "string", "binary"),
       namedOptionalParam("num_classes", "int | null"),
-      namedOptionalParam("numClasses", "int | null"),
-      ...intOption("top_k", ["topK"], 1),
+      ...intOption("top_k", [], 1),
       ...floatOption("threshold")
     ]
   },
@@ -3125,7 +3030,6 @@ export const TERA_BUILTINS = {
     "params": [
       namedOptionalParam("task", "string", "binary"),
       namedOptionalParam("num_classes", "int"),
-      namedOptionalParam("numClasses", "int"),
       namedOptionalParam("average", "string", "macro")
     ]
   },
@@ -3136,7 +3040,6 @@ export const TERA_BUILTINS = {
     "params": [
       namedOptionalParam("task", "string", "binary"),
       namedOptionalParam("num_classes", "int"),
-      namedOptionalParam("numClasses", "int"),
       namedOptionalParam("average", "string", "macro")
     ]
   },
@@ -3147,7 +3050,6 @@ export const TERA_BUILTINS = {
     "params": [
       namedOptionalParam("task", "string", "binary"),
       namedOptionalParam("num_classes", "int"),
-      namedOptionalParam("numClasses", "int"),
       namedOptionalParam("average", "string", "macro")
     ]
   },
@@ -3237,7 +3139,7 @@ export const TERA_BUILTINS = {
     "params": [
       ...floatOption("alpha", [], 1),
       ...fitInterceptOptions(),
-      ...intOption("max_iter", ["maxIter"]),
+      ...intOption("max_iter", []),
       ...floatOption("tol")
     ]
   },
@@ -3247,9 +3149,9 @@ export const TERA_BUILTINS = {
     "returns": "ElasticNet",
     "params": [
       ...floatOption("alpha", [], 1),
-      ...floatOption("l1_ratio", ["l1Ratio"]),
+      ...floatOption("l1_ratio", []),
       ...fitInterceptOptions(),
-      ...intOption("max_iter", ["maxIter"]),
+      ...intOption("max_iter", []),
       ...floatOption("tol")
     ]
   },
@@ -3260,7 +3162,7 @@ export const TERA_BUILTINS = {
     "params": [
       ...floatOption("C"),
       ...floatOption("lr"),
-      ...intOption("max_iter", ["maxIter"])
+      ...intOption("max_iter", [])
     ]
   },
   "KNeighborsClassifier": {
@@ -3268,7 +3170,7 @@ export const TERA_BUILTINS = {
     "kind": "ml_model",
     "returns": "KNeighborsClassifier",
     "params": [
-      ...intOption("n_neighbors", ["nNeighbors"])
+      ...intOption("n_neighbors", [])
     ]
   },
   "KNeighborsRegressor": {
@@ -3276,7 +3178,7 @@ export const TERA_BUILTINS = {
     "kind": "ml_model",
     "returns": "KNeighborsRegressor",
     "params": [
-      ...intOption("n_neighbors", ["nNeighbors"])
+      ...intOption("n_neighbors", [])
     ]
   },
   "GaussianNB": {
@@ -3338,8 +3240,8 @@ export const TERA_BUILTINS = {
     "kind": "ml_transform",
     "returns": "StandardScaler",
     "params": [
-      ...boolOption("with_mean", ["withMean"], true),
-      ...boolOption("with_std", ["withStd"], true)
+      ...boolOption("with_mean", [], true),
+      ...boolOption("with_std", [], true)
     ]
   },
   "MinMaxScaler": {
@@ -3348,7 +3250,6 @@ export const TERA_BUILTINS = {
     "returns": "MinMaxScaler",
     "params": [
       namedOptionalParam("feature_range", "[float, float]"),
-      namedOptionalParam("featureRange", "[float, float]")
     ]
   },
   "LabelEncoder": {
@@ -3436,7 +3337,6 @@ export const TERA_BUILTINS = {
     "returns": "PCA",
     "params": [
       namedOptionalParam("n_components", "int | null"),
-      namedOptionalParam("nComponents", "int | null")
     ]
   },
   "KMeans": {
@@ -3444,10 +3344,10 @@ export const TERA_BUILTINS = {
     "kind": "ml_cluster",
     "returns": "KMeans",
     "params": [
-      ...intOption("n_clusters", ["nClusters"]),
-      ...intOption("max_iter", ["maxIter"]),
-      ...intOption("n_init", ["nInit"]),
-      ...intOption("random_state", ["randomState"])
+      ...intOption("n_clusters", []),
+      ...intOption("max_iter", []),
+      ...intOption("n_init", []),
+      ...intOption("random_state", [])
     ],
     "methods": [
       {
@@ -3502,9 +3402,9 @@ export const TERA_BUILTINS = {
     "kind": "ml_split",
     "returns": "KFold",
     "params": [
-      ...intOption("n_splits", ["nSplits"]),
+      ...intOption("n_splits", []),
       ...boolOption("shuffle"),
-      ...intOption("random_state", ["randomState"])
+      ...intOption("random_state", [])
     ],
     "methods": [
       {
@@ -3529,7 +3429,7 @@ export const TERA_BUILTINS = {
     "kind": "ml_split",
     "returns": "TimeSeriesSplit",
     "params": [
-      ...intOption("n_splits", ["nSplits"])
+      ...intOption("n_splits", [])
     ],
     "methods": [
       {
@@ -3606,9 +3506,9 @@ export const TERA_BUILTINS = {
     "params": [
       mlTensorParam("X"),
       optionalParam("y", "MLTensor"),
-      ...floatOption("test_size", ["testSize"]),
+      ...floatOption("test_size", []),
       ...boolOption("shuffle"),
-      ...intOption("random_state", ["randomState"])
+      ...intOption("random_state", [])
     ]
   },
   "cross_val_score": {
@@ -3622,7 +3522,7 @@ export const TERA_BUILTINS = {
       namedOptionalParam("cv", "int"),
       namedOptionalParam("scoring", "ScoringFn | null"),
       ...boolOption("shuffle"),
-      ...intOption("random_state", ["randomState"])
+      ...intOption("random_state", [])
     ]
   },
   "r2_score": {
@@ -3968,7 +3868,6 @@ export const TERA_BUILTINS = {
       numericVectorParam("y"),
       namedOptionalParam("popmean", "float"),
       namedOptionalParam("equal_var", "bool"),
-      namedOptionalParam("equalVar", "bool")
     ]
   },
   "t_test_paired": {
@@ -4078,7 +3977,6 @@ export const TERA_BUILTINS = {
       numericVectorParam("x"),
       namedOptionalParam("lags", "int"),
       namedOptionalParam("model_df", "int"),
-      namedOptionalParam("modelDf", "int")
     ]
   },
   "durbin_watson": {
@@ -5002,9 +4900,9 @@ export const TERA_PSEUDO_TYPES = {
       { "name": "entries", "params": [param("target", "Object")], "returns": "[string, any][]" },
       { "name": "assign", "params": [param("target", "Object"), param("sources", "Object", { rest: true })], "returns": "Object" },
       { "name": "freeze", "params": [param("target", "Object")], "returns": "Object" },
-      { "name": "isFrozen", "params": [param("target", "Object")], "returns": "bool" },
+      { "name": "is_frozen", "params": [param("target", "Object")], "returns": "bool" },
       { "name": "seal", "params": [param("target", "Object")], "returns": "Object" },
-      { "name": "isSealed", "params": [param("target", "Object")], "returns": "bool" }
+      { "name": "is_sealed", "params": [param("target", "Object")], "returns": "bool" }
     ]
   },
   "IndexTensor": {
@@ -6654,7 +6552,7 @@ export const TERA_PSEUDO_TYPES = {
         "name": "cast",
         "params": [
           {
-            "name": "targetType",
+            "name": "target_type",
             "type": null,
             "optional": false,
             "rest": false,

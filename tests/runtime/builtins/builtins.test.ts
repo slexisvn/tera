@@ -37,7 +37,7 @@ describe("builtins", () => {
         [["abc"], NaN],
       ];
       for (const [args, expected] of cases) {
-        const result = toNumber(builtins.parseInt.call(args.map(a => typeof a === "string" ? mkString(a) : a)));
+        const result = toNumber(builtins.parse_int.call(args.map(a => typeof a === "string" ? mkString(a) : a)));
         if (Number.isNaN(expected)) {
           expect(Number.isNaN(result)).toBe(true);
         } else {
@@ -49,23 +49,23 @@ describe("builtins", () => {
 
   describe("parseFloat", () => {
     it("parses float strings", () => {
-      expect(toNumber(builtins.parseFloat.call([mkString("3.14")]))).toBeCloseTo(3.14);
-      expect(toNumber(builtins.parseFloat.call([mkString("42")]))).toBe(42);
-      expect(Number.isNaN(toNumber(builtins.parseFloat.call([mkString("abc")])))).toBe(true);
+      expect(toNumber(builtins.parse_float.call([mkString("3.14")]))).toBeCloseTo(3.14);
+      expect(toNumber(builtins.parse_float.call([mkString("42")]))).toBe(42);
+      expect(Number.isNaN(toNumber(builtins.parse_float.call([mkString("abc")])))).toBe(true);
     });
   });
 
   describe("isNaN / isFinite", () => {
     it("isNaN detects NaN values", () => {
-      expect(builtins.isNaN.call([mkDouble(NaN)])).toBe(mkBool(true));
-      expect(builtins.isNaN.call([mkSmi(42)])).toBe(mkBool(false));
-      expect(builtins.isNaN.call([mkDouble(Infinity)])).toBe(mkBool(false));
+      expect(builtins.is_nan.call([mkDouble(NaN)])).toBe(mkBool(true));
+      expect(builtins.is_nan.call([mkSmi(42)])).toBe(mkBool(false));
+      expect(builtins.is_nan.call([mkDouble(Infinity)])).toBe(mkBool(false));
     });
 
     it("isFinite detects finite values", () => {
-      expect(builtins.isFinite.call([mkSmi(42)])).toBe(mkBool(true));
-      expect(builtins.isFinite.call([mkDouble(Infinity)])).toBe(mkBool(false));
-      expect(builtins.isFinite.call([mkDouble(NaN)])).toBe(mkBool(false));
+      expect(builtins.is_finite.call([mkSmi(42)])).toBe(mkBool(true));
+      expect(builtins.is_finite.call([mkDouble(Infinity)])).toBe(mkBool(false));
+      expect(builtins.is_finite.call([mkDouble(NaN)])).toBe(mkBool(false));
     });
   });
 
@@ -148,14 +148,14 @@ describe("builtins", () => {
   describe("Object", () => {
     it("freeze and isFrozen", () => {
       const obj = mkObject(createJSObject());
-      expect(builtins.Object.isFrozen.call([obj])).toBe(mkBool(false));
+      expect(builtins.Object.is_frozen.call([obj])).toBe(mkBool(false));
       builtins.Object.freeze.call([obj]);
-      expect(builtins.Object.isFrozen.call([obj])).toBe(mkBool(true));
+      expect(builtins.Object.is_frozen.call([obj])).toBe(mkBool(true));
     });
 
     it("isFrozen returns true for non-objects", () => {
-      expect(builtins.Object.isFrozen.call([mkSmi(1)])).toBe(mkBool(true));
-      expect(builtins.Object.isFrozen.call([])).toBe(mkBool(true));
+      expect(builtins.Object.is_frozen.call([mkSmi(1)])).toBe(mkBool(true));
+      expect(builtins.Object.is_frozen.call([])).toBe(mkBool(true));
     });
 
     it("create sets prototype", () => {
