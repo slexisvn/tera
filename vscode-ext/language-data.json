@@ -1021,7 +1021,7 @@
       {
         "name": "reject",
         "description": null,
-        "returns": "Promise<T>",
+        "returns": "Promise<never>",
         "effect": "sync",
         "isGetter": false,
         "signature": {
@@ -1034,7 +1034,7 @@
               "defaultValue": null
             }
           ],
-          "display": "reject(reason?: any) -> Promise<T>"
+          "display": "reject(reason?: any) -> Promise<never>"
         }
       },
       {
@@ -5710,6 +5710,26 @@
           }
         ],
         "display": "print(...values)"
+      },
+      "methods": []
+    },
+    {
+      "name": "queue_microtask",
+      "kind": "global",
+      "description": "Schedule a callback to run on the microtask queue after the current synchronous work finishes and before the next task.",
+      "returns": "void",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "callback",
+            "type": "() -> any",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "queue_microtask(callback: () -> any) -> void"
       },
       "methods": []
     },

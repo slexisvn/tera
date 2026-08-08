@@ -51,6 +51,20 @@ describe("grammar: keywords and operators", () => {
     expect(await scopeOf("x = true", "true")).toBe("constant.language.tera");
     expect(await scopeOf("x = this", "this")).toBe("variable.language.tera");
   });
+
+  it("scopes keyword-named methods after a dot as members, not keywords", async () => {
+    const member = "entity.name.function.member.tera";
+    expect(await scopeOf("  .catch(e => e)", "catch")).toBe(member);
+    expect(await scopeOf("  .finally(() => 0)", "finally")).toBe(member);
+    expect(await scopeOf("  .then(v => v)", "then")).toBe(member);
+    expect(await scopeOf("p.type", "type")).toBe("variable.other.property.tera");
+  });
+
+  it("still scopes catch/try/finally as control keywords in statement position", async () => {
+    expect(await scopeOf("catch inner:", "catch")).toBe("keyword.control.tera");
+    expect(await scopeOf("try:", "try")).toBe("keyword.control.tera");
+    expect(await scopeOf("  finally:", "finally")).toBe("keyword.control.tera");
+  });
 });
 
 describe("grammar: numbers", () => {

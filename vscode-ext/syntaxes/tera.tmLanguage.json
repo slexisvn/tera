@@ -257,23 +257,23 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.tera",
-          "match": "\\b(?:implements|interface|protected|abstract|computed|resource|extends|private|public|signal|static|class|const|model|type|get|let|set|var|fn)\\b"
+          "match": "(?<!\\.)\\b(?:implements|interface|protected|abstract|computed|resource|extends|private|public|signal|static|class|const|model|type|get|let|set|var|fn)\\b"
         },
         {
           "name": "keyword.control.tera",
-          "match": "\\b(?:continue|default|finally|effect|return|switch|async|await|break|catch|throw|while|yield|case|else|for|try|do|if|of)\\b"
+          "match": "(?<!\\.)\\b(?:continue|default|finally|effect|return|switch|async|await|break|catch|throw|while|yield|case|else|for|try|do|if|of)\\b"
         },
         {
           "name": "keyword.operator.word.tera",
-          "match": "\\b(?:instanceof|delete|typeof|and|new|not|in|or)\\b"
+          "match": "(?<!\\.)\\b(?:instanceof|delete|typeof|and|new|not|in|or)\\b"
         },
         {
           "name": "constant.language.tera",
-          "match": "\\b(?:undefined|false|null|true)\\b"
+          "match": "(?<!\\.)\\b(?:undefined|false|null|true)\\b"
         },
         {
           "name": "variable.language.tera",
-          "match": "\\b(?:super|this)\\b"
+          "match": "(?<!\\.)\\b(?:super|this)\\b"
         }
       ]
     },
@@ -301,7 +301,7 @@
         },
         {
           "name": "support.function.tera",
-          "match": "\\b(?:print)\\b(?=\\s*(?:\\(|\\.))"
+          "match": "\\b(?:queue_microtask|print)\\b(?=\\s*(?:\\(|\\.))"
         },
         {
           "name": "support.class.sequential.tera",

@@ -222,7 +222,7 @@ function keywordPatterns(groups: Record<KeywordGroup, string[]>): Pattern[] {
     if (!names.length) continue;
     patterns.push({
       name: SCOPE_BY_KEYWORD_GROUP[group],
-      match: `\\b(?:${[...names].sort(byLengthDesc).join("|")})\\b`,
+      match: `(?<!\\.)\\b(?:${[...names].sort(byLengthDesc).join("|")})\\b`,
     });
   }
   return patterns;
