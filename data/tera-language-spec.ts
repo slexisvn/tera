@@ -1269,6 +1269,12 @@ export const TERA_BUILTINS = {
       }
     ]
   },
+  "queue_microtask": {
+    "description": "Schedule a callback to run on the microtask queue after the current synchronous work finishes and before the next task.",
+    "kind": "global",
+    "returns": "void",
+    "params": [param("callback", "() -> any")]
+  },
   "Number": {
     "description": "Convert a value to a number.",
     "kind": "function",
@@ -4886,7 +4892,7 @@ export const TERA_PSEUDO_TYPES = {
   "PromiseConstructor": {
     "methods": [
       { "name": "resolve", "typeParams": ["T"], "params": [optionalParam("value", "T")], "returns": "Promise<T>" },
-      { "name": "reject", "typeParams": ["T"], "params": [optionalParam("reason", "any")], "returns": "Promise<T>" },
+      { "name": "reject", "params": [optionalParam("reason", "any")], "returns": "Promise<never>" },
       { "name": "all", "typeParams": ["T"], "params": [param("values", "Promise<T>[]")], "returns": "Promise<T[]>" },
       { "name": "all_settled", "typeParams": ["T"], "params": [param("values", "Promise<T>[]")], "returns": "Promise<T[]>" },
       { "name": "race", "typeParams": ["T"], "params": [param("values", "Promise<T>[]")], "returns": "Promise<T>" },

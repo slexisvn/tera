@@ -64,7 +64,7 @@ export type BindOptions = {
   interfaces?: readonly ExternalInterface[];
 };
 
-function signatureFromParams(name: string, typeParams: string[], params: Array<{ name: string; type: string; optional: boolean }>, returns: string, meta: Pick<Signature, "visibility" | "owner" | "abstract"> = {}): Signature {
+function signatureFromParams(name: string, typeParams: string[], params: Array<{ name: string; type: string; optional: boolean }>, returns: string, meta: Pick<Signature, "visibility" | "owner" | "abstract" | "async"> = {}): Signature {
   const paramMap = new Map<string, Binding>();
   const required = new Set<string>();
   const positional: string[] = [];
@@ -150,7 +150,7 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
     return;
   }
   if (node.kind === "Function") {
-    const sig = signatureFromParams(node.name, node.typeParams, node.params, node.returns);
+    const sig = signatureFromParams(node.name, node.typeParams, node.params, node.returns, { async: node.async });
     scope.signatures.set(node.name, sig);
     const child = createScope(scope, sig);
     bound.scopes.set(node, child);

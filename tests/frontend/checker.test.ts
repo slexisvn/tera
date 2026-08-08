@@ -176,6 +176,85 @@ describe("checker pipeline", () => {
     ]));
   });
 
+  it("types async function calls as Promise and unwraps them with await", () => {
+    const source = [
+      "async fn fetch_stock(sku: string) -> int:",
+      "  return 5",
+      "async fn run() -> void:",
+      "  pending = fetch_stock(\"A1\")",
+      "  stock = await fetch_stock(\"A1\")",
+      "  everything = await Promise.all([fetch_stock(\"A1\"), fetch_stock(\"B2\")])",
+      "  first = everything[0]",
+    ].join("\n");
+
+    expect(messages(source)).toEqual([]);
+    expect(inferSymbolTypes(source)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "pending", type: "Promise<int>" }),
+      expect.objectContaining({ name: "stock", type: "int" }),
+      expect.objectContaining({ name: "everything", type: "int[]" }),
+      expect.objectContaining({ name: "first", type: "int" }),
+    ]));
+  });
+
+  it("checks async return bodies against the resolved type, not the Promise", () => {
+    const good = [
+      "async fn charge(amount: float) -> string:",
+      "  return `charged ${amount}`",
+    ].join("\n");
+    expect(messages(good)).toEqual([]);
+
+    const bad = [
+      "async fn charge(amount: float) -> string:",
+      "  return amount",
+    ].join("\n");
+    expect(messages(bad)).toEqual([
+      "Type 'float' is not assignable to return type 'string'",
+    ]);
+  });
+
+  it("accepts a Promise of the resolved type returned from an async function", () => {
+    const good = [
+      "async fn f() -> int:",
+      "  return Promise.resolve(1)",
+    ].join("\n");
+    expect(messages(good)).toEqual([]);
+
+    const bad = [
+      "async fn f() -> string:",
+      "  return Promise.resolve(5)",
+    ].join("\n");
+    expect(messages(bad)).toEqual([
+      "Type 'Promise<int>' is not assignable to return type 'string'",
+    ]);
+  });
+
+  it("allows a bare return in a void function but rejects a returned value", () => {
+    expect(messages("fn f() -> void:\n  return")).toEqual([]);
+    expect(messages("async fn f() -> void:\n  return")).toEqual([]);
+    expect(messages("fn f() -> void:\n  return 5")).toEqual([
+      "Type 'int' is not assignable to return type 'void'",
+    ]);
+  });
+
+  it("respects generic variance when comparing Promise<T> (covariant)", () => {
+    expect(messages("p: Promise<int> = Promise.resolve(1)")).toEqual([]);
+    expect(messages("p: Promise<float> = Promise.resolve(1)")).toEqual([]);
+    expect(messages("p: Promise<string> = Promise.resolve(1)")).toEqual([
+      "Type 'Promise<int>' is not assignable to 'Promise<string>'",
+    ]);
+    const argMismatch = [
+      "async fn f() -> int:",
+      "  return 1",
+      "fn takes(p: Promise<string>) -> void:",
+      "  return",
+      "async fn run() -> void:",
+      "  takes(f())",
+    ].join("\n");
+    expect(messages(argMismatch)).toEqual([
+      "Type 'Promise<int>' is not assignable to parameter 'p: Promise<string>'",
+    ]);
+  });
+
   it("normalizes fn-prefixed function return annotations", () => {
     const source = [
       "fn adder(base: int) -> fn(int) -> int:",

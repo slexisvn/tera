@@ -156,8 +156,8 @@ export function installPromiseBuiltin(interpreter: InterpreterLike): void {
     name: "Promise.race",
     call: (args: TaggedValue[]) => promiseRace(interpreter, argOrUndefined(args)),
   });
-  ctorPayload.properties.allSettled = mkFunction({
-    name: "Promise.allSettled",
+  ctorPayload.properties.all_settled = mkFunction({
+    name: "Promise.all_settled",
     call: (args: TaggedValue[]) =>
       promiseAllSettled(interpreter, argOrUndefined(args)),
   });
@@ -168,13 +168,13 @@ export function installPromiseBuiltin(interpreter: InterpreterLike): void {
 
   interpreter.globalCells.write("Promise", mkFunction(ctorPayload));
   interpreter.globalCells.write(
-    "queueMicrotask",
+    "queue_microtask",
     mkFunction({
-      name: "queueMicrotask",
+      name: "queue_microtask",
       call: (args: TaggedValue[]) => {
         const callback = argOrUndefined(args);
         if (!isFunction(callback)) {
-          throw new VMTypeError("queueMicrotask requires a function argument");
+          throw new VMTypeError("queue_microtask requires a function argument");
         }
         interpreter.microtaskQueue.enqueue(new CallbackMicrotask(callback));
         return mkUndefined();
@@ -239,7 +239,7 @@ export function promiseAllSettled(
     let remaining = items.length;
     items.forEach((item, index) => {
       const itemPromise = promiseResolve(interpreter.microtaskQueue, item, interpreter);
-      promiseRecord(itemPromise, "Promise.allSettled").addReaction((state: string, result: TaggedValue) => {
+      promiseRecord(itemPromise, "Promise.all_settled").addReaction((state: string, result: TaggedValue) => {
         const obj = createJSObject();
         if (state === PROMISE_REJECTED) {
           obj.setProperty("status", mkString("rejected"));

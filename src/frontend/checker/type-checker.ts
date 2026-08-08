@@ -4,7 +4,7 @@ import { diagnostic, type Diagnostic } from "./diagnostics.js";
 import { callSignatureForCallee, comprehensionElementType, comprehensionOf, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf } from "./infer.js";
 import { acceptsTensorLeftArithmetic, acceptsTensorRightArithmetic, binaryOperatorSemantics, isTensorType } from "./operator-types.js";
 import type { ClassMemberNode, SemanticNode } from "./semantic-ast.js";
-import { arrayElementType, cleanType, compatible, indexKeyAssignable, indexedAccessType, indexKeyType, instantiateShapeForType, isIndexableType, isTupleType, iterableBindingType, leastUpperBound, removeNullish, resolveType, tupleTypes, unionParts, unionType, type ObjectShape, type Signature, type TypeEnv, type TypeName } from "./type-system.js";
+import { arrayElementType, awaitedType, cleanType, compatible, indexKeyAssignable, indexedAccessType, indexKeyType, instantiateShapeForType, isIndexableType, isTupleType, iterableBindingType, leastUpperBound, promiseType, removeNullish, resolveType, tupleTypes, unionParts, unionType, type ObjectShape, type Signature, type TypeEnv, type TypeName } from "./type-system.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
 
 export type SymbolType = {
@@ -371,11 +371,14 @@ export class TypeChecker {
   checkReturn(node: Extract<SemanticNode, { kind: "Return" }>, scope: Scope): void {
     const sig = this.currentSignature(scope);
     if (!sig || sig.returns === "any") return;
-    const expected = functionSignatureForType("<return>", sig.returns);
+    const resolved = sig.async ? awaitedType(sig.returns, this.bound.env) : sig.returns;
+    const expectedType = sig.async ? unionType([resolved, promiseType(sig.returns, this.bound.env)]) : sig.returns;
+    const expected = functionSignatureForType("<return>", resolved);
     const before = this.diagnostics.length;
-    if (node.value) this.checkExpression(node.value, scope, node.span.line, node.span.column, expected, sig.returns);
-    const actual = inferExpression(node.value, this.bound, scope, null, sig.returns);
-    if (!compatible(actual, sig.returns, this.bound.env) && this.diagnostics.length === before) {
+    if (node.value) this.checkExpression(node.value, scope, node.span.line, node.span.column, expected, expectedType);
+    const actual = inferExpression(node.value, this.bound, scope, null, expectedType);
+    const actualResolved = sig.async ? awaitedType(actual, this.bound.env) : actual;
+    if (!compatible(actualResolved, resolved, this.bound.env) && this.diagnostics.length === before) {
       const at = node.value ? nodePosition(node.value, node.span.line, node.span.column) : node.span;
       this.add(at.line, at.column, `Type '${actual}' is not assignable to return type '${sig.returns}'`);
     }

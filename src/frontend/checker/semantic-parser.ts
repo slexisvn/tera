@@ -51,6 +51,7 @@ type FunctionAst = ASTNode & {
   _typeParams?: string[];
   visibility?: ClassVisibility;
   abstract?: boolean;
+  async?: boolean;
 };
 
 type ClassAst = ASTNode & {
@@ -263,6 +264,7 @@ function functionNode(node: FunctionAst, fallbackName?: string): FunctionNode {
     returns: cleanType(node._returnType ?? "any"),
     body: semanticBody(node.body),
     abstract: !!node.abstract,
+    async: !!node.async,
     span: spanOf(node),
     nameSpan: nameSpanOf(node),
   };

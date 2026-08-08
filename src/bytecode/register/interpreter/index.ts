@@ -1149,8 +1149,8 @@ export class RegisterInterpreter {
     if (obj && obj._primitiveValue !== undefined) return obj._primitiveValue;
     const order =
       hint === "string"
-        ? ["toString", "valueOf"]
-        : ["valueOf", "toString"];
+        ? ["to_string", "value_of", "toString", "valueOf"]
+        : ["value_of", "to_string", "valueOf", "toString"];
     for (const methodName of order) {
       let method;
       try {

@@ -3,6 +3,7 @@ import { lookup, lookupSignature, type BoundProgram, type Scope } from "./binder
 import { binaryOperatorSemantics, isTensorType } from "./operator-types.js";
 import {
   arrayElementType,
+  awaitedType,
   builtinMethod,
   callSignatureForType,
   cleanType,
@@ -14,6 +15,8 @@ import {
   iterableBindingType,
   leastUpperBound,
   parseFunctionType,
+  parseGenericType,
+  promiseType,
   removeNullish,
   resolveType,
   shapeType,
@@ -91,7 +94,7 @@ export function inferExpression(
     case NodeType.SequenceExpression:
       return inferSequence(node, bound, scope, expected, expectedType);
     case NodeType.AwaitExpression:
-      return inferExpression(node.argument as ASTNode, bound, scope, expected, expectedType);
+      return awaitedType(inferExpression(node.argument as ASTNode, bound, scope), bound.env);
     case NodeType.YieldExpression:
       return inferExpression(node.argument as ASTNode | undefined, bound, scope, expected, expectedType);
     case NodeType.ConditionalExpression: {
@@ -305,6 +308,14 @@ function unifyTypeParams(paramType: TypeName, actualType: TypeName, typeParams: 
     unifyTypeParams(paramElement, actualElement, typeParams, subs);
     return;
   }
+  const paramGeneric = parseGenericType(param);
+  const actualGeneric = parseGenericType(actualType);
+  if (paramGeneric && actualGeneric && paramGeneric.name === actualGeneric.name) {
+    for (let i = 0; i < paramGeneric.args.length && i < actualGeneric.args.length; i++) {
+      unifyTypeParams(paramGeneric.args[i], actualGeneric.args[i], typeParams, subs);
+    }
+    return;
+  }
   for (const typeParam of typeParams) {
     if (!subs.has(typeParam) && new RegExp(`\\b${typeParam}\\b`).test(param)) subs.set(typeParam, actualType);
   }
@@ -314,7 +325,9 @@ function inferCall(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
   const comprehension = arrayComprehensionType(node, bound, scope);
   if (comprehension) return comprehension;
   const sig = callSignatureForCallee(node.callee as ASTNode, bound, scope);
-  return sig ? instantiateForCall(sig, node.args as ASTNode[], bound, scope, typeArgsOf(node.callee as ASTNode)).returns : "unknown";
+  if (!sig) return "unknown";
+  const instantiated = instantiateForCall(sig, node.args as ASTNode[], bound, scope, typeArgsOf(node.callee as ASTNode));
+  return instantiated.async ? promiseType(instantiated.returns, bound.env) : instantiated.returns;
 }
 
 function inferNew(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {

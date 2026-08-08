@@ -61,6 +61,7 @@ export type Signature = {
   visibility?: ClassVisibility;
   owner?: string;
   abstract?: boolean;
+  async?: boolean;
 };
 
 export type TypeEnv = {
@@ -594,6 +595,26 @@ export function baseTypeName(type: TypeName): string {
   return generic ? generic[1] : cleanType(type);
 }
 
+const PROMISE_TYPE = "Promise";
+
+export function awaitedType(type: TypeName, env: TypeEnv, seen = new Set<string>()): TypeName {
+  return unionType(unionParts(type, env).map((part) => awaitedPart(part, env, seen)));
+}
+
+function awaitedPart(type: TypeName, env: TypeEnv, seen: Set<string>): TypeName {
+  const resolved = resolveType(type, env);
+  const generic = parseGenericType(resolved);
+  if (generic?.name !== PROMISE_TYPE) return resolved;
+  const inner = generic.args[0] ?? "unknown";
+  if (seen.has(resolved)) return inner;
+  seen.add(resolved);
+  return awaitedType(inner, env, seen);
+}
+
+export function promiseType(resolved: TypeName, env: TypeEnv): TypeName {
+  return `${PROMISE_TYPE}<${awaitedType(resolved, env)}>`;
+}
+
 function methodOwnerName(type: TypeName, env?: TypeEnv): string {
   const resolved = cleanType(type);
   const owner = arrayElementType(resolved) || isTupleType(resolved)
@@ -648,7 +669,7 @@ function genericArgsForOwner(type: TypeName, owner: string, env?: TypeEnv): Type
   return directGeneric?.name === owner ? directGeneric.args : [];
 }
 
-function parseGenericType(type: TypeName): { name: string; args: TypeName[] } | null {
+export function parseGenericType(type: TypeName): { name: string; args: TypeName[] } | null {
   const source = cleanType(type);
   const open = source.indexOf("<");
   if (open <= 0 || !source.endsWith(">")) return null;
@@ -749,6 +770,7 @@ function assignableUncached(actual: TypeName, expected: TypeName, env: TypeEnv, 
   if (actual === "never") return true;
   if (expected === "unknown") return true;
   if (actual === "unknown") return false;
+  if (expected === "void") return actual === "undefined";
   if (expected === "Function") return actual === "Function" || parseFunctionType(actual) !== null;
   const expectedFn = parseFunctionType(expected);
   if (expectedFn) return functionAssignable(actual, expectedFn, env, memo);
@@ -762,7 +784,7 @@ function assignableUncached(actual: TypeName, expected: TypeName, env: TypeEnv, 
   if (arrayAssignable(actual, expected, env, memo)) return true;
   if (numericAssignable(actual, expected)) return true;
   if (boolAssignable(actual, expected)) return true;
-  if (nominalAssignable(actual, expected, env)) return true;
+  if (nominalAssignable(actual, expected, env, memo)) return true;
   if (objectAssignable(actual, expected, env, memo)) return true;
   return false;
 }
@@ -833,14 +855,129 @@ function nominalLineage(type: TypeName, env: TypeEnv): TypeName[] {
   return out;
 }
 
-function nominalAssignable(actual: TypeName, expected: TypeName, env: TypeEnv): boolean {
-  const expectedBase = baseTypeName(expected);
-  let current: TypeName | null = baseTypeName(actual);
+type Polarity = 1 | -1;
+type Variance = "co" | "contra" | "inv" | "bi";
+
+const VARIANCE_CACHE = new Map<string, Variance[]>();
+
+function flipPolarity(polarity: Polarity): Polarity {
+  return polarity === 1 ? -1 : 1;
+}
+
+function polaritiesUnderVariance(variance: Variance, polarity: Polarity): Polarity[] {
+  if (variance === "co") return [polarity];
+  if (variance === "contra") return [flipPolarity(polarity)];
+  if (variance === "inv") return [polarity, flipPolarity(polarity)];
+  return [];
+}
+
+function constructorVariance(owner: string): Variance[] {
+  const cached = VARIANCE_CACHE.get(owner);
+  if (cached) return cached;
+  const params = PSEUDO_TYPE_PARAMS.get(owner) ?? [];
+  if (!params.length) {
+    VARIANCE_CACHE.set(owner, []);
+    return [];
+  }
+  VARIANCE_CACHE.set(owner, params.map(() => "co"));
+  const result = params.map((param) => inferParamVariance(owner, param));
+  VARIANCE_CACHE.set(owner, result);
+  return result;
+}
+
+function inferParamVariance(owner: string, param: string): Variance {
+  let positive = false;
+  let negative = false;
+  const record = (polarity: Polarity): void => {
+    if (polarity === 1) positive = true;
+    else negative = true;
+  };
+  for (const method of METHOD_SPECS.get(owner)?.values() ?? []) {
+    if (method.typeParams?.includes(param)) continue;
+    collectParamPolarity(cleanType(method.returns ?? "any"), 1, owner, param, record);
+    for (const methodParam of method.params ?? []) {
+      collectParamPolarity(cleanType(methodParam.type ?? "any"), -1, owner, param, record);
+    }
+  }
+  if (positive && negative) return "inv";
+  if (positive) return "co";
+  if (negative) return "contra";
+  return "bi";
+}
+
+function collectParamPolarity(type: TypeName, polarity: Polarity, owner: string, param: string, record: (polarity: Polarity) => void): void {
+  const source = cleanType(type);
+  for (const separator of ["|", "&"] as const) {
+    const parts = splitTopLevel(source, separator);
+    if (parts.length > 1) {
+      for (const part of parts) collectParamPolarity(part, polarity, owner, param, record);
+      return;
+    }
+  }
+  const fn = parseFunctionType(source);
+  if (fn) {
+    collectParamPolarity(fn.returns, polarity, owner, param, record);
+    for (const name of fn.positional) collectParamPolarity(fn.params.get(name)!.type, flipPolarity(polarity), owner, param, record);
+    return;
+  }
+  const element = arrayElementType(source);
+  if (element) {
+    collectParamPolarity(element, polarity, owner, param, record);
+    return;
+  }
+  if (isTupleType(source)) {
+    for (const item of tupleTypes(source)) collectParamPolarity(item, polarity, owner, param, record);
+    return;
+  }
+  const generic = parseGenericType(source);
+  if (generic) {
+    const variances = generic.name === owner ? null : constructorVariance(generic.name);
+    for (let i = 0; i < generic.args.length; i++) {
+      for (const argPolarity of polaritiesUnderVariance(variances?.[i] ?? "co", polarity)) {
+        collectParamPolarity(generic.args[i], argPolarity, owner, param, record);
+      }
+    }
+    return;
+  }
+  const literal = typeLiteralShape(source);
+  if (literal) {
+    for (const binding of literal.fields.values()) collectParamPolarity(binding.type, polarity, owner, param, record);
+    for (const indexer of literal.indexers ?? []) collectParamPolarity(indexer.valueType, polarity, owner, param, record);
+    return;
+  }
+  if (source === param) record(polarity);
+}
+
+function genericArgsAssignable(owner: string, actualArgs: TypeName[], expectedArgs: TypeName[], env: TypeEnv, memo: Map<string, boolean>): boolean {
+  if (!actualArgs.length || !expectedArgs.length) return true;
+  const variances = constructorVariance(owner);
+  const count = Math.min(actualArgs.length, expectedArgs.length);
+  for (let i = 0; i < count; i++) {
+    const variance = variances[i] ?? "inv";
+    const forward = () => assignable(actualArgs[i], expectedArgs[i], env, memo);
+    const backward = () => assignable(expectedArgs[i], actualArgs[i], env, memo);
+    const ok = variance === "co" ? forward()
+      : variance === "contra" ? backward()
+      : variance === "bi" ? forward() || backward()
+      : forward() && backward();
+    if (!ok) return false;
+  }
+  return true;
+}
+
+function nominalAssignable(actual: TypeName, expected: TypeName, env: TypeEnv, memo: Map<string, boolean>): boolean {
+  const expectedGeneric = parseGenericType(expected);
+  const expectedBase = expectedGeneric?.name ?? baseTypeName(expected);
+  const actualGeneric = parseGenericType(actual);
+  let currentBase: string | null = actualGeneric?.name ?? baseTypeName(actual);
+  let currentArgs = actualGeneric?.args ?? [];
   const seen = new Set<TypeName>();
-  while (current && !seen.has(current)) {
-    if (current === expectedBase) return true;
-    seen.add(current);
-    current = nominalFamily(current, env);
+  while (currentBase && !seen.has(currentBase)) {
+    if (currentBase === expectedBase) return genericArgsAssignable(currentBase, currentArgs, expectedGeneric?.args ?? [], env, memo);
+    seen.add(currentBase);
+    const family = nominalFamily(currentBase, env);
+    currentBase = family ? baseTypeName(family) : null;
+    currentArgs = [];
   }
   return false;
 }
