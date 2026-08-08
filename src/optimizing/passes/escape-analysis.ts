@@ -12,6 +12,7 @@ import {
   visitFrameStateValues,
 } from "./frame-state-values.js";
 import { detachInputs } from "./graph-edit.js";
+import { analyzeEscapes } from "../analyses/escape.js";
 import type { FrameValue } from "../../deopt/frame-state.js";
 
 type EscapeNode = ir.CFGInstruction;
@@ -44,41 +45,19 @@ export function escapeAnalysisAndScalarReplacement(graph: EscapeGraph): number {
       }
     }
   }
+  if (allocations.length === 0) return 0;
+
+  const escapeInfo = analyzeEscapes(graph);
 
   for (const alloc of allocations) {
     const allocBlock = blockOf.get(alloc);
     if (!allocBlock) continue;
 
-    let escapes = false;
-    const safeUses = new Set<EscapeNode>();
-    const aliases = new Set<EscapeNode>([alloc]);
-    const worklist: EscapeNode[] = [alloc];
+    if (escapeInfo.escapes(alloc.id)) continue;
+    if (escapeInfo.flowsThroughPhi(alloc.id)) continue;
 
-    while (worklist.length > 0 && !escapes) {
-      const ref = worklist.pop()!;
-      for (const use of [...ref.uses]) {
-        if (safeUses.has(use)) continue;
-        if (
-          isPropertyUse(use, aliases) ||
-          isElementUse(use, aliases) ||
-          isFieldUse(use, aliases)
-        ) {
-          safeUses.add(use);
-        } else if (
-          isReferenceGuard(use, aliases) ||
-          isSameReferencePhi(use, aliases)
-        ) {
-          safeUses.add(use);
-          aliases.add(use);
-          worklist.push(use);
-        } else {
-          escapes = true;
-          break;
-        }
-      }
-    }
-
-    if (escapes) continue;
+    const aliases = new Set<EscapeNode>(escapeInfo.aliasesOf(alloc.id));
+    const safeUses = new Set<EscapeNode>(escapeInfo.receiverUsesOf(alloc.id));
 
     let allDominated = true;
     for (const use of safeUses) {
@@ -272,45 +251,6 @@ function elementKey(node: EscapeNode): string {
   const idxNode = node.inputs[1];
   if (idxNode && idxNode.type === ir.IR_CONSTANT) return "i" + String(idxNode.props.value);
   return idxNode ? "n" + idxNode.id : "i0";
-}
-
-function isPropertyUse(node: EscapeNode, aliases: Set<EscapeNode>): boolean {
-  return (
-    (node.type === ir.IR_GENERIC_SET_PROP || node.type === ir.IR_GENERIC_GET_PROP) &&
-    aliases.has(node.inputs[0])
-  );
-}
-
-function isElementUse(node: EscapeNode, aliases: Set<EscapeNode>): boolean {
-  return (
-    (node.type === ir.IR_GENERIC_SET_INDEX ||
-      node.type === ir.IR_GENERIC_GET_INDEX ||
-      node.type === ir.IR_STORE_ELEMENT ||
-      node.type === ir.IR_LOAD_ELEMENT) &&
-    aliases.has(node.inputs[0])
-  );
-}
-
-function isFieldUse(node: EscapeNode, aliases: Set<EscapeNode>): boolean {
-  return (
-    (node.type === ir.IR_STORE_FIELD || node.type === ir.IR_LOAD_FIELD) &&
-    aliases.has(node.inputs[0])
-  );
-}
-
-function isReferenceGuard(node: EscapeNode, aliases: Set<EscapeNode>): boolean {
-  return (
-    (node.type === ir.IR_CHECK_MAP || node.type === ir.IR_CHECK_ARRAY) &&
-    aliases.has(node.inputs[0])
-  );
-}
-
-function isSameReferencePhi(node: EscapeNode, aliases: Set<EscapeNode>): boolean {
-  return (
-    node.type === ir.IR_PHI &&
-    node.inputs.length > 0 &&
-    node.inputs.every((input) => aliases.has(input))
-  );
 }
 
 function insertUndefinedConstant(block: EscapeBlock, index: number): EscapeNode {

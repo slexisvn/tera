@@ -44,9 +44,10 @@ const GLOBAL_REASSIGN_HAZARDS = new Set<string>([
 export function hoistLoopInvariants(
   graph: LoopGraph,
   findLoopsFn: FindLoopsFn,
-): void {
+): number {
   const loops = findLoopsFn(graph);
-  if (loops.length === 0) return;
+  if (loops.length === 0) return 0;
+  let hoistedCount = 0;
 
   for (const loop of loops) {
     const header = loop.header;
@@ -176,12 +177,14 @@ export function hoistLoopInvariants(
       insertionPoint++;
       node.block = preHeader;
       nodeToBlock.set(node.id, preHeader);
+      hoistedCount++;
       tracer.jitCompile(
         graph.name,
         `LICM: hoisted ${node.type} v${node.id} from B${block.id} to pre-header B${preHeader.id}`,
       );
     }
   }
+  return hoistedCount;
 }
 
 export function findLoops(graph: LoopGraph): LoopInfo[] {

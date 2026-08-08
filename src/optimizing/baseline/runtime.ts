@@ -1,5 +1,5 @@
 import * as bytecode from "../../bytecode/register/ops/bytecode.js";
-import { isInsideWasmExecution } from "../wasm/codegen.js";
+import { isInsideWasmExecution } from "../backends/wasm/codegen.js";
 import { constantString } from "../builder/feedback-utils.js";
 import { applyBinaryOverload, applyRelational, applyUnaryOverload, type RelationalOverload } from "../../runtime/operators.js";
 

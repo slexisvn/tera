@@ -43,18 +43,6 @@ function makeGraph(name = "test") {
   return { graph, block };
 }
 
-function nodeTypes(block) {
-  return block.nodes.map(n => n.type);
-}
-
-function findConstant(block) {
-  return block.nodes.find(n => n.type === IR_CONSTANT);
-}
-
-function allConstants(block) {
-  return block.nodes.filter(n => n.type === IR_CONSTANT).map(n => n.props.value);
-}
-
 beforeEach(() => resetIRNodeIds());
 
 describe("constantFolding", () => {

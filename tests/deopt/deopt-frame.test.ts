@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { materializeFrameValue } from "../../src/optimizing/wasm/deopt-frame.js";
+import { materializeFrameValue } from "../../src/optimizing/backends/wasm/deopt-frame.js";
 import {
   mkSmi,
   mkNumber,

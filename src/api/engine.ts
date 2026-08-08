@@ -17,7 +17,9 @@ import {
 import type { RegisterConstant, OsrEntry } from "../bytecode/register/ops/bytecode.js";
 import type { GlobalCell } from "../runtime/intrinsics/global-cells.js";
 import { SpeculativeOptimizer } from "../optimizing/optimizer.js";
-import { WasmCodegen } from "../optimizing/wasm/codegen.js";
+import { createBackendRegistry } from "../optimizing/backends/index.js";
+import type { BackendRegistry } from "../optimizing/target/registry.js";
+import { isJitBackend, type JitBackend } from "../optimizing/target/jit.js";
 import { BaselineCompiler } from "../optimizing/baseline/compiler.js";
 import { Deoptimizer } from "../deopt/deoptimizer.js";
 import { DependencyRegistry, withDependencyRegistry } from "../deopt/dependencies.js";
@@ -206,7 +208,8 @@ export class Engine {
   interpreter: EngineInterpreter;
   baselineCompiler: BaselineCompiler;
   optimizer: SpeculativeOptimizer;
-  wasmCodegen: WasmCodegen;
+  backends: BackendRegistry;
+  jitBackend: JitBackend;
   deoptimizer: Deoptimizer;
   compilationCount: number;
   executionCount: number;
@@ -276,7 +279,12 @@ export class Engine {
     );
     this.baselineCompiler = new BaselineCompiler();
     this.optimizer = new SpeculativeOptimizer(this.compilerExtensions);
-    this.wasmCodegen = new WasmCodegen();
+    this.backends = createBackendRegistry();
+    const wasm = this.backends.resolve("wasm");
+    if (!isJitBackend(wasm)) {
+      throw new Error('Backend "wasm" is not a JIT backend');
+    }
+    this.jitBackend = wasm;
     this.deoptimizer = new Deoptimizer(this.interpreter);
     this.dependencyRegistry.bindLazyMarker(this.deoptimizer.lazyMarker);
     this.compilationCount = 0;
@@ -708,7 +716,7 @@ export class Engine {
       this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
       const result = this.optimizer.compile(compiledFn, offset);
       if (!result.graph.bailout) {
-        const code = this.wasmCodegen.compile(result, compiledFn);
+        const code = this.jitBackend.jitCompile({ result, compiledFn }).code;
         if (code) {
           entry = { code, slots: result.graph.osrParamSlots ?? [] };
           this.dependencyRegistry.registerOsr(compiledFn, result.graph.dependencies);
@@ -746,7 +754,11 @@ export class Engine {
       this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
       const optimizerResult = this.optimizer.compile(compiledFn);
       this.onOptimize?.(compiledFn, optimizerResult.graph as OptimizedGraph);
-      const wasmFn = this.wasmCodegen.compile(optimizerResult, compiledFn);
+      const jitResult = this.jitBackend.jitCompile({
+        result: optimizerResult,
+        compiledFn,
+      });
+      const wasmFn = jitResult.code;
 
       if (wasmFn) {
         compiledFn.optimizedCode = wasmFn;
@@ -771,15 +783,11 @@ export class Engine {
           `Wasm installed in ${elapsed.toFixed(2)}ms`,
         );
       } else {
-        const wasmCodegen = this.wasmCodegen as WasmCodegen & {
-          lastCompileRejection?: string | null;
-          lastAnalysisFailure?: string | null;
-        };
         compiledFn.compileFailureCount =
           (compiledFn.compileFailureCount || 0) + 1;
         compiledFn.lastCompileFailureReason =
-          wasmCodegen.lastCompileRejection ||
-          wasmCodegen.lastAnalysisFailure ||
+          jitResult.rejection.compileRejection ||
+          jitResult.rejection.analysisFailure ||
           "not-compilable";
         compiledFn.optimizationCooldownUntil =
           Date.now() + Math.min(5000, 250 * compiledFn.compileFailureCount);

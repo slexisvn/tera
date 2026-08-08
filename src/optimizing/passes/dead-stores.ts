@@ -1,5 +1,4 @@
 import * as ir from "../ir/index.js";
-import { computeDominators, buildDominatorTree } from "./dominators.js";
 import { detachNode } from "./graph-edit.js";
 
 type StoreNode = ir.CFGInstruction;
@@ -56,9 +55,6 @@ export function deadStoreElimination(graph: StoreGraph): number {
 
     removeDeadNodes(block, deadStores);
   }
-
-  const dominators = computeDominators(graph);
-  buildDominatorTree(graph, dominators);
 
   const blockStores = new Map<number, Map<StoreKey, StoreNode>>();
   const blockLoads = new Map<number, Set<StoreKey>>();

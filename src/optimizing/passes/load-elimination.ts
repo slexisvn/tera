@@ -1,5 +1,6 @@
 import * as ir from "../ir/index.js";
-import { computeDominators, buildDominatorTree } from "./dominators.js";
+import { DominatorTree } from "../analyses/dominance.js";
+import { walkDominatorTree } from "../infra/dom-walk.js";
 import { replaceGraphFrameStateValue } from "./frame-state-values.js";
 import { detachNode } from "./graph-edit.js";
 
@@ -58,8 +59,7 @@ function stateDeleteObj(state: LoadState, objId: number): void {
 }
 
 export function loadElimination(graph: LoadGraph): number {
-  const dominators = computeDominators(graph);
-  const { children } = buildDominatorTree(graph, dominators);
+  const dom = new DominatorTree(graph);
   let eliminatedCount = 0;
 
   const freshAllocations = new Set<number>();
@@ -98,8 +98,7 @@ export function loadElimination(graph: LoadGraph): number {
     return false;
   };
 
-  const walkDomTree = (block: LoadBlock, parentState: LoadState): void => {
-    const state = cloneState(parentState);
+  const visitBlock = (block: LoadBlock, state: LoadState): void => {
     const nodesToRemove: LoadNode[] = [];
 
     for (const node of block.nodes) {
@@ -183,16 +182,16 @@ export function loadElimination(graph: LoadGraph): number {
       const deadSet = new Set(nodesToRemove);
       block.nodes = block.nodes.filter((n) => !deadSet.has(n));
     }
-
-    const childBlocks = (children.get(block) || []) as LoadBlock[];
-    for (const child of childBlocks) {
-      walkDomTree(child, state);
-    }
   };
 
   const entry = graph.blocks[0];
   if (entry) {
-    walkDomTree(entry, new Map());
+    walkDominatorTree<LoadBlock, LoadState>(
+      entry,
+      (block) => dom.childrenOf(block) as readonly LoadBlock[],
+      new Map(),
+      { fork: cloneState, visitBlock },
+    );
   }
 
   return eliminatedCount;
