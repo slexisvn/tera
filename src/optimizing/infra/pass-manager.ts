@@ -8,11 +8,13 @@ export interface TransformOutcome {
 export type Preservation =
   | { readonly kind: "all" }
   | { readonly kind: "none" }
+  | { readonly kind: "only"; readonly preserved: ReadonlyArray<AnalysisId<unknown>> }
   | { readonly kind: "allExcept"; readonly invalidated: ReadonlyArray<AnalysisId<unknown>> };
 
 export interface TransformPass<G> {
   readonly name: string;
   readonly preserves: Preservation;
+  readonly requires?: ReadonlyArray<AnalysisId<unknown>>;
   run(graph: G, analyses: AnalysisManager<G>, options: CompilerOptions): TransformOutcome;
 }
 
@@ -25,6 +27,7 @@ export class PassManager<G> {
   run(graph: G, pipeline: Iterable<TransformPass<G>>): boolean {
     let anyChanged = false;
     for (const pass of pipeline) {
+      for (const id of pass.requires ?? []) this.analyses.get(id);
       const outcome = pass.run(graph, this.analyses, this.options);
       if (!outcome.changed) continue;
       anyChanged = true;
@@ -37,6 +40,10 @@ export class PassManager<G> {
     if (preservation.kind === "all") return;
     if (preservation.kind === "none") {
       this.analyses.invalidateAll();
+      return;
+    }
+    if (preservation.kind === "only") {
+      this.analyses.invalidateExcept(new Set(preservation.preserved));
       return;
     }
     for (const id of preservation.invalidated) this.analyses.invalidate(id);

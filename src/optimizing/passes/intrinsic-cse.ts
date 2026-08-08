@@ -1,5 +1,5 @@
 import * as ir from "../ir/index.js";
-import { detachNode, replaceValueUses } from "./graph-edit.js";
+import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
 
 type IntrinsicNode = ir.CFGInstruction;
 type IntrinsicBlock = ir.CFGBlock;

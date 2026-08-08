@@ -1,6 +1,6 @@
 import * as ir from "../ir/index.js";
-import { markFrameStateValues, visitFrameStateValues } from "./frame-state-values.js";
-import { replaceValueUses } from "./graph-edit.js";
+import { markFrameStateValues, visitFrameStateValues } from "../ir/frame-state-values.js";
+import { replaceValueUses } from "../ir/graph-edit.js";
 
 type DceNode = ir.CFGInstruction;
 type DceBlock = ir.CFGBlock;

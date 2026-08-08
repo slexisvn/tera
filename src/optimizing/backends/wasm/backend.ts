@@ -15,7 +15,7 @@ export class WasmBackend implements JitBackend {
   constructor(private readonly codegen: WasmCodegen = new WasmCodegen()) {}
 
   jitCompile(request: JitCompileRequest): JitCompileResult {
-    const code = this.codegen.compile(request.result, request.compiledFn);
+    const code = this.codegen.compile(request.unit);
     return {
       code,
       rejection: {

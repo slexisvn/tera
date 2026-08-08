@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { typeNarrowing } from "../../src/optimizing/passes/type-narrowing.js";
+import { DominatorTree } from "../../src/optimizing/analyses/dominance.js";
 import {
   CFGFunction,
   IRNode,
@@ -25,6 +26,10 @@ import {
 
 beforeEach(() => resetIRNodeIds());
 
+function narrowTypes(graph: CFGFunction): number {
+  return typeNarrowing(graph, new DominatorTree(graph));
+}
+
 describe("typeNarrowing", () => {
   describe("CheckSmi narrowing → int32 specialization", () => {
     it("specializes GenericAdd to Int32Add when both inputs pass CheckSmi", () => {
@@ -40,7 +45,7 @@ describe("typeNarrowing", () => {
       block.addNode(add);
       block.addNode(irReturn(add));
 
-      const count = typeNarrowing(graph);
+      const count = narrowTypes(graph);
 
       expect(count).toBeGreaterThanOrEqual(1);
       expect(add.type).toBe(IR_INT32_ADD);
@@ -59,7 +64,7 @@ describe("typeNarrowing", () => {
       block.addNode(sub);
       block.addNode(irReturn(sub));
 
-      typeNarrowing(graph);
+      narrowTypes(graph);
 
       expect(sub.type).toBe(IR_INT32_SUB);
     });
@@ -77,7 +82,7 @@ describe("typeNarrowing", () => {
       block.addNode(cmp);
       block.addNode(irReturn(cmp));
 
-      typeNarrowing(graph);
+      narrowTypes(graph);
 
       expect(cmp.type).toBe(IR_INT32_COMPARE);
     });
@@ -97,7 +102,7 @@ describe("typeNarrowing", () => {
       block.addNode(add);
       block.addNode(irReturn(add));
 
-      typeNarrowing(graph);
+      narrowTypes(graph);
 
       expect([IR_FLOAT64_ADD, IR_INT32_ADD]).toContain(add.type);
     });
@@ -113,7 +118,7 @@ describe("typeNarrowing", () => {
       block.addNode(add);
       block.addNode(irReturn(add));
 
-      const count = typeNarrowing(graph);
+      const count = narrowTypes(graph);
 
       expect(count).toBe(0);
       expect(add.type).toBe(IR_GENERIC_ADD);
@@ -130,7 +135,7 @@ describe("typeNarrowing", () => {
       block.addNode(add);
       block.addNode(irReturn(add));
 
-      const count = typeNarrowing(graph);
+      const count = narrowTypes(graph);
 
       expect(count).toBe(0);
       expect(add.type).toBe(IR_GENERIC_ADD);
@@ -151,7 +156,7 @@ describe("typeNarrowing", () => {
       block.addNode(add);
       block.addNode(irReturn(add));
 
-      typeNarrowing(graph);
+      narrowTypes(graph);
 
       expect([IR_FLOAT64_ADD, IR_INT32_ADD]).toContain(add.type);
     });
@@ -170,7 +175,7 @@ describe("typeNarrowing", () => {
       block.addNode(add);
       block.addNode(irReturn(add));
 
-      typeNarrowing(graph);
+      narrowTypes(graph);
 
       expect(add.type).toBe(IR_INT32_ADD);
     });
@@ -194,7 +199,7 @@ describe("typeNarrowing", () => {
       b1.addNode(add);
       b1.addNode(irReturn(add));
 
-      typeNarrowing(graph);
+      narrowTypes(graph);
 
       expect(add.type).toBe(IR_INT32_ADD);
     });
@@ -229,7 +234,7 @@ describe("typeNarrowing", () => {
 
       bFalse.addNode(irReturn(irConstant(0)));
 
-      typeNarrowing(graph);
+      narrowTypes(graph);
 
       expect([IR_FLOAT64_ADD, IR_INT32_ADD]).toContain(add.type);
     });
@@ -262,7 +267,7 @@ describe("typeNarrowing", () => {
 
       bFalse.addNode(irReturn(irConstant(0)));
 
-      typeNarrowing(graph);
+      narrowTypes(graph);
 
       expect([IR_FLOAT64_ADD, IR_INT32_ADD]).toContain(add.type);
     });
@@ -293,7 +298,7 @@ describe("typeNarrowing", () => {
       bFalse.addNode(add);
       bFalse.addNode(irReturn(add));
 
-      typeNarrowing(graph);
+      narrowTypes(graph);
 
       expect(add.type).toBe(IR_GENERIC_ADD);
     });

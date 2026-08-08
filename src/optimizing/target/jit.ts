@@ -1,13 +1,11 @@
 import type {
   OptimizedCode,
-  RegisterCompiledFunction,
 } from "../../bytecode/register/ops/bytecode.js";
-import type { SpeculativeCompileResult } from "../optimizer.js";
+import type { CompilationUnit } from "../compilation-unit.js";
 import type { CodeBackend } from "./backend.js";
 
 export interface JitCompileRequest {
-  readonly result: SpeculativeCompileResult;
-  readonly compiledFn: RegisterCompiledFunction;
+  readonly unit: CompilationUnit;
 }
 
 export interface JitRejection {

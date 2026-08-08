@@ -1,5 +1,10 @@
 export { Engine } from "./api/engine.js";
-export type { EngineOptions, CompileOptions, EngineValue, EngineUnhandledRejection } from "./api/engine.js";
+export type { AotCompileOptions, AotFunctionCompileOptions, EngineOptions, CompileOptions, EngineValue, EngineUnhandledRejection } from "./api/engine.js";
+export { compileModule, writeAotProgram } from "./optimizing/drivers/aot.js";
+export type { AotCompiledFunction, AotDriverOptions, AotProgram, AotSkippedFunction } from "./optimizing/drivers/aot.js";
+export { createCompilationUnit, createModuleIR, moduleFromGraphs } from "./optimizing/compilation-unit.js";
+export type { CompilationUnit, ModuleIR } from "./optimizing/compilation-unit.js";
+export type { AotBackend } from "./optimizing/target/backend.js";
 export { mergeCompilerExtensions, resolveTeraExtensions } from "./api/extensions.js";
 export type { NativeHostBuiltin, NativeHostBuiltinRegistry, ResolvedTeraExtensions, TeraCompilerEffect, TeraCompilerExtension, TeraCompilerPhase, TeraDeoptSpec, TeraEffectMetadata, TeraExtension, TeraGuardKind, TeraGuardSpec, TeraIntrinsicSpec, TeraOptimizerPass, TeraOptimizerPassContext } from "./api/extensions.js";
 export { DebugController, TeraDebugSession } from "./debugger/index.js";

@@ -1,5 +1,5 @@
 import * as ir from "../../ir/index.js";
-import type { SpeculativeCompileResult } from "../../optimizer.js";
+import type { CompilationUnit } from "../../compilation-unit.js";
 import type {
   OptimizedCode,
   RegisterCompiledFunction,
@@ -72,11 +72,11 @@ import {
   REP_BOOL,
 } from "../../passes/repr-selection.js";
 import { validateOptimizedGraph } from "../../validation/graph-validator.js";
-import { findLoops } from "../../passes/loop-opts.js";
+import { findLoops } from "../../analyses/loops.js";
 import {
   frameStateValueIds,
   visitDeoptSnapshotValues,
-} from "../../passes/frame-state-values.js";
+} from "../../ir/frame-state-values.js";
 import * as wasmFormat from "./wasm-format.js";
 import { elementsKindId, elementsKindName } from "./object-layout.js";
 import {
@@ -4043,11 +4043,14 @@ export class WasmCodegen {
     return false;
   }
 
-  compile(
-    optimizerResult: SpeculativeCompileResult,
-    compiledFn: RegisterCompiledFunction,
-  ): OptimizedCode | null {
-    const { graph, frameStates } = optimizerResult;
+  compile(unit: CompilationUnit): OptimizedCode | null {
+    const compiledFn = unit.compiledFunction;
+    if (compiledFn === null) {
+      this.lastCompileRejection = "missing compiled function for JIT unit";
+      return null;
+    }
+    const graph = unit.graph;
+    const frameStates = [...unit.frameStates];
 
     if (graph.bailout) {
       this.lastAnalysisFailure = graph.bailout;

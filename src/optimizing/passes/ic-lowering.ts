@@ -1,6 +1,6 @@
 import * as ir from "../ir/index.js";
 import { tracer } from "../../core/tracing/index.js";
-import { replaceGraphFrameStateValue } from "./frame-state-values.js";
+import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
 
 const DISPATCH_THRESHOLD = 2;
 const MEGAMORPHIC_THRESHOLD = 6;

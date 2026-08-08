@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { escapeAnalysisAndScalarReplacement } from "../../src/optimizing/passes/escape-analysis.js";
+import { DominatorTree } from "../../src/optimizing/analyses/dominance.js";
 import {
   CFGFunction,
   irConstant,
@@ -22,6 +23,10 @@ import {
 
 beforeEach(() => resetIRNodeIds());
 
+function runEscapeAnalysis(graph: CFGFunction): number {
+  return escapeAnalysisAndScalarReplacement(graph, new DominatorTree(graph));
+}
+
 describe("escapeAnalysisAndScalarReplacement", () => {
   it("scalar replaces non-escaping object with property access", () => {
     const graph = new CFGFunction("test");
@@ -36,7 +41,7 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     block.addNode(get);
     const ret = irReturn(get);
     block.addNode(ret);
-    const count = escapeAnalysisAndScalarReplacement(graph);
+    const count = runEscapeAnalysis(graph);
     expect(count).toBe(1);
     expect(block.nodes.some(n => n.type === IR_NEW_OBJECT)).toBe(false);
     expect(ret.inputs[0].type).toBe(IR_CONSTANT);
@@ -56,7 +61,7 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     block.addNode(load);
     const ret = irReturn(load);
     block.addNode(ret);
-    const count = escapeAnalysisAndScalarReplacement(graph);
+    const count = runEscapeAnalysis(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0].props.value).toBe(99);
   });
@@ -72,7 +77,7 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     block.addNode(call);
     const ret = irReturn(irConstant(0));
     block.addNode(ret);
-    const count = escapeAnalysisAndScalarReplacement(graph);
+    const count = runEscapeAnalysis(graph);
     expect(count).toBe(0);
     expect(block.nodes.some(n => n.type === IR_NEW_OBJECT)).toBe(true);
   });
@@ -84,7 +89,7 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     block.addNode(alloc);
     const ret = irReturn(alloc);
     block.addNode(ret);
-    const count = escapeAnalysisAndScalarReplacement(graph);
+    const count = runEscapeAnalysis(graph);
     expect(count).toBe(0);
   });
 
@@ -97,7 +102,7 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     block.addNode(get);
     const ret = irReturn(get);
     block.addNode(ret);
-    const count = escapeAnalysisAndScalarReplacement(graph);
+    const count = runEscapeAnalysis(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0].type).toBe(IR_CONSTANT);
     expect(ret.inputs[0].props.value).toBeUndefined();
@@ -124,7 +129,7 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     block.addNode(sum);
     const ret = irReturn(sum);
     block.addNode(ret);
-    const count = escapeAnalysisAndScalarReplacement(graph);
+    const count = runEscapeAnalysis(graph);
     expect(count).toBe(1);
   });
 
@@ -158,7 +163,7 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     const ret = irReturn(irConstant(0));
     bMerge.addNode(ret);
 
-    escapeAnalysisAndScalarReplacement(graph);
+    runEscapeAnalysis(graph);
     const falseHasLoad = bFalse.nodes.some(n => n.type === IR_LOAD_FIELD);
     const falseHasUndefined = bFalse.nodes.some(n => n.type === IR_CONSTANT && n.props.value === undefined);
     expect(falseHasLoad || falseHasUndefined).toBe(true);
@@ -183,7 +188,7 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     const ret = irReturn(load);
     b1.addNode(ret);
 
-    const count = escapeAnalysisAndScalarReplacement(graph);
+    const count = runEscapeAnalysis(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0].props.value).toBe(77);
   });

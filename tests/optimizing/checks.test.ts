@@ -19,8 +19,13 @@ import {
   IR_JUMP,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { DominatorTree } from "../../src/optimizing/analyses/dominance.js";
 
 beforeEach(() => resetIRNodeIds());
+
+function eliminateChecks(graph: CFGFunction): number {
+  return eliminateRedundantChecks(graph, new DominatorTree(graph));
+}
 
 describe("eliminateRedundantChecks", () => {
   it("removes duplicate CheckMap on same object with same map", () => {
@@ -33,7 +38,7 @@ describe("eliminateRedundantChecks", () => {
     block.addNode(check2);
     const ret = irReturn(check2);
     block.addNode(ret);
-    const count = eliminateRedundantChecks(graph);
+    const count = eliminateChecks(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(check1);
   });
@@ -48,7 +53,7 @@ describe("eliminateRedundantChecks", () => {
     block.addNode(check2);
     const ret = irReturn(check2);
     block.addNode(ret);
-    const count = eliminateRedundantChecks(graph);
+    const count = eliminateChecks(graph);
     expect(count).toBe(0);
   });
 
@@ -62,7 +67,7 @@ describe("eliminateRedundantChecks", () => {
     block.addNode(check2);
     const ret = irReturn(check2);
     block.addNode(ret);
-    const count = eliminateRedundantChecks(graph);
+    const count = eliminateChecks(graph);
     expect(count).toBe(1);
   });
 
@@ -76,7 +81,7 @@ describe("eliminateRedundantChecks", () => {
     block.addNode(check2);
     const ret = irReturn(check2);
     block.addNode(ret);
-    const count = eliminateRedundantChecks(graph);
+    const count = eliminateChecks(graph);
     expect(count).toBe(1);
   });
 
@@ -93,7 +98,7 @@ describe("eliminateRedundantChecks", () => {
     b1.addNode(check2);
     const ret = irReturn(check2);
     b1.addNode(ret);
-    const count = eliminateRedundantChecks(graph);
+    const count = eliminateChecks(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(check1);
   });
@@ -110,7 +115,7 @@ describe("eliminateRedundantChecks", () => {
     block.addNode(check2);
     const ret = irReturn(check2);
     block.addNode(ret);
-    const count = eliminateRedundantChecks(graph);
+    const count = eliminateChecks(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(check1);
   });
@@ -131,7 +136,7 @@ describe("eliminateRedundantChecks", () => {
     block.addNode(check2);
     const ret = irReturn(check2);
     block.addNode(ret);
-    const count = eliminateRedundantChecks(graph);
+    const count = eliminateChecks(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(check1);
   });
@@ -151,7 +156,7 @@ describe("eliminateRedundantChecks", () => {
     b1.addNode(check2);
     const ret = irReturn(check2);
     b1.addNode(ret);
-    const count = eliminateRedundantChecks(graph);
+    const count = eliminateChecks(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(check1);
   });

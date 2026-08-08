@@ -3,7 +3,7 @@ import {
   computeDominators,
   buildDominatorTree,
   dominates,
-} from "../../src/optimizing/passes/dominators.js";
+} from "../../../src/optimizing/analyses/dominance-core.js";
 import {
   CFGFunction,
   irConstant,
@@ -12,7 +12,7 @@ import {
   irBranch,
   irInt32Compare,
   resetIRNodeIds,
-} from "../../src/optimizing/ir/index.js";
+} from "../../../src/optimizing/ir/index.js";
 
 beforeEach(() => resetIRNodeIds());
 

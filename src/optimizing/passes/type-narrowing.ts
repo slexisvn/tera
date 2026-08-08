@@ -1,5 +1,5 @@
 import * as ir from "../ir/index.js";
-import { computeDominators, buildDominatorTree } from "./dominators.js";
+import { DominatorTree } from "../analyses/dominance.js";
 import { tracer } from "../../core/tracing/index.js";
 import {
   TypeKind,
@@ -38,9 +38,10 @@ const GENERIC_TO_FLOAT64: Record<string, string> = {
   [ir.IR_GENERIC_COMPARE]: ir.IR_FLOAT64_COMPARE,
 };
 
-export function typeNarrowing(graph: TypeGraph): number {
-  const dominators = computeDominators(graph);
-  const { children } = buildDominatorTree(graph, dominators);
+export function typeNarrowing(
+  graph: TypeGraph,
+  dominance: DominatorTree,
+): number {
   let narrowCount = 0;
 
   const walkBlock = (block: TypeBlock, inherited: TypeFacts): void => {
@@ -59,7 +60,7 @@ export function typeNarrowing(graph: TypeGraph): number {
       }
     }
 
-    for (const child of (children.get(block) || []) as TypeBlock[]) {
+    for (const child of dominance.childrenOf(block) as readonly TypeBlock[]) {
       walkBlock(child, factsForDominatorChild(block, child, facts));
     }
   };

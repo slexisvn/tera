@@ -3,11 +3,11 @@ import { CFGInstruction } from "../ir/index.js";
 import type { CFGBlock, CFGFunction } from "../ir/index.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
-import { computeDominators, dominates } from "./dominators.js";
+import { computeDominators, dominates } from "../analyses/dominance-core.js";
 import {
   sunkAllocationIds,
   visitFrameStateValues,
-} from "./frame-state-values.js";
+} from "../ir/frame-state-values.js";
 import { producesNumber } from "./repr-selection.js";
 
 function carriesNumber(

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   hoistLoopInvariants,
-  findLoops,
 } from "../../src/optimizing/passes/loop-opts.js";
+import { findLoops } from "../../src/optimizing/analyses/loops.js";
 import {
   CFGFunction,
   irConstant,
@@ -86,7 +86,7 @@ describe("hoistLoopInvariants", () => {
     header.addNode(cond);
     header.addNode(irBranch(cond, body, exit));
     exit.addNode(irReturn(irConstant(0)));
-    hoistLoopInvariants(graph, findLoops);
+    hoistLoopInvariants(graph, findLoops(graph));
     const preHeaderTypes = preHeader.nodes.map(n => n.type);
     expect(preHeaderTypes).toContain(IR_CHECK_SMI);
     expect(body.nodes.every(n => n.type !== IR_CHECK_SMI)).toBe(true);
@@ -101,7 +101,7 @@ describe("hoistLoopInvariants", () => {
     header.addNode(cond);
     header.addNode(irBranch(cond, body, exit));
     exit.addNode(irReturn(irConstant(0)));
-    hoistLoopInvariants(graph, findLoops);
+    hoistLoopInvariants(graph, findLoops(graph));
     expect(preHeader.nodes.some(n => n.type === IR_CONSTANT && n.props.value === 42)).toBe(true);
   });
 
@@ -116,7 +116,7 @@ describe("hoistLoopInvariants", () => {
     header.addNode(cond);
     header.addNode(irBranch(cond, body, exit));
     exit.addNode(irReturn(irConstant(0)));
-    hoistLoopInvariants(graph, findLoops);
+    hoistLoopInvariants(graph, findLoops(graph));
     expect(body.nodes).toContain(check);
   });
 
@@ -133,7 +133,7 @@ describe("hoistLoopInvariants", () => {
     header.addNode(cond);
     header.addNode(irBranch(cond, body, exit));
     exit.addNode(irReturn(irConstant(0)));
-    hoistLoopInvariants(graph, findLoops);
+    hoistLoopInvariants(graph, findLoops(graph));
     expect(body.nodes).toContain(load);
   });
 
@@ -147,7 +147,7 @@ describe("hoistLoopInvariants", () => {
     header.addNode(cond);
     header.addNode(irBranch(cond, body, exit));
     exit.addNode(irReturn(irConstant(0)));
-    hoistLoopInvariants(graph, findLoops);
+    hoistLoopInvariants(graph, findLoops(graph));
     expect(preHeader.nodes.some(n => n.type === IR_LOAD_FIELD)).toBe(true);
     expect(body.nodes.every(n => n.type !== IR_LOAD_FIELD)).toBe(true);
   });
@@ -165,7 +165,7 @@ describe("hoistLoopInvariants", () => {
     header.addNode(cond);
     header.addNode(irBranch(cond, body, exit));
     exit.addNode(irReturn(irConstant(0)));
-    hoistLoopInvariants(graph, findLoops);
+    hoistLoopInvariants(graph, findLoops(graph));
     expect(preHeader.nodes.some(n => n.type === IR_CHECK_SMI)).toBe(true);
     expect(preHeader.nodes.some(n => n.type === IR_CONSTANT && n.props.value === 1)).toBe(true);
   });

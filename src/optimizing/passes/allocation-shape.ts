@@ -1,8 +1,8 @@
 import * as ir from "../ir/index.js";
 import { getHiddenClassById } from "../../objects/maps/hidden-class.js";
 import { metadataNumber } from "../ir/metadata.js";
-import { detachNode, replaceValueUses } from "./graph-edit.js";
-import { findLoops } from "./loop-opts.js";
+import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
+import type { LoopInfo } from "../analyses/loops.js";
 
 type ShapeNode = ir.CFGInstruction;
 type ShapeGraph = ir.CFGFunction;
@@ -13,11 +13,14 @@ type InitializerChain = {
   slotCount: number;
 };
 
-export function specializeAllocationShapes(graph: ShapeGraph): number {
+export function specializeAllocationShapes(
+  graph: ShapeGraph,
+  loops: readonly LoopInfo[],
+): number {
   let specialized = 0;
 
   const repeatedBlocks = new Set<number>();
-  for (const loop of findLoops(graph)) {
+  for (const loop of loops) {
     for (const block of loop.blocks) repeatedBlocks.add(block.id);
   }
 

@@ -5,6 +5,8 @@ import {
   IR_NEW_OBJECT,
   irBranch,
   irConstant,
+  irCheckNumber,
+  irCheckSmi,
   irFloat64Add,
   irFloat64Compare,
   irInt32Add,
@@ -65,6 +67,26 @@ describe("emitNumericFunction executable subset", () => {
 
     expect(run(graph)).toBe(-12.5);
     expect(Object.is(run(returningConstant("negative_zero", -0)), -0)).toBe(true);
+  });
+
+  it("executes numeric guards with trap semantics", () => {
+    const smiGraph = new CFGFunction("checked_smi");
+    const p0 = smiGraph.addParameter(0);
+    const smiBlock = smiGraph.addBlock();
+    const smi = irCheckSmi(p0);
+    smiBlock.addNode(smi);
+    smiBlock.addNode(irReturn(smi));
+
+    const numberGraph = new CFGFunction("checked_number");
+    const p1 = numberGraph.addParameter(0);
+    const numberBlock = numberGraph.addBlock();
+    const number = irCheckNumber(p1);
+    numberBlock.addNode(number);
+    numberBlock.addNode(irReturn(number));
+
+    expect(run(smiGraph, [7])).toBe(7);
+    expect(() => run(smiGraph, [7.5])).toThrow("C trap");
+    expect(run(numberGraph, [7.5])).toBe(7.5);
   });
 
   it("uses defined int32 wraparound for integer arithmetic", () => {

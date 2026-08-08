@@ -1,5 +1,5 @@
 import type { CFGFunction, CFGInstruction } from "./index.js";
-import { replaceValueUses, detachNode } from "../passes/graph-edit.js";
+import { replaceValueUses, detachNode } from "./graph-edit.js";
 
 export class GraphEditor {
   constructor(private readonly graph: CFGFunction) {}

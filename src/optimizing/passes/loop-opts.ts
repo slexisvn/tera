@@ -2,25 +2,16 @@ import type { RuntimeValue } from "../../core/value/index.js";
 import * as ir from "../ir/index.js";
 
 import { tracer } from "../../core/tracing/index.js";
-import {
-  computeDominators,
-  dominates,
-  type DominatorBlock,
-} from "./dominators.js";
-import { visitFrameStateValues } from "./frame-state-values.js";
+import { visitFrameStateValues } from "../ir/frame-state-values.js";
 import { metadataNumber } from "../ir/metadata.js";
+import type { DominatorTree } from "../analyses/dominance.js";
+import type { LoopInfo } from "../analyses/loops.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
 
 type LoopNode = ir.CFGInstruction;
 type LoopBlock = ir.CFGBlock;
 type LoopGraph = ir.CFGFunction;
 
-interface LoopInfo {
-  header: LoopBlock;
-  blocks: LoopBlock[];
-}
-
-type FindLoopsFn = (graph: LoopGraph) => LoopInfo[];
 type NodeBlockPair = { node: LoopNode; block: LoopBlock };
 
 function nodeFromIr(value: ir.CFGInstruction): LoopNode {
@@ -43,15 +34,14 @@ const GLOBAL_REASSIGN_HAZARDS = new Set<string>([
 
 export function hoistLoopInvariants(
   graph: LoopGraph,
-  findLoopsFn: FindLoopsFn,
+  loops: readonly LoopInfo[],
 ): number {
-  const loops = findLoopsFn(graph);
   if (loops.length === 0) return 0;
   let hoistedCount = 0;
 
   for (const loop of loops) {
     const header = loop.header;
-    const bodyBlocks = loop.blocks;
+    const bodyBlocks = loop.blocks as readonly LoopBlock[];
     const bodyBlockIds = new Set(bodyBlocks.map((b) => b.id));
 
     const nodeToBlock = new Map<number, LoopBlock>();
@@ -187,92 +177,19 @@ export function hoistLoopInvariants(
   return hoistedCount;
 }
 
-export function findLoops(graph: LoopGraph): LoopInfo[] {
-  const loops: LoopInfo[] = [];
-
-  const dfsOrder = computeDfsOrder(graph);
-
-  for (const block of graph.blocks) {
-    if (!block.isLoopHeader) continue;
-
-    const bodyBlocks: LoopBlock[] = [];
-    const visited = new Set<number>();
-    const worklist: LoopBlock[] = [];
-
-    visited.add(block.id);
-    bodyBlocks.push(block);
-
-    for (const pred of block.predecessors) {
-      if (pred.id >= block.id || isBackEdgeWithOrder(pred, block, dfsOrder)) {
-        if (!visited.has(pred.id)) {
-          visited.add(pred.id);
-          worklist.push(pred);
-          bodyBlocks.push(pred);
-        }
-      }
-    }
-
-    while (worklist.length > 0) {
-      const current = worklist.pop()!;
-      for (const pred of current.predecessors) {
-        if (!visited.has(pred.id)) {
-          visited.add(pred.id);
-          worklist.push(pred);
-          bodyBlocks.push(pred);
-        }
-      }
-    }
-
-    loops.push({ header: block, blocks: bodyBlocks });
-  }
-
-  return loops;
-}
-
-function computeDfsOrder(graph: LoopGraph): Map<number, number> {
-  const visited = new Set<number>();
-  const stack: LoopBlock[] = graph.entry ? [graph.entry] : [];
-  const dfsOrder = new Map<number, number>();
-  let order = 0;
-
-  while (stack.length > 0) {
-    const block = stack.pop()!;
-    if (visited.has(block.id)) continue;
-    visited.add(block.id);
-    dfsOrder.set(block.id, order++);
-    for (const succ of block.successors) {
-      stack.push(succ);
-    }
-  }
-
-  return dfsOrder;
-}
-
-function isBackEdgeWithOrder(
-  from: LoopBlock,
-  to: LoopBlock,
-  dfsOrder: Map<number, number>,
-): boolean {
-  const fromOrder = dfsOrder.get(from.id);
-  const toOrder = dfsOrder.get(to.id);
-  return (
-    fromOrder !== undefined && toOrder !== undefined && fromOrder >= toOrder
-  );
-}
-
 export function loopUnrolling(
   graph: LoopGraph,
-  findLoopsFn: FindLoopsFn,
+  loops: readonly LoopInfo[],
+  dominators: DominatorTree,
 ): number {
   const MAX_PEEL_NODES = 80;
-  const loops = findLoopsFn(graph);
   let unrollCount = 0;
   const blockById = new Map<RuntimeValue, LoopBlock>();
   for (const block of graph.blocks) blockById.set(block.id, block);
 
   for (const loop of loops) {
     const header = loop.header;
-    const bodyBlocks = loop.blocks;
+    const bodyBlocks = loop.blocks as readonly LoopBlock[];
     const bodyBlockIds = new Set(bodyBlocks.map((b) => b.id));
 
     let totalNodes = 0;
@@ -311,7 +228,6 @@ export function loopUnrolling(
       ? preHeader.nodes.indexOf(preHeaderTerm)
       : preHeader.nodes.length;
     const nodeToBlock = buildNodeToBlock(graph);
-    const dominators = computeDominators(graph);
     const canUseInPreHeader = (value: LoopNode): boolean =>
       valueAvailableAtBlock(value, preHeader, nodeToBlock, dominators);
     const peeledNodes: { original: LoopNode; isLoad: boolean }[] = [];
@@ -401,20 +317,20 @@ function valueAvailableAtBlock(
   value: LoopNode | null | undefined,
   block: LoopBlock,
   nodeToBlock: Map<number, LoopBlock>,
-  dominators: Map<DominatorBlock, DominatorBlock>,
+  dominators: DominatorTree,
 ): boolean {
   if (!value) return true;
   if (value.type === ir.IR_PARAMETER || value.type === ir.IR_CONSTANT) return true;
   const owner = nodeToBlock.get(value.id);
   if (!owner) return false;
-  return dominates(dominators, owner, block);
+  return dominators.dominates(owner, block);
 }
 
 function frameStateAvailableAtBlock(
   frameState: FrameState,
   block: LoopBlock,
   nodeToBlock: Map<number, LoopBlock>,
-  dominators: Map<DominatorBlock, DominatorBlock>,
+  dominators: DominatorTree,
 ): boolean {
   let available = true;
   visitFrameStateValues(frameState, (value) => {

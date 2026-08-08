@@ -4,7 +4,7 @@ import {
   computeDominators,
   buildDominatorTree,
   type DominatorGraph,
-} from "../passes/dominators.js";
+} from "./dominance-core.js";
 
 export class DominatorTree {
   private readonly enter = new Map<CFGBlock, number>();

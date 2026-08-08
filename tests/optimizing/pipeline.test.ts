@@ -6,8 +6,7 @@ import {
   irReturn,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
-import { middleEndPipeline } from "../../src/optimizing/pipeline.js";
-import { findLoops } from "../../src/optimizing/passes/loop-opts.js";
+import { middleEndPhases, middleEndPipeline } from "../../src/optimizing/pipeline.js";
 import {
   AnalysisManager,
   AnalysisRegistry,
@@ -20,7 +19,7 @@ import { compilerOptions } from "../../src/optimizing/options.js";
 beforeEach(() => resetIRNodeIds());
 
 function passNamed(name: string) {
-  const pass = middleEndPipeline({ feedback: undefined, findLoops }).find(
+  const pass = middleEndPipeline({ feedback: undefined }).find(
     (candidate) => candidate.name === name,
   );
   if (!pass) throw new Error(`missing pass ${name}`);
@@ -65,6 +64,15 @@ function managerFor(graph: CFGFunction) {
 }
 
 describe("middleEndPipeline pass reporting", () => {
+  it("exposes compiler phase taxonomy in execution order", () => {
+    expect(middleEndPhases({ feedback: undefined }).map((phase) => phase.name)).toEqual([
+      "high-level-optimization",
+      "canonicalization",
+      "target-legalization",
+      "late-optimization",
+    ]);
+  });
+
   it("invalidates analyses when a real pass mutates the graph", () => {
     const graph = foldedGraph();
     const analysis = managerFor(graph);

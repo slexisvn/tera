@@ -106,6 +106,48 @@ describe("PassManager", () => {
     expect(dropped.runs()).toBe(2);
   });
 
+  it("invalidates every analysis except preserved analyses under only preservation", () => {
+    const kept = countingAnalysis("kept");
+    const dropped = countingAnalysis("dropped");
+    const { graph, manager, passes } = managerWith([kept.pass, dropped.pass]);
+    manager.get(kept.id);
+    manager.get(dropped.id);
+
+    passes.run(graph, [
+      {
+        name: "mutate",
+        preserves: { kind: "only", preserved: [kept.id] },
+        run: () => ({ changed: true }),
+      },
+    ]);
+    manager.get(kept.id);
+    manager.get(dropped.id);
+
+    expect(kept.runs()).toBe(1);
+    expect(dropped.runs()).toBe(2);
+  });
+
+  it("preloads required analyses before running a transform pass", () => {
+    const required = countingAnalysis("required");
+    const { graph, passes } = managerWith([required.pass]);
+    const observedRuns: number[] = [];
+
+    passes.run(graph, [
+      {
+        name: "uses-required-analysis",
+        requires: [required.id],
+        preserves: { kind: "all" },
+        run: () => {
+          observedRuns.push(required.runs());
+          return { changed: false };
+        },
+      },
+    ]);
+
+    expect(observedRuns).toEqual([1]);
+    expect(required.runs()).toBe(1);
+  });
+
   it("invalidates every analysis under a none preservation", () => {
     const kept = countingAnalysis("kept");
     const { graph, manager, passes } = managerWith([kept.pass]);

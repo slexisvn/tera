@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { globalValueNumbering } from "../../src/optimizing/passes/gvn.js";
+import { DominatorTree } from "../../src/optimizing/analyses/dominance.js";
 import {
   CFGFunction,
   irConstant,
@@ -20,6 +21,10 @@ function makeGraph() {
   return { graph, block };
 }
 
+function runGvn(graph: CFGFunction): number {
+  return globalValueNumbering(graph, new DominatorTree(graph));
+}
+
 describe("globalValueNumbering", () => {
   it("eliminates redundant computation with same inputs", () => {
     const { graph, block } = makeGraph();
@@ -33,7 +38,7 @@ describe("globalValueNumbering", () => {
     block.addNode(add2);
     const ret = irReturn(add2);
     block.addNode(ret);
-    const count = globalValueNumbering(graph);
+    const count = runGvn(graph);
     expect(count).toBeGreaterThan(0);
     expect(ret.inputs[0]).toBe(add1);
   });
@@ -50,7 +55,7 @@ describe("globalValueNumbering", () => {
     block.addNode(mul);
     const ret = irReturn(mul);
     block.addNode(ret);
-    const count = globalValueNumbering(graph);
+    const count = runGvn(graph);
     expect(count).toBe(0);
   });
 
@@ -66,7 +71,7 @@ describe("globalValueNumbering", () => {
     block.addNode(add2);
     const ret = irReturn(add2);
     block.addNode(ret);
-    const count = globalValueNumbering(graph);
+    const count = runGvn(graph);
     expect(count).toBeGreaterThan(0);
     expect(ret.inputs[0]).toBe(add1);
   });
@@ -87,7 +92,7 @@ describe("globalValueNumbering", () => {
     b1.addNode(add2);
     const ret = irReturn(add2);
     b1.addNode(ret);
-    const count = globalValueNumbering(graph);
+    const count = runGvn(graph);
     expect(count).toBeGreaterThan(0);
     expect(ret.inputs[0]).toBe(add1);
   });
@@ -102,7 +107,7 @@ describe("globalValueNumbering", () => {
     block.addNode(store2);
     const ret = irReturn(irConstant(0));
     block.addNode(ret);
-    const count = globalValueNumbering(graph);
+    const count = runGvn(graph);
     expect(count).toBe(0);
   });
 
@@ -116,7 +121,7 @@ describe("globalValueNumbering", () => {
     block.addNode(add);
     const ret = irReturn(add);
     block.addNode(ret);
-    const count = globalValueNumbering(graph);
+    const count = runGvn(graph);
     expect(count).toBe(0);
   });
 });

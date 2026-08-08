@@ -1,6 +1,6 @@
 import * as ir from "../ir/index.js";
-import { computeDominators, buildDominatorTree } from "./dominators.js";
-import { replaceGraphFrameStateValue } from "./frame-state-values.js";
+import { DominatorTree } from "../analyses/dominance.js";
+import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
 
 type GvnNode = ir.CFGInstruction;
 type GvnBlock = ir.CFGBlock;
@@ -42,10 +42,11 @@ function hashNode(node: GvnNode): string {
   return h;
 }
 
-export function globalValueNumbering(graph: GvnGraph): number {
+export function globalValueNumbering(
+  graph: GvnGraph,
+  dominance: DominatorTree,
+): number {
   let gvnCount = 0;
-  const dominators = computeDominators(graph);
-  const { children } = buildDominatorTree(graph, dominators);
 
   const replaceNode = (node: GvnNode, existing: GvnNode): void => {
     for (const use of [...node.uses]) {
@@ -86,7 +87,7 @@ export function globalValueNumbering(graph: GvnGraph): number {
         valueTable.set(hash, node);
       }
     }
-    for (const child of (children.get(block) || []) as GvnBlock[]) {
+    for (const child of dominance.childrenOf(block) as readonly GvnBlock[]) {
       visit(child, valueTable);
     }
   };

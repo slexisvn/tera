@@ -5,13 +5,13 @@ import {
   buildFrameStateIndex,
   clearFrameStateIndex,
   markFrameStateValues,
-} from "../../src/optimizing/passes/frame-state-values.js";
+} from "../../../src/optimizing/ir/frame-state-values.js";
 import {
   CFGFunction,
   irConstant,
   irReturn,
   resetIRNodeIds,
-} from "../../src/optimizing/ir/index.js";
+} from "../../../src/optimizing/ir/index.js";
 
 beforeEach(() => resetIRNodeIds());
 

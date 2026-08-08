@@ -1,9 +1,9 @@
 import type { CFGFunction } from "./ir/index.js";
-import { AnalysisManager, AnalysisRegistry } from "./infra/analysis-manager.js";
-import { PassManager, type TransformPass } from "./infra/pass-manager.js";
+import { AnalysisManager, type AnalysisId } from "./infra/analysis-manager.js";
+import { PassManager, type Preservation, type TransformPass } from "./infra/pass-manager.js";
 import { compilerOptions, type CompilerOptions } from "./options.js";
-import { buildFrameStateIndex } from "./passes/frame-state-values.js";
-import { hoistLoopInvariants, findLoops, loopUnrolling } from "./passes/loop-opts.js";
+import { buildFrameStateIndex } from "./ir/frame-state-values.js";
+import { hoistLoopInvariants, loopUnrolling } from "./passes/loop-opts.js";
 import {
   eliminateRedundantChecks,
   rangeAnalysisAndBoundsCheckElimination,
@@ -29,11 +29,34 @@ import { deadStoreElimination } from "./passes/dead-stores.js";
 import { commonSubexpressionIntrinsicReads } from "./passes/intrinsic-cse.js";
 import { typeNarrowing } from "./passes/type-narrowing.js";
 import { specializeAllocationShapes } from "./passes/allocation-shape.js";
+import { dominanceAnalysisId } from "./analyses/dominance.js";
+import { loopAnalysisId } from "./analyses/loops.js";
+import { createAnalysisRegistry } from "./analyses/index.js";
+
+export type CompilerPipelinePhase =
+  | "high-level-optimization"
+  | "canonicalization"
+  | "target-legalization"
+  | "late-optimization"
+  | "emission";
+
+export interface OptimizationPhase<G> {
+  readonly name: CompilerPipelinePhase;
+  readonly passes: readonly TransformPass<G>[];
+}
 
 export interface MiddleEndDeps {
   feedback: Parameters<typeof inlineCacheLowering>[1];
-  findLoops: typeof findLoops;
 }
+
+type PassResult = number | boolean | { readonly changed?: boolean; readonly sunkCount?: number };
+type PassApply = (graph: CFGFunction, analyses: AnalysisManager<CFGFunction>) => PassResult;
+
+const dominanceId = dominanceAnalysisId as AnalysisId<unknown>;
+const loopId = loopAnalysisId as AnalysisId<unknown>;
+const controlFlowAnalyses: readonly AnalysisId<unknown>[] = [dominanceId, loopId];
+const preservesControlFlow: Preservation = { kind: "only", preserved: controlFlowAnalyses };
+const invalidatesAnalyses: Preservation = { kind: "none" };
 
 const maintenance: TransformPass<CFGFunction> = {
   name: "maintenance",
@@ -45,8 +68,6 @@ const maintenance: TransformPass<CFGFunction> = {
   },
 };
 
-type PassResult = number | boolean | { readonly changed?: boolean; readonly sunkCount?: number };
-
 function changed(result: PassResult): boolean {
   if (typeof result === "number") return result > 0;
   if (typeof result === "boolean") return result;
@@ -55,57 +76,115 @@ function changed(result: PassResult): boolean {
 
 function step(
   name: string,
-  apply: (graph: CFGFunction) => PassResult,
+  preserves: Preservation,
+  apply: PassApply,
+  requires: readonly AnalysisId<unknown>[] = [],
 ): TransformPass<CFGFunction> {
   return {
     name,
-    preserves: { kind: "none" },
-    run: (graph) => {
-      return { changed: changed(apply(graph)) };
-    },
+    preserves,
+    requires,
+    run: (graph, analyses) => ({ changed: changed(apply(graph, analyses)) }),
   };
 }
 
-function interleave(
-  passes: ReadonlyArray<TransformPass<CFGFunction>>,
-  separator: TransformPass<CFGFunction>,
-): TransformPass<CFGFunction>[] {
+function interleave(passes: readonly TransformPass<CFGFunction>[]): TransformPass<CFGFunction>[] {
   const result: TransformPass<CFGFunction>[] = [];
-  for (const pass of passes) {
-    result.push(pass, separator);
-  }
+  for (const pass of passes) result.push(pass, maintenance);
   return result;
 }
 
-export function middleEndPipeline(deps: MiddleEndDeps): TransformPass<CFGFunction>[] {
-  const loopsOf = (graph: Parameters<typeof findLoops>[0]) => deps.findLoops(graph);
-  const passes: TransformPass<CFGFunction>[] = [
-    step("allocation-shape", (g) => specializeAllocationShapes(g)),
-    step("ic-lowering", (g) => inlineCacheLowering(g, deps.feedback)),
-    step("licm", (g) => hoistLoopInvariants(g, loopsOf)),
-    step("redundant-checks", (g) => eliminateRedundantChecks(g)),
-    step("type-narrowing", (g) => typeNarrowing(g)),
-    step("const-fold-early", (g) => constantFolding(g)),
-    step("const-prop-early", (g) => constantPropagation(g)),
-    step("const-fold-after-prop", (g) => constantFolding(g)),
-    step("load-elimination", (g) => loadElimination(g)),
-    step("escape-analysis", (g) => escapeAnalysisAndScalarReplacement(g)),
-    step("allocation-sinking", (g) => allocationSinking(g)),
-    step("const-fold-after-escape", (g) => constantFolding(g)),
-    step("const-prop-after-escape", (g) => constantPropagation(g)),
-    step("intrinsic-cse", (g) => commonSubexpressionIntrinsicReads(g)),
-    step("gvn", (g) => globalValueNumbering(g)),
-    step("bounds-check-elimination", (g) => rangeAnalysisAndBoundsCheckElimination(g)),
-    step("strength-reduction", (g) => strengthReduction(g)),
-    step("loop-unrolling", (g) => loopUnrolling(g, loopsOf)),
-    step("trivial-phi-elimination", (g) => eliminateTrivialPhis(g)),
-    step("dead-phi-elimination", (g) => eliminateDeadPhis(g)),
-    step("representation-selection", (g) => representationSelection(g)),
-    step("dead-store-elimination", (g) => deadStoreElimination(g)),
-    step("dead-code-elimination", (g) => deadCodeElimination(g)),
-    step("unreachable-block-elimination", (g) => eliminateUnreachableBlocks(g)),
+function phase(
+  name: CompilerPipelinePhase,
+  passes: readonly TransformPass<CFGFunction>[],
+): OptimizationPhase<CFGFunction> {
+  return { name, passes: interleave(passes) };
+}
+
+export function middleEndPhases(deps: MiddleEndDeps): OptimizationPhase<CFGFunction>[] {
+  return [
+    phase("high-level-optimization", [
+      step(
+        "allocation-shape",
+        preservesControlFlow,
+        (g, analyses) => specializeAllocationShapes(g, analyses.get(loopAnalysisId)),
+        [loopId],
+      ),
+      step("ic-lowering", preservesControlFlow, (g) => inlineCacheLowering(g, deps.feedback)),
+      step(
+        "licm",
+        preservesControlFlow,
+        (g, analyses) => hoistLoopInvariants(g, analyses.get(loopAnalysisId)),
+        [loopId],
+      ),
+      step(
+        "redundant-checks",
+        preservesControlFlow,
+        (g, analyses) => eliminateRedundantChecks(g, analyses.get(dominanceAnalysisId)),
+        [dominanceId],
+      ),
+      step(
+        "type-narrowing",
+        preservesControlFlow,
+        (g, analyses) => typeNarrowing(g, analyses.get(dominanceAnalysisId)),
+        [dominanceId],
+      ),
+    ]),
+    phase("canonicalization", [
+      step("const-fold-early", preservesControlFlow, (g) => constantFolding(g)),
+      step("const-prop-early", preservesControlFlow, (g) => constantPropagation(g)),
+      step("const-fold-after-prop", preservesControlFlow, (g) => constantFolding(g)),
+      step(
+        "load-elimination",
+        preservesControlFlow,
+        (g, analyses) => loadElimination(g, analyses.get(dominanceAnalysisId)),
+        [dominanceId],
+      ),
+      step(
+        "escape-analysis",
+        preservesControlFlow,
+        (g, analyses) => escapeAnalysisAndScalarReplacement(g, analyses.get(dominanceAnalysisId)),
+        [dominanceId],
+      ),
+      step("allocation-sinking", preservesControlFlow, (g) => allocationSinking(g)),
+      step("const-fold-after-escape", preservesControlFlow, (g) => constantFolding(g)),
+      step("const-prop-after-escape", preservesControlFlow, (g) => constantPropagation(g)),
+      step("intrinsic-cse", preservesControlFlow, (g) => commonSubexpressionIntrinsicReads(g)),
+      step(
+        "gvn",
+        preservesControlFlow,
+        (g, analyses) => globalValueNumbering(g, analyses.get(dominanceAnalysisId)),
+        [dominanceId],
+      ),
+      step("bounds-check-elimination", invalidatesAnalyses, (g) => rangeAnalysisAndBoundsCheckElimination(g)),
+      step("strength-reduction", preservesControlFlow, (g) => strengthReduction(g)),
+      step(
+        "loop-unrolling",
+        preservesControlFlow,
+        (g, analyses) =>
+          loopUnrolling(
+            g,
+            analyses.get(loopAnalysisId),
+            analyses.get(dominanceAnalysisId),
+          ),
+        [loopId, dominanceId],
+      ),
+      step("trivial-phi-elimination", preservesControlFlow, (g) => eliminateTrivialPhis(g)),
+      step("dead-phi-elimination", preservesControlFlow, (g) => eliminateDeadPhis(g)),
+    ]),
+    phase("target-legalization", [
+      step("representation-selection", preservesControlFlow, (g) => representationSelection(g)),
+    ]),
+    phase("late-optimization", [
+      step("dead-store-elimination", preservesControlFlow, (g) => deadStoreElimination(g)),
+      step("dead-code-elimination", preservesControlFlow, (g) => deadCodeElimination(g)),
+      step("unreachable-block-elimination", invalidatesAnalyses, (g) => eliminateUnreachableBlocks(g)),
+    ]),
   ];
-  return interleave(passes, maintenance);
+}
+
+export function middleEndPipeline(deps: MiddleEndDeps): TransformPass<CFGFunction>[] {
+  return middleEndPhases(deps).flatMap((pipelinePhase) => pipelinePhase.passes);
 }
 
 export function runMiddleEnd(
@@ -113,6 +192,9 @@ export function runMiddleEnd(
   deps: MiddleEndDeps,
   options: CompilerOptions = compilerOptions(),
 ): void {
-  const analyses = new AnalysisManager<CFGFunction>(graph, new AnalysisRegistry<CFGFunction>());
-  new PassManager<CFGFunction>(analyses, options).run(graph, middleEndPipeline(deps));
+  const analyses = new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
+  const passManager = new PassManager<CFGFunction>(analyses, options);
+  for (const pipelinePhase of middleEndPhases(deps)) {
+    passManager.run(graph, pipelinePhase.passes);
+  }
 }

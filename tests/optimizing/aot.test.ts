@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Engine } from "../../src/index.js";
 import {
   CFGFunction,
   CFGInstruction,
@@ -13,15 +14,18 @@ import {
   irReturn,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
-import { detachNode } from "../../src/optimizing/passes/graph-edit.js";
+import { detachNode } from "../../src/optimizing/ir/graph-edit.js";
 import { cBackend } from "../../src/optimizing/backends/c/backend.js";
-import { compileProgram, writeAotProgram } from "../../src/optimizing/drivers/aot.js";
+import { moduleFromGraphs } from "../../src/optimizing/compilation-unit.js";
+import { compileModule, writeAotProgram } from "../../src/optimizing/drivers/aot.js";
 import { compilerOptions } from "../../src/optimizing/options.js";
 import type { AotBackend } from "../../src/optimizing/target/backend.js";
 import type { TransformPass } from "../../src/optimizing/infra/pass-manager.js";
 import { runCFunction } from "./backends/c/c-executor.js";
 
 beforeEach(() => resetIRNodeIds());
+
+const src = (...lines: string[]) => lines.join("\n");
 
 function addTwo(name: string): CFGFunction {
   const graph = new CFGFunction(name);
@@ -94,9 +98,54 @@ function lowerGenericAddPass(): TransformPass<CFGFunction> {
   };
 }
 
-describe("compileProgram", () => {
+describe("Engine AOT", () => {
+  it("compiles source functions into executable C output", () => {
+    const engine = new Engine({ typecheck: "off" });
+    const program = engine.compileAot(
+      src(
+        "fn answer():",
+        "  return 40 + 2",
+      ),
+      { functionNames: ["answer"] },
+    );
+
+    expect(program.skipped).toEqual([]);
+    expect(program.compiled.map((fn) => fn.symbol)).toEqual(["answer"]);
+    expect(runCFunction(program.source, "answer", [])).toBe(42);
+  });
+
+  it("compiles a warmed numeric loop function into executable C output", () => {
+    const engine = new Engine({
+      typecheck: "off",
+      tieringPolicy: { jitThreshold: 1e12, baselineThreshold: 1e12 },
+    });
+    const source = src(
+      "fn sum(n):",
+      "  total = 0",
+      "  i = 0",
+      "  while i < n:",
+      "    total = total + i",
+      "    i = i + 1",
+      "  return total",
+      "sum(10)",
+    );
+    expect(engine.runNative(source)).toBe(45);
+    const sum = engine.collectFunctions().find((fn) => fn.name === "sum");
+    expect(sum).toBeDefined();
+
+    const program = engine.compileAotFunctions([sum!]);
+
+    expect(program.skipped).toEqual([]);
+    expect(program.compiled.map((fn) => fn.symbol)).toEqual(["sum"]);
+    expect(runCFunction(program.source, "sum", [10])).toBe(45);
+  });
+});
+
+const moduleOf = (graphs: CFGFunction[]) => moduleFromGraphs(graphs, "test-module");
+
+describe("compileModule", () => {
   it("emits a program whose compiled functions execute with the backend semantics", () => {
-    const program = compileProgram([addTwo("sum"), returnsConstant("answer", 42)], cBackend);
+    const program = compileModule(moduleOf([addTwo("sum"), returnsConstant("answer", 42)]), cBackend);
 
     expect(program.skipped).toEqual([]);
     expect(program.compiled.map((fn) => fn.symbol)).toEqual(["sum", "answer"]);
@@ -113,7 +162,7 @@ describe("compileProgram", () => {
         return [lowerGenericAddPass()];
       },
     };
-    const program = compileProgram([genericAdd("lowered")], backend, {
+    const program = compileModule(moduleOf([genericAdd("lowered")]), backend, {
       compilerOptions: compilerOptions("max"),
     });
 
@@ -123,7 +172,7 @@ describe("compileProgram", () => {
   });
 
   it("records functions the backend cannot lower as skipped", () => {
-    const program = compileProgram([addTwo("sum"), allocates("makeObject")], cBackend);
+    const program = compileModule(moduleOf([addTwo("sum"), allocates("makeObject")]), cBackend);
 
     expect(program.compiled.map((fn) => fn.name)).toEqual(["sum"]);
     expect(program.skipped).toHaveLength(1);
@@ -132,8 +181,8 @@ describe("compileProgram", () => {
   });
 
   it("skips a later function with a duplicate backend symbol", () => {
-    const program = compileProgram(
-      [returnsConstant("dup-name", 1), addTwo("dup name")],
+    const program = compileModule(
+      moduleOf([returnsConstant("dup-name", 1), addTwo("dup name")]),
       cBackend,
     );
 
@@ -147,7 +196,7 @@ describe("writeAotProgram", () => {
   it("writes executable AOT output to disk", () => {
     const dir = mkdtempSync(join(tmpdir(), "tera-aot-"));
     try {
-      const program = compileProgram([addTwo("sum")], cBackend);
+      const program = compileModule(moduleOf([addTwo("sum")]), cBackend);
       const { sourcePath } = writeAotProgram(program, dir);
       const source = readFileSync(sourcePath, "utf8");
 

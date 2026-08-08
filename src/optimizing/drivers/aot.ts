@@ -2,9 +2,11 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CFGFunction } from "../ir/index.js";
 import type { AotBackend } from "../target/backend.js";
-import { AnalysisManager, AnalysisRegistry } from "../infra/analysis-manager.js";
+import { AnalysisManager } from "../infra/analysis-manager.js";
 import { PassManager } from "../infra/pass-manager.js";
 import { compilerOptions, type CompilerOptions } from "../options.js";
+import { createAnalysisRegistry } from "../analyses/index.js";
+import type { ModuleIR } from "../compilation-unit.js";
 
 export interface AotCompiledFunction {
   readonly name: string;
@@ -52,8 +54,8 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function compileProgram(
-  graphs: Iterable<CFGFunction>,
+export function compileModule(
+  module: ModuleIR,
   backend: AotBackend,
   options: AotDriverOptions = {},
 ): AotProgram {
@@ -65,10 +67,11 @@ export function compileProgram(
   const headerPreambles = new Set<string>();
   const sourcePreambles = new Set<string>();
 
-  for (const graph of graphs) {
+  for (const unit of module.units) {
+    const graph = unit.graph;
     const analyses = new AnalysisManager<CFGFunction>(
       graph,
-      new AnalysisRegistry<CFGFunction>(),
+      createAnalysisRegistry(),
     );
     let artifact;
     try {

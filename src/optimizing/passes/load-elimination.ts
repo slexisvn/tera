@@ -1,8 +1,8 @@
 import * as ir from "../ir/index.js";
 import { DominatorTree } from "../analyses/dominance.js";
 import { walkDominatorTree } from "../infra/dom-walk.js";
-import { replaceGraphFrameStateValue } from "./frame-state-values.js";
-import { detachNode } from "./graph-edit.js";
+import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
+import { detachNode } from "../ir/graph-edit.js";
 
 type LoadNode = ir.CFGInstruction;
 type LoadBlock = ir.CFGBlock;
@@ -58,8 +58,10 @@ function stateDeleteObj(state: LoadState, objId: number): void {
   state.delete(objId);
 }
 
-export function loadElimination(graph: LoadGraph): number {
-  const dom = new DominatorTree(graph);
+export function loadElimination(
+  graph: LoadGraph,
+  dominance: DominatorTree,
+): number {
   let eliminatedCount = 0;
 
   const freshAllocations = new Set<number>();
@@ -188,7 +190,7 @@ export function loadElimination(graph: LoadGraph): number {
   if (entry) {
     walkDominatorTree<LoadBlock, LoadState>(
       entry,
-      (block) => dom.childrenOf(block) as readonly LoadBlock[],
+      (block) => dominance.childrenOf(block) as readonly LoadBlock[],
       new Map(),
       { fork: cloneState, visitBlock },
     );

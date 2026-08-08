@@ -32,6 +32,14 @@ export function runCFunction(source: string, symbol: string, args: number[]): nu
       continue;
     }
 
+    const smiCheck = line.match(/^if \(!tera_is_smi_double\((.+)\)\) tera_aot_trap\(\);$/);
+    if (smiCheck) {
+      const value = evalExpr(smiCheck[1]!, env);
+      if (!isSmiDouble(value)) throw new Error("C trap");
+      pc++;
+      continue;
+    }
+
     const declaration = line.match(/^double\s+([A-Za-z_]\w*);$/);
     if (declaration) {
       env.set(declaration[1]!, 0);
@@ -74,6 +82,9 @@ export function runCFunction(source: string, symbol: string, args: number[]): nu
   }
   throw new Error(`function ${symbol} fell through`);
 }
+
+const SMI_MIN = -(2 ** 31);
+const SMI_MAX = 2 ** 31 - 1;
 
 function extractFunction(
   source: string,
@@ -180,6 +191,10 @@ function toUint32(value: number): number {
 
 function fromUint32(value: number): number {
   return value | 0;
+}
+
+function isSmiDouble(value: number): boolean {
+  return Number.isFinite(value) && value >= SMI_MIN && value <= SMI_MAX && Math.trunc(value) === value;
 }
 
 function stripParens(value: string): string {

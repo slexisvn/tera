@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { loadElimination } from "../../src/optimizing/passes/load-elimination.js";
+import { DominatorTree } from "../../src/optimizing/analyses/dominance.js";
 import {
   CFGFunction,
   irConstant,
@@ -17,6 +18,10 @@ import {
 
 beforeEach(() => resetIRNodeIds());
 
+function eliminateLoads(graph: CFGFunction): number {
+  return loadElimination(graph, new DominatorTree(graph));
+}
+
 describe("loadElimination", () => {
   it("eliminates load after store to same object and offset", () => {
     const graph = new CFGFunction("test");
@@ -31,7 +36,7 @@ describe("loadElimination", () => {
     block.addNode(load);
     const ret = irReturn(load);
     block.addNode(ret);
-    const count = loadElimination(graph);
+    const count = eliminateLoads(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(val);
     expect(block.nodes.every(n => n.type !== IR_LOAD_FIELD)).toBe(true);
@@ -50,7 +55,7 @@ describe("loadElimination", () => {
     block.addNode(load);
     const ret = irReturn(load);
     block.addNode(ret);
-    const count = loadElimination(graph);
+    const count = eliminateLoads(graph);
     expect(count).toBe(0);
   });
 
@@ -70,7 +75,7 @@ describe("loadElimination", () => {
     block.addNode(load);
     const ret = irReturn(load);
     block.addNode(ret);
-    const count = loadElimination(graph);
+    const count = eliminateLoads(graph);
     expect(count).toBe(0);
   });
 
@@ -91,7 +96,7 @@ describe("loadElimination", () => {
     block.addNode(load);
     const ret = irReturn(load);
     block.addNode(ret);
-    const count = loadElimination(graph);
+    const count = eliminateLoads(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(val);
   });
@@ -112,7 +117,7 @@ describe("loadElimination", () => {
     b1.addNode(load);
     const ret = irReturn(load);
     b1.addNode(ret);
-    const count = loadElimination(graph);
+    const count = eliminateLoads(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(val);
   });
@@ -134,7 +139,7 @@ describe("loadElimination", () => {
     block.addNode(load);
     const ret = irReturn(load);
     block.addNode(ret);
-    const count = loadElimination(graph);
+    const count = eliminateLoads(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(val2);
   });
@@ -156,7 +161,7 @@ describe("loadElimination", () => {
     block.addNode(load);
     const ret = irReturn(load);
     block.addNode(ret);
-    const count = loadElimination(graph);
+    const count = eliminateLoads(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(val);
   });
@@ -178,7 +183,7 @@ describe("loadElimination", () => {
     block.addNode(load);
     const ret = irReturn(load);
     block.addNode(ret);
-    const count = loadElimination(graph);
+    const count = eliminateLoads(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(val);
   });
@@ -199,7 +204,7 @@ describe("loadElimination", () => {
     block.addNode(load);
     const ret = irReturn(load);
     block.addNode(ret);
-    const count = loadElimination(graph);
+    const count = eliminateLoads(graph);
     expect(count).toBe(0);
   });
 });

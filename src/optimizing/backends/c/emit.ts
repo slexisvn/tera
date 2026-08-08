@@ -2,6 +2,8 @@ import {
   type CFGBlock,
   type CFGFunction,
   type CFGInstruction,
+  IR_CHECK_NUMBER,
+  IR_CHECK_SMI,
   IR_PARAMETER,
   IR_BLOCK_PARAM,
   IR_CONSTANT,
@@ -21,9 +23,17 @@ import {
 } from "../../ir/index.js";
 import { buildDispatch } from "../../infra/dispatch.js";
 
-export const C_HEADER_PREAMBLE = "#include <stdint.h>";
+export const C_HEADER_PREAMBLE = "#include <stdint.h>\n#include <stdlib.h>";
 export const C_RUNTIME_SUPPORT = `static inline double tera_i32_to_double(uint32_t value) {
   return value <= (uint32_t)INT32_MAX ? (double)value : -((double)(UINT32_MAX - value) + 1.0);
+}
+
+static inline int tera_is_smi_double(double value) {
+  return value >= (double)INT32_MIN && value <= (double)INT32_MAX && value == (double)(int32_t)value;
+}
+
+static inline void tera_aot_trap(void) {
+  abort();
 }`;
 export const C_SOURCE_PREAMBLE = `${C_HEADER_PREAMBLE}\n\n${C_RUNTIME_SUPPORT}`;
 
@@ -206,6 +216,22 @@ class CFunctionEmitter {
 
     entries.push([IR_INT32_COMPARE, (ctx) => this.emitCompare(ctx, true)]);
     entries.push([IR_FLOAT64_COMPARE, (ctx) => this.emitCompare(ctx, false)]);
+
+    entries.push([
+      IR_CHECK_SMI,
+      (ctx) => {
+        const input = ctx.nameOf(ctx.node.inputs[0]!);
+        ctx.emit(`if (!tera_is_smi_double(${input})) tera_aot_trap();`);
+        ctx.emit(`const double ${ctx.nameOf(ctx.node)} = ${input};`);
+      },
+    ]);
+
+    entries.push([
+      IR_CHECK_NUMBER,
+      (ctx) => {
+        ctx.emit(`const double ${ctx.nameOf(ctx.node)} = ${ctx.nameOf(ctx.node.inputs[0]!)};`);
+      },
+    ]);
 
     entries.push([
       IR_RETURN,

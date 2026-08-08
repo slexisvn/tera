@@ -1,7 +1,7 @@
 import * as ir from "../ir/index.js";
 
 import { tracer } from "../../core/tracing/index.js";
-import { replaceGraphFrameStateValue } from "./frame-state-values.js";
+import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
 
 type SimplifyNode = ir.CFGInstruction;
 type SimplifyBlock = ir.CFGBlock;

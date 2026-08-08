@@ -1,9 +1,9 @@
 import * as ir from "../ir/index.js";
 
 import { tracer } from "../../core/tracing/index.js";
-import { computeDominators, buildDominatorTree } from "./dominators.js";
-import { replaceGraphFrameStateValue } from "./frame-state-values.js";
-import { detachInputs } from "./graph-edit.js";
+import { DominatorTree } from "../analyses/dominance.js";
+import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
+import { detachInputs } from "../ir/graph-edit.js";
 
 type IRNodeLike = ir.CFGInstruction;
 type IRBlockLike = ir.CFGBlock;
@@ -91,9 +91,10 @@ function rewriteBranchAsJump(
   }
 }
 
-export function eliminateRedundantChecks(graph: IRGraphLike): number {
-  const dominators = computeDominators(graph);
-  const { children } = buildDominatorTree(graph, dominators);
+export function eliminateRedundantChecks(
+  graph: IRGraphLike,
+  dominance: DominatorTree,
+): number {
   let elimCount = 0;
 
   const checkKey = (node: IRNodeLike): string | null => {
@@ -139,8 +140,7 @@ export function eliminateRedundantChecks(graph: IRGraphLike): number {
       removeNodes(graph, toRemove);
     }
 
-    const childBlocks = children.get(block) as IRBlockLike[] | undefined;
-    for (const child of childBlocks || []) {
+    for (const child of dominance.childrenOf(block) as readonly IRBlockLike[]) {
       walkBlock(child, seenChecks);
     }
   };

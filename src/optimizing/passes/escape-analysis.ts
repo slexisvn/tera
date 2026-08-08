@@ -2,16 +2,12 @@ import type { RuntimeValue } from "../../core/value/index.js";
 import * as ir from "../ir/index.js";
 
 import { tracer } from "../../core/tracing/index.js";
-import {
-  computeDominators,
-  buildDominatorTree,
-  dominates,
-} from "./dominators.js";
+import { DominatorTree } from "../analyses/dominance.js";
 import {
   replaceGraphFrameStateValue,
   visitFrameStateValues,
-} from "./frame-state-values.js";
-import { detachInputs } from "./graph-edit.js";
+} from "../ir/frame-state-values.js";
+import { detachInputs } from "../ir/graph-edit.js";
 import { analyzeEscapes } from "../analyses/escape.js";
 import type { FrameValue } from "../../deopt/frame-state.js";
 
@@ -25,10 +21,11 @@ function nodeFromIr(value: ir.CFGInstruction): EscapeNode {
   return value;
 }
 
-export function escapeAnalysisAndScalarReplacement(graph: EscapeGraph): number {
+export function escapeAnalysisAndScalarReplacement(
+  graph: EscapeGraph,
+  dominance: DominatorTree,
+): number {
   let scalarReplCount = 0;
-  const dom = computeDominators(graph);
-  const { children } = buildDominatorTree(graph, dom);
 
   const blockOf = new Map<EscapeNode, EscapeBlock>();
   for (const block of graph.blocks) {
@@ -66,7 +63,7 @@ export function escapeAnalysisAndScalarReplacement(graph: EscapeGraph): number {
         allDominated = false;
         break;
       }
-      if (!dominates(dom, allocBlock, useBlock)) {
+      if (!dominance.dominates(allocBlock, useBlock)) {
         allDominated = false;
         break;
       }
@@ -220,7 +217,7 @@ export function escapeAnalysisAndScalarReplacement(graph: EscapeGraph): number {
       const localProp = new Map(propState);
       const localOffset = new Map(offsetState);
       processBlock(block, localProp, localOffset);
-      for (const child of (children.get(block) || []) as EscapeBlock[]) {
+      for (const child of dominance.childrenOf(block) as readonly EscapeBlock[]) {
         walkDom(child, localProp, localOffset);
       }
     };

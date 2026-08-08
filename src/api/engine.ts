@@ -18,7 +18,10 @@ import type { RegisterConstant, OsrEntry } from "../bytecode/register/ops/byteco
 import type { GlobalCell } from "../runtime/intrinsics/global-cells.js";
 import { SpeculativeOptimizer } from "../optimizing/optimizer.js";
 import { createBackendRegistry } from "../optimizing/backends/index.js";
+import { compileModule, type AotProgram, type AotSkippedFunction } from "../optimizing/drivers/aot.js";
+import { createModuleIR, type CompilationUnit } from "../optimizing/compilation-unit.js";
 import type { BackendRegistry } from "../optimizing/target/registry.js";
+import { isAotBackend, type AotBackend } from "../optimizing/target/backend.js";
 import { isJitBackend, type JitBackend } from "../optimizing/target/jit.js";
 import { BaselineCompiler } from "../optimizing/baseline/compiler.js";
 import { Deoptimizer } from "../deopt/deoptimizer.js";
@@ -35,6 +38,7 @@ import {
 } from "../objects/maps/hidden-class.js";
 import { getMigrationStats } from "../objects/heap/js-object.js";
 import { IRNodeIdAllocator, resetIRNodeIds, withIRNodeIdAllocator } from "../optimizing/ir/index.js";
+import type { CompilerOptions } from "../optimizing/options.js";
 import { createTieringPolicy } from "../runtime/tiering/policy.js";
 import type { TieringPolicyOptions } from "../runtime/tiering/policy.js";
 import {
@@ -102,6 +106,20 @@ export type CompileOptions = {
   compiler?: TeraCompilerExtension;
 };
 
+export type AotCompileOptions = CompileOptions & {
+  backend?: string;
+  functionNames?: readonly string[];
+  includeEntry?: boolean;
+  headerName?: string;
+  compilerOptions?: CompilerOptions;
+};
+
+export type AotFunctionCompileOptions = {
+  backend?: string;
+  headerName?: string;
+  compilerOptions?: CompilerOptions;
+};
+
 export type EngineValue = {
   tag: string;
   value: HeapPayload;
@@ -149,6 +167,28 @@ function runtimeIntrinsicNames(compiler: Required<TeraCompilerExtension>): Reado
 
 function functionName(compiledFn: { name?: string | null }): string {
   return compiledFn.name || "<anonymous>";
+}
+
+function errorReason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function collectCompiledFunctions(
+  root: RegisterCompiledFunction,
+  includeRoot: boolean,
+): RegisterCompiledFunction[] {
+  const result: RegisterCompiledFunction[] = [];
+  const seen = new Set<RegisterCompiledFunction>();
+  const visit = (compiledFn: RegisterCompiledFunction, include: boolean): void => {
+    if (seen.has(compiledFn)) return;
+    seen.add(compiledFn);
+    if (include) result.push(compiledFn);
+    for (const constant of compiledFn.constants) {
+      if (isCompiledFunction(constant)) visit(constant, true);
+    }
+  };
+  visit(root, includeRoot);
+  return result;
 }
 
 function policyWithCompileHooks(policy: ReturnType<typeof createTieringPolicy>): {
@@ -405,6 +445,111 @@ export class Engine {
     return this.runInRuntime(() => this.compileInRuntime(source, options));
   }
 
+  compileAot(source: string, options: AotCompileOptions = {}): AotProgram {
+    return this.runInRuntime(() => this.compileAotInRuntime(source, options));
+  }
+
+  compileAotFunctions(
+    functions: Iterable<RegisterCompiledFunction>,
+    options: AotFunctionCompileOptions = {},
+  ): AotProgram {
+    return this.runInRuntime(() => this.compileAotFunctionsInRuntime(functions, options));
+  }
+
+  private compileAotInRuntime(source: string, options: AotCompileOptions = {}): AotProgram {
+    const {
+      backend,
+      functionNames,
+      includeEntry = false,
+      headerName,
+      compilerOptions,
+      ...compileOptions
+    } = options;
+    const compiled = this.compileInRuntime(source, compileOptions);
+    const functions = this.selectAotFunctions(
+      collectCompiledFunctions(compiled, includeEntry),
+      functionNames,
+    );
+    return this.compileAotFunctionsInRuntime(functions, {
+      backend,
+      headerName,
+      compilerOptions,
+    });
+  }
+
+  private compileAotFunctionsInRuntime(
+    functions: Iterable<RegisterCompiledFunction>,
+    options: AotFunctionCompileOptions = {},
+  ): AotProgram {
+    const backend = this.resolveAotBackend(options.backend ?? "c");
+    const units: CompilationUnit[] = [];
+    const skipped: AotSkippedFunction[] = [];
+
+    for (const compiledFn of this.uniqueCompiledFunctions(functions)) {
+      try {
+        units.push(this.compileAotUnit(compiledFn));
+      } catch (error) {
+        skipped.push({ name: functionName(compiledFn), reason: errorReason(error) });
+      }
+    }
+
+    const program = compileModule(createModuleIR(units), backend, {
+      headerName: options.headerName,
+      compilerOptions: options.compilerOptions,
+    });
+    return { ...program, skipped: [...skipped, ...program.skipped] };
+  }
+
+  private resolveAotBackend(id: string): AotBackend {
+    const backend = this.backends.resolve(id);
+    if (!isAotBackend(backend)) {
+      throw new Error(`Backend "${id}" is not an AOT backend`);
+    }
+    return backend;
+  }
+
+  private uniqueCompiledFunctions(functions: Iterable<RegisterCompiledFunction>): RegisterCompiledFunction[] {
+    const result: RegisterCompiledFunction[] = [];
+    const seen = new Set<RegisterCompiledFunction>();
+    for (const compiledFn of functions) {
+      if (seen.has(compiledFn)) continue;
+      seen.add(compiledFn);
+      result.push(compiledFn);
+    }
+    return result;
+  }
+
+  private selectAotFunctions(
+    functions: readonly RegisterCompiledFunction[],
+    functionNames: readonly string[] | undefined,
+  ): RegisterCompiledFunction[] {
+    if (functionNames === undefined) return [...functions];
+
+    const byName = new Map<string, RegisterCompiledFunction>();
+    for (const compiledFn of functions) {
+      if (compiledFn.name !== null && !byName.has(compiledFn.name)) {
+        byName.set(compiledFn.name, compiledFn);
+      }
+    }
+
+    return functionNames.map((name) => {
+      const compiledFn = byName.get(name);
+      if (compiledFn === undefined) throw new Error(`AOT function not found: ${name}`);
+      return compiledFn;
+    });
+  }
+
+  private compileAotUnit(compiledFn: RegisterCompiledFunction): CompilationUnit {
+    if (compiledFn.isLazy) this.compileLazy(compiledFn);
+    if (compiledFn.isAsync || compiledFn.isGenerator) {
+      throw new Error("AOT does not support async or generator functions");
+    }
+    this.interpreter.initFeedbackVector(compiledFn);
+    resetIRNodeIds();
+    this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
+    return this.optimizer.compile(compiledFn).unit;
+  }
+
   private compileInRuntime(source: string, options: CompileOptions = {}): RegisterCompiledFunction {
     const syntaxPlugins = this.compileSyntaxPlugins(options);
     const checker = this.compileChecker(options);
@@ -434,16 +579,9 @@ export class Engine {
 
   private reportCompiled(compiled: RegisterCompiledFunction): void {
     if (!this.onCompile) return;
-    const seen = new Set<RegisterCompiledFunction>();
-    const walk = (fn: RegisterCompiledFunction): void => {
-      if (seen.has(fn) || fn.isLazy) return;
-      seen.add(fn);
-      this.onCompile!(fn);
-      for (const constant of fn.constants) {
-        if (isCompiledFunction(constant)) walk(constant);
-      }
-    };
-    walk(compiled);
+    for (const compiledFn of collectCompiledFunctions(compiled, true)) {
+      if (!compiledFn.isLazy) this.onCompile(compiledFn);
+    }
   }
 
   parseSource(source: string, options: CompileOptions = {}): ASTNode {
@@ -716,7 +854,7 @@ export class Engine {
       this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
       const result = this.optimizer.compile(compiledFn, offset);
       if (!result.graph.bailout) {
-        const code = this.jitBackend.jitCompile({ result, compiledFn }).code;
+        const code = this.jitBackend.jitCompile({ unit: result.unit }).code;
         if (code) {
           entry = { code, slots: result.graph.osrParamSlots ?? [] };
           this.dependencyRegistry.registerOsr(compiledFn, result.graph.dependencies);
@@ -754,10 +892,7 @@ export class Engine {
       this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
       const optimizerResult = this.optimizer.compile(compiledFn);
       this.onOptimize?.(compiledFn, optimizerResult.graph as OptimizedGraph);
-      const jitResult = this.jitBackend.jitCompile({
-        result: optimizerResult,
-        compiledFn,
-      });
+      const jitResult = this.jitBackend.jitCompile({ unit: optimizerResult.unit });
       const wasmFn = jitResult.code;
 
       if (wasmFn) {

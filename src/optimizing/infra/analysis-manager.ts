@@ -47,4 +47,10 @@ export class AnalysisManager<G> {
   invalidateAll(): void {
     this.cache.clear();
   }
+
+  invalidateExcept(preserved: ReadonlySet<AnalysisId<unknown>>): void {
+    for (const id of [...this.cache.keys()]) {
+      if (!preserved.has(id as AnalysisId<unknown>)) this.cache.delete(id);
+    }
+  }
 }

@@ -1,5 +1,5 @@
 import * as ir from "../ir/index.js";
-import { detachNode } from "./graph-edit.js";
+import { detachNode } from "../ir/graph-edit.js";
 
 type StoreNode = ir.CFGInstruction;
 type StoreBlock = ir.CFGBlock;

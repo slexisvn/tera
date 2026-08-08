@@ -15,9 +15,9 @@ import {
   computeDominators,
   dominates,
   type DominatorBlock,
-} from "../passes/dominators.js";
+} from "../analyses/dominance-core.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
-import { sunkAllocationIds } from "../passes/frame-state-values.js";
+import { sunkAllocationIds } from "../ir/frame-state-values.js";
 
 type ValidationNode = CFGInstruction;
 type ValidationBlock = CFGBlock;

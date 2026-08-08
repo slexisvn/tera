@@ -2,13 +2,13 @@ import { IRGraph, type CFGFunction } from "./ir/index.js";
 import { tracer } from "../core/tracing/index.js";
 import type { FrameState } from "../deopt/frame-state.js";
 import type { RegisterCompiledFunction } from "../bytecode/register/ops/bytecode.js";
+import { createCompilationUnit, type CompilationUnit } from "./compilation-unit.js";
 
 import { buildIR } from "./builder/ir-builder.js";
 import type { TeraCompilerExtension, TeraCompilerPhase } from "../api/extensions.js";
 import { createIntrinsicOptimizationMetadata, type IntrinsicOptimizationMetadata } from "./metadata/intrinsics.js";
-import { findLoops } from "./passes/loop-opts.js";
 import { validateOptimizedGraph } from "./validation/graph-validator.js";
-import { buildFrameStateIndex, clearFrameStateIndex } from "./passes/frame-state-values.js";
+import { buildFrameStateIndex, clearFrameStateIndex } from "./ir/frame-state-values.js";
 import { applyOsrTransform, repairFrameStateDominance } from "./passes/osr.js";
 import { runMiddleEnd } from "./pipeline.js";
 
@@ -19,6 +19,7 @@ type RequiredCompilerExtension = Required<TeraCompilerExtension>;
 export interface SpeculativeCompileResult {
   graph: OptimizedGraph;
   frameStates: FrameState[];
+  unit: CompilationUnit;
 }
 
 export class SpeculativeOptimizer {
@@ -77,7 +78,7 @@ export class SpeculativeOptimizer {
 
     const entryBlock = graph.addBlock();
     buildIR(graph, entryBlock, compiledFn, feedback, this.frameStates, this.intrinsicMetadata);
-    if (graph.bailout) return { graph, frameStates: this.frameStates };
+    if (graph.bailout) return this.resultFor(graph, compiledFn, osrOffset);
     graph.rebuildUses();
     graph = this.runCompilerPasses("ir", graph);
     graph.rebuildUses();
@@ -87,12 +88,12 @@ export class SpeculativeOptimizer {
       !applyOsrTransform(graph, osrOffset, compiledFn, this.frameStates)
     ) {
       graph.bailout = `no osr entry at ${osrOffset}`;
-      return { graph, frameStates: this.frameStates };
+      return this.resultFor(graph, compiledFn, osrOffset);
     }
 
     buildFrameStateIndex(graph);
 
-    runMiddleEnd(graph, { feedback, findLoops });
+    runMiddleEnd(graph, { feedback });
 
     clearFrameStateIndex(graph);
 
@@ -105,7 +106,19 @@ export class SpeculativeOptimizer {
 
     validateOptimizedGraph(graph, this.frameStates);
 
-    return { graph, frameStates: this.frameStates };
+    return this.resultFor(graph, compiledFn, osrOffset);
+  }
+
+  private resultFor(
+    graph: OptimizedGraph,
+    compiledFn: CompiledFunctionLike,
+    osrOffset: number | null,
+  ): SpeculativeCompileResult {
+    return {
+      graph,
+      frameStates: this.frameStates,
+      unit: createCompilationUnit(graph, this.frameStates, compiledFn, osrOffset),
+    };
   }
 }
 
