@@ -83,7 +83,7 @@ import {
   FEEDBACK_CALL,
 } from "../../../feedback/vector/index.js";
 import { tracer } from "../../../core/tracing/index.js";
-import { builtins, installBuiltinEntries } from "../../../runtime/builtins/index.js";
+import { builtins, installBuiltinEntries, ERROR_CONSTRUCTOR_NAMES } from "../../../runtime/builtins/index.js";
 import { Environment } from "../../../runtime/intrinsics/environment.js";
 import { GlobalCellMap } from "../../../runtime/intrinsics/global-cells.js";
 import { MicrotaskQueue } from "../../../runtime/microtasks/microtask.js";
@@ -673,7 +673,7 @@ export class RegisterInterpreter {
   }
 
   _wirePrototypes() {
-    const protoMap = {
+    const protoMap: Record<string, JSObject> = {
       String: this.builtinPrototypes.stringPrototype,
       Array: this.builtinPrototypes.arrayPrototype,
       Number: this.builtinPrototypes.numberPrototype,
@@ -683,6 +683,9 @@ export class RegisterInterpreter {
       Set: this.builtinPrototypes.setPrototype,
       WeakMap: this.builtinPrototypes.weakMapPrototype,
     };
+    for (const name of ERROR_CONSTRUCTOR_NAMES) {
+      protoMap[name] = this.builtinPrototypes.errorPrototype;
+    }
     for (const [name, proto] of Object.entries(protoMap)) {
       const cell = this.globalCells.read(name);
       if (cell && isFunction(cell)) {

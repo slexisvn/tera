@@ -6,6 +6,7 @@ import { REGEX_METHODS } from "./regex-methods.js";
 import { MAP_METHODS } from "./map-methods.js";
 import { SET_METHODS } from "./set-methods.js";
 import { WEAKMAP_METHODS } from "./weakmap-methods.js";
+import { ERROR_METHODS } from "./error-methods.js";
 import { createJSObject } from "../../objects/heap/factory.js";
 import { getWellKnownSymbols, mkFunction } from "../../core/value/index.js";
 import type { RuntimeFunctionPayload } from "../../core/value/index.js";
@@ -45,6 +46,7 @@ export function createBuiltinPrototypes(): Record<string, JSObject> {
     numberPrototype: populatePrototype(NUMBER_METHODS),
     booleanPrototype: populatePrototype(BOOLEAN_METHODS),
     regexPrototype: populatePrototype(REGEX_METHODS),
+    errorPrototype: populatePrototype(ERROR_METHODS),
     mapPrototype,
     setPrototype,
     weakMapPrototype,

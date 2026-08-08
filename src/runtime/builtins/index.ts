@@ -70,6 +70,7 @@ type BuiltinInterpreter = {
   jitEngine?: {
     output?: (text: string) => void;
   } | null;
+  builtinPrototypes?: Record<string, import("../../objects/heap/js-object.js").JSObject>;
   callFunctionValue(fn: TaggedValue, args: TaggedValue[], thisValue: TaggedValue): TaggedValue;
   constructFunctionValue(fn: TaggedValue, args: TaggedValue[]): TaggedValue;
   generatorNext(gen: GeneratorPayload, value: TaggedValue): TaggedValue;
@@ -175,18 +176,25 @@ function extractArgString(args: BuiltinArg[], index: number, defaultVal: string)
   return toDisplayString(val);
 }
 
-function buildErrorObject(name: string, args: BuiltinArg[]) {
-  const obj = createJSObject();
-  obj.setProperty("name", mkString(name));
+function buildErrorObject(
+  name: string,
+  args: BuiltinArg[],
+  interpreter?: BuiltinInterpreter,
+  thisValue?: TaggedValue,
+) {
+  const isSuperCall = thisValue !== undefined && isObject(thisValue);
+  const obj = isSuperCall ? getPayload(thisValue) : createJSObject();
+  const errorPrototype = interpreter?.builtinPrototypes?.errorPrototype;
+  if (errorPrototype && !obj.getPrototype()) obj.setPrototype(errorPrototype);
   const message =
     args.length > 0 && !isUndefined(args[0])
       ? toDisplayString(args[0])
       : "";
+  obj.setProperty("name", mkString(name));
   obj.setProperty("message", mkString(message));
   obj.setProperty("stack", mkString(message ? `${name}: ${message}` : name));
   obj.setProperty("__isError__", mkBool(true));
-  obj.setProperty("constructor", mkFunction({ name, properties: {} }));
-  return mkObject(obj);
+  return isSuperCall ? thisValue : mkObject(obj);
 }
 
 function arrayConstruct(args: BuiltinArg[]) {
@@ -200,15 +208,25 @@ function arrayConstruct(args: BuiltinArg[]) {
   return mkArray(createJSArray(args.slice()));
 }
 
+export const ERROR_CONSTRUCTOR_NAMES = [
+  "Error",
+  "TypeError",
+  "RangeError",
+  "ReferenceError",
+  "SyntaxError",
+  "EvalError",
+  "URIError",
+] as const;
+
 function makeErrorBuiltin(name: string) {
   return {
     name,
     isErrorConstructor: true,
-    call(args: BuiltinArg[]) {
-      return buildErrorObject(name, args);
+    call(args: BuiltinArg[], thisValue: TaggedValue, interpreter: BuiltinInterpreter) {
+      return buildErrorObject(name, args, interpreter, thisValue);
     },
-    construct(args: BuiltinArg[]) {
-      return buildErrorObject(name, args);
+    construct(args: BuiltinArg[], interpreter: BuiltinInterpreter) {
+      return buildErrorObject(name, args, interpreter);
     },
   };
 }
@@ -421,13 +439,9 @@ export const builtins = {
     },
   },
 
-  Error: makeErrorBuiltin("Error"),
-  TypeError: makeErrorBuiltin("TypeError"),
-  RangeError: makeErrorBuiltin("RangeError"),
-  ReferenceError: makeErrorBuiltin("ReferenceError"),
-  SyntaxError: makeErrorBuiltin("SyntaxError"),
-  EvalError: makeErrorBuiltin("EvalError"),
-  URIError: makeErrorBuiltin("URIError"),
+  ...Object.fromEntries(
+    ERROR_CONSTRUCTOR_NAMES.map((name) => [name, makeErrorBuiltin(name)]),
+  ),
 
   Map: {
     name: "Map",

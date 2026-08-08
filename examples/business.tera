@@ -1,7 +1,7 @@
-class ValidationError:
+class ValidationError extends Error:
   public constructor(field: string):
+    super(`invalid field: ${field}`)
     this.name = "ValidationError"
-    this.message = `invalid field: ${field}`
     this.field = field
 
 fn validate_order(order):
