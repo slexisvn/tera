@@ -1,6 +1,6 @@
 import { NodeType, type ASTNode } from "../ast/index.js";
 import { TERA_PRIMITIVE_PSEUDO_TYPES, TERA_PSEUDO_TYPES, type TeraPseudoTypeSpec } from "../../../data/tera-language-spec.js";
-import { parseSemanticProgram } from "./semantic-parser.js";
+import { lowerToSemanticProgram } from "./semantic-lowering.js";
 import type { ClassFieldNode, ClassMemberNode, FunctionNode, SemanticNode } from "./semantic-ast.js";
 import { builtinMethod, createTypeEnv, signatureType, type Binding } from "./type-system.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
@@ -51,7 +51,7 @@ export function buildSourceSymbolTable(source: string, inferredSymbols: Iterable
   const inferred = collectInferredTypes(inferredSymbols);
   const builder = new SymbolTableBuilder(lines, inferred);
   try {
-    builder.visitProgram(parseSemanticProgram(source, { syntaxPlugins: options.syntaxPlugins }).body);
+    builder.visitProgram(lowerToSemanticProgram(source, { syntaxPlugins: options.syntaxPlugins }).body);
   } catch {
     builder.materializeInferredLocals();
     return builder.finish();

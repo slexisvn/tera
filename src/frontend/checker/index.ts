@@ -1,5 +1,5 @@
 import { bindProgram, type BindOptions, type ExternalBuiltinSignature } from "./binder.js";
-import { parseSemanticProgram } from "./semantic-parser.js";
+import { lowerToSemanticProgram } from "./semantic-lowering.js";
 import { TypeChecker, type SymbolType } from "./type-checker.js";
 export { TypecheckError } from "./diagnostics.js";
 export { buildSourceSymbolTable } from "./symbols.js";
@@ -36,13 +36,13 @@ export function checkSource(source: string, modeOrOptions: TypecheckMode | Check
   const options = checkOptions(modeOrOptions);
   const mode = options.mode;
   if (mode === "off") return [];
-  const program = parseSemanticProgram(source, { syntaxPlugins: options.syntaxPlugins });
+  const program = lowerToSemanticProgram(source, { syntaxPlugins: options.syntaxPlugins });
   const bound = bindProgram(program, { builtins: options.builtins, aliases: options.aliases, interfaces: options.interfaces });
   return new TypeChecker(bound, mode === "strict").check();
 }
 
 export function inferSymbolTypes(source: string, options: Omit<CheckSourceOptions, "mode"> = {}): SymbolType[] {
-  const program = parseSemanticProgram(source, { syntaxPlugins: options.syntaxPlugins });
+  const program = lowerToSemanticProgram(source, { syntaxPlugins: options.syntaxPlugins });
   const bound = bindProgram(program, { builtins: options.builtins, aliases: options.aliases, interfaces: options.interfaces });
   const symbols: SymbolType[] = [];
   new TypeChecker(bound, false, (symbol) => symbols.push(symbol)).check();

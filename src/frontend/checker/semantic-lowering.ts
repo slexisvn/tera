@@ -75,7 +75,7 @@ type ModelAst = ASTNode & {
 
 const UNKNOWN_SPAN = { line: 1, column: 1 };
 
-export function parseSemanticProgram(source: string, options: ParserOptions = {}): SemanticProgram {
+export function lowerToSemanticProgram(source: string, options: ParserOptions = {}): SemanticProgram {
   return astToSemanticProgram(parse(source, options));
 }
 

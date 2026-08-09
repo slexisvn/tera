@@ -78,7 +78,7 @@ import {
 import { CLASS_ABSTRACT_MODIFIER, CLASS_MEMBER_MODIFIER_KEYWORDS, CLASS_STATIC_MODIFIER, CLASS_VISIBILITY_KEYWORDS, DEFAULT_CLASS_VISIBILITY, classVisibilityOrDefault, isClassVisibility, type ClassVisibility } from "../../core/class-visibility.js";
 import { Lexer, TokenType, type Token, type TokenTypeName, type TokenValue } from "../lexer/index.js";
 import { typeSourceFromTokens } from "../type-source.js";
-import { applySyntaxTransforms, buildSyntaxPluginIndex, normalizeSyntaxPlugins, syntaxPluginsFor, type ParserCheckpoint, type ParserContext, type ParserSyntaxOptions, type StatementParseResult, type SyntaxPlugin, type SyntaxPluginIndex } from "./extensions.js";
+import { buildSyntaxPluginIndex, normalizeSyntaxPlugins, syntaxPluginsFor, type ParserCheckpoint, type ParserContext, type ParserSyntaxOptions, type StatementParseResult, type SyntaxPlugin, type SyntaxPluginIndex } from "./extensions.js";
 export { MODEL_MARKER } from "../model.js";
 
 export type ParserOptions = ParserSyntaxOptions & {
@@ -2234,14 +2234,4 @@ export class Parser {
 
     return CallExpression(ArrowFunctionExpression([], body, false), []);
   }
-}
-
-export function parse(source: string, options: ParserOptions = {}): ASTNode {
-  const lexer = new Lexer(source);
-  const tokens = lexer.tokenize();
-  const parser = new Parser(tokens, {
-    ...options,
-    source: options.lazy ? source : null,
-  });
-  return applySyntaxTransforms(parser.parse(), parser.syntaxPlugins);
 }
