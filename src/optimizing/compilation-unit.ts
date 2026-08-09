@@ -1,5 +1,6 @@
 import type { RegisterCompiledFunction } from "../bytecode/register/ops/bytecode.js";
 import type { FrameState } from "../deopt/frame-state.js";
+import type { AnalysisManager } from "./infra/analysis-manager.js";
 import type { CFGFunction } from "./ir/index.js";
 
 export interface CompilationUnit {
@@ -8,6 +9,7 @@ export interface CompilationUnit {
   readonly frameStates: readonly FrameState[];
   readonly compiledFunction: RegisterCompiledFunction | null;
   readonly osrOffset: number | null;
+  readonly analyses?: AnalysisManager<CFGFunction>;
 }
 
 export interface ModuleIR {
@@ -20,6 +22,7 @@ export function createCompilationUnit(
   frameStates: readonly FrameState[] = [],
   compiledFunction: RegisterCompiledFunction | null = null,
   osrOffset: number | null = null,
+  analyses?: AnalysisManager<CFGFunction>,
 ): CompilationUnit {
   return {
     name: graph.name,
@@ -27,6 +30,7 @@ export function createCompilationUnit(
     frameStates,
     compiledFunction,
     osrOffset,
+    analyses,
   };
 }
 

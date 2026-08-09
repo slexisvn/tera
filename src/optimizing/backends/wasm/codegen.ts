@@ -72,8 +72,7 @@ import {
   REP_BOOL,
 } from "../../passes/repr-selection.js";
 import { validateOptimizedGraph } from "../../validation/graph-validator.js";
-import { DominatorTree } from "../../analyses/dominance.js";
-import { LoopForest } from "../../analyses/loops.js";
+import { loopForestAnalysisId, type LoopForest } from "../../analyses/loops.js";
 import {
   frameStateValueIds,
   visitDeoptSnapshotValues,
@@ -386,7 +385,7 @@ export class WasmCodegen {
     return null;
   }
 
-  compileRejection(graph: AnyGraph): string | null {
+  compileRejection(graph: AnyGraph, forest: LoopForest): string | null {
     if (!graph || !Array.isArray(graph.blocks))
       return "graph is missing blocks";
     if (graph.blocks.length === 0) return "graph has no blocks";
@@ -490,7 +489,6 @@ export class WasmCodegen {
       }
     }
     if (!hasReturn) return "graph has no return";
-    const forest = new LoopForest(graph, new DominatorTree(graph));
     if (forest.irreducible) {
       return "irreducible control flow";
     }
@@ -563,8 +561,8 @@ export class WasmCodegen {
     return false;
   }
 
-  canCompile(graph: AnyGraph): boolean {
-    this.lastCompileRejection = this.compileRejection(graph);
+  canCompile(graph: AnyGraph, forest: LoopForest): boolean {
+    this.lastCompileRejection = this.compileRejection(graph, forest);
     return this.lastCompileRejection === null;
   }
 
@@ -1592,6 +1590,7 @@ export class WasmCodegen {
   generateBody(
     graph: AnyGraph,
     analysis: AnyAnalysis,
+    forest: LoopForest,
     deoptImportIdx: number,
     runtimeStubImportIdx: number,
     allocObjImportIdx: number,
@@ -1638,7 +1637,6 @@ export class WasmCodegen {
     }
 
     const order = computeBlockOrder(graph);
-    const forest = new LoopForest(graph, new DominatorTree(graph));
     if (forest.irreducible) {
       failEmit("irreducible control flow");
       return bytes;
@@ -4051,7 +4049,14 @@ export class WasmCodegen {
       return null;
     }
 
-    if (!this.canCompile(graph)) {
+    const analyses = unit.analyses;
+    if (!analyses) {
+      this.lastCompileRejection = "missing analysis manager for JIT unit";
+      return null;
+    }
+    const forest = analyses.get(loopForestAnalysisId);
+
+    if (!this.canCompile(graph, forest)) {
       tracer.jitCompile(
         compiledFn.name ?? "<anonymous>",
         `Wasm: graph not compilable: ${this.lastCompileRejection}`,
@@ -4145,6 +4150,7 @@ export class WasmCodegen {
     const bodyBytes = this.generateBody(
       graph,
       analysis,
+      forest,
       deoptImportIdx,
       runtimeStubImportIdx,
       allocObjImportIdx,

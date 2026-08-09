@@ -224,10 +224,11 @@ export function runMiddleEnd(
   graph: CFGFunction,
   deps: MiddleEndDeps,
   options: CompilerOptions = compilerOptions(),
-): void {
+): AnalysisManager<CFGFunction> {
   const analyses = new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
   const passManager = new PassManager<CFGFunction>(analyses, options);
   for (const pipelinePhase of middleEndPhases(deps)) {
     passManager.run(graph, pipelinePhase.passes);
   }
+  return analyses;
 }

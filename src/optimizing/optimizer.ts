@@ -13,6 +13,7 @@ import { applyOsrTransform, repairFrameStateDominance } from "./passes/osr.js";
 import { runMiddleEnd } from "./pipeline.js";
 import { DominatorTree } from "./analyses/dominance.js";
 import { LoopForest } from "./analyses/loops.js";
+import type { AnalysisManager } from "./infra/analysis-manager.js";
 
 type CompiledFunctionLike = RegisterCompiledFunction;
 type OptimizedGraph = CFGFunction;
@@ -101,7 +102,7 @@ export class SpeculativeOptimizer {
 
     buildFrameStateIndex(graph);
 
-    runMiddleEnd(graph, { feedback });
+    const analyses = runMiddleEnd(graph, { feedback });
 
     clearFrameStateIndex(graph);
 
@@ -114,18 +115,25 @@ export class SpeculativeOptimizer {
 
     validateOptimizedGraph(graph, this.frameStates);
 
-    return this.resultFor(graph, compiledFn, osrOffset);
+    return this.resultFor(graph, compiledFn, osrOffset, analyses);
   }
 
   private resultFor(
     graph: OptimizedGraph,
     compiledFn: CompiledFunctionLike,
     osrOffset: number | null,
+    analyses?: AnalysisManager<CFGFunction>,
   ): SpeculativeCompileResult {
     return {
       graph,
       frameStates: this.frameStates,
-      unit: createCompilationUnit(graph, this.frameStates, compiledFn, osrOffset),
+      unit: createCompilationUnit(
+        graph,
+        this.frameStates,
+        compiledFn,
+        osrOffset,
+        analyses,
+      ),
     };
   }
 }
