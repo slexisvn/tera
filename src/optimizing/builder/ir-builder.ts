@@ -31,10 +31,10 @@ import {
 } from "./feedback-utils.js";
 import { genericDeletePropNode } from "./property-nodes.js";
 import {
-  addInitialLoopPhis,
+  openLoopHeader,
   addLoopBackedgeInputs,
   rememberIncomingState,
-  restoreIncomingState,
+  mergeIncomingState,
   type IncomingStatesByTarget,
 } from "./cfg-state.js";
 import { addPhi, link } from "../ir/cfg-edit.js";
@@ -185,16 +185,18 @@ export function buildIR(
       }
       currentBlock = nextBlock;
 
-      if (savedBlockRegs.has(i) && !nextBlock.isLoopHeader) {
-        acc = restoreIncomingState(nextBlock, savedBlockRegs.get(i), regs, acc);
+      const incomingStates = savedBlockRegs.get(i) ?? [];
+      if (!nextBlock.isLoopHeader) {
+        acc = mergeIncomingState(nextBlock, incomingStates, regs, acc);
       }
 
       if (nextBlock.isLoopHeader) {
-        const phis = addInitialLoopPhis(
+        const phis = openLoopHeader(
           nextBlock,
-          hasFallthrough ? predecessorBlock : nextBlock,
+          incomingStates,
           regs,
           compiledFn.localCount,
+          hasFallthrough ? predecessorBlock : nextBlock,
         );
         const slots = [...phis.keys()];
         loopPhiMap.set(nextBlock.id, phis);
@@ -226,13 +228,27 @@ export function buildIR(
     acc = currentBlock._lastAcc !== undefined ? currentBlock._lastAcc : acc;
   }
 
-  for (const [blockId, phis] of loopPhiMap) {
-    for (const [slot, phi] of phis) {
-      if (phi.inputs.length === 1) {
-        phi.addInput(phi.inputs[0]);
-      }
+  for (const block of graph.blocks) {
+    const phis = loopPhiMap.get(block.id);
+    if (!phis) continue;
+    for (const phi of phis.values()) {
+      while (phi.inputs.length < block.predecessors.length) phi.addInput(phi);
     }
   }
+}
+
+function closeLoopEdge(
+  targetBlock: AnyBlock,
+  target: number,
+  block: AnyBlock,
+  regs: NodeMap,
+  loopPhiMap: LoopPhiMap,
+  savedBlockRegs: SavedBlockRegs,
+): void {
+  if (!targetBlock.isLoopHeader) return;
+  const phis = loopPhiMap.get(targetBlock.id);
+  if (!phis) return;
+  addLoopBackedgeInputs(targetBlock, phis, savedBlockRegs, target, block, regs);
 }
 
 function functionName(fn: AnyCompiledFunction): string {
@@ -1199,18 +1215,7 @@ function compileInstruction(
       const targetBlock = blockMap.get(target);
       if (targetBlock) {
         rememberIncomingState(savedBlockRegs, target, block, regs, acc);
-        if (targetBlock.isLoopHeader && loopPhiMap) {
-          const phis = loopPhiMap.get(targetBlock.id);
-          if (phis)
-            addLoopBackedgeInputs(
-              targetBlock,
-              phis,
-              savedBlockRegs,
-              target,
-              block,
-              regs,
-            );
-        }
+        closeLoopEdge(targetBlock, target, block, regs, loopPhiMap, savedBlockRegs);
         const jmp = ir.irJump(targetBlock);
         block.addNode(jmp);
         link(block, targetBlock);
@@ -1234,6 +1239,9 @@ function compileInstruction(
           regs,
           acc,
         );
+      }
+      if (falseBlock) {
+        closeLoopEdge(falseBlock, target, block, regs, loopPhiMap, savedBlockRegs);
       }
 
       if (falseBlock && trueBlock && trueBlock !== falseBlock) {

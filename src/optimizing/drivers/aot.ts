@@ -13,6 +13,7 @@ export interface AotCompiledFunction {
   readonly symbol: string;
   readonly prototype: string;
   readonly definition: string;
+  readonly references: readonly string[];
 }
 
 export interface AotSkippedFunction {
@@ -52,6 +53,45 @@ function joinSections(sections: Iterable<string>): string {
 
 function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function dropUnresolvedCallers(
+  compiled: readonly AotCompiledFunction[],
+  skipped: AotSkippedFunction[],
+): AotCompiledFunction[] {
+  const defined = new Set(compiled.map((fn) => fn.symbol));
+  const callers = new Map<string, AotCompiledFunction[]>();
+  for (const fn of compiled) {
+    for (const reference of fn.references) {
+      let group = callers.get(reference);
+      if (group === undefined) {
+        group = [];
+        callers.set(reference, group);
+      }
+      group.push(fn);
+    }
+  }
+
+  const dropped = new Set<string>();
+  const worklist: AotCompiledFunction[] = [];
+  const drop = (fn: AotCompiledFunction, missing: string): void => {
+    if (dropped.has(fn.symbol)) return;
+    dropped.add(fn.symbol);
+    skipped.push({ name: fn.name, reason: `calls unavailable function ${missing}` });
+    worklist.push(fn);
+  };
+
+  for (const fn of compiled) {
+    for (const reference of fn.references) {
+      if (!defined.has(reference)) drop(fn, reference);
+    }
+  }
+  while (worklist.length > 0) {
+    const fn = worklist.pop()!;
+    for (const caller of callers.get(fn.symbol) ?? []) drop(caller, fn.symbol);
+  }
+
+  return compiled.filter((fn) => !dropped.has(fn.symbol));
 }
 
 export function compileModule(
@@ -100,11 +140,13 @@ export function compileModule(
       symbol: artifact.symbol,
       prototype: artifact.prototype,
       definition: stripSourcePreamble(artifact.source, artifact.sourcePreamble),
+      references: artifact.references,
     });
   }
 
+  const linkable = dropUnresolvedCallers(compiled, skipped);
   const guard = includeGuard(headerName);
-  const prototypes = compiled.map((fn) => fn.prototype).join("\n");
+  const prototypes = linkable.map((fn) => fn.prototype).join("\n");
   const headerPreamble = joinSections(headerPreambles);
   const sourcePreamble = joinSections(sourcePreambles);
   const header =
@@ -112,14 +154,14 @@ export function compileModule(
     (headerPreamble.length > 0 ? `${headerPreamble}\n\n` : "") +
     (prototypes.length > 0 ? `${prototypes}\n\n` : "") +
     `#endif\n`;
-  const definitions = compiled.map((fn) => fn.definition).join("\n");
+  const definitions = linkable.map((fn) => fn.definition).join("\n");
   const source = joinSections([
     `#include "${headerName}"`,
     sourcePreamble,
     definitions,
   ]);
 
-  return { headerName, header, source, compiled, skipped };
+  return { headerName, header, source, compiled: linkable, skipped };
 }
 
 export function writeAotProgram(

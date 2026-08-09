@@ -9,7 +9,7 @@ import {
 import { detachInputs } from "../ir/graph-edit.js";
 import type { PointsToResult } from "../analyses/points-to.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
-import { addPhi } from "../ir/cfg-edit.js";
+import { addPhi, removePhi } from "../ir/cfg-edit.js";
 
 type EscapeNode = ir.CFGInstruction;
 type EscapeBlock = ir.CFGBlock;
@@ -19,6 +19,18 @@ type ValueState = Map<ir.IRMetadataValue, EscapeNode>;
 
 const ALLOCATIONS = new Set([ir.IR_NEW_OBJECT, ir.IR_NEW_ARRAY]);
 const IDENTITY_GUARDS = new Set([ir.IR_CHECK_MAP, ir.IR_CHECK_ARRAY]);
+const ELEMENT_ACCESSES = new Set([
+  ir.IR_LOAD_ELEMENT,
+  ir.IR_STORE_ELEMENT,
+  ir.IR_GENERIC_GET_INDEX,
+  ir.IR_GENERIC_SET_INDEX,
+]);
+const AGGREGATE_STORES = new Set([
+  ir.IR_STORE_FIELD,
+  ir.IR_STORE_ELEMENT,
+  ir.IR_GENERIC_SET_PROP,
+  ir.IR_GENERIC_SET_INDEX,
+]);
 const RECEIVER_ACCESSES = new Set([
   ir.IR_GENERIC_SET_PROP,
   ir.IR_GENERIC_GET_PROP,
@@ -69,6 +81,8 @@ export function escapeAnalysisAndScalarReplacement(
     );
     const safeUses = safeReceiverUses(aliases);
     if (hasUnsupportedAliasUses(aliases, safeUses)) continue;
+    if (hasDynamicElementIndex(safeUses)) continue;
+    if (hasUntrackedLoopStore(graph, safeUses, aliases, dominance)) continue;
     if (callerFrameStatesReferenceAliases(graph, aliases)) continue;
 
     let allDominated = true;
@@ -88,7 +102,6 @@ export function escapeAnalysisAndScalarReplacement(
     const initialOffset = initialOffsetState(alloc);
     if (requiresUnsupportedMergeState(graph, safeUses, aliases, initialOffset, dominance)) continue;
 
-    const toDelete = new Set<number>([...aliases].map((node) => node.id));
     const phiFieldStates = createPhiFieldStates(
       graph,
       aliases,
@@ -97,6 +110,9 @@ export function escapeAnalysisAndScalarReplacement(
       blockOf,
       dominance,
     );
+    if (phiFieldStates === null) continue;
+
+    const toDelete = new Set<number>([...aliases].map((node) => node.id));
 
     let arrayLength: number | null = null;
     if (alloc.type === ir.IR_NEW_ARRAY) {
@@ -415,8 +431,10 @@ function createPhiFieldStates(
   initialOffset: ValueState,
   blockOf: Map<EscapeNode, EscapeBlock>,
   dominance: DominatorTree,
-): Map<EscapeBlock, ValueState> {
+): Map<EscapeBlock, ValueState> | null {
   const out = new Map<EscapeBlock, ValueState>();
+  const created: Array<readonly [EscapeBlock, EscapeNode]> = [];
+  let incomplete = false;
   const ensureBlockState = (block: EscapeBlock): ValueState => {
     let blockState = out.get(block);
     if (!blockState) {
@@ -437,13 +455,24 @@ function createPhiFieldStates(
     const blockState = ensureBlockState(block);
     if (blockState.has(key)) return;
     const phi = addPhi(block, []);
-    blockOf.set(phi, block);
-    blockState.set(key, phi);
+    const inputs: EscapeNode[] = [];
     for (let index = 0; index < block.predecessors.length; index++) {
       const predecessor = block.predecessors[index]!;
       const input = inputForPredecessor(predecessor, index, phi);
-      if (input) phi.addInput(input);
+      if (!input) break;
+      const definition = input === phi ? null : blockOf.get(input);
+      if (definition && !dominance.dominates(definition, predecessor)) break;
+      inputs.push(input);
     }
+    if (inputs.length !== block.predecessors.length) {
+      removePhi(block, phi);
+      incomplete = true;
+      return;
+    }
+    for (const input of inputs) phi.addInput(input);
+    blockOf.set(phi, block);
+    blockState.set(key, phi);
+    created.push([block, phi]);
   };
 
   for (const alias of aliases) {
@@ -472,6 +501,13 @@ function createPhiFieldStates(
       });
     }
   }
+  if (incomplete) {
+    for (const [block, phi] of created) {
+      removePhi(block, phi);
+      blockOf.delete(phi);
+    }
+    return null;
+  }
   return out;
 }
 
@@ -479,6 +515,50 @@ function isLoopHeader(block: EscapeBlock, dominance: DominatorTree): boolean {
   return block.predecessors.some((predecessor) =>
     dominance.dominates(block, predecessor),
   );
+}
+
+function naturalLoopBody(
+  header: EscapeBlock,
+  dominance: DominatorTree,
+): Set<EscapeBlock> {
+  const body = new Set<EscapeBlock>([header]);
+  const stack: EscapeBlock[] = [];
+  for (const latch of header.predecessors) {
+    if (!dominance.dominates(header, latch) || body.has(latch)) continue;
+    body.add(latch);
+    stack.push(latch);
+  }
+  while (stack.length > 0) {
+    const block = stack.pop()!;
+    for (const predecessor of block.predecessors) {
+      if (body.has(predecessor)) continue;
+      body.add(predecessor);
+      stack.push(predecessor);
+    }
+  }
+  return body;
+}
+
+function hasUntrackedLoopStore(
+  graph: EscapeGraph,
+  safeUses: ReadonlySet<EscapeNode>,
+  aliases: ReadonlySet<EscapeNode>,
+  dominance: DominatorTree,
+): boolean {
+  for (const header of graph.blocks) {
+    if (!isLoopHeader(header, dominance)) continue;
+    const body = naturalLoopBody(header, dominance);
+    for (const use of safeUses) {
+      if (!AGGREGATE_STORES.has(use.type)) continue;
+      if (!use.block || !body.has(use.block)) continue;
+      const receiver = receiverRoot(use.inputs[0]);
+      if (!receiver || !aliases.has(receiver)) continue;
+      const key = offsetStateKey(use);
+      if (key === null) return true;
+      if (!hasBackedgeStore(header, key, aliases, dominance)) return true;
+    }
+  }
+  return false;
 }
 
 function fieldKeysForLoopHeader(
@@ -586,9 +666,17 @@ function storedValue(node: EscapeNode): EscapeNode | null {
 
 function elementKey(node: EscapeNode): string {
   if (node.props.index !== undefined) return "i" + String(node.props.index);
-  const idxNode = node.inputs[1];
-  if (idxNode && idxNode.type === ir.IR_CONSTANT) return "i" + String(idxNode.props.value);
-  return idxNode ? "n" + idxNode.id : "i0";
+  return "i" + String(node.inputs[1]?.props.value);
+}
+
+function hasDynamicElementIndex(safeUses: ReadonlySet<EscapeNode>): boolean {
+  for (const use of safeUses) {
+    if (!ELEMENT_ACCESSES.has(use.type)) continue;
+    if (use.props.index !== undefined) continue;
+    const index = use.inputs[1];
+    if (!index || index.type !== ir.IR_CONSTANT) return true;
+  }
+  return false;
 }
 
 function insertUndefinedConstant(block: EscapeBlock, index: number): EscapeNode {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Engine } from "../../src/api/engine.js";
-import { SpeculativeOptimizer } from "../../src/optimizing/optimizer.js";
+import { Optimizer } from "../../src/optimizing/optimizer.js";
 import {
   IR_CHECK_SMI,
   IR_CHECK_NUMBER,
@@ -40,7 +40,7 @@ function getFn(engine, name) {
 }
 
 function compileIR(compiledFn) {
-  const optimizer = new SpeculativeOptimizer();
+  const optimizer = new Optimizer();
   return optimizer.compile(compiledFn);
 }
 

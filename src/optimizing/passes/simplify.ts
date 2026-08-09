@@ -471,6 +471,7 @@ export function strengthReduction(graph: SimplifyGraph): number {
             } else {
               result = nodeFromIr(ir.irInt32Sub(shifted, otherInput));
             }
+            result.props.noOverflow = true;
             result.frameState = node.frameState;
             replaceWithSequence(node, [shifted, result], block, i);
             tracer.jitCompile(

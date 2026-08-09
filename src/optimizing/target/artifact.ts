@@ -8,5 +8,6 @@ export type BackendArtifact =
       readonly headerPreamble: string;
       readonly sourcePreamble: string;
       readonly translationUnitPreamble: string;
+      readonly references: readonly string[];
     }
   | { readonly kind: "llvm"; readonly module: string };

@@ -1,257 +1,189 @@
 import * as ir from "../ir/index.js";
-import { DominatorTree } from "../analyses/dominance.js";
 import { tracer } from "../../core/tracing/index.js";
+import type { DominatorTree } from "../analyses/dominance.js";
+import type { TypeInference } from "../analyses/type-inference.js";
 import {
-  TypeKind,
-  booleanType,
   excludeType,
-  joinTypes,
   narrowType,
   numberType,
   objectType,
   smiType,
-  stringType,
-  typeFromConstant,
+  TypeKind,
   typeFromTypeof,
+  type LatticeType,
 } from "../types/lattice.js";
-import type { LatticeType } from "../types/lattice.js";
-import type { FrameState } from "../../deopt/frame-state.js";
-type TypeNode = ir.CFGInstruction;
-type TypeBlock = ir.CFGBlock;
-type TypeGraph = ir.CFGFunction;
 
-type TypeFacts = Map<number, LatticeType>;
+const GENERIC_TO_INT32 = new Map<string, string>([
+  [ir.IR_GENERIC_ADD, ir.IR_INT32_ADD],
+  [ir.IR_GENERIC_SUB, ir.IR_INT32_SUB],
+  [ir.IR_GENERIC_MUL, ir.IR_INT32_MUL],
+  [ir.IR_GENERIC_MOD, ir.IR_INT32_MOD],
+  [ir.IR_GENERIC_COMPARE, ir.IR_INT32_COMPARE],
+]);
 
-const GENERIC_TO_INT32: Record<string, string> = {
-  [ir.IR_GENERIC_ADD]: ir.IR_INT32_ADD,
-  [ir.IR_GENERIC_SUB]: ir.IR_INT32_SUB,
-  [ir.IR_GENERIC_MUL]: ir.IR_INT32_MUL,
-  [ir.IR_GENERIC_MOD]: ir.IR_INT32_MOD,
-  [ir.IR_GENERIC_COMPARE]: ir.IR_INT32_COMPARE,
-};
+const GENERIC_TO_FLOAT64 = new Map<string, string>([
+  [ir.IR_GENERIC_ADD, ir.IR_FLOAT64_ADD],
+  [ir.IR_GENERIC_SUB, ir.IR_FLOAT64_SUB],
+  [ir.IR_GENERIC_MUL, ir.IR_FLOAT64_MUL],
+  [ir.IR_GENERIC_DIV, ir.IR_FLOAT64_DIV],
+  [ir.IR_GENERIC_COMPARE, ir.IR_FLOAT64_COMPARE],
+]);
 
-const GENERIC_TO_FLOAT64: Record<string, string> = {
-  [ir.IR_GENERIC_ADD]: ir.IR_FLOAT64_ADD,
-  [ir.IR_GENERIC_SUB]: ir.IR_FLOAT64_SUB,
-  [ir.IR_GENERIC_MUL]: ir.IR_FLOAT64_MUL,
-  [ir.IR_GENERIC_DIV]: ir.IR_FLOAT64_DIV,
-  [ir.IR_GENERIC_COMPARE]: ir.IR_FLOAT64_COMPARE,
-};
+const GUARD_FACTS = new Map<string, (node: ir.CFGInstruction) => LatticeType>([
+  [ir.IR_CHECK_SMI, () => smiType()],
+  [ir.IR_CHECK_NUMBER, () => numberType()],
+  [ir.IR_CHECK_MAP, (node) => objectType(node.props.expectedMapId ?? null)],
+]);
 
-export function typeNarrowing(
-  graph: TypeGraph,
-  dominance: DominatorTree,
-): number {
-  let narrowCount = 0;
+const EQUALITY_OPS = new Set(["==", "==="]);
 
-  const walkBlock = (block: TypeBlock, inherited: TypeFacts): void => {
-    const facts = new Map(inherited);
-    mergeBlockParams(block, facts);
+const NUMERIC_KINDS = new Set<string>([
+  TypeKind.Smi,
+  TypeKind.Double,
+  TypeKind.Number,
+]);
 
-    for (const node of block.nodes) {
-      recordNodeType(node, facts);
-
-      const specializedType = specializeNode(node, facts);
-      if (specializedType) {
-        node.type = specializedType;
-        if (!node.frameState) node.frameState = frameStateFromInputs(node);
-        narrowCount++;
-        recordNodeType(node, facts);
-      }
-    }
-
-    for (const child of dominance.childrenOf(block) as readonly TypeBlock[]) {
-      walkBlock(child, factsForDominatorChild(block, child, facts));
-    }
-  };
-
-  if (graph.blocks[0]) walkBlock(graph.blocks[0], new Map());
-
-  if (narrowCount > 0) {
-    tracer.jitCompile(
-      "",
-      `TypeNarrowing: specialized ${narrowCount} operations`,
-    );
-  }
-  return narrowCount;
-}
-
-function mergeBlockParams(block: TypeBlock, facts: TypeFacts): void {
-  for (const param of block.phis) {
-    let merged: LatticeType | null = null;
-    for (const input of param.inputs || []) {
-      merged = joinTypes(
-        merged,
-        inferValueType(input, facts, new Set([param.id])),
-      );
-    }
-    if (merged) facts.set(param.id, merged);
-  }
-}
-
-function recordNodeType(node: TypeNode, facts: TypeFacts): void {
-  if (node.type === ir.IR_CHECK_SMI && node.inputs[0]) {
-    const narrowed = narrowType(facts.get(node.inputs[0].id), smiType());
-    facts.set(node.inputs[0].id, narrowed);
-    facts.set(node.id, narrowed);
-    return;
-  }
-
-  if (node.type === ir.IR_CHECK_NUMBER && node.inputs[0]) {
-    const narrowed = narrowType(facts.get(node.inputs[0].id), numberType());
-    facts.set(node.inputs[0].id, narrowed);
-    facts.set(node.id, narrowed);
-    return;
-  }
-
-  if (node.type === ir.IR_CHECK_MAP && node.inputs[0]) {
-    const narrowed = narrowType(
-      facts.get(node.inputs[0].id),
-      objectType(node.props.expectedMapId ?? null),
-    );
-    facts.set(node.inputs[0].id, narrowed);
-    facts.set(node.id, narrowed);
-    return;
-  }
-
-  if (node.type === ir.IR_CONSTANT) {
-    facts.set(node.id, typeFromConstant(node.props.value));
-    return;
-  }
-
-  if (node.type === ir.IR_NOT) {
-    facts.set(node.id, booleanType());
-    return;
-  }
-
-  if (node.type === ir.IR_TYPEOF) {
-    facts.set(node.id, stringType());
-    return;
-  }
-
-  if (node.type === ir.IR_PHI) {
-    let merged: LatticeType | null = null;
-    for (const input of node.inputs || []) {
-      merged = joinTypes(
-        merged,
-        inferValueType(input, facts, new Set([node.id])),
-      );
-    }
-    if (merged) facts.set(node.id, merged);
-  }
-}
-
-function inferValueType(
-  value: TypeNode,
-  facts: TypeFacts,
-  seen = new Set<number>(),
-): LatticeType | null {
-  const existing = facts.get(value.id);
-  if (existing) return existing;
-  if (seen.has(value.id)) return null;
-  seen.add(value.id);
-  if (value.type === ir.IR_CONSTANT) return typeFromConstant(value.props.value);
-  if (value.type === ir.IR_CHECK_SMI) return smiType();
-  if (value.type === ir.IR_CHECK_NUMBER) return numberType();
-  if (value.type === ir.IR_CHECK_MAP) {
-    return objectType(value.props.expectedMapId ?? null);
-  }
-  if (value.type === ir.IR_NOT) return booleanType();
-  if (value.type === ir.IR_TYPEOF) return stringType();
-  if (value.type === ir.IR_PHI) {
-    let merged: LatticeType | null = null;
-    for (const input of value.inputs || []) {
-      merged = joinTypes(merged, inferValueType(input, facts, seen));
-    }
-    return merged;
-  }
-  return null;
-}
-
-function factsForDominatorChild(
-  block: TypeBlock,
-  child: TypeBlock,
-  facts: TypeFacts,
-): TypeFacts {
-  const next = new Map(facts);
-  const terminator = block.getTerminator
-    ? block.getTerminator()
-    : block.nodes[block.nodes.length - 1];
-  if (!terminator || terminator.type !== ir.IR_BRANCH) return next;
-  if (terminator.props.trueBlock === child.id) {
-    recordBranchFact(terminator, next, true);
-  } else if (terminator.props.falseBlock === child.id) {
-    recordBranchFact(terminator, next, false);
-  }
-  return next;
-}
-
-function extractTypeofComparison(
-  branch: TypeNode,
-): { valueId: number; typeofString: string } | null {
-  if (!branch.inputs[0]) return null;
-  const condition = branch.inputs[0];
-  if (condition.type !== ir.IR_INT32_COMPARE || condition.inputs.length !== 2) {
-    return null;
-  }
-  const { op } = condition.props;
-  if (op !== "==" && op !== "===") return null;
-  const [left, right] = condition.inputs;
-  if (
-    left?.type === ir.IR_TYPEOF &&
-    right?.type === ir.IR_CONSTANT &&
-    typeof right.props.value === "string" &&
-    left.inputs[0]
-  ) {
-    return { valueId: left.inputs[0].id, typeofString: right.props.value };
-  }
-  return null;
-}
-
-function recordBranchFact(
-  branch: TypeNode,
-  facts: TypeFacts,
-  isTrueBranch: boolean,
-): void {
-  const cmp = extractTypeofComparison(branch);
-  if (!cmp) return;
-  const fact = typeFromTypeof(cmp.typeofString);
-  if (!fact) return;
-  if (isTrueBranch) {
-    facts.set(cmp.valueId, narrowType(facts.get(cmp.valueId), fact));
-  } else {
-    facts.set(cmp.valueId, excludeType(facts.get(cmp.valueId), fact));
-  }
-}
-
-function specializeNode(node: TypeNode, facts: TypeFacts): string | null {
-  if (node.inputs.length < 2) return null;
-  const left = facts.get(node.inputs[0]!.id);
-  const right = facts.get(node.inputs[1]!.id);
-  if (!left || !right) return null;
-
-  if (left.kind === TypeKind.Smi && right.kind === TypeKind.Smi) {
-    return GENERIC_TO_INT32[node.type] || null;
-  }
-
-  if (isNumeric(left) && isNumeric(right)) {
-    return GENERIC_TO_FLOAT64[node.type] || null;
-  }
-
-  return null;
-}
+type Refinements = Map<number, LatticeType>;
+type Trail = Array<readonly [number, LatticeType | undefined]>;
 
 function isNumeric(type: LatticeType): boolean {
-  return (
-    type.kind === TypeKind.Smi ||
-    type.kind === TypeKind.Double ||
-    type.kind === TypeKind.Number
-  );
+  return NUMERIC_KINDS.has(type.kind);
 }
 
-function frameStateFromInputs(node: TypeNode): FrameState | null {
+function typeofComparison(
+  branch: ir.CFGInstruction,
+): { value: ir.CFGInstruction; typeName: string } | null {
+  const condition = branch.inputs[0];
+  if (condition === undefined || condition.type !== ir.IR_INT32_COMPARE) return null;
+  if (!EQUALITY_OPS.has(String(condition.props.op))) return null;
+  const [left, right] = condition.inputs;
+  if (left?.type !== ir.IR_TYPEOF || right?.type !== ir.IR_CONSTANT) return null;
+  const typeName = right.props.value;
+  const value = left.inputs[0];
+  if (typeof typeName !== "string" || value === undefined) return null;
+  return { value, typeName };
+}
+
+class Narrower {
+  private readonly refinements: Refinements = new Map();
+  private count = 0;
+
+  constructor(
+    private readonly graph: ir.CFGFunction,
+    private readonly dominance: DominatorTree,
+    private readonly types: TypeInference,
+  ) {}
+
+  run(): number {
+    const entry = this.graph.blocks[0];
+    if (entry !== undefined) this.walk(entry);
+    return this.count;
+  }
+
+  private typeAt(value: ir.CFGInstruction): LatticeType {
+    return this.refinements.get(value.id) ?? this.types.typeOf(value);
+  }
+
+  private refine(value: ir.CFGInstruction, fact: LatticeType, trail: Trail): void {
+    trail.push([value.id, this.refinements.get(value.id)]);
+    this.refinements.set(value.id, fact);
+  }
+
+  private undo(trail: Trail): void {
+    for (let i = trail.length - 1; i >= 0; i--) {
+      const [id, previous] = trail[i]!;
+      if (previous === undefined) this.refinements.delete(id);
+      else this.refinements.set(id, previous);
+    }
+  }
+
+  private applyEdgeFacts(
+    block: ir.CFGBlock,
+    child: ir.CFGBlock,
+    trail: Trail,
+  ): void {
+    const terminator = block.getTerminator();
+    if (terminator === null || terminator.type !== ir.IR_BRANCH) return;
+    const comparison = typeofComparison(terminator);
+    if (comparison === null) return;
+    const fact = typeFromTypeof(comparison.typeName);
+    if (fact === null) return;
+    const current = this.typeAt(comparison.value);
+    if (terminator.props.trueBlock === child.id) {
+      this.refine(comparison.value, narrowType(current, fact), trail);
+    } else if (terminator.props.falseBlock === child.id) {
+      this.refine(comparison.value, excludeType(current, fact), trail);
+    }
+  }
+
+  private applyGuardFact(node: ir.CFGInstruction, trail: Trail): void {
+    const fact = GUARD_FACTS.get(node.type);
+    const guarded = node.inputs[0];
+    if (fact === undefined || guarded === undefined) return;
+    this.refine(guarded, narrowType(this.typeAt(guarded), fact(node)), trail);
+  }
+
+  private specialize(node: ir.CFGInstruction): void {
+    const left = node.inputs[0];
+    const right = node.inputs[1];
+    if (left === undefined || right === undefined) return;
+    const leftType = this.typeAt(left);
+    const rightType = this.typeAt(right);
+
+    const specialized =
+      leftType.kind === TypeKind.Smi && rightType.kind === TypeKind.Smi
+        ? GENERIC_TO_INT32.get(node.type)
+        : isNumeric(leftType) && isNumeric(rightType)
+          ? GENERIC_TO_FLOAT64.get(node.type)
+          : undefined;
+    if (specialized === undefined) return;
+
+    node.type = specialized;
+    if (this.isSpeculative(node)) {
+      if (!node.frameState) node.frameState = frameStateFromInputs(node);
+    } else {
+      node.props.noOverflow = true;
+    }
+    this.count++;
+  }
+
+  private isSpeculative(node: ir.CFGInstruction): boolean {
+    return node.inputs.some(
+      (input) => this.types.isSpeculative(input) || this.refinements.has(input.id),
+    );
+  }
+
+  private walk(block: ir.CFGBlock): void {
+    const trail: Trail = [];
+    for (const node of block.nodes) {
+      this.applyGuardFact(node, trail);
+      this.specialize(node);
+    }
+    for (const child of this.dominance.childrenOf(block) as readonly ir.CFGBlock[]) {
+      const edgeTrail: Trail = [];
+      this.applyEdgeFacts(block, child, edgeTrail);
+      this.walk(child);
+      this.undo(edgeTrail);
+    }
+    this.undo(trail);
+  }
+}
+
+function frameStateFromInputs(node: ir.CFGInstruction): ir.CFGInstruction["frameState"] {
   for (const input of node.inputs) {
-    if (input && input.frameState) return input.frameState;
+    if (input.frameState) return input.frameState;
   }
   return null;
+}
+
+export function typeNarrowing(
+  graph: ir.CFGFunction,
+  dominance: DominatorTree,
+  types: TypeInference,
+): number {
+  const narrowCount = new Narrower(graph, dominance, types).run();
+  if (narrowCount > 0) {
+    tracer.jitCompile("", `TypeNarrowing: specialized ${narrowCount} operations`);
+  }
+  return narrowCount;
 }

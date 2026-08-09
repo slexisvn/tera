@@ -7013,6 +7013,21 @@ export const TERA_PSEUDO_TYPES = {
         "description": "True when the string ends with `suffix`."
       },
       {
+        "name": "char_code_at",
+        "params": [
+          {
+            "name": "index",
+            "type": "int",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "returns": "int",
+        "isGetter": false,
+        "description": "Return the UTF-16 code unit at `index`."
+      },
+      {
         "name": "index_of",
         "params": [
           {

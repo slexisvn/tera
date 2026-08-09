@@ -16,7 +16,7 @@ import {
 } from "../bytecode/register/ops/bytecode.js";
 import type { RegisterConstant, OsrEntry } from "../bytecode/register/ops/bytecode.js";
 import type { GlobalCell } from "../runtime/intrinsics/global-cells.js";
-import { SpeculativeOptimizer } from "../optimizing/optimizer.js";
+import { Optimizer } from "../optimizing/optimizer.js";
 import { createBackendRegistry } from "../optimizing/backends/index.js";
 import { compileModule, type AotProgram, type AotSkippedFunction } from "../optimizing/drivers/aot.js";
 import { createModuleIR, type CompilationUnit } from "../optimizing/compilation-unit.js";
@@ -247,7 +247,7 @@ export class Engine {
   gc: GenerationalGC;
   interpreter: EngineInterpreter;
   baselineCompiler: BaselineCompiler;
-  optimizer: SpeculativeOptimizer;
+  optimizer: Optimizer;
   backends: BackendRegistry;
   jitBackend: JitBackend;
   deoptimizer: Deoptimizer;
@@ -318,7 +318,7 @@ export class Engine {
       this.microtaskQueue,
     );
     this.baselineCompiler = new BaselineCompiler();
-    this.optimizer = new SpeculativeOptimizer(this.compilerExtensions);
+    this.optimizer = new Optimizer(this.compilerExtensions);
     this.backends = createBackendRegistry();
     const wasm = this.backends.resolve("wasm");
     if (!isJitBackend(wasm)) {
@@ -544,10 +544,9 @@ export class Engine {
     if (compiledFn.isAsync || compiledFn.isGenerator) {
       throw new Error("AOT does not support async or generator functions");
     }
-    this.interpreter.initFeedbackVector(compiledFn);
     resetIRNodeIds();
     this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
-    return this.optimizer.compile(compiledFn).unit;
+    return this.optimizer.compileStatic(compiledFn).unit;
   }
 
   private compileInRuntime(source: string, options: CompileOptions = {}): RegisterCompiledFunction {

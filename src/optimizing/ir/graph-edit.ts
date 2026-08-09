@@ -30,3 +30,22 @@ export function detachNode(node: GraphNode): void {
   }
   node.uses = [];
 }
+
+export function homeFloatingValues(graph: ir.CFGFunction): number {
+  const entry = graph.entry;
+  if (entry === null) return 0;
+  const floating: GraphNode[] = [];
+  const seen = new Set<GraphNode>();
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      for (const input of node.inputs) {
+        if (!input || input.block !== null) continue;
+        if (input.type === ir.IR_PARAMETER || seen.has(input)) continue;
+        seen.add(input);
+        floating.push(input);
+      }
+    }
+  }
+  for (const value of floating) ir.homeInstruction(value, entry);
+  return floating.length;
+}

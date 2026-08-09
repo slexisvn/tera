@@ -12,7 +12,7 @@ import {
   ReturnStatement,
   ThisExpression,
 } from "../../../frontend/ast/index.js";
-import type { ASTNode, ParamNode } from "../../../frontend/ast/index.js";
+import type { ASTNode, FunctionParamInfo, ParamNode } from "../../../frontend/ast/index.js";
 import { MODEL_MARKER, MODULE_METHODS } from "../../../frontend/model.js";
 import { Scope } from "./helpers.js";
 import type { ScopeResolution } from "./helpers.js";
@@ -20,6 +20,8 @@ import { TempAllocator } from "./temp-allocator.js";
 import * as bytecode from "../ops/bytecode.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../../core/class-visibility.js";
 import { runtimeInterfaceBaseName, type RuntimeInterfaceContract } from "../../../runtime/interface-contract.js";
+
+type ParameterizedNode = ASTNode & { params: ParamNode[] };
 
 type PatternNode = {
   kind: "id" | "array" | "object";
@@ -125,6 +127,28 @@ type FunctionCompiledFunction = bytecode.RegisterCompiledFunction & {
   selfBindingSlot?: number;
   isArrow?: boolean;
 };
+
+function declaredSignatureOf(
+  fn: ParameterizedNode,
+  paramNames: readonly string[],
+): bytecode.DeclaredSignature | null {
+  const info = fn._paramInfo;
+  const returns = fn._returnType;
+  const hasInfo = Array.isArray(info);
+  if (!hasInfo && typeof returns !== "string") return null;
+  const declared = new Map<string, string>();
+  if (hasInfo) {
+    for (const entry of info as FunctionParamInfo[]) {
+      if (entry && typeof entry.name === "string" && typeof entry.type === "string") {
+        declared.set(entry.name, entry.type);
+      }
+    }
+  }
+  return {
+    params: paramNames.map((name) => declared.get(name) ?? null),
+    returns: typeof returns === "string" ? returns : null,
+  };
+}
 
 function isPositionalParam(param: ParamNode): boolean {
   return typeof param === "string" || !paramRecord(param)?.rest;
@@ -431,7 +455,7 @@ type FunctionCompilerThis = {
   _breakJumps: number[];
   _continueJumps: number[];
   _compileParams(
-    params: ParamNode[],
+    fn: ParameterizedNode,
     innerFunc: bytecode.RegisterCompiledFunction,
     innerScope: Scope,
   ): void;
@@ -467,7 +491,7 @@ type FunctionCompilerThis = {
 type FunctionMethodMap = {
   _compileParams(
     this: FunctionCompilerThis,
-    params: ParamNode[],
+    fn: ParameterizedNode,
     innerFunc: bytecode.RegisterCompiledFunction,
     innerScope: Scope,
   ): void;
@@ -493,7 +517,8 @@ type FunctionMethodMap = {
 } & ThisType<FunctionCompilerThis>;
 
 export const functionMethods: FunctionMethodMap = {
-  _compileParams(params, innerFunc, innerScope) {
+  _compileParams(fn, innerFunc, innerScope) {
+    const params = fn.params;
     const slots: number[] = [];
     const paramNames: string[] = [];
     let positionalIndex = 0;
@@ -524,6 +549,7 @@ export const functionMethods: FunctionMethodMap = {
       }
     }
     innerFunc.paramNames = paramNames;
+    innerFunc.declaredSignature = declaredSignatureOf(fn, paramNames);
 
     for (let i = 0; i < params.length; i++) {
       const param = params[i];
@@ -588,7 +614,7 @@ export const functionMethods: FunctionMethodMap = {
     this.temps = new TempAllocator(innerFunc);
     this._currentSuperClassName = node._superClassName || null;
 
-    this._compileParams(node.params, innerFunc, innerScope);
+    this._compileParams(node, innerFunc, innerScope);
 
     if (node.body.type === NodeType.BlockStatement) {
       const statements = blockBodyStatements(node.body);
@@ -649,7 +675,7 @@ export const functionMethods: FunctionMethodMap = {
     this.scope = innerScope;
     this.temps = new TempAllocator(innerFunc);
 
-    this._compileParams(node.params, innerFunc, innerScope);
+    this._compileParams(node, innerFunc, innerScope);
 
     if (node.name) {
       const selfSlot = innerFunc.addLocal(node.name);
@@ -706,7 +732,7 @@ export const functionMethods: FunctionMethodMap = {
     this.scope = innerScope;
     this.temps = new TempAllocator(innerFunc);
 
-    this._compileParams(node.params, innerFunc, innerScope);
+    this._compileParams(node, innerFunc, innerScope);
 
     if (node.isExpression) {
       this.compileExpression(node.body);
@@ -881,7 +907,7 @@ export const functionMethods: FunctionMethodMap = {
       this.temps = new TempAllocator(methodFunc);
       this._currentSuperClassName = method.static ? null : (node.superClass ? node.name : null);
 
-      this._compileParams(method.func.params, methodFunc, this.scope);
+      this._compileParams(method.func, methodFunc, this.scope);
 
       if (method.func.body.type === NodeType.BlockStatement) {
         const statements = blockBodyStatements(method.func.body);

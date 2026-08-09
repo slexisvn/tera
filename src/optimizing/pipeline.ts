@@ -3,6 +3,7 @@ import { AnalysisManager, type AnalysisId } from "./infra/analysis-manager.js";
 import { PassManager, type Preservation, type TransformPass } from "./infra/pass-manager.js";
 import { compilerOptions, type CompilerOptions } from "./options.js";
 import { buildFrameStateIndex } from "./ir/frame-state-values.js";
+import { homeFloatingValues } from "./ir/graph-edit.js";
 import { hoistLoopInvariants, loopUnrolling } from "./passes/loop-opts.js";
 import {
   eliminateRedundantChecks,
@@ -33,6 +34,7 @@ import { dominanceAnalysisId } from "./analyses/dominance.js";
 import { loopForestAnalysisId } from "./analyses/loops.js";
 import { modRefAnalysisId } from "./analyses/mod-ref.js";
 import { pointsToAnalysisId } from "./analyses/points-to.js";
+import { typeInferenceAnalysisId } from "./analyses/type-inference.js";
 import { createAnalysisRegistry } from "./analyses/index.js";
 
 export type CompilerPipelinePhase =
@@ -47,10 +49,6 @@ export interface OptimizationPhase<G> {
   readonly passes: readonly TransformPass<G>[];
 }
 
-export interface MiddleEndDeps {
-  feedback: Parameters<typeof inlineCacheLowering>[1];
-}
-
 type PassResult = number | boolean | { readonly changed?: boolean; readonly sunkCount?: number };
 type PassApply = (graph: CFGFunction, analyses: AnalysisManager<CFGFunction>) => PassResult;
 
@@ -58,6 +56,7 @@ const dominanceId = dominanceAnalysisId as AnalysisId<unknown>;
 const loopId = loopForestAnalysisId as AnalysisId<unknown>;
 const pointsToId = pointsToAnalysisId as AnalysisId<unknown>;
 const modRefId = modRefAnalysisId as AnalysisId<unknown>;
+const typeInferenceId = typeInferenceAnalysisId as AnalysisId<unknown>;
 const controlFlowAnalyses: readonly AnalysisId<unknown>[] = [dominanceId, loopId];
 const preservesControlFlow: Preservation = { kind: "only", preserved: controlFlowAnalyses };
 const invalidatesAnalyses: Preservation = { kind: "none" };
@@ -66,6 +65,7 @@ const maintenance: TransformPass<CFGFunction> = {
   name: "maintenance",
   preserves: { kind: "all" },
   run: (graph) => {
+    homeFloatingValues(graph);
     graph.rebuildUses();
     buildFrameStateIndex(graph);
     return { changed: false };
@@ -105,7 +105,11 @@ function phase(
   return { name, passes: interleave(passes) };
 }
 
-export function middleEndPhases(deps: MiddleEndDeps): OptimizationPhase<CFGFunction>[] {
+export function middleEndPhases(
+  options: CompilerOptions = compilerOptions(),
+): OptimizationPhase<CFGFunction>[] {
+  const aggregatePasses = (passes: readonly TransformPass<CFGFunction>[]) =>
+    options.scalarReplaceAggregates ? passes : [];
   return [
     phase("high-level-optimization", [
       step(
@@ -113,7 +117,7 @@ export function middleEndPhases(deps: MiddleEndDeps): OptimizationPhase<CFGFunct
         preservesControlFlow,
         (g) => specializeAllocationShapes(g),
       ),
-      step("ic-lowering", preservesControlFlow, (g) => inlineCacheLowering(g, deps.feedback)),
+      step("ic-lowering", preservesControlFlow, (g) => inlineCacheLowering(g)),
       step(
         "licm",
         preservesControlFlow,
@@ -129,8 +133,13 @@ export function middleEndPhases(deps: MiddleEndDeps): OptimizationPhase<CFGFunct
       step(
         "type-narrowing",
         preservesControlFlow,
-        (g, analyses) => typeNarrowing(g, analyses.get(dominanceAnalysisId)),
-        [dominanceId],
+        (g, analyses) =>
+          typeNarrowing(
+            g,
+            analyses.get(dominanceAnalysisId),
+            analyses.get(typeInferenceAnalysisId),
+          ),
+        [dominanceId, typeInferenceId],
       ),
     ]),
     phase("canonicalization", [
@@ -148,18 +157,20 @@ export function middleEndPhases(deps: MiddleEndDeps): OptimizationPhase<CFGFunct
           ),
         [pointsToId, modRefId],
       ),
-      step(
-        "escape-analysis",
-        preservesControlFlow,
-        (g, analyses) =>
-          escapeAnalysisAndScalarReplacement(
-            g,
-            analyses.get(dominanceAnalysisId),
-            analyses.get(pointsToAnalysisId),
-          ),
-        [dominanceId, pointsToId],
-      ),
-      step("allocation-sinking", preservesControlFlow, (g) => allocationSinking(g)),
+      ...aggregatePasses([
+        step(
+          "escape-analysis",
+          preservesControlFlow,
+          (g, analyses) =>
+            escapeAnalysisAndScalarReplacement(
+              g,
+              analyses.get(dominanceAnalysisId),
+              analyses.get(pointsToAnalysisId),
+            ),
+          [dominanceId, pointsToId],
+        ),
+        step("allocation-sinking", preservesControlFlow, (g) => allocationSinking(g)),
+      ]),
       step("const-fold-after-escape", preservesControlFlow, (g) => constantFolding(g)),
       step("const-prop-after-escape", preservesControlFlow, (g) => constantPropagation(g)),
       step("intrinsic-cse", preservesControlFlow, (g) => commonSubexpressionIntrinsicReads(g)),
@@ -193,17 +204,19 @@ export function middleEndPhases(deps: MiddleEndDeps): OptimizationPhase<CFGFunct
       ),
       step("trivial-phi-elimination", preservesControlFlow, (g) => eliminateTrivialPhis(g)),
       step("dead-phi-elimination", preservesControlFlow, (g) => eliminateDeadPhis(g)),
-      step(
-        "escape-analysis-late",
-        preservesControlFlow,
-        (g, analyses) =>
-          escapeAnalysisAndScalarReplacement(
-            g,
-            analyses.get(dominanceAnalysisId),
-            analyses.get(pointsToAnalysisId),
+      ...aggregatePasses([
+        step(
+          "escape-analysis-late",
+          preservesControlFlow,
+          (g, analyses) =>
+            escapeAnalysisAndScalarReplacement(
+              g,
+              analyses.get(dominanceAnalysisId),
+              analyses.get(pointsToAnalysisId),
+            ),
+          [dominanceId, pointsToId],
         ),
-        [dominanceId, pointsToId],
-      ),
+      ]),
       step("trivial-phi-elimination-after-late-escape", preservesControlFlow, (g) => eliminateTrivialPhis(g)),
       step("dead-phi-elimination-after-late-escape", preservesControlFlow, (g) => eliminateDeadPhis(g)),
       step("dead-code-elimination-after-late-escape", preservesControlFlow, (g) => deadCodeElimination(g)),
@@ -229,18 +242,19 @@ export function middleEndPhases(deps: MiddleEndDeps): OptimizationPhase<CFGFunct
   ];
 }
 
-export function middleEndPipeline(deps: MiddleEndDeps): TransformPass<CFGFunction>[] {
-  return middleEndPhases(deps).flatMap((pipelinePhase) => pipelinePhase.passes);
+export function middleEndPipeline(
+  options: CompilerOptions = compilerOptions(),
+): TransformPass<CFGFunction>[] {
+  return middleEndPhases(options).flatMap((pipelinePhase) => pipelinePhase.passes);
 }
 
 export function runMiddleEnd(
   graph: CFGFunction,
-  deps: MiddleEndDeps,
   options: CompilerOptions = compilerOptions(),
 ): AnalysisManager<CFGFunction> {
   const analyses = new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
   const passManager = new PassManager<CFGFunction>(analyses, options);
-  for (const pipelinePhase of middleEndPhases(deps)) {
+  for (const pipelinePhase of middleEndPhases(options)) {
     passManager.run(graph, pipelinePhase.passes);
   }
   return analyses;

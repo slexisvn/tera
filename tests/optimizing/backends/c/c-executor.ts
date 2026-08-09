@@ -1,209 +1,121 @@
-export function runCFunction(source: string, symbol: string, args: number[]): number {
-  const fn = extractFunction(source, symbol);
-  const env = new Map<string, number>();
-  const params = parseParams(fn.params);
-  if (params.length !== args.length) {
-    throw new Error(`expected ${params.length} args, got ${args.length}`);
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { cIdentifier } from "../../../../src/optimizing/backends/c/emit.js";
+
+export type CArgument = number | string;
+
+const DEFINITION = /^(int32_t|double)\s+(\w+)\s*\(([^)]*)\)\s*\{/gm;
+const LOCAL_INCLUDE = /^#include\s+"[^"]*"\s*$/gm;
+const SYSTEM_HEADERS = ["stdint.h", "string.h", "stdio.h", "stdlib.h", "math.h"];
+
+let compilerCache: string | null | undefined;
+
+function compiler(): string {
+  if (compilerCache === undefined) {
+    compilerCache = null;
+    for (const candidate of ["cc", "gcc", "clang"]) {
+      if (!spawnSync(candidate, ["--version"], { stdio: "ignore" }).error) {
+        compilerCache = candidate;
+        break;
+      }
+    }
   }
-  for (let i = 0; i < params.length; i++) env.set(params[i]!, args[i]!);
-
-  const lines = fn.body
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  const labels = new Map<string, number>();
-  for (let i = 0; i < lines.length; i++) {
-    const label = lines[i]!.match(/^([A-Za-z_]\w*):;$/);
-    if (label) labels.set(label[1]!, i);
-  }
-
-  let pc = 0;
-  let steps = 0;
-  const maxSteps = Math.max(lines.length * lines.length, lines.length + 1);
-  while (pc < lines.length) {
-    if (steps++ > maxSteps) throw new Error(`execution did not terminate in ${symbol}`);
-    const line = lines[pc]!;
-    if (/^[A-Za-z_]\w*:;$/.test(line) || line === "}" || line === "} else {") {
-      pc++;
-      continue;
-    }
-    if (/^\(void\)[A-Za-z_]\w*;$/.test(line)) {
-      pc++;
-      continue;
-    }
-
-    const smiCheck = line.match(/^if \(!tera_is_smi_double\((.+)\)\) tera_aot_trap\(\);$/);
-    if (smiCheck) {
-      const value = evalExpr(smiCheck[1]!, env);
-      if (!isSmiDouble(value)) throw new Error("C trap");
-      pc++;
-      continue;
-    }
-
-    const declaration = line.match(/^double\s+([A-Za-z_]\w*);$/);
-    if (declaration) {
-      env.set(declaration[1]!, 0);
-      pc++;
-      continue;
-    }
-
-    const constAssignment = line.match(/^const double\s+([A-Za-z_]\w*)\s*=\s*(.+);$/);
-    if (constAssignment) {
-      env.set(constAssignment[1]!, evalExpr(constAssignment[2]!, env));
-      pc++;
-      continue;
-    }
-
-    const assignment = line.match(/^([A-Za-z_]\w*)\s*=\s*(.+);$/);
-    if (assignment) {
-      env.set(assignment[1]!, evalExpr(assignment[2]!, env));
-      pc++;
-      continue;
-    }
-
-    const branch = line.match(/^if \((.+) != 0\.0\) \{$/);
-    if (branch) {
-      const trueLabel = parseGoto(lines[pc + 1]);
-      const falseLabel = parseGoto(lines[pc + 3]);
-      pc = jumpTo(labels, evalExpr(branch[1]!, env) !== 0 ? trueLabel : falseLabel);
-      continue;
-    }
-
-    const gotoLabel = parseGoto(line);
-    if (gotoLabel !== null) {
-      pc = jumpTo(labels, gotoLabel);
-      continue;
-    }
-
-    const ret = line.match(/^return\s+(.+);$/);
-    if (ret) return evalExpr(ret[1]!, env);
-
-    throw new Error(`unsupported C line: ${line}`);
-  }
-  throw new Error(`function ${symbol} fell through`);
+  if (compilerCache === null) throw new Error("no C compiler available");
+  return compilerCache;
 }
 
-const SMI_MIN = -(2 ** 31);
-const SMI_MAX = 2 ** 31 - 1;
-
-function extractFunction(
-  source: string,
-  symbol: string,
-): { readonly params: string; readonly body: string } {
-  const match = new RegExp(`double\\s+${escapeRegExp(symbol)}\\s*\\(([^)]*)\\)\\s*\\{`).exec(
-    source,
-  );
-  if (!match) throw new Error(`missing function ${symbol}`);
-  const bodyStart = match.index + match[0].length;
-  let depth = 1;
-  for (let i = bodyStart; i < source.length; i++) {
-    const ch = source[i];
-    if (ch === "{") depth++;
-    if (ch === "}") depth--;
-    if (depth === 0) return { params: match[1]!, body: source.slice(bodyStart, i) };
+function definitions(source: string): Array<{ returns: string; name: string; params: string }> {
+  const found: Array<{ returns: string; name: string; params: string }> = [];
+  DEFINITION.lastIndex = 0;
+  let match = DEFINITION.exec(source);
+  while (match !== null) {
+    found.push({ returns: match[1]!, name: match[2]!, params: match[3]! });
+    match = DEFINITION.exec(source);
   }
-  throw new Error(`unterminated function ${symbol}`);
+  return found;
 }
 
-function parseParams(params: string): string[] {
+function parameterTypes(params: string): string[] {
   const trimmed = params.trim();
   if (trimmed.length === 0 || trimmed === "void") return [];
   return trimmed.split(",").map((param) => {
-    const match = param.trim().match(/^double\s+([A-Za-z_]\w*)$/);
+    const text = param.trim();
+    if (text.startsWith("const char *")) return "const char *";
+    const match = text.match(/^(int32_t|double)\s+\w+$/);
     if (!match) throw new Error(`unsupported parameter: ${param}`);
     return match[1]!;
   });
 }
 
-function parseGoto(line: string | undefined): string | null {
-  const match = line?.match(/^goto\s+([A-Za-z_]\w*);$/);
-  return match ? match[1]! : null;
+function literal(type: string, value: CArgument): string {
+  if (type === "const char *") {
+    if (typeof value !== "string") throw new Error(`expected a string argument, got ${value}`);
+    return JSON.stringify(value);
+  }
+  if (typeof value !== "number") throw new Error(`expected a numeric argument, got ${value}`);
+  if (type === "int32_t") return `(int32_t)${Math.trunc(value)}`;
+  return Number.isInteger(value) ? `${value}.0` : String(value);
 }
 
-function jumpTo(labels: ReadonlyMap<string, number>, label: string | null): number {
-  if (label === null) throw new Error("missing goto target");
-  const pc = labels.get(label);
-  if (pc === undefined) throw new Error(`unknown label ${label}`);
-  return pc;
-}
+function buildProgram(source: string, symbol: string, args: readonly CArgument[]): string {
+  const body = source.replace(LOCAL_INCLUDE, "");
+  const entry = cIdentifier(symbol);
+  const found = definitions(body);
+  const target = found.find((definition) => definition.name === entry);
+  if (target === undefined) throw new Error(`missing function ${symbol}`);
 
-function evalExpr(expr: string, env: ReadonlyMap<string, number>): number {
-  const intExpr = expr.match(
-    /^tera_i32_to_double\(\(uint32_t\)\(int32_t\)([A-Za-z_]\w*)\s*([+\-*])\s*\(uint32_t\)\(int32_t\)([A-Za-z_]\w*)\)$/,
+  const types = parameterTypes(target.params);
+  if (types.length !== args.length) {
+    throw new Error(`expected ${types.length} args, got ${args.length}`);
+  }
+
+  const prototypes = found.map(
+    (definition) => `${definition.returns} ${definition.name}(${definition.params});`,
   );
-  if (intExpr) {
-    const left = toUint32(valueOf(intExpr[1]!, env));
-    const right = toUint32(valueOf(intExpr[3]!, env));
-    if (intExpr[2] === "+") return fromUint32((left + right) >>> 0);
-    if (intExpr[2] === "-") return fromUint32((left - right) >>> 0);
-    return fromUint32(Math.imul(left, right) >>> 0);
+  const call = `${entry}(${types.map((type, index) => literal(type, args[index]!)).join(", ")})`;
+  return [
+    ...SYSTEM_HEADERS.map((header) => `#include <${header}>`),
+    ...prototypes,
+    body,
+    "int main(void) {",
+    `  printf("%.17g\\n", (double)${call});`,
+    "  return 0;",
+    "}",
+    "",
+  ].join("\n");
+}
+
+export function runCFunction(
+  source: string,
+  symbol: string,
+  args: readonly CArgument[],
+): number {
+  const program = buildProgram(source, symbol, args);
+  const directory = mkdtempSync(join(tmpdir(), "tera-c-"));
+  try {
+    const sourcePath = join(directory, "program.c");
+    const binaryPath = join(directory, process.platform === "win32" ? "program.exe" : "program");
+    writeFileSync(sourcePath, program);
+
+    const build = spawnSync(compiler(), [sourcePath, "-O1", "-o", binaryPath, "-lm"], {
+      encoding: "utf8",
+    });
+    if (build.status !== 0) {
+      throw new Error(`compilation failed for ${symbol}:\n${build.stderr}\n${program}`);
+    }
+
+    const run = spawnSync(binaryPath, [], { encoding: "utf8", timeout: 10_000 });
+    if (run.status !== 0) {
+      throw new Error(`execution failed for ${symbol}: ${run.stderr || run.status}`);
+    }
+    const value = Number(run.stdout.trim());
+    if (Number.isNaN(value) && run.stdout.trim() !== "nan") {
+      throw new Error(`unexpected output for ${symbol}: ${run.stdout}`);
+    }
+    return value;
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
-
-  const compare = expr.match(/^\((.+)\s+(<=|>=|==|!=|<|>)\s+(.+)\)\s*\?\s*1\.0\s*:\s*0\.0$/);
-  if (compare) {
-    const left = valueOf(stripParens(compare[1]!), env);
-    const right = valueOf(stripParens(compare[3]!), env);
-    return compareValues(left, right, compare[2]!) ? 1 : 0;
-  }
-
-  const binary = expr.match(/^([A-Za-z_]\w*)\s+([+\-*/])\s+([A-Za-z_]\w*)$/);
-  if (binary) {
-    const left = valueOf(binary[1]!, env);
-    const right = valueOf(binary[3]!, env);
-    if (binary[2] === "+") return left + right;
-    if (binary[2] === "-") return left - right;
-    if (binary[2] === "*") return left * right;
-    return left / right;
-  }
-
-  if (/^-[A-Za-z_]\w*$/.test(expr)) return -valueOf(expr.slice(1), env);
-  return valueOf(expr, env);
-}
-
-function valueOf(term: string, env: ReadonlyMap<string, number>): number {
-  let text = term.trim();
-  let intCast = false;
-  while (text.startsWith("(int32_t)")) {
-    intCast = true;
-    text = text.slice("(int32_t)".length).trim();
-  }
-  const value = env.has(text) ? env.get(text)! : Number(text);
-  if (Number.isNaN(value)) throw new Error(`unknown value ${term}`);
-  return intCast ? toInt32(value) : value;
-}
-
-function compareValues(left: number, right: number, op: string): boolean {
-  if (op === "<=") return left <= right;
-  if (op === ">=") return left >= right;
-  if (op === "==") return left === right;
-  if (op === "!=") return left !== right;
-  if (op === "<") return left < right;
-  return left > right;
-}
-
-function toInt32(value: number): number {
-  return value | 0;
-}
-
-function toUint32(value: number): number {
-  return toInt32(value) >>> 0;
-}
-
-function fromUint32(value: number): number {
-  return value | 0;
-}
-
-function isSmiDouble(value: number): boolean {
-  return Number.isFinite(value) && value >= SMI_MIN && value <= SMI_MAX && Math.trunc(value) === value;
-}
-
-function stripParens(value: string): string {
-  const trimmed = value.trim();
-  return trimmed.startsWith("(") && trimmed.endsWith(")")
-    ? trimmed.slice(1, -1).trim()
-    : trimmed;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

@@ -38,6 +38,14 @@ function printHelp(): void {
     "Usage: tera [options] [file ...]",
     "       tera -e <source>",
     "       tera debug <file>",
+    "       tera compile <file> [-o out]",
+    "",
+    "Compile (ahead-of-time to a native executable via a C compiler):",
+    "  compile <file>            compile a program to a native executable",
+    "  -o, --output <path>       output path (default: <file> basename)",
+    "  --entry=<name>            entry function to call from main (default: main)",
+    "  --cc=<path>               C compiler to use (default: cc, gcc, clang)",
+    "  --keep-temps              keep the generated C sources",
     "",
     "Input:",
     "  -e, --eval <source>       run source passed on the command line",
@@ -368,6 +376,11 @@ async function main(): Promise<number> {
   }
 
   const options = buildEngineOptions(config);
+
+  if (config.command === "compile") {
+    const { runCompile } = await import("./compile.js");
+    return runCompile(config, new Engine(options));
+  }
 
   if (config.command === "debug") return runDebug(config, options);
 

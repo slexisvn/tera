@@ -70,7 +70,7 @@ describe("emitNumericFunction executable subset", () => {
     expect(Object.is(run(returningConstant("negative_zero", -0)), -0)).toBe(true);
   });
 
-  it("executes numeric guards with trap semantics", () => {
+  it("bails on speculative guards that lowering must remove first", () => {
     const smiGraph = new CFGFunction("checked_smi");
     const p0 = smiGraph.addParameter(0);
     const smiBlock = smiGraph.addBlock();
@@ -85,9 +85,13 @@ describe("emitNumericFunction executable subset", () => {
     numberBlock.addNode(number);
     numberBlock.addNode(irReturn(number));
 
-    expect(run(smiGraph, [7])).toBe(7);
-    expect(() => run(smiGraph, [7.5])).toThrow("C trap");
-    expect(run(numberGraph, [7.5])).toBe(7.5);
+    const smiResult = emitNumericFunction(smiGraph);
+    expect(smiResult.ok).toBe(false);
+    if (!smiResult.ok) expect(smiResult.reason).toContain("CheckSmi");
+
+    const numberResult = emitNumericFunction(numberGraph);
+    expect(numberResult.ok).toBe(false);
+    if (!numberResult.ok) expect(numberResult.reason).toContain("CheckNumber");
   });
 
   it("uses defined int32 wraparound for integer arithmetic", () => {
@@ -196,10 +200,10 @@ describe("emitNumericFunction bail conditions", () => {
     expect(expectBail(graph)).toContain("no terminator");
   });
 
-  it("bails on a non-numeric constant", () => {
-    const graph = new CFGFunction("str");
+  it("bails on a constant with no machine representation", () => {
+    const graph = new CFGFunction("infinite");
     const block = graph.addBlock();
-    const constant = irConstant("hello");
+    const constant = irConstant(Number.POSITIVE_INFINITY);
     block.addNode(constant);
     block.addNode(irReturn(constant));
     expect(expectBail(graph)).toContain("unsupported constant");

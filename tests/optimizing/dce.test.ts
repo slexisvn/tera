@@ -90,17 +90,36 @@ describe("deadCodeElimination", () => {
     expect(count).toBeGreaterThanOrEqual(2);
   });
 
-  it("preserves phis", () => {
+  it("removes unused phis and their inputs", () => {
     const { graph, block } = makeGraph();
     const b1 = graph.addBlock();
+    const value = irConstant(7);
+    block.addNode(value);
     const jmp = irJump(b1);
     block.addNode(jmp);
     link(block, b1);
-    const param = addPhi(b1, []);
+    const phi = addPhi(b1, [value]);
     const ret = irReturn(irConstant(0));
     b1.addNode(ret);
     deadCodeElimination(graph);
-    expect(b1.phis).toContain(param);
+    expect(b1.phis).not.toContain(phi);
+    expect(block.nodes).not.toContain(value);
+  });
+
+  it("keeps phis that a live node uses", () => {
+    const { graph, block } = makeGraph();
+    const b1 = graph.addBlock();
+    const value = irConstant(7);
+    block.addNode(value);
+    const jmp = irJump(b1);
+    block.addNode(jmp);
+    link(block, b1);
+    const phi = addPhi(b1, [value]);
+    const ret = irReturn(phi);
+    b1.addNode(ret);
+    deadCodeElimination(graph);
+    expect(b1.phis).toContain(phi);
+    expect(block.nodes).toContain(value);
   });
 });
 

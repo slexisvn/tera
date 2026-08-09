@@ -2,6 +2,7 @@ import { IRGraph, type CFGFunction } from "./ir/index.js";
 import { tracer } from "../core/tracing/index.js";
 import type { FrameState } from "../deopt/frame-state.js";
 import type { RegisterCompiledFunction } from "../bytecode/register/ops/bytecode.js";
+import type { FeedbackVector } from "../feedback/vector/index.js";
 import { createCompilationUnit, type CompilationUnit } from "./compilation-unit.js";
 
 import { buildIR } from "./builder/ir-builder.js";
@@ -11,6 +12,7 @@ import { validateOptimizedGraph } from "./validation/graph-validator.js";
 import { buildFrameStateIndex, clearFrameStateIndex } from "./ir/frame-state-values.js";
 import { applyOsrTransform, repairFrameStateDominance } from "./passes/osr.js";
 import { runMiddleEnd } from "./pipeline.js";
+import { compilerOptions, type CompilerOptions } from "./options.js";
 import { DominatorTree } from "./analyses/dominance.js";
 import { LoopForest } from "./analyses/loops.js";
 import type { AnalysisManager } from "./infra/analysis-manager.js";
@@ -19,13 +21,15 @@ type CompiledFunctionLike = RegisterCompiledFunction;
 type OptimizedGraph = CFGFunction;
 type RequiredCompilerExtension = Required<TeraCompilerExtension>;
 
+const STATIC_OPTIONS = compilerOptions("speed", { scalarReplaceAggregates: false });
+
 export interface SpeculativeCompileResult {
   graph: OptimizedGraph;
   frameStates: FrameState[];
   unit: CompilationUnit;
 }
 
-export class SpeculativeOptimizer {
+export class Optimizer {
   frameStates: FrameState[];
   private compilerExtensions: RequiredCompilerExtension;
   private intrinsicMetadata: IntrinsicOptimizationMetadata;
@@ -66,7 +70,19 @@ export class SpeculativeOptimizer {
     if (!feedback) {
       throw new Error("Cannot optimize without feedback");
     }
+    return this.build(compiledFn, feedback, osrOffset);
+  }
 
+  compileStatic(compiledFn: CompiledFunctionLike): SpeculativeCompileResult {
+    return this.build(compiledFn, null, null, STATIC_OPTIONS);
+  }
+
+  private build(
+    compiledFn: CompiledFunctionLike,
+    feedback: FeedbackVector | null,
+    osrOffset: number | null,
+    options: CompilerOptions = compilerOptions(),
+  ): SpeculativeCompileResult {
     this.frameStates = [];
 
     const functionName = compiledFn.name ?? "<anonymous>";
@@ -74,6 +90,7 @@ export class SpeculativeOptimizer {
     tracer.jitCompile(functionName, "Starting speculative compilation");
 
     let graph: OptimizedGraph = new IRGraph(functionName);
+    graph.declaredSignature = compiledFn.declaredSignature;
 
     for (let i = 0; i < compiledFn.paramCount; i++) {
       graph.addParameter(i);
@@ -102,7 +119,7 @@ export class SpeculativeOptimizer {
 
     buildFrameStateIndex(graph);
 
-    const analyses = runMiddleEnd(graph, { feedback });
+    const analyses = runMiddleEnd(graph, options);
 
     clearFrameStateIndex(graph);
 

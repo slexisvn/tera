@@ -4,6 +4,9 @@ import type { RuntimeValue, TaggedValue } from "../../../core/value/index.js";
 import type { ClassVisibility } from "../../../core/class-visibility.js";
 import type { RuntimeInterfaceContract } from "../../../runtime/interface-contract.js";
 import type { Environment } from "../../../runtime/intrinsics/environment.js";
+import type { DeclaredSignature } from "../../../optimizing/types/signature.js";
+
+export type { DeclaredSignature };
 
 export const ROP_LDA_CONST = 0x01;
 export const ROP_LDA_REG = 0x02;
@@ -410,6 +413,7 @@ export class RegisterCompiledFunction {
   _icKeys: string[] | null;
   hoistedVarNames: string[] | null;
   paramNames: string[] | null;
+  declaredSignature: DeclaredSignature | null;
   constructorStub?: ((args: TaggedValue[]) => TaggedValue) | null;
   simpleConstructorInfo?: SimpleConstructorField[] | null;
   classOwnerName?: string | null;
@@ -475,6 +479,7 @@ export class RegisterCompiledFunction {
     this._icKeys = null;
     this.hoistedVarNames = null;
     this.paramNames = null;
+    this.declaredSignature = null;
   }
 
   getICKey(funcName: string | null | undefined, fbSlotIdx: number): string {

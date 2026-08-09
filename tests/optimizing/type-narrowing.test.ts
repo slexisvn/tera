@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { typeNarrowing } from "../../src/optimizing/passes/type-narrowing.js";
 import { DominatorTree } from "../../src/optimizing/analyses/dominance.js";
+import { AnalysisManager } from "../../src/optimizing/infra/analysis-manager.js";
+import {
+  createAnalysisRegistry,
+  typeInferenceAnalysisId,
+} from "../../src/optimizing/analyses/index.js";
 import {
   CFGFunction,
   IRNode,
@@ -28,7 +33,13 @@ import { link } from "../../src/optimizing/ir/cfg-edit.js";
 beforeEach(() => resetIRNodeIds());
 
 function narrowTypes(graph: CFGFunction): number {
-  return typeNarrowing(graph, new DominatorTree(graph));
+  graph.rebuildUses();
+  const analyses = new AnalysisManager(graph, createAnalysisRegistry());
+  return typeNarrowing(
+    graph,
+    new DominatorTree(graph),
+    analyses.get(typeInferenceAnalysisId),
+  );
 }
 
 describe("typeNarrowing", () => {

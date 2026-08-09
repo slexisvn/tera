@@ -224,12 +224,24 @@ export function excludeType(
   return current;
 }
 
+const INT32_MIN = -2147483648;
+const INT32_MAX = 2147483647;
+
+function isInt32(value: number): boolean {
+  return (
+    Number.isInteger(value) &&
+    !Object.is(value, -0) &&
+    value >= INT32_MIN &&
+    value <= INT32_MAX
+  );
+}
+
 export function typeFromConstant(value: IRMetadataValue): LatticeType {
   if (value === null || value === undefined) return nullishType();
   if (typeof value === "string") return stringType();
   if (typeof value === "boolean") return booleanType();
   if (typeof value === "number") {
-    return Number.isInteger(value) ? smiType() : doubleType();
+    return isInt32(value) ? smiType() : doubleType();
   }
   if (Array.isArray(value)) return arrayType();
   if (typeof value === "object") return objectType();

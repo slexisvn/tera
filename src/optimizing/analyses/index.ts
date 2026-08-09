@@ -4,6 +4,7 @@ import { dominanceAnalysis } from "./dominance.js";
 import { loopForestAnalysis } from "./loops.js";
 import { modRefAnalysis } from "./mod-ref.js";
 import { pointsToAnalysis } from "./points-to.js";
+import { typeInferenceAnalysis } from "./type-inference.js";
 
 export function createAnalysisRegistry(): AnalysisRegistry<CFGFunction> {
   const registry = new AnalysisRegistry<CFGFunction>();
@@ -11,6 +12,7 @@ export function createAnalysisRegistry(): AnalysisRegistry<CFGFunction> {
   registry.register(loopForestAnalysis);
   registry.register(pointsToAnalysis);
   registry.register(modRefAnalysis);
+  registry.register(typeInferenceAnalysis);
   return registry;
 }
 
@@ -20,3 +22,4 @@ export * from "./heap-model.js";
 export * from "./loops.js";
 export * from "./mod-ref.js";
 export * from "./points-to.js";
+export * from "./type-inference.js";

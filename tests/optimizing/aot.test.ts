@@ -139,6 +139,69 @@ describe("Engine AOT", () => {
     expect(program.compiled.map((fn) => fn.symbol)).toEqual(["sum"]);
     expect(runCFunction(program.source, "sum", [10])).toBe(45);
   });
+
+  it("de-speculates overflowing int32 arithmetic into sound float64", () => {
+    const engine = new Engine({
+      typecheck: "off",
+      tieringPolicy: { jitThreshold: 1e12, baselineThreshold: 1e12 },
+    });
+    const source = src(
+      "fn add(a, b):",
+      "  return a + b",
+      "add(1, 2)",
+    );
+    engine.runNative(source);
+    const add = engine.collectFunctions().find((fn) => fn.name === "add");
+    expect(add).toBeDefined();
+
+    const program = engine.compileAotFunctions([add!]);
+
+    expect(program.skipped).toEqual([]);
+    expect(runCFunction(program.source, "add", [1073741824, 1073741824])).toBe(2147483648);
+  });
+
+  it("renames functions that collide with C reserved identifiers", () => {
+    const program = new Engine({ typecheck: "off" }).compileAot(
+      src(
+        "fn main() -> int:",
+        "  return 7",
+        "",
+        "fn tag() -> int:",
+        '  s = "main"',
+        "  return s.length",
+      ),
+      { functionNames: ["main", "tag"] },
+    );
+
+    expect(program.skipped).toEqual([]);
+    expect(program.compiled.map((fn) => fn.symbol)).toEqual(["tera_main", "tag"]);
+    expect(runCFunction(program.source, "main", [])).toBe(7);
+    expect(runCFunction(program.source, "tag", [])).toBe(4);
+  });
+
+  it("skips callers of functions the backend could not lower", () => {
+    const program = new Engine({ typecheck: "off" }).compileAot(
+      src(
+        "fn helper(n):",
+        "  o = {a: n}",
+        "  return o.a",
+        "",
+        "fn caller(n):",
+        "  return helper(n) + 1",
+        "",
+        "fn unrelated(n):",
+        "  return n * 2",
+      ),
+      { functionNames: ["helper", "caller", "unrelated"] },
+    );
+
+    expect(program.compiled.map((fn) => fn.name)).toEqual(["unrelated"]);
+    expect(program.skipped.map((fn) => fn.name).sort()).toEqual(["caller", "helper"]);
+    expect(program.skipped.find((fn) => fn.name === "caller")!.reason).toContain(
+      "calls unavailable function helper",
+    );
+    expect(runCFunction(program.source, "unrelated", [21])).toBe(42);
+  });
 });
 
 const moduleOf = (graphs: CFGFunction[]) => moduleFromGraphs(graphs, "test-module");

@@ -28,8 +28,12 @@ export function rememberIncomingState(
   regs: RegisterState,
   acc: CfgNode | null | undefined,
 ): void {
-  if (!states.has(target)) states.set(target, []);
-  states.get(target)!.push({ predecessor, regs: new Map(regs), acc });
+  let group = states.get(target);
+  if (!group) {
+    group = [];
+    states.set(target, group);
+  }
+  group.push({ predecessor, regs: new Map(regs), acc });
 }
 
 export function definedValue(
@@ -40,18 +44,68 @@ export function definedValue(
   return homeInstruction(irConstant(undefined), home);
 }
 
-export function addInitialLoopPhis(
+function indexByPredecessor(
+  states: readonly IncomingState[],
+): Map<CfgBlock, IncomingState> {
+  return new Map(states.map((state) => [state.predecessor, state]));
+}
+
+function stateValue(
+  state: IncomingState | undefined,
+  slot: Slot,
+): CfgNode | null | undefined {
+  if (!state) return undefined;
+  return slot === ACC_SLOT ? state.acc : state.regs.get(slot);
+}
+
+function incomingValues(
   block: CfgBlock,
-  predecessor: CfgBlock,
+  byPredecessor: Map<CfgBlock, IncomingState>,
+  slot: Slot,
+  fallbackHome: CfgBlock,
+): CfgNode[] {
+  if (block.predecessors.length === 0) {
+    return [definedValue(undefined, fallbackHome)];
+  }
+  return block.predecessors.map((predecessor) =>
+    definedValue(stateValue(byPredecessor.get(predecessor), slot), predecessor),
+  );
+}
+
+function liveSlots(
+  states: readonly IncomingState[],
+  seed: Iterable<Slot>,
+): Slot[] {
+  const slots = new Set<Slot>(seed);
+  for (const state of states) {
+    for (const slot of state.regs.keys()) slots.add(slot);
+    if (state.acc) slots.add(ACC_SLOT);
+  }
+  return [...slots].sort((a, b) => a - b);
+}
+
+function range(count: number): Slot[] {
+  return Array.from({ length: count }, (_slot, index) => index);
+}
+
+export function openLoopHeader(
+  block: CfgBlock,
+  states: readonly IncomingState[],
   regs: RegisterState,
   localCount: number,
+  entryHome: CfgBlock,
 ): Map<Slot, CfgNode> {
+  const byPredecessor = indexByPredecessor(states);
+  const slots = liveSlots(states, range(localCount)).filter(
+    (slot) => slot !== ACC_SLOT,
+  );
   const phis = new Map<Slot, CfgNode>();
-  const slots = new Set<Slot>();
-  for (let slot = 0; slot < localCount; slot++) slots.add(slot);
-  for (const slot of regs.keys()) slots.add(slot);
-  for (const slot of [...slots].sort((a, b) => a - b)) {
-    const phi = addPhi(block, [definedValue(regs.get(slot), predecessor)]);
+  regs.clear();
+  for (const slot of slots) {
+    const phi = addPhi(
+      block,
+      incomingValues(block, byPredecessor, slot, entryHome),
+    );
     phis.set(slot, phi);
     regs.set(slot, phi);
   }
@@ -66,9 +120,9 @@ export function addLoopBackedgeInputs(
   predecessor: CfgBlock,
   regs: RegisterState,
 ): void {
-  const states = statesByTarget.get(target) ?? [];
-  const byPred = new Map(states.map((state) => [state.predecessor, state]));
-  const updateHeaderStates = (slot: Slot, phi: CfgNode): void => {
+  const byPredecessor = indexByPredecessor(statesByTarget.get(target) ?? []);
+  const expectedInputs = block.predecessors.length + 1;
+  const republish = (slot: Slot, phi: CfgNode): void => {
     for (const group of statesByTarget.values()) {
       for (const state of group) {
         if (state.predecessor === block) state.regs.set(slot, phi);
@@ -79,65 +133,42 @@ export function addLoopBackedgeInputs(
   for (const slot of regs.keys()) {
     let phi = phis.get(slot);
     if (!phi) {
-      const incoming = block.predecessors.map((pred) => {
-        const state = byPred.get(pred);
-        return definedValue(state?.regs.get(slot), pred);
-      });
-      if (incoming.length === 0) incoming.push(definedValue(undefined, predecessor));
-      phi = addPhi(block, incoming);
+      phi = addPhi(
+        block,
+        incomingValues(block, byPredecessor, slot, predecessor),
+      );
       phis.set(slot, phi);
-      updateHeaderStates(slot, phi);
+      republish(slot, phi);
     }
-    const expectedInputs = block.predecessors.length + 1;
     if (phi.inputs.length < expectedInputs) phi.addInput(regs.get(slot) || phi);
+  }
+  for (const [slot, phi] of phis) {
+    if (regs.has(slot)) continue;
+    if (phi.inputs.length < expectedInputs) phi.addInput(phi);
   }
 }
 
-export function restoreIncomingState(
+export function mergeIncomingState(
   block: CfgBlock,
-  states: IncomingState[] | null | undefined,
+  states: readonly IncomingState[],
   regs: RegisterState,
   acc: CfgNode | null | undefined,
 ): CfgNode | null {
-  if (!states || states.length === 0) return acc ?? null;
-  if (block.predecessors.length <= 1) {
-    const state = states[0];
-    for (const [slot, value] of state.regs) regs.set(slot, value ?? null);
-    return state.acc ?? acc ?? null;
-  }
+  if (states.length === 0) return acc ?? null;
 
-  const byPred = new Map(states.map((state) => [state.predecessor, state]));
-  const slots = new Set<Slot>();
-  for (const state of states) {
-    for (const slot of state.regs.keys()) slots.add(slot);
-    if (state.acc) slots.add(ACC_SLOT);
-  }
-  for (const slot of regs.keys()) slots.add(slot);
-  if (acc) slots.add(ACC_SLOT);
-
-  let nextAcc = acc ?? null;
+  const byPredecessor = indexByPredecessor(states);
+  const slots = liveSlots(states, []);
+  let nextAcc: CfgNode | null = null;
+  regs.clear();
 
   for (const slot of slots) {
-    const incoming = block.predecessors.map((pred) => {
-      const state = byPred.get(pred);
-      const value = !state
-        ? slot === ACC_SLOT
-          ? acc
-          : regs.get(slot)
-        : slot === ACC_SLOT
-          ? state.acc
-          : state.regs.get(slot);
-      return definedValue(value, pred);
-    });
+    const incoming = incomingValues(block, byPredecessor, slot, block);
     const first = incoming[0];
-    const same = incoming.every((value) => value === first);
-    const selected: CfgNode = same ? first : addPhi(block, incoming);
-    if (slot === ACC_SLOT) {
-      nextAcc = selected;
-    } else {
-      regs.set(slot, selected);
-    }
+    const uniform = incoming.every((value) => value === first);
+    const selected = uniform ? first : addPhi(block, incoming);
+    if (slot === ACC_SLOT) nextAcc = selected;
+    else regs.set(slot, selected);
   }
 
-  return nextAcc ?? null;
+  return nextAcc;
 }

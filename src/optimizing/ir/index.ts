@@ -1,4 +1,5 @@
 import type { RuntimeValue } from "../../core/value/index.js";
+import type { DeclaredSignature } from "../types/signature.js";
 
 export const IR_PARAMETER = "Parameter";
 export const IR_CONSTANT = "Constant";
@@ -403,6 +404,7 @@ export class CFGFunction {
   bailout: string | null;
   osrCandidates: Map<number, OsrCandidate>;
   osrParamSlots: number[] | null;
+  declaredSignature: DeclaredSignature | null;
   private nextBlockId: number;
   _frameStateIndex?: Map<FrameValue, { replace(next: FrameValue): void }[]> | null;
 
@@ -417,6 +419,7 @@ export class CFGFunction {
     this.inlineBudgetRemaining = 0;
     this.osrCandidates = new Map();
     this.osrParamSlots = null;
+    this.declaredSignature = null;
     this.nextBlockId = 0;
   }
 

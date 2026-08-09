@@ -1,6 +1,6 @@
 export type OptMode = "default" | "none" | "always";
 export type TypecheckMode = "off" | "warn" | "strict";
-export type CliCommand = "run" | "repl" | "debug" | "help" | "version";
+export type CliCommand = "run" | "repl" | "debug" | "compile" | "help" | "version";
 
 export type CliConfig = {
   command: CliCommand;
@@ -22,6 +22,10 @@ export type CliConfig = {
   exposeGc: boolean;
   allowNatives: boolean;
   stats: boolean;
+  output: string | null;
+  entry: string;
+  cc: string | null;
+  keepTemps: boolean;
 };
 
 export class CliUsageError extends Error {}
@@ -47,10 +51,14 @@ const BOOLEAN_FLAGS: Record<string, (config: CliConfig) => void> = {
   "expose-gc": (c) => (c.exposeGc = true),
   "allow-natives-syntax": (c) => (c.allowNatives = true),
   stats: (c) => (c.stats = true),
+  "keep-temps": (c) => (c.keepTemps = true),
 };
 
 const VALUE_FLAGS: Record<string, (config: CliConfig, value: string) => void> = {
   filter: (c, v) => (c.filter = v),
+  output: (c, v) => (c.output = v),
+  entry: (c, v) => (c.entry = v),
+  cc: (c, v) => (c.cc = v),
   typecheck: (c, v) => (c.typecheck = parseTypecheck(v)),
   "opt-threshold": (c, v) => (c.jitThreshold = parseCount("opt-threshold", v)),
   "baseline-threshold": (c, v) =>
@@ -79,6 +87,10 @@ function defaults(): CliConfig {
     exposeGc: false,
     allowNatives: false,
     stats: false,
+    output: null,
+    entry: "main",
+    cc: null,
+    keepTemps: false,
   };
 }
 
@@ -129,6 +141,7 @@ export function parseArgs(argv: readonly string[]): CliConfig {
   const config = defaults();
   let sawPositional = false;
   let evalPending = false;
+  let outputPending = false;
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]!;
@@ -136,6 +149,12 @@ export function parseArgs(argv: readonly string[]): CliConfig {
     if (evalPending) {
       config.eval = token;
       evalPending = false;
+      continue;
+    }
+
+    if (outputPending) {
+      config.output = token;
+      outputPending = false;
       continue;
     }
 
@@ -147,6 +166,11 @@ export function parseArgs(argv: readonly string[]): CliConfig {
 
     if (token === "-e" || token === "--eval") {
       evalPending = true;
+      continue;
+    }
+
+    if (token === "-o") {
+      outputPending = true;
       continue;
     }
 
@@ -184,18 +208,25 @@ export function parseArgs(argv: readonly string[]): CliConfig {
       continue;
     }
 
+    if (!sawPositional && token === "compile") {
+      config.command = "compile";
+      sawPositional = true;
+      continue;
+    }
+
     config.files.push(token);
     sawPositional = true;
   }
 
   if (evalPending) throw new CliUsageError("-e must be followed by source");
+  if (outputPending) throw new CliUsageError("-o must be followed by a path");
 
   return resolveCommand(config);
 }
 
 function resolveCommand(config: CliConfig): CliConfig {
   if (config.command === "help" || config.command === "version") return config;
-  if (config.command === "debug") return config;
+  if (config.command === "debug" || config.command === "compile") return config;
   if (config.eval !== null || config.files.length > 0 || config.readStdin) {
     config.command = "run";
   }

@@ -1,0 +1,172 @@
+fn gcd(a: int, b: int) -> int:
+  x = a
+  y = b
+  while y != 0:
+    t = x % y
+    x = y
+    y = t
+  return x
+
+fn iabs(a: int) -> int:
+  if a < 0:
+    return 0 - a
+  return a
+
+fn idiv(a: int, b: int) -> int:
+  sign = 1
+  if a < 0:
+    sign = 0 - sign
+  if b < 0:
+    sign = 0 - sign
+  x = iabs(a)
+  y = iabs(b)
+  q = 0
+  r = 0
+  i = 30
+  while i >= 0:
+    r = (r << 1) | ((x >> i) & 1)
+    if r >= y:
+      r = r - y
+      q = q | (1 << i)
+    i = i - 1
+  return sign * q
+
+fn coefficient(formula: string, which: int) -> int:
+  cols = 8
+  mat = [
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0
+  ]
+  elemCode = [0, 0, 0, 0, 0, 0, 0, 0]
+  pivotCol = [0, 0, 0, 0, 0, 0, 0, 0]
+  coef = [0, 0, 0, 0, 0, 0, 0, 0]
+  nElem = 0
+  species = 0
+  side = 1
+  n = formula.length
+  i = 0
+
+  while i < n:
+    c = formula.char_code_at(i)
+    if c == 43:
+      species = species + 1
+      i = i + 1
+    else:
+      if c == 45:
+        side = 0 - 1
+        species = species + 1
+        i = i + 2
+      else:
+        code = c
+        i = i + 1
+        if i < n and formula.char_code_at(i) >= 97 and formula.char_code_at(i) <= 122:
+          code = code * 256 + formula.char_code_at(i)
+          i = i + 1
+        qty = 0
+        while i < n and formula.char_code_at(i) >= 48 and formula.char_code_at(i) <= 57:
+          qty = qty * 10 + (formula.char_code_at(i) - 48)
+          i = i + 1
+        if qty == 0:
+          qty = 1
+        row = 0 - 1
+        j = 0
+        while j < nElem:
+          if elemCode[j] == code:
+            row = j
+          j = j + 1
+        if row < 0:
+          row = nElem
+          elemCode[nElem] = code
+          nElem = nElem + 1
+        slot = row * cols + species
+        mat[slot] = mat[slot] + side * qty
+
+  nSpecies = species + 1
+  free = nSpecies - 1
+  rank = 0
+  pos = 0
+
+  while pos < free and rank < nElem:
+    choice = 0 - 1
+    r = rank
+    while r < nElem:
+      if choice < 0 and mat[r * cols + pos] != 0:
+        choice = r
+      r = r + 1
+    if choice >= 0:
+      k = 0
+      while k < nSpecies:
+        tmp = mat[rank * cols + k]
+        mat[rank * cols + k] = mat[choice * cols + k]
+        mat[choice * cols + k] = tmp
+        k = k + 1
+      r = 0
+      while r < nElem:
+        lead = mat[r * cols + pos]
+        if r != rank and lead != 0:
+          pivot = mat[rank * cols + pos]
+          g = gcd(iabs(pivot), iabs(lead))
+          mult = idiv(pivot, g)
+          factor = idiv(lead, g)
+          k = 0
+          while k < nSpecies:
+            mat[r * cols + k] = mat[r * cols + k] * mult - mat[rank * cols + k] * factor
+            k = k + 1
+        r = r + 1
+      pivotCol[rank] = pos
+      rank = rank + 1
+    pos = pos + 1
+
+  scale = 1
+  p = 0
+  while p < rank:
+    pivot = mat[p * cols + pivotCol[p]]
+    scale = idiv(scale, gcd(scale, iabs(pivot))) * iabs(pivot)
+    p = p + 1
+
+  j = 0
+  while j < nSpecies:
+    coef[j] = 0
+    j = j + 1
+  coef[free] = scale
+
+  p = 0
+  while p < rank:
+    pivot = mat[p * cols + pivotCol[p]]
+    coef[pivotCol[p]] = 0 - idiv(mat[p * cols + free] * scale, pivot)
+    p = p + 1
+
+  divisor = 0
+  negative = 0
+  j = 0
+  while j < nSpecies:
+    divisor = gcd(divisor, iabs(coef[j]))
+    if coef[j] < 0:
+      negative = negative + 1
+    j = j + 1
+  if divisor == 0:
+    divisor = 1
+
+  dir = 1
+  if negative * 2 > nSpecies:
+    dir = 0 - 1
+
+  if which >= nSpecies:
+    return 0
+  return dir * idiv(coef[which], divisor)
+
+fn main() -> int:
+  acc = 0
+  i = 0
+  while i < 3:
+    acc = acc * 10 + coefficient("H2+O2->H2O", i)
+    i = i + 1
+  return acc
+
+main()

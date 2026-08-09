@@ -38,13 +38,13 @@ export function deadCodeElimination(graph: DceGraph): number {
   for (const param of graph.parameters) {
     liveNodes.add(param.id);
   }
-  for (const block of graph.blocks) {
-    for (const phi of block.phis) {
-      liveNodes.add(phi.id);
-    }
-  }
 
   for (const block of graph.blocks) {
+    for (const phi of [...block.phis]) {
+      if (liveNodes.has(phi.id)) continue;
+      removePhi(block, phi);
+      dceCount++;
+    }
     block.nodes = block.nodes.filter((node) => {
       if (liveNodes.has(node.id)) return true;
       node.inputs.forEach((inp) => {
@@ -53,8 +53,6 @@ export function deadCodeElimination(graph: DceGraph): number {
       dceCount++;
       return false;
     });
-    const liveNodeSet = new Set<DceNode>(block.nodes);
-    block.phis = block.phis.filter((phi) => liveNodeSet.has(phi));
   }
 
   graph.rebuildUses?.();
