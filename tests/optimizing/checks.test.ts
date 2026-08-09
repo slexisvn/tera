@@ -21,11 +21,19 @@ import {
 } from "../../src/optimizing/ir/index.js";
 import { link } from "../../src/optimizing/ir/cfg-edit.js";
 import { DominatorTree } from "../../src/optimizing/analyses/dominance.js";
+import { LoopForest } from "../../src/optimizing/analyses/loops.js";
 
 beforeEach(() => resetIRNodeIds());
 
 function eliminateChecks(graph: CFGFunction): number {
   return eliminateRedundantChecks(graph, new DominatorTree(graph));
+}
+
+function eliminateBoundsChecks(graph: CFGFunction): number {
+  return rangeAnalysisAndBoundsCheckElimination(
+    graph,
+    new LoopForest(graph, new DominatorTree(graph)),
+  );
 }
 
 describe("eliminateRedundantChecks", () => {
@@ -175,7 +183,7 @@ describe("rangeAnalysisAndBoundsCheckElimination", () => {
     block.addNode(add);
     const ret = irReturn(add);
     block.addNode(ret);
-    rangeAnalysisAndBoundsCheckElimination(graph);
+    eliminateBoundsChecks(graph);
     expect(add.props.noOverflow).toBe(true);
   });
 
@@ -196,7 +204,7 @@ describe("rangeAnalysisAndBoundsCheckElimination", () => {
     link(b0, b2);
     b1.addNode(irReturn(irConstant(1)));
     b2.addNode(irReturn(irConstant(0)));
-    const count = rangeAnalysisAndBoundsCheckElimination(graph);
+    const count = eliminateBoundsChecks(graph);
     expect(count).toBeGreaterThan(0);
     const term = b0.getTerminator();
     expect(term.type).toBe(IR_JUMP);
@@ -220,7 +228,7 @@ describe("rangeAnalysisAndBoundsCheckElimination", () => {
     link(b0, b2);
     b1.addNode(irReturn(irConstant(1)));
     b2.addNode(irReturn(irConstant(0)));
-    const count = rangeAnalysisAndBoundsCheckElimination(graph);
+    const count = eliminateBoundsChecks(graph);
     expect(count).toBeGreaterThan(0);
     const term = b0.getTerminator();
     expect(term.type).toBe(IR_JUMP);
@@ -238,7 +246,7 @@ describe("rangeAnalysisAndBoundsCheckElimination", () => {
     block.addNode(sub);
     const ret = irReturn(sub);
     block.addNode(ret);
-    rangeAnalysisAndBoundsCheckElimination(graph);
+    eliminateBoundsChecks(graph);
     expect(sub.props.noOverflow).toBe(true);
   });
 
@@ -259,7 +267,7 @@ describe("rangeAnalysisAndBoundsCheckElimination", () => {
     link(b0, b2);
     b1.addNode(irReturn(irConstant(1)));
     b2.addNode(irReturn(irConstant(0)));
-    const count = rangeAnalysisAndBoundsCheckElimination(graph);
+    const count = eliminateBoundsChecks(graph);
     expect(count).toBeGreaterThan(0);
     expect(b0.getTerminator().type).toBe(IR_JUMP);
     expect(b0.getTerminator().props.targetBlock).toBe(b1.id);
@@ -282,7 +290,7 @@ describe("rangeAnalysisAndBoundsCheckElimination", () => {
     link(b0, b2);
     b1.addNode(irReturn(irConstant(1)));
     b2.addNode(irReturn(irConstant(0)));
-    const count = rangeAnalysisAndBoundsCheckElimination(graph);
+    const count = eliminateBoundsChecks(graph);
     expect(count).toBeGreaterThan(0);
     expect(b0.getTerminator().props.targetBlock).toBe(b1.id);
   });

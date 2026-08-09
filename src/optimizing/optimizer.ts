@@ -11,6 +11,8 @@ import { validateOptimizedGraph } from "./validation/graph-validator.js";
 import { buildFrameStateIndex, clearFrameStateIndex } from "./ir/frame-state-values.js";
 import { applyOsrTransform, repairFrameStateDominance } from "./passes/osr.js";
 import { runMiddleEnd } from "./pipeline.js";
+import { DominatorTree } from "./analyses/dominance.js";
+import { LoopForest } from "./analyses/loops.js";
 
 type CompiledFunctionLike = RegisterCompiledFunction;
 type OptimizedGraph = CFGFunction;
@@ -85,7 +87,13 @@ export class SpeculativeOptimizer {
 
     if (
       osrOffset !== null &&
-      !applyOsrTransform(graph, osrOffset, compiledFn, this.frameStates)
+      !applyOsrTransform(
+        graph,
+        osrOffset,
+        compiledFn,
+        this.frameStates,
+        new LoopForest(graph, new DominatorTree(graph)),
+      )
     ) {
       graph.bailout = `no osr entry at ${osrOffset}`;
       return this.resultFor(graph, compiledFn, osrOffset);

@@ -1,12 +1,12 @@
 import type { CFGFunction } from "../ir/index.js";
 import { AnalysisRegistry } from "../infra/analysis-manager.js";
 import { dominanceAnalysis } from "./dominance.js";
-import { loopAnalysis } from "./loops.js";
+import { loopForestAnalysis } from "./loops.js";
 
 export function createAnalysisRegistry(): AnalysisRegistry<CFGFunction> {
   const registry = new AnalysisRegistry<CFGFunction>();
   registry.register(dominanceAnalysis);
-  registry.register(loopAnalysis);
+  registry.register(loopForestAnalysis);
   return registry;
 }
 

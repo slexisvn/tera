@@ -30,7 +30,7 @@ import { commonSubexpressionIntrinsicReads } from "./passes/intrinsic-cse.js";
 import { typeNarrowing } from "./passes/type-narrowing.js";
 import { specializeAllocationShapes } from "./passes/allocation-shape.js";
 import { dominanceAnalysisId } from "./analyses/dominance.js";
-import { loopAnalysisId } from "./analyses/loops.js";
+import { loopForestAnalysisId } from "./analyses/loops.js";
 import { createAnalysisRegistry } from "./analyses/index.js";
 
 export type CompilerPipelinePhase =
@@ -53,7 +53,7 @@ type PassResult = number | boolean | { readonly changed?: boolean; readonly sunk
 type PassApply = (graph: CFGFunction, analyses: AnalysisManager<CFGFunction>) => PassResult;
 
 const dominanceId = dominanceAnalysisId as AnalysisId<unknown>;
-const loopId = loopAnalysisId as AnalysisId<unknown>;
+const loopId = loopForestAnalysisId as AnalysisId<unknown>;
 const controlFlowAnalyses: readonly AnalysisId<unknown>[] = [dominanceId, loopId];
 const preservesControlFlow: Preservation = { kind: "only", preserved: controlFlowAnalyses };
 const invalidatesAnalyses: Preservation = { kind: "none" };
@@ -107,14 +107,14 @@ export function middleEndPhases(deps: MiddleEndDeps): OptimizationPhase<CFGFunct
       step(
         "allocation-shape",
         preservesControlFlow,
-        (g, analyses) => specializeAllocationShapes(g, analyses.get(loopAnalysisId)),
+        (g, analyses) => specializeAllocationShapes(g, analyses.get(loopForestAnalysisId)),
         [loopId],
       ),
       step("ic-lowering", preservesControlFlow, (g) => inlineCacheLowering(g, deps.feedback)),
       step(
         "licm",
         preservesControlFlow,
-        (g, analyses) => hoistLoopInvariants(g, analyses.get(loopAnalysisId)),
+        (g, analyses) => hoistLoopInvariants(g, analyses.get(loopForestAnalysisId)),
         [loopId],
       ),
       step(
@@ -156,7 +156,16 @@ export function middleEndPhases(deps: MiddleEndDeps): OptimizationPhase<CFGFunct
         (g, analyses) => globalValueNumbering(g, analyses.get(dominanceAnalysisId)),
         [dominanceId],
       ),
-      step("bounds-check-elimination", invalidatesAnalyses, (g) => rangeAnalysisAndBoundsCheckElimination(g)),
+      step(
+        "bounds-check-elimination",
+        invalidatesAnalyses,
+        (g, analyses) =>
+          rangeAnalysisAndBoundsCheckElimination(
+            g,
+            analyses.get(loopForestAnalysisId),
+          ),
+        [loopId],
+      ),
       step("strength-reduction", preservesControlFlow, (g) => strengthReduction(g)),
       step(
         "loop-unrolling",
@@ -164,7 +173,7 @@ export function middleEndPhases(deps: MiddleEndDeps): OptimizationPhase<CFGFunct
         (g, analyses) =>
           loopUnrolling(
             g,
-            analyses.get(loopAnalysisId),
+            analyses.get(loopForestAnalysisId),
             analyses.get(dominanceAnalysisId),
           ),
         [loopId, dominanceId],

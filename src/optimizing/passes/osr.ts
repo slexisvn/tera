@@ -4,6 +4,7 @@ import type { CFGBlock, CFGFunction } from "../ir/index.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
 import { computeDominators, dominates } from "../analyses/dominance-core.js";
+import type { Loop, LoopForest } from "../analyses/loops.js";
 import {
   sunkAllocationIds,
   visitFrameStateValues,
@@ -23,18 +24,6 @@ function carriesNumber(
   const carried = carriesNumber(value.inputs[value.inputs.length - 1], memo);
   memo.set(value.id, carried);
   return carried;
-}
-
-function reachableFrom(header: CFGBlock): Set<number> {
-  const reachable = new Set<number>();
-  const stack: CFGBlock[] = [header];
-  while (stack.length > 0) {
-    const block = stack.pop()!;
-    if (reachable.has(block.id)) continue;
-    reachable.add(block.id);
-    for (const successor of block.successors) stack.push(successor);
-  }
-  return reachable;
 }
 
 function substituteFrameStateValues(
@@ -73,13 +62,13 @@ function substitute(
 
 function loopGuardSources(
   graph: CFGFunction,
-  reachable: Set<number>,
+  loopBlocks: ReadonlySet<CFGBlock>,
   phis: CFGInstruction[],
 ): Map<CFGInstruction, CFGInstruction> {
   const phiSet = new Set(phis);
   const sources = new Map<CFGInstruction, CFGInstruction>();
   for (const block of graph.blocks) {
-    if (!reachable.has(block.id)) continue;
+    if (!loopBlocks.has(block)) continue;
     for (const node of block.nodes) {
       if (node.type !== ir.IR_CHECK_SMI && node.type !== ir.IR_CHECK_NUMBER) {
         continue;
@@ -92,6 +81,18 @@ function loopGuardSources(
     }
   }
   return sources;
+}
+
+function osrRegionBlocks(loop: Loop): Set<CFGBlock> {
+  const blocks = new Set(loop.blocks);
+  const stack = [...loop.exitBlocks];
+  while (stack.length > 0) {
+    const block = stack.pop()!;
+    if (blocks.has(block)) continue;
+    blocks.add(block);
+    for (const successor of block.successors) stack.push(successor);
+  }
+  return blocks;
 }
 
 function templateFrameState(header: CFGBlock): FrameState | null {
@@ -119,25 +120,33 @@ export function applyOsrTransform(
   offset: number,
   selfFn: RegisterCompiledFunction,
   frameStates: FrameState[],
+  forest: LoopForest,
 ): boolean {
+  if (forest.irreducible) return false;
   const candidate = graph.osrCandidates.get(offset);
   if (!candidate) return false;
 
   const header = graph.blocks.find((b) => b.id === candidate.headerBlockId);
-  if (!header || !header.isLoopHeader) return false;
+  if (!header || !forest.isHeader(header)) return false;
+  const loop = forest.loopOf(header);
+  if (!loop || loop.header !== header) return false;
   if (header.phis.length !== candidate.slots.length) return false;
 
-  const reachable = reachableFrom(header);
-  const latchPreds = header.predecessors.filter((p) => reachable.has(p.id));
-  const entryPreds = header.predecessors.filter((p) => !reachable.has(p.id));
-  if (latchPreds.length !== 1 || entryPreds.length !== 1) return false;
-  const latch = latchPreds[0];
-  const entry = entryPreds[0];
+  const externalPredecessors = header.predecessors.filter(
+    (predecessor) => !loop.blocks.has(predecessor),
+  );
+  const entry =
+    loop.preheader ??
+    (externalPredecessors.length === 1 ? externalPredecessors[0]! : null);
+  if (loop.latches.length !== 1 || !entry) return false;
+  const latch = loop.latches[0]!;
   const latchIndex = header.predecessors.indexOf(latch);
   const entryIndex = header.predecessors.indexOf(entry);
+  if (latchIndex < 0 || entryIndex < 0) return false;
+  const osrBlocks = osrRegionBlocks(loop);
 
   for (const block of graph.blocks) {
-    if (!reachable.has(block.id)) continue;
+    if (!osrBlocks.has(block)) continue;
     for (const node of block.nodes) {
       if (
         node.type === ir.IR_CALL_KNOWN_FUNCTION &&
@@ -177,7 +186,7 @@ export function applyOsrTransform(
   }
 
   for (const block of graph.blocks) {
-    if (!reachable.has(block.id)) continue;
+    if (!osrBlocks.has(block)) continue;
     for (const node of block.nodes) {
       for (const input of node.inputs) {
         if (input.block === null) {
@@ -186,7 +195,7 @@ export function applyOsrTransform(
           }
           continue;
         }
-        if (reachable.has(input.block.id)) continue;
+        if (osrBlocks.has(input.block)) continue;
         if (input.type === ir.IR_CONSTANT) {
           ir.homeInstruction(input, header);
           continue;
@@ -197,7 +206,7 @@ export function applyOsrTransform(
   }
 
   const osrEntry = graph.addBlock();
-  const guardSources = loopGuardSources(graph, reachable, variantPhis);
+  const guardSources = loopGuardSources(graph, osrBlocks, variantPhis);
   const entryFolds = new Map<CFGInstruction, CFGInstruction>();
   for (let index = 0; index < variantPhis.length; index++) {
     entryFolds.set(variantPhis[index], variantParams[index]);
@@ -233,7 +242,7 @@ export function applyOsrTransform(
 
   graph.blocks = [
     osrEntry,
-    ...graph.blocks.filter((b) => b.id !== osrEntry.id && reachable.has(b.id)),
+    ...graph.blocks.filter((b) => b.id !== osrEntry.id && osrBlocks.has(b)),
   ];
   graph.rebuildUses();
   return true;

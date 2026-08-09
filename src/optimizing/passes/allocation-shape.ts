@@ -2,7 +2,7 @@ import * as ir from "../ir/index.js";
 import { getHiddenClassById } from "../../objects/maps/hidden-class.js";
 import { metadataNumber } from "../ir/metadata.js";
 import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
-import type { LoopInfo } from "../analyses/loops.js";
+import type { LoopForest } from "../analyses/loops.js";
 
 type ShapeNode = ir.CFGInstruction;
 type ShapeGraph = ir.CFGFunction;
@@ -15,13 +15,13 @@ type InitializerChain = {
 
 export function specializeAllocationShapes(
   graph: ShapeGraph,
-  loops: readonly LoopInfo[],
+  forest: LoopForest,
 ): number {
   let specialized = 0;
 
   const repeatedBlocks = new Set<number>();
-  for (const loop of loops) {
-    for (const block of loop.blocks) repeatedBlocks.add(block.id);
+  for (const block of graph.blocks) {
+    if (forest.loopOf(block) !== null) repeatedBlocks.add(block.id);
   }
 
   for (const block of graph.blocks) {

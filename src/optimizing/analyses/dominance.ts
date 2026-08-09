@@ -1,7 +1,7 @@
 import type { CFGBlock, CFGFunction } from "../ir/index.js";
 import { analysisId, type AnalysisPass } from "../infra/analysis-manager.js";
 import {
-  computeDominators,
+  computeDominatorData,
   buildDominatorTree,
   type DominatorGraph,
 } from "./dominance-core.js";
@@ -11,13 +11,15 @@ export class DominatorTree {
   private readonly exit = new Map<CFGBlock, number>();
   private readonly idom: Map<CFGBlock, CFGBlock | null>;
   private readonly children: Map<CFGBlock, CFGBlock[]>;
+  private readonly rpo: readonly CFGBlock[];
 
   constructor(graph: CFGFunction) {
     const domGraph = graph as unknown as DominatorGraph;
-    const dominators = computeDominators(domGraph);
+    const { idom: dominators, postorder } = computeDominatorData(domGraph);
     const tree = buildDominatorTree(domGraph, dominators);
     this.children = tree.children as unknown as Map<CFGBlock, CFGBlock[]>;
     this.idom = tree.idomMap as unknown as Map<CFGBlock, CFGBlock | null>;
+    this.rpo = Object.freeze([...postorder].reverse() as CFGBlock[]);
     if (graph.entry !== null) this.number(graph.entry);
   }
 
@@ -37,6 +39,10 @@ export class DominatorTree {
 
   childrenOf(block: CFGBlock): readonly CFGBlock[] {
     return this.children.get(block) ?? [];
+  }
+
+  reversePostorder(): readonly CFGBlock[] {
+    return this.rpo;
   }
 
   private number(root: CFGBlock): void {

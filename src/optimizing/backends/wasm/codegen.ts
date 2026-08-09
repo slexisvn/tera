@@ -72,7 +72,8 @@ import {
   REP_BOOL,
 } from "../../passes/repr-selection.js";
 import { validateOptimizedGraph } from "../../validation/graph-validator.js";
-import { findLoops } from "../../analyses/loops.js";
+import { DominatorTree } from "../../analyses/dominance.js";
+import { LoopForest } from "../../analyses/loops.js";
 import {
   frameStateValueIds,
   visitDeoptSnapshotValues,
@@ -103,10 +104,6 @@ import {
   valueRepForRep,
   compileRejectionForNode,
   computeBlockOrder,
-  findBackEdges,
-  findLoopHeaders,
-  findLoopBlocks,
-  buildRegions,
   CONDITIONALLY_NATIVE,
   GENERIC_BITWISE_OPCODES,
   isNativeEligible,
@@ -493,19 +490,21 @@ export class WasmCodegen {
       }
     }
     if (!hasReturn) return "graph has no return";
-    if (this.hasMarshallingDominatedLoop(graph)) {
+    const forest = new LoopForest(graph, new DominatorTree(graph));
+    if (forest.irreducible) {
+      return "irreducible control flow";
+    }
+    if (this.hasMarshallingDominatedLoop(graph, forest)) {
       return "global-object mutation with heap-marshalling calls in loop (marshalling-dominated)";
     }
-    if (this.isMarshallingLeaf(graph)) {
+    if (this.isMarshallingLeaf(graph, forest)) {
       return "loopless heap allocator/returner (per-call marshalling-dominated)";
     }
     return null;
   }
 
-  isMarshallingLeaf(graph: AnyGraph): boolean {
-    for (const block of graph.blocks) {
-      if (block.isLoopHeader) return false;
-    }
+  isMarshallingLeaf(graph: AnyGraph, forest: LoopForest): boolean {
+    if ([...forest.loops()].length > 0) return false;
     let returnsHeap = false;
     let allocatesOrDynamic = false;
     for (const block of graph.blocks) {
@@ -535,14 +534,8 @@ export class WasmCodegen {
     return returnsHeap && allocatesOrDynamic;
   }
 
-  hasMarshallingDominatedLoop(graph: AnyGraph): boolean {
-    let loops;
-    try {
-      loops = findLoops(graph);
-    } catch {
-      return false;
-    }
-    for (const loop of loops) {
+  hasMarshallingDominatedLoop(graph: AnyGraph, forest: LoopForest): boolean {
+    for (const loop of forest.loops()) {
       let touchesGlobal = false;
       let heapMarshallingCall = false;
       for (const block of loop.blocks) {
@@ -1645,8 +1638,15 @@ export class WasmCodegen {
     }
 
     const order = computeBlockOrder(graph);
-    const backEdges = findBackEdges(graph, order);
-    const loopHeaders = findLoopHeaders(backEdges);
+    const forest = new LoopForest(graph, new DominatorTree(graph));
+    if (forest.irreducible) {
+      failEmit("irreducible control flow");
+      return bytes;
+    }
+    const loopHeaders = new Set<number>();
+    for (const loop of forest.loops()) {
+      loopHeaders.add(loop.header.id);
+    }
 
     if (order.length === 1) {
       const block = order[0];
@@ -1674,22 +1674,12 @@ export class WasmCodegen {
     }
 
     const loopInfoMap = new Map<number, { loopBlocks: Set<number>; exitBlockIds: number[] }>();
-    for (const headerId of loopHeaders) {
-      const header = blockMap.get(headerId);
-      if (!header) continue;
-      const loopBlocks = findLoopBlocks(header, backEdges, graph.blocks);
-      const exitTargets = new Set<number>();
-      for (const lbId of loopBlocks) {
-        const lb = blockMap.get(lbId);
-        if (!lb) continue;
-        for (const succ of lb.successors) {
-          if (!loopBlocks.has(succ.id)) exitTargets.add(succ.id);
-        }
-      }
-      const exitBlockIds = [...exitTargets].sort(
-        (a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0),
-      );
-      loopInfoMap.set(headerId, { loopBlocks, exitBlockIds });
+    for (const loop of forest.loops()) {
+      const loopBlocks = new Set([...loop.blocks].map((block) => block.id));
+      const exitBlockIds = loop.exitBlocks
+        .map((block) => block.id)
+        .sort((a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0));
+      loopInfoMap.set(loop.header.id, { loopBlocks, exitBlockIds });
     }
 
     const labelStack: Array<{ type: string; targetId: number | null }> = [];

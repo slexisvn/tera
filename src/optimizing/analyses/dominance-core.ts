@@ -8,13 +8,9 @@ export type DominatorGraph = {
   blocks: DominatorBlock[];
 };
 
-export function computeDominators(
-  graph: DominatorGraph,
-): Map<DominatorBlock, DominatorBlock> {
-  const idom = new Map<DominatorBlock, DominatorBlock>();
+export function computePostorder(graph: DominatorGraph): DominatorBlock[] {
   const entry = graph.entry;
-  if (!entry) return idom;
-
+  if (!entry) return [];
   const postorder: DominatorBlock[] = [];
   const visited = new Set([entry]);
   const stack = [{ block: entry, i: 0 }];
@@ -31,6 +27,22 @@ export function computeDominators(
       stack.pop();
     }
   }
+  return postorder;
+}
+
+export function computeReversePostorder(graph: DominatorGraph): DominatorBlock[] {
+  return [...computePostorder(graph)].reverse();
+}
+
+export function computeDominatorData(graph: DominatorGraph): {
+  idom: Map<DominatorBlock, DominatorBlock>;
+  postorder: DominatorBlock[];
+} {
+  const idom = new Map<DominatorBlock, DominatorBlock>();
+  const entry = graph.entry;
+  if (!entry) return { idom, postorder: [] };
+
+  const postorder = computePostorder(graph);
 
   const postNum = new Map<DominatorBlock, number>();
   for (let i = 0; i < postorder.length; i++) postNum.set(postorder[i]!, i);
@@ -59,6 +71,13 @@ export function computeDominators(
   for (const block of graph.blocks) {
     if (!idom.has(block)) idom.set(block, block);
   }
+  return { idom, postorder };
+}
+
+export function computeDominators(
+  graph: DominatorGraph,
+): Map<DominatorBlock, DominatorBlock> {
+  const { idom } = computeDominatorData(graph);
   return idom;
 }
 

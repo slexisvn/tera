@@ -2,6 +2,7 @@ import * as ir from "../ir/index.js";
 
 import { tracer } from "../../core/tracing/index.js";
 import { DominatorTree } from "../analyses/dominance.js";
+import type { LoopForest } from "../analyses/loops.js";
 import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
 import { detachInputs } from "../ir/graph-edit.js";
 import { disconnect } from "../ir/cfg-edit.js";
@@ -139,7 +140,10 @@ export function eliminateRedundantChecks(
   return elimCount;
 }
 
-export function rangeAnalysisAndBoundsCheckElimination(graph: IRGraphLike): number {
+export function rangeAnalysisAndBoundsCheckElimination(
+  graph: IRGraphLike,
+  forest: LoopForest,
+): number {
   const blockById = new Map<number, IRBlockLike>();
   for (const block of graph.blocks) blockById.set(block.id, block);
   const ranges = new Map<number, Range>();
@@ -523,10 +527,6 @@ export function rangeAnalysisAndBoundsCheckElimination(graph: IRGraphLike): numb
 
   let elimCount = 0;
 
-  const loopHeaderBlocks = new Set<number>();
-  for (const block of graph.blocks) {
-    if (block.isLoopHeader) loopHeaderBlocks.add(block.id);
-  }
   const boundsChecksToRemove: IRNodeLike[] = [];
 
   function detectInductionVariable(phiNode: IRNodeLike): InductionVariable | null {
@@ -592,7 +592,7 @@ export function rangeAnalysisAndBoundsCheckElimination(graph: IRGraphLike): numb
   }
 
   for (const block of graph.blocks) {
-    if (!block.isLoopHeader) continue;
+    if (!forest.isHeader(block)) continue;
     for (const phi of block.phis) {
       const iv = detectInductionVariable(phi);
       if (!iv) continue;
