@@ -45,8 +45,7 @@ export const IR_BRANCH = "Branch";
 export const IR_JUMP = "Jump";
 export const IR_RETURN = "Return";
 export const IR_DEOPTIMIZE = "Deoptimize";
-export const IR_BLOCK_PARAM = "BlockParam";
-export const IR_PHI = IR_BLOCK_PARAM;
+export const IR_PHI = "Phi";
 export const IR_BOX = "Box";
 export const IR_UNBOX = "Unbox";
 export const IR_LOAD_CONST = "LoadConst";
@@ -135,7 +134,6 @@ export type IRPrimitive = string | number | boolean | symbol | null | undefined;
 export type IRMetadataValue =
   | IRPrimitive
   | RuntimeValue
-  | CFGValue
   | CFGInstruction
   | CFGBlock
   | CFGFunction
@@ -149,7 +147,6 @@ export type IRMetadata = Record<string, IRMetadataValue>;
 export type IRValueLike =
   | RuntimeValue
   | IRPrimitive
-  | CFGValue
   | CFGInstruction
   | CFGBlock
   | CFGFunction
@@ -251,24 +248,6 @@ export function irRequiresFrameState(node: IRValueLike) {
   return false;
 }
 
-export class CFGValue {
-  id: number;
-  def: CFGInstruction | CFGValue | null;
-  rep: IRMetadataValue | null;
-  uses: CFGInstruction[];
-
-  constructor(def: CFGInstruction | CFGValue | null = null, props: IRMetadata = {}) {
-    this.id = activeIRNodeIdAllocator.next();
-    this.def = def;
-    this.rep = props.rep || null;
-    this.uses = [];
-  }
-
-  toString() {
-    return `v${this.id}`;
-  }
-}
-
 export class CFGInstruction {
   id: number;
   opcode: string;
@@ -337,10 +316,9 @@ export class CFGBlock {
   id: number;
   nodes: CFGInstruction[];
   instructions: CFGInstruction[];
-  params: CFGInstruction[];
+  phis: CFGInstruction[];
   predecessors: CFGBlock[];
   successors: CFGBlock[];
-  edgeArgs: Map<number, CFGInstruction[]>;
   terminator: CFGInstruction | null;
   isLoopHeader: boolean;
   _lastAcc?: CFGInstruction | null;
@@ -349,23 +327,11 @@ export class CFGBlock {
     this.id = id;
     this.nodes = [];
     this.instructions = this.nodes;
-    this.params = [];
+    this.phis = [];
     this.predecessors = [];
     this.successors = [];
-    this.edgeArgs = new Map();
     this.terminator = null;
     this.isLoopHeader = false;
-  }
-
-  addParam(initialInputs: CFGInstruction[] = []) {
-    const param = new CFGInstruction(IR_BLOCK_PARAM, {
-      index: this.params.length,
-    });
-    for (const input of initialInputs) param.addInput(input);
-    param.block = this;
-    this.params.push(param);
-    this.nodes.splice(this.params.length - 1, 0, param);
-    return param;
   }
 
   addNode(instruction: CFGInstruction) {
@@ -373,20 +339,6 @@ export class CFGBlock {
     if (TERMINATORS.has(instruction.type)) this.terminator = instruction;
     this.nodes.push(instruction);
     return instruction;
-  }
-
-  addSuccessor(block: CFGBlock, args: CFGInstruction[] = []) {
-    if (!this.successors.includes(block)) this.successors.push(block);
-    if (!block.predecessors.includes(this)) block.predecessors.push(this);
-    this.edgeArgs.set(block.id, args);
-  }
-
-  setEdgeArgs(block: CFGBlock, args: CFGInstruction[]) {
-    this.edgeArgs.set(block.id, args);
-  }
-
-  getEdgeArgs(block: CFGBlock) {
-    return this.edgeArgs.get(block.id) || [];
   }
 
   getTerminator() {
@@ -416,6 +368,7 @@ export class CFGFunction {
   bailout: string | null;
   osrCandidates: Map<number, OsrCandidate>;
   osrParamSlots: number[] | null;
+  private nextBlockId: number;
   _frameStateIndex?: Map<FrameValue, { replace(next: FrameValue): void }[]> | null;
 
   constructor(name: string) {
@@ -429,10 +382,11 @@ export class CFGFunction {
     this.inlineBudgetRemaining = 0;
     this.osrCandidates = new Map();
     this.osrParamSlots = null;
+    this.nextBlockId = 0;
   }
 
   addBlock() {
-    const block = new CFGBlock(this.blocks.length);
+    const block = new CFGBlock(this.nextBlockId++);
     this.blocks.push(block);
     if (!this.entry) this.entry = block;
     return block;
@@ -476,23 +430,17 @@ export class CFGFunction {
 
     for (const block of this.blocks) {
       const preds = block.predecessors.map((b) => `B${b.id}`).join(", ");
-      const succs = block.successors
-        .map((b) => {
-          const args = block
-            .getEdgeArgs(b)
-            .map((v) => valueLabel(v))
-            .join(", ");
-          return `B${b.id}${args ? `(${args})` : ""}`;
-        })
+      const succs = block.successors.map((b) => `B${b.id}`).join(", ");
+      const phis = block.phis
+        .map((p) => `v${p.id}=[${p.inputs.map((v) => valueLabel(v)).join(", ")}]`)
         .join(", ");
-      const params = block.params.map((p) => `v${p.id}`).join(", ");
       const flags = [];
       if (block.isLoopHeader) flags.push("loop-header");
       const flagStr = flags.length ? ` (${flags.join(", ")})` : "";
       const predsStr = preds ? ` <- [${preds}]` : "";
       const succsStr = succs ? ` -> [${succs}]` : "";
 
-      out += `\nBlock B${block.id}${params ? `(${params})` : ""}${flagStr}${predsStr}${succsStr}:\n`;
+      out += `\nBlock B${block.id}${phis ? `(${phis})` : ""}${flagStr}${predsStr}${succsStr}:\n`;
       for (const node of block.nodes) out += `  ${node.toString()}\n`;
     }
 
@@ -509,28 +457,8 @@ export function homeInstruction(
     node.block.nodes = node.block.nodes.filter((n) => n !== node);
   }
   node.block = block;
-  block.nodes.splice(block.params.length, 0, node);
+  block.nodes.splice(block.phis.length, 0, node);
   return node;
-}
-
-export function blockParamIncoming(param: CFGInstruction): CFGInstruction[] {
-  const incoming: CFGInstruction[] = [];
-  const seen = new Set<number>();
-  const add = (value: CFGInstruction | undefined | null) => {
-    if (!value || seen.has(value.id)) return;
-    seen.add(value.id);
-    incoming.push(value);
-  };
-  for (const input of param.inputs) add(input);
-  const block = param.block;
-  if (block) {
-    const index = typeof param.props.index === "number" ? param.props.index : 0;
-    for (const predecessor of block.predecessors) {
-      const args = predecessor.getEdgeArgs(block);
-      if (args.length > index) add(args[index]);
-    }
-  }
-  return incoming;
 }
 
 export const IRNode = CFGInstruction;
@@ -538,7 +466,7 @@ export const IRBlock = CFGBlock;
 export const IRGraph = CFGFunction;
 
 function valueLabel(value: IRValueLike): string {
-  if (value instanceof CFGInstruction || value instanceof CFGValue) return `v${value.id}`;
+  if (value instanceof CFGInstruction) return `v${value.id}`;
   if (value instanceof CFGBlock) return `B${value.id}`;
   if (value instanceof CFGFunction) return value.name;
   if (

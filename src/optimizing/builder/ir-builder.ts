@@ -30,6 +30,7 @@ import {
   constantString,
 } from "./feedback-utils.js";
 import { rememberIncomingState, restoreIncomingState, type IncomingStatesByTarget } from "./cfg-state.js";
+import { addPhi, link } from "../ir/cfg-edit.js";
 import { captureFrameState } from "./frame-state.js";
 import {
   buildPolymorphicDispatch,
@@ -114,13 +115,11 @@ export function buildIR(
   for (let i = 0; i < instructions.length; i++) {
     if (blockMap.has(i)) {
       const nextBlock = blockMap.get(i)!;
-      const predecessor = currentBlock;
-      let initialLoopArgs: ir.CFGInstruction[] = [];
       if (!currentBlock.isTerminated()) {
         rememberIncomingState(savedBlockRegs, i, currentBlock, regs, acc);
         const jmp = ir.irJump(nextBlock);
         currentBlock.addNode(jmp);
-        currentBlock.addSuccessor(nextBlock);
+        link(currentBlock, nextBlock);
       }
       currentBlock = nextBlock;
 
@@ -132,9 +131,8 @@ export function buildIR(
         const phis = new Map<number, ir.CFGInstruction>();
         for (const [slot, value] of regs) {
           if (!value) continue;
-          const phi = nextBlock.addParam([value]);
+          const phi = addPhi(nextBlock, [value]);
           phis.set(slot, phi);
-          initialLoopArgs.push(value);
           regs.set(slot, phi);
         }
         loopPhiMap.set(nextBlock.id, phis);
@@ -142,12 +140,6 @@ export function buildIR(
           headerBlockId: nextBlock.id,
           slots: [...phis.keys()],
         });
-        if (
-          !predecessor.isTerminated() ||
-          predecessor.successors.includes(nextBlock)
-        ) {
-          predecessor.setEdgeArgs(nextBlock, initialLoopArgs);
-        }
       }
     }
 
@@ -1026,22 +1018,17 @@ function compileInstruction(
       const targetBlock = blockMap.get(target);
       if (targetBlock) {
         rememberIncomingState(savedBlockRegs, target, block, regs, acc);
-        const edgeArgs = [];
         if (targetBlock.isLoopHeader && loopPhiMap) {
           const phis = loopPhiMap.get(targetBlock.id);
           if (phis) {
             for (const [slot, phi] of phis) {
-              const currentVal = regs.get(slot);
-              if (currentVal && phi.inputs.length < 2) {
-                phi.addInput(currentVal);
-              }
-              edgeArgs.push(currentVal || phi);
+              if (phi.inputs.length < 2) phi.addInput(regs.get(slot) || phi);
             }
           }
         }
         const jmp = ir.irJump(targetBlock);
         block.addNode(jmp);
-        block.addSuccessor(targetBlock, edgeArgs);
+        link(block, targetBlock);
       }
       break;
     }
@@ -1064,14 +1051,18 @@ function compileInstruction(
         );
       }
 
-      if (falseBlock && trueBlock) {
+      if (falseBlock && trueBlock && trueBlock !== falseBlock) {
         const branch =
           op === bytecode.ROP_JUMP_IF_FALSE
             ? ir.irBranch(condition, trueBlock, falseBlock)
             : ir.irBranch(condition, falseBlock, trueBlock);
         block.addNode(branch);
-        block.addSuccessor(trueBlock);
-        block.addSuccessor(falseBlock);
+        link(block, trueBlock);
+        link(block, falseBlock);
+      } else if (falseBlock && trueBlock) {
+        const jmp = ir.irJump(trueBlock);
+        block.addNode(jmp);
+        link(block, trueBlock);
       } else if (falseBlock) {
         const branch = new ir.IRNode(ir.IR_BRANCH, {
           trueBlock: -1,
@@ -1079,7 +1070,7 @@ function compileInstruction(
         });
         branch.addInput(condition);
         block.addNode(branch);
-        block.addSuccessor(falseBlock);
+        link(block, falseBlock);
       }
       break;
     }

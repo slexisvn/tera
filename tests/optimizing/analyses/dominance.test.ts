@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { CFGBlock, CFGFunction, resetIRNodeIds } from "../../../src/optimizing/ir/index.js";
+import { link } from "../../../src/optimizing/ir/cfg-edit.js";
 import {
   DominatorTree,
   dominanceAnalysis,
@@ -18,10 +19,10 @@ function diamond(): { graph: CFGFunction; blocks: Record<string, CFGBlock> } {
   const left = graph.addBlock();
   const right = graph.addBlock();
   const merge = graph.addBlock();
-  entry.addSuccessor(left);
-  entry.addSuccessor(right);
-  left.addSuccessor(merge);
-  right.addSuccessor(merge);
+  link(entry, left);
+  link(entry, right);
+  link(left, merge);
+  link(right, merge);
   return { graph, blocks: { entry, left, right, merge } };
 }
 
@@ -62,10 +63,10 @@ describe("DominatorTree", () => {
     const head = graph.addBlock();
     const body = graph.addBlock();
     const exit = graph.addBlock();
-    entry.addSuccessor(head);
-    head.addSuccessor(body);
-    body.addSuccessor(head);
-    head.addSuccessor(exit);
+    link(entry, head);
+    link(head, body);
+    link(body, head);
+    link(head, exit);
     const tree = new DominatorTree(graph);
 
     expect(tree.dominates(head, body)).toBe(true);

@@ -1,6 +1,7 @@
 import * as ir from "../ir/index.js";
 import { markFrameStateValues, visitFrameStateValues } from "../ir/frame-state-values.js";
 import { replaceValueUses } from "../ir/graph-edit.js";
+import { disconnect, removePhi } from "../ir/cfg-edit.js";
 
 type DceNode = ir.CFGInstruction;
 type DceBlock = ir.CFGBlock;
@@ -38,8 +39,8 @@ export function deadCodeElimination(graph: DceGraph): number {
     liveNodes.add(param.id);
   }
   for (const block of graph.blocks) {
-    for (const param of block.params || []) {
-      liveNodes.add(param.id);
+    for (const phi of block.phis) {
+      liveNodes.add(phi.id);
     }
   }
 
@@ -53,9 +54,7 @@ export function deadCodeElimination(graph: DceGraph): number {
       return false;
     });
     const liveNodeSet = new Set<DceNode>(block.nodes);
-    block.params = (block.params || []).filter((param) =>
-      liveNodeSet.has(param),
-    );
+    block.phis = block.phis.filter((phi) => liveNodeSet.has(phi));
   }
 
   graph.rebuildUses?.();
@@ -78,7 +77,7 @@ export function eliminateTrivialPhis(graph: DceGraph): number {
   };
 
   for (const block of graph.blocks) {
-    for (const phi of block.params) enqueue(phi);
+    for (const phi of block.phis) enqueue(phi);
   }
 
   while (worklist.length > 0) {
@@ -106,39 +105,9 @@ export function eliminateTrivialPhis(graph: DceGraph): number {
 
   if (folds.size === 0) return 0;
 
-  const resolve = (node: DceNode): DceNode => {
-    const target = folds.get(node);
-    if (!target) return node;
-    const final = resolve(target);
-    folds.set(node, final);
-    return final;
-  };
-
   for (const block of graph.blocks) {
-    for (const args of block.edgeArgs.values()) {
-      for (let i = 0; i < args.length; i++) args[i] = resolve(args[i]);
-    }
-  }
-
-  for (const block of graph.blocks) {
-    const removedIndices = new Set<number>();
-    for (let index = 0; index < block.params.length; index++) {
-      if (folds.has(block.params[index])) removedIndices.add(index);
-    }
-    if (removedIndices.size === 0) continue;
-
-    block.params = block.params.filter((_, index) => !removedIndices.has(index));
-    block.nodes = block.nodes.filter((node) => !folds.has(node));
-    for (const pred of block.predecessors) {
-      const args = pred.edgeArgs.get(block.id);
-      if (!args) continue;
-      pred.edgeArgs.set(
-        block.id,
-        args.filter((_, index) => !removedIndices.has(index)),
-      );
-    }
-    for (let index = 0; index < block.params.length; index++) {
-      block.params[index].props.index = index;
+    for (const phi of [...block.phis]) {
+      if (folds.has(phi)) removePhi(block, phi);
     }
   }
 
@@ -162,22 +131,9 @@ export function eliminateDeadPhis(graph: DceGraph): number {
   while (changed) {
     changed = false;
     for (const block of graph.blocks) {
-      for (let index = block.params.length - 1; index >= 0; index--) {
-        const phi = block.params[index];
+      for (const phi of [...block.phis]) {
         if (phi.uses.length > 0 || frameStateReferenced.has(phi)) continue;
-
-        for (const input of phi.inputs) {
-          if (input) input.uses = input.uses.filter((u) => u !== phi);
-        }
-        block.params.splice(index, 1);
-        block.nodes = block.nodes.filter((n) => n !== phi);
-        for (const pred of block.predecessors) {
-          const args = pred.edgeArgs.get(block.id);
-          if (args && index < args.length) args.splice(index, 1);
-        }
-        for (let j = index; j < block.params.length; j++) {
-          block.params[j].props.index = j;
-        }
+        removePhi(block, phi);
         removed++;
         changed = true;
       }
@@ -215,8 +171,8 @@ export function eliminateUnreachableBlocks(graph: DceGraph): number {
         if (inp) inp.uses = inp.uses.filter((u) => u !== node);
       });
     }
-    for (const succ of dead.successors) {
-      succ.predecessors = succ.predecessors.filter((p) => p !== dead);
+    for (const succ of [...dead.successors]) {
+      if (reachable.has(succ.id)) disconnect(dead, succ);
     }
   }
 

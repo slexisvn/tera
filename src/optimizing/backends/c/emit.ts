@@ -5,7 +5,7 @@ import {
   IR_CHECK_NUMBER,
   IR_CHECK_SMI,
   IR_PARAMETER,
-  IR_BLOCK_PARAM,
+  IR_PHI,
   IR_CONSTANT,
   IR_RETURN,
   IR_JUMP,
@@ -95,7 +95,7 @@ interface EmitContext {
 
 class CFunctionEmitter {
   private readonly names = new Map<CFGInstruction, string>();
-  private readonly blockParams: CFGInstruction[] = [];
+  private readonly blockPhis: CFGInstruction[] = [];
   private readonly body: string[] = [];
   private readonly dispatch = buildDispatch<string, EmitContext>(this.handlers());
   private tempSeq = 0;
@@ -109,7 +109,7 @@ class CFunctionEmitter {
     const entry = this.graph.entry;
     if (entry === null) return this.bail("function has no entry block");
     if (entry !== this.graph.blocks[0]) return this.bail("entry is not the first block");
-    if (entry.params.length > 0) return this.bail("entry block has parameters");
+    if (entry.phis.length > 0) return this.bail("entry block has phis");
 
     this.assignNames();
 
@@ -138,9 +138,9 @@ class CFunctionEmitter {
       this.names.set(param, `p${Number(param.props.index)}`);
     }
     for (const block of this.graph.blocks) {
-      for (const param of block.params) {
-        this.names.set(param, `b${param.id}`);
-        this.blockParams.push(param);
+      for (const phi of block.phis) {
+        this.names.set(phi, `b${phi.id}`);
+        this.blockPhis.push(phi);
       }
     }
   }
@@ -151,7 +151,7 @@ class CFunctionEmitter {
     let terminated = false;
     for (const node of block.nodes) {
       if (this.failure !== null) return;
-      if (node.type === IR_PARAMETER || node.type === IR_BLOCK_PARAM) continue;
+      if (node.type === IR_PARAMETER || node.type === IR_PHI) continue;
       const handled = this.dispatch(node.type, this.contextFor(node));
       if (!handled) {
         this.failure = `unsupported opcode ${node.type}`;
@@ -305,20 +305,21 @@ class CFunctionEmitter {
   }
 
   private copyEdge(from: CFGBlock, to: CFGBlock): void {
-    const args = from.getEdgeArgs(to);
-    const params = to.params;
-    if (args.length !== params.length) {
-      this.failure = `edge B${from.id}->B${to.id} passes ${args.length} args for ${params.length} params`;
+    const phis = to.phis;
+    if (phis.length === 0) return;
+    const predIndex = to.predecessors.indexOf(from);
+    if (predIndex < 0) {
+      this.failure = `edge B${from.id}->B${to.id} is not a predecessor edge`;
       return;
     }
     const temps: string[] = [];
-    for (const arg of args) {
+    for (const phi of phis) {
       const temp = `t${this.tempSeq++}`;
       temps.push(temp);
-      this.body.push(`const double ${temp} = ${this.nameOf(arg)};`);
+      this.body.push(`const double ${temp} = ${this.nameOf(phi.inputs[predIndex]!)};`);
     }
-    for (let i = 0; i < params.length; i++) {
-      this.body.push(`${this.nameOf(params[i]!)} = ${temps[i]!};`);
+    for (let i = 0; i < phis.length; i++) {
+      this.body.push(`${this.nameOf(phis[i]!)} = ${temps[i]!};`);
     }
   }
 
@@ -351,7 +352,7 @@ class CFunctionEmitter {
   }
 
   private render(signature: string): string {
-    const declarations = this.blockParams.map((param) => `  double ${this.nameOf(param)};`);
+    const declarations = this.blockPhis.map((phi) => `  double ${this.nameOf(phi)};`);
     const unusedParams = this.graph.parameters
       .filter((param) => param.uses.length === 0)
       .map((param) => `  (void)p${Number(param.props.index)};`);

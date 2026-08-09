@@ -12,6 +12,7 @@ import {
   IR_STORE_FIELD,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { link } from "../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -113,8 +114,8 @@ describe("deadStoreElimination", () => {
       const v1 = irConstant(1);
       b0.addNode(v1);
       b0.addNode(irStoreField(obj, 0, v1));
-      b0.addSuccessor(b1);
-      b0.addSuccessor(b2);
+      link(b0, b1);
+      link(b0, b2);
       b0.addNode(irJump(b1));
 
       const v2 = irConstant(2);
@@ -142,7 +143,7 @@ describe("deadStoreElimination", () => {
       const v1 = irConstant(1);
       b0.addNode(v1);
       b0.addNode(irStoreField(obj, 0, v1));
-      b0.addSuccessor(b1);
+      link(b0, b1);
       b0.addNode(irJump(b1));
 
       const load = irLoadField(obj, 0);
@@ -168,7 +169,7 @@ describe("deadStoreElimination", () => {
       const v1 = irConstant(1);
       b0.addNode(v1);
       b0.addNode(irStoreField(obj, 0, v1));
-      b0.addSuccessor(b1);
+      link(b0, b1);
       b0.addNode(irJump(b1));
 
       b1.addNode(irGenericCall(irConstant(0), []));

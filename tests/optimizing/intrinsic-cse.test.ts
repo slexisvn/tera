@@ -14,6 +14,7 @@ import {
   irJump,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { link } from "../../src/optimizing/ir/cfg-edit.js";
 import { commonSubexpressionIntrinsicReads } from "../../src/optimizing/passes/intrinsic-cse.js";
 
 beforeEach(() => resetIRNodeIds());
@@ -128,7 +129,7 @@ describe("commonSubexpressionIntrinsicReads", () => {
     const graph = new CFGFunction("intrinsic-cse");
     const entry = graph.addBlock();
     const child = graph.addBlock();
-    entry.addSuccessor(child);
+    link(entry, child);
 
     const handle = irConstant("signal");
     const first = reactiveRead(handle);
@@ -152,7 +153,7 @@ describe("commonSubexpressionIntrinsicReads", () => {
     const graph = new CFGFunction("intrinsic-cse");
     const entry = graph.addBlock();
     const child = graph.addBlock();
-    entry.addSuccessor(child);
+    link(entry, child);
 
     const handle = irConstant("signal");
     const first = reactiveRead(handle);
@@ -179,10 +180,10 @@ describe("commonSubexpressionIntrinsicReads", () => {
     const left = graph.addBlock();
     const right = graph.addBlock();
     const merge = graph.addBlock();
-    entry.addSuccessor(left);
-    entry.addSuccessor(right);
-    left.addSuccessor(merge);
-    right.addSuccessor(merge);
+    link(entry, left);
+    link(entry, right);
+    link(left, merge);
+    link(right, merge);
 
     const handle = irConstant("signal");
     const first = reactiveRead(handle);
@@ -209,10 +210,10 @@ describe("commonSubexpressionIntrinsicReads", () => {
     const left = graph.addBlock();
     const right = graph.addBlock();
     const merge = graph.addBlock();
-    entry.addSuccessor(left);
-    entry.addSuccessor(right);
-    left.addSuccessor(merge);
-    right.addSuccessor(merge);
+    link(entry, left);
+    link(entry, right);
+    link(left, merge);
+    link(right, merge);
 
     const handle = irConstant("signal");
     const cond = irConstant(true);
@@ -392,8 +393,8 @@ describe("commonSubexpressionIntrinsicReads", () => {
     const graph = new CFGFunction("intrinsic-cse-loop");
     const entry = graph.addBlock();
     const loop = graph.addBlock();
-    entry.addSuccessor(loop);
-    loop.addSuccessor(loop);
+    link(entry, loop);
+    link(loop, loop);
 
     const handle = irConstant("signal");
     const write = reactiveWrite(handle);

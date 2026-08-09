@@ -20,6 +20,7 @@ import {
   captureFrameState,
   captureFrameStateWithCaller,
 } from "./frame-state.js";
+import { addPhi, link } from "../ir/cfg-edit.js";
 import {
   COMPARE_OP_MAP,
   numericPackedElementRep,
@@ -91,7 +92,7 @@ export function buildPolymorphicDispatch(
   receiver: AnyNode | null,
 ): { block: AnyBlock; value: AnyNode } {
   const mergeBlock = graph.addBlock();
-  const resultPhi = mergeBlock.addParam();
+  const resultPhi = addPhi(mergeBlock, []);
 
   for (let i = 0; i < targets.length; i++) {
     const target = targets[i].ref;
@@ -112,8 +113,8 @@ export function buildPolymorphicDispatch(
 
     const branch = ir.irBranch(check, hitBlock, missBlock);
     checkBlock.addNode(branch);
-    checkBlock.addSuccessor(hitBlock);
-    checkBlock.addSuccessor(missBlock);
+    link(checkBlock, hitBlock);
+    link(checkBlock, missBlock);
 
     const inlinedResult = tryInline(
       target,
@@ -151,7 +152,7 @@ export function buildPolymorphicDispatch(
     resultPhi.addInput(hitValue);
     const jumpToMerge = ir.irJump(mergeBlock);
     hitEndBlock.addNode(jumpToMerge);
-    hitEndBlock.addSuccessor(mergeBlock, [hitValue]);
+    link(hitEndBlock, mergeBlock);
 
     if (i === targets.length - 1) {
       const fallbackCall = ir.irGenericCall(callee, args);
@@ -161,7 +162,7 @@ export function buildPolymorphicDispatch(
       resultPhi.addInput(fallbackCall);
       const jumpFallback = ir.irJump(mergeBlock);
       missBlock.addNode(jumpFallback);
-      missBlock.addSuccessor(mergeBlock, [fallbackCall]);
+      link(missBlock, mergeBlock);
     } else {
       block = missBlock;
     }
@@ -956,7 +957,7 @@ export function tryInline(
       if (!currentBlock.isTerminated()) {
         const jumpNode = ir.irJump(targetBlock);
         currentBlock.addNode(jumpNode);
-        currentBlock.addSuccessor(targetBlock);
+        link(currentBlock, targetBlock);
       }
 
       if (!blockAccs.has(i)) {
@@ -998,7 +999,7 @@ export function tryInline(
 
       const jumpNode = ir.irJump(targetBlock);
       currentBlock.addNode(jumpNode);
-      currentBlock.addSuccessor(targetBlock);
+      link(currentBlock, targetBlock);
       continue;
     }
 
@@ -1021,13 +1022,19 @@ export function tryInline(
         blockRegsMap.set(i + 1, new Map<number, AnyNode | null>(currentRegs));
       }
 
+      if (trueTarget === falseTarget) {
+        const jumpNode = ir.irJump(trueTarget);
+        currentBlock.addNode(jumpNode);
+        link(currentBlock, trueTarget);
+        continue;
+      }
       const branchNode =
         instr.opcode === bytecode.ROP_JUMP_IF_FALSE
           ? ir.irBranch(condition, trueTarget, falseTarget)
           : ir.irBranch(condition, falseTarget, trueTarget);
       currentBlock.addNode(branchNode);
-      currentBlock.addSuccessor(trueTarget);
-      currentBlock.addSuccessor(falseTarget);
+      link(currentBlock, trueTarget);
+      link(currentBlock, falseTarget);
       continue;
     }
 
@@ -1055,22 +1062,24 @@ export function tryInline(
     if (!retBlock.isTerminated()) {
       const jumpNode = ir.irJump(continuationBlock);
       retBlock.addNode(jumpNode);
-      retBlock.addSuccessor(continuationBlock);
+      link(retBlock, continuationBlock);
     }
     return { value: returnValues[0], block: continuationBlock };
   }
 
   const mergeBlock = graph.addBlock();
+  const incoming: AnyNode[] = [];
   for (let r = 0; r < returnBlocks.length; r++) {
     const retBlock = returnBlocks[r];
     if (!retBlock.isTerminated()) {
       const jumpNode = ir.irJump(mergeBlock);
       retBlock.addNode(jumpNode);
-      retBlock.addSuccessor(mergeBlock, [returnValues[r]]);
+      link(retBlock, mergeBlock);
+      incoming.push(returnValues[r]);
     }
   }
 
-  const phi = mergeBlock.addParam(returnValues);
+  const phi = addPhi(mergeBlock, incoming);
 
   return { value: phi, block: mergeBlock };
 }

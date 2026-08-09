@@ -14,6 +14,7 @@ import {
   irNewObject,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { link, addPhi } from "../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -41,7 +42,7 @@ describe("validateOptimizedGraph", () => {
     const graph = new CFGFunction("test");
     const b0 = graph.addBlock();
     const b1 = graph.addBlock();
-    b0.addSuccessor(b1);
+    link(b0, b1);
     b0.addNode(irJump(b1));
     const c = irConstant(0);
     b1.addNode(c);
@@ -58,11 +59,11 @@ describe("validateOptimizedGraph", () => {
     const cond = irConstant(1);
     b0.addNode(cond);
     b0.addNode(irBranch(cond, b1, b2));
-    b0.addSuccessor(b1);
-    b0.addSuccessor(b2);
-    b1.addSuccessor(b3);
+    link(b0, b1);
+    link(b0, b2);
+    link(b1, b3);
     b1.addNode(irJump(b3));
-    b2.addSuccessor(b3);
+    link(b2, b3);
     b2.addNode(irJump(b3));
     b3.addNode(irReturn(irConstant(0)));
     expect(validateOptimizedGraph(graph)).toBe(true);
@@ -94,7 +95,7 @@ describe("validateOptimizedGraph", () => {
     b0.addNode(cond);
     const br = irBranch(cond, b1, { id: 999 });
     b0.addNode(br);
-    b0.addSuccessor(b1);
+    link(b0, b1);
     b1.addNode(irReturn(irConstant(0)));
     expect(() => validateOptimizedGraph(graph)).toThrow(GraphValidationError);
   });
@@ -131,8 +132,8 @@ describe("validateOptimizedGraph", () => {
     const cond = irConstant(1);
     b0.addNode(cond);
     b0.addNode(irBranch(cond, b1, b2));
-    b0.addSuccessor(b1);
-    b0.addSuccessor(b2);
+    link(b0, b1);
+    link(b0, b2);
     const p = graph.addParameter(0);
     const addInB1 = irInt32Add(p, irConstant(1));
     addInB1.props.noOverflow = true;
@@ -166,17 +167,15 @@ describe("validateOptimizedGraph", () => {
     expect(() => validateOptimizedGraph(graph)).toThrow(GraphValidationError);
   });
 
-  it("validates block params input count matches predecessor count", () => {
+  it("validates phi input count matches predecessor count", () => {
     const graph = new CFGFunction("test");
     const b0 = graph.addBlock();
     const b1 = graph.addBlock();
-    b0.addSuccessor(b1);
     const c = irConstant(1);
     b0.addNode(c);
-    b0.addSuccessor(b1, [c]);
-    b0.setEdgeArgs(b1, [c]);
     b0.addNode(irJump(b1));
-    const param = b1.addParam([c]);
+    link(b0, b1);
+    const param = addPhi(b1, [c]);
     b1.addNode(irReturn(param));
     expect(validateOptimizedGraph(graph)).toBe(true);
   });

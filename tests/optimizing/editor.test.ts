@@ -4,8 +4,10 @@ import {
   CFGInstruction,
   irConstant,
   irInt32Add,
+  irJump,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { link, addPhi } from "../../src/optimizing/ir/cfg-edit.js";
 import { GraphEditor } from "../../src/optimizing/ir/editor.js";
 
 beforeEach(() => resetIRNodeIds());
@@ -55,7 +57,7 @@ describe("GraphEditor.replaceAllUses", () => {
     expect(incremental).toEqual(usesById(graph));
   });
 
-  it("rewrites block edge arguments", () => {
+  it("rewrites phi inputs", () => {
     const graph = new CFGFunction("t");
     const head = graph.addBlock();
     const tail = graph.addBlock();
@@ -63,11 +65,13 @@ describe("GraphEditor.replaceAllUses", () => {
     const two = irConstant(2);
     head.addNode(one);
     head.addNode(two);
-    head.addSuccessor(tail, [one]);
+    head.addNode(irJump(tail));
+    link(head, tail);
+    const phi = addPhi(tail, [one]);
 
     new GraphEditor(graph).replaceAllUses(one, two);
 
-    expect(head.getEdgeArgs(tail)).toEqual([two]);
+    expect(phi.inputs).toEqual([two]);
   });
 
   it("does nothing when a node is replaced with itself", () => {

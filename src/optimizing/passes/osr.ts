@@ -16,11 +16,11 @@ function carriesNumber(
 ): boolean {
   if (!value) return false;
   if (producesNumber(value)) return true;
-  if (value.type !== ir.IR_BLOCK_PARAM) return false;
+  if (value.type !== ir.IR_PHI) return false;
   const cached = memo.get(value.id);
   if (cached !== undefined) return cached;
   memo.set(value.id, false);
-  const carried = carriesNumber(value.inputs[1], memo);
+  const carried = carriesNumber(value.inputs[value.inputs.length - 1], memo);
   memo.set(value.id, carried);
   return carried;
 }
@@ -63,12 +63,6 @@ function substitute(
       for (let i = 0; i < node.inputs.length; i++) {
         const replacement = folds.get(node.inputs[i]);
         if (replacement) node.replaceInput(i, replacement);
-      }
-    }
-    for (const args of block.edgeArgs.values()) {
-      for (let i = 0; i < args.length; i++) {
-        const replacement = folds.get(args[i]);
-        if (replacement) args[i] = replacement;
       }
     }
   }
@@ -131,13 +125,16 @@ export function applyOsrTransform(
 
   const header = graph.blocks.find((b) => b.id === candidate.headerBlockId);
   if (!header || !header.isLoopHeader) return false;
-  if (header.params.length !== candidate.slots.length) return false;
+  if (header.phis.length !== candidate.slots.length) return false;
 
   const reachable = reachableFrom(header);
   const latchPreds = header.predecessors.filter((p) => reachable.has(p.id));
   const entryPreds = header.predecessors.filter((p) => !reachable.has(p.id));
-  if (latchPreds.length !== 1 || entryPreds.length === 0) return false;
+  if (latchPreds.length !== 1 || entryPreds.length !== 1) return false;
   const latch = latchPreds[0];
+  const entry = entryPreds[0];
+  const latchIndex = header.predecessors.indexOf(latch);
+  const entryIndex = header.predecessors.indexOf(entry);
 
   for (const block of graph.blocks) {
     if (!reachable.has(block.id)) continue;
@@ -151,7 +148,7 @@ export function applyOsrTransform(
     }
   }
 
-  const originalPhis = header.params.slice();
+  const originalPhis = header.phis.slice();
   const osrParams: CFGInstruction[] = [];
   const folds = new Map<CFGInstruction, CFGInstruction>();
   const variantPhis: CFGInstruction[] = [];
@@ -161,11 +158,11 @@ export function applyOsrTransform(
     const phi = originalPhis[index];
     const param = ir.irParameter(index);
     osrParams.push(param);
-    const latchValue = phi.inputs[1];
+    const latchValue = phi.inputs[latchIndex];
     if (latchValue === phi) {
       folds.set(phi, param);
     } else {
-      phi.replaceInput(0, param);
+      phi.replaceInput(entryIndex, param);
       variantPhis.push(phi);
       variantParams.push(param);
     }
@@ -173,14 +170,7 @@ export function applyOsrTransform(
 
   substitute(graph, frameStates, folds);
 
-  const latchEdgeArgs = latch.getEdgeArgs(header);
-  const newLatchArgs: CFGInstruction[] = [];
-  for (let index = 0; index < originalPhis.length; index++) {
-    if (folds.has(originalPhis[index])) continue;
-    newLatchArgs.push(latchEdgeArgs[index]);
-  }
-
-  header.params = variantPhis;
+  header.phis = variantPhis;
   header.nodes = header.nodes.filter((n) => !folds.has(n));
   for (let index = 0; index < variantPhis.length; index++) {
     variantPhis[index].props.index = index;
@@ -206,13 +196,7 @@ export function applyOsrTransform(
     }
   }
 
-  for (const pred of entryPreds) {
-    pred.successors = pred.successors.filter((s) => s.id !== header.id);
-    pred.edgeArgs.delete(header.id);
-  }
-
   const osrEntry = graph.addBlock();
-  const entryArgs = variantParams.slice();
   const guardSources = loopGuardSources(graph, reachable, variantPhis);
   const entryFolds = new Map<CFGInstruction, CFGInstruction>();
   for (let index = 0; index < variantPhis.length; index++) {
@@ -223,7 +207,7 @@ export function applyOsrTransform(
   for (let index = 0; index < variantPhis.length; index++) {
     const phi = variantPhis[index];
     const source = guardSources.get(phi);
-    const latchValue = phi.inputs[1];
+    const latchValue = phi.inputs[latchIndex];
     if (!source && !carriesNumber(latchValue, carriedNumbers)) continue;
     const sourceState = source?.frameState ?? headerState;
     if (!sourceState) continue;
@@ -234,14 +218,13 @@ export function applyOsrTransform(
         : ir.irCheckNumber(param);
     guard.frameState = entryFrameState(sourceState, frameStates, entryFolds);
     osrEntry.addNode(guard);
-    phi.replaceInput(0, guard);
-    entryArgs[index] = guard;
+    phi.replaceInput(entryIndex, guard);
   }
   osrEntry.addNode(ir.irJump(header));
-  header.predecessors = [];
-  osrEntry.addSuccessor(header, entryArgs);
-  header.predecessors.push(latch);
-  latch.setEdgeArgs(header, newLatchArgs);
+
+  entry.successors = entry.successors.filter((s) => s !== header);
+  osrEntry.successors.push(header);
+  header.predecessors[entryIndex] = osrEntry;
 
   graph.entry = osrEntry;
   graph.parameters = osrParams;

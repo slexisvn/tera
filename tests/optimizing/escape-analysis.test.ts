@@ -20,6 +20,7 @@ import {
   IR_CONSTANT,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { link } from "../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -144,20 +145,20 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     b0.addNode(alloc);
     const cond = irConstant(1);
     b0.addNode(cond);
-    b0.addSuccessor(bTrue);
-    b0.addSuccessor(bFalse);
+    link(b0, bTrue);
+    link(b0, bFalse);
     b0.addNode(irBranch(cond, bTrue, bFalse));
 
     const val = irConstant(42);
     bTrue.addNode(val);
     const store = irStoreField(alloc, 0, val);
     bTrue.addNode(store);
-    bTrue.addSuccessor(bMerge);
+    link(bTrue, bMerge);
     bTrue.addNode(irJump(bMerge));
 
     const load = irLoadField(alloc, 0);
     bFalse.addNode(load);
-    bFalse.addSuccessor(bMerge);
+    link(bFalse, bMerge);
     bFalse.addNode(irJump(bMerge));
 
     const ret = irReturn(irConstant(0));
@@ -180,7 +181,7 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     b0.addNode(val);
     const store = irStoreField(alloc, 0, val);
     b0.addNode(store);
-    b0.addSuccessor(b1);
+    link(b0, b1);
     b0.addNode(irJump(b1));
 
     const load = irLoadField(alloc, 0);

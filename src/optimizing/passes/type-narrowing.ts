@@ -77,7 +77,7 @@ export function typeNarrowing(
 }
 
 function mergeBlockParams(block: TypeBlock, facts: TypeFacts): void {
-  for (const param of block.params || []) {
+  for (const param of block.phis) {
     let merged: LatticeType | null = null;
     for (const input of param.inputs || []) {
       merged = joinTypes(
@@ -129,7 +129,7 @@ function recordNodeType(node: TypeNode, facts: TypeFacts): void {
     return;
   }
 
-  if (node.type === ir.IR_BLOCK_PARAM) {
+  if (node.type === ir.IR_PHI) {
     let merged: LatticeType | null = null;
     for (const input of node.inputs || []) {
       merged = joinTypes(
@@ -158,7 +158,7 @@ function inferValueType(
   }
   if (value.type === ir.IR_NOT) return booleanType();
   if (value.type === ir.IR_TYPEOF) return stringType();
-  if (value.type === ir.IR_BLOCK_PARAM) {
+  if (value.type === ir.IR_PHI) {
     let merged: LatticeType | null = null;
     for (const input of value.inputs || []) {
       merged = joinTypes(merged, inferValueType(input, facts, seen));

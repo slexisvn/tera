@@ -314,7 +314,7 @@ export function representationSelection(graph: ReprGraph): number {
         }
         nodeRep.set(node.id, needsFloat ? REP_FLOAT64 : REP_INT32);
       } else if (node.type === ir.IR_PHI) {
-        nodeRep.set(node.id, mergePhiRep(ir.blockParamIncoming(node)));
+        nodeRep.set(node.id, mergePhiRep(node.inputs));
       } else if (node.type === ir.IR_BOX) {
         nodeRep.set(
           node.id,
@@ -579,7 +579,7 @@ export function representationSelection(graph: ReprGraph): number {
   while (reflowWorklist.length > 0) {
     const param = reflowWorklist.pop()!;
     reflowQueued.delete(param.id);
-    const rep = joinIncomingReps(ir.blockParamIncoming(param), false);
+    const rep = joinIncomingReps(param.inputs, false);
     if (rep === null || rep === nodeRep.get(param.id)) continue;
     nodeRep.set(param.id, rep);
     for (const use of param.uses) {

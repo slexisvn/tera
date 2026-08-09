@@ -4,6 +4,7 @@ import { tracer } from "../../core/tracing/index.js";
 import { DominatorTree } from "../analyses/dominance.js";
 import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
 import { detachInputs } from "../ir/graph-edit.js";
+import { disconnect } from "../ir/cfg-edit.js";
 
 type IRNodeLike = ir.CFGInstruction;
 type IRBlockLike = ir.CFGBlock;
@@ -75,20 +76,8 @@ function rewriteBranchAsJump(
   term.opcode = ir.IR_JUMP;
   term.props = { targetBlock: targetBlockId };
   term.metadata = term.props;
-  block.successors = block.successors.filter(
-    (successor) => successor.id === targetBlockId,
-  );
-  if (block.edgeArgs) {
-    for (const key of [...block.edgeArgs.keys()]) {
-      if (key !== targetBlockId) block.edgeArgs.delete(key);
-    }
-  }
   const deadBlock = blockById.get(deadBlockId);
-  if (deadBlock) {
-    deadBlock.predecessors = deadBlock.predecessors.filter(
-      (predecessor) => predecessor.id !== block.id,
-    );
-  }
+  if (deadBlock) disconnect(block, deadBlock);
 }
 
 export function eliminateRedundantChecks(
@@ -604,7 +593,7 @@ export function rangeAnalysisAndBoundsCheckElimination(graph: IRGraphLike): numb
 
   for (const block of graph.blocks) {
     if (!block.isLoopHeader) continue;
-    for (const phi of block.params) {
+    for (const phi of block.phis) {
       const iv = detectInductionVariable(phi);
       if (!iv) continue;
       const guardEntry = loopGuardIndex.get(phi.id);

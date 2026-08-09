@@ -13,6 +13,7 @@ import {
   irStoreField,
   resetIRNodeIds,
 } from "../../../src/optimizing/ir/index.js";
+import { link, connect, addPhi } from "../../../src/optimizing/ir/cfg-edit.js";
 import { analyzeEscapes } from "../../../src/optimizing/analyses/escape.js";
 
 beforeEach(() => resetIRNodeIds());
@@ -91,23 +92,23 @@ describe("analyzeEscapes", () => {
     const alloc = irNewObject();
     entry.addNode(alloc);
     entry.addNode(irJump(header));
-    entry.addSuccessor(header, [alloc]);
+    link(entry, header);
 
-    const obj = header.addParam();
+    const obj = addPhi(header, [alloc]);
     const load = irLoadField(obj, 0);
     const cond = irConstant(1);
     header.addNode(load);
     header.addNode(cond);
     header.addNode(irBranch(cond, body, exit));
-    header.addSuccessor(body);
-    header.addSuccessor(exit);
+    link(header, body);
+    link(header, exit);
 
     const stored = irConstant(7);
     const store = irStoreField(obj, 0, stored);
     body.addNode(stored);
     body.addNode(store);
     body.addNode(irJump(header));
-    body.addSuccessor(header, [obj]);
+    connect(body, header, [obj]);
 
     exit.addNode(irReturn(irConstant(0)));
 
@@ -134,14 +135,14 @@ describe("analyzeEscapes", () => {
     entry.addNode(other);
     entry.addNode(cond);
     entry.addNode(irBranch(cond, whenTrue, whenFalse));
-    entry.addSuccessor(whenTrue);
-    entry.addSuccessor(whenFalse);
+    link(entry, whenTrue);
+    link(entry, whenFalse);
 
-    const merged = merge.addParam();
+    const merged = addPhi(merge, []);
     whenTrue.addNode(irJump(merge));
-    whenTrue.addSuccessor(merge, [alloc]);
+    connect(whenTrue, merge, [alloc]);
     whenFalse.addNode(irJump(merge));
-    whenFalse.addSuccessor(merge, [other]);
+    connect(whenFalse, merge, [other]);
     merge.addNode(irReturn(merged));
 
     const escape = analyzeEscapes(graph);

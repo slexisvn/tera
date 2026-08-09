@@ -396,7 +396,7 @@ export class Deoptimizer {
         case ir.IR_CHECK_CALL_TARGET:
         case ir.IR_BOX:
         case ir.IR_UNBOX:
-        case ir.IR_BLOCK_PARAM:
+        case ir.IR_PHI:
         case ir.IR_LOAD_LOCAL:
           return this.materializeValue(nodeInput(irNodeOrValue, 0), runtimeValues);
       }

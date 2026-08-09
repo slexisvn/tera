@@ -23,6 +23,7 @@ import {
   IR_TYPEOF,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { link } from "../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -192,7 +193,7 @@ describe("typeNarrowing", () => {
       const check1 = irCheckSmi(p1);
       b0.addNode(check0);
       b0.addNode(check1);
-      b0.addSuccessor(b1);
+      link(b0, b1);
       b0.addNode(irJump(b1));
 
       const add = irGenericAdd(check0, check1);
@@ -222,8 +223,8 @@ describe("typeNarrowing", () => {
       b0.addNode(strConst);
       const cmp = irInt32Compare("==", typeofNode, strConst);
       b0.addNode(cmp);
-      b0.addSuccessor(bTrue);
-      b0.addSuccessor(bFalse);
+      link(b0, bTrue);
+      link(b0, bFalse);
       b0.addNode(irBranch(cmp, bTrue, bFalse));
 
       const check1 = irCheckSmi(p1);
@@ -255,8 +256,8 @@ describe("typeNarrowing", () => {
       b0.addNode(strConst);
       const cmp = irInt32Compare("===", typeofNode, strConst);
       b0.addNode(cmp);
-      b0.addSuccessor(bTrue);
-      b0.addSuccessor(bFalse);
+      link(b0, bTrue);
+      link(b0, bFalse);
       b0.addNode(irBranch(cmp, bTrue, bFalse));
 
       const check1 = irCheckSmi(p1);
@@ -288,8 +289,8 @@ describe("typeNarrowing", () => {
       b0.addNode(strConst);
       const cmp = irInt32Compare("==", typeofNode, strConst);
       b0.addNode(cmp);
-      b0.addSuccessor(bTrue);
-      b0.addSuccessor(bFalse);
+      link(b0, bTrue);
+      link(b0, bFalse);
       b0.addNode(irBranch(cmp, bTrue, bFalse));
 
       bTrue.addNode(irReturn(irConstant(1)));

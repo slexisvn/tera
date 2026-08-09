@@ -57,7 +57,7 @@ import {
   irRequiresFrameState,
   IR_CONSTANT,
   IR_PARAMETER,
-  IR_BLOCK_PARAM,
+  IR_PHI,
   EFFECT_NONE,
   EFFECT_GUARD,
   EFFECT_READ,
@@ -67,6 +67,7 @@ import {
   EFFECT_TERMINATOR,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { link, connect, addPhi } from "../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -192,51 +193,50 @@ describe("CFGBlock", () => {
     });
   });
 
-  describe("addParam", () => {
-    it("creates BlockParam and adds to params and nodes", () => {
+  describe("addPhi", () => {
+    it("creates Phi and adds to phis and nodes", () => {
       const block = new CFGBlock(0);
-      const param = block.addParam([]);
-      expect(param.type).toBe(IR_BLOCK_PARAM);
-      expect(block.params).toContain(param);
+      const param = addPhi(block, []);
+      expect(param.type).toBe(IR_PHI);
+      expect(block.phis).toContain(param);
       expect(block.nodes).toContain(param);
       expect(param.block).toBe(block);
     });
 
-    it("multiple params get sequential indices", () => {
+    it("multiple phis get sequential indices", () => {
       const block = new CFGBlock(0);
-      const p0 = block.addParam();
-      const p1 = block.addParam();
+      const p0 = addPhi(block, []);
+      const p1 = addPhi(block, []);
       expect(p0.props.index).toBe(0);
       expect(p1.props.index).toBe(1);
     });
   });
 
-  describe("addSuccessor / predecessor", () => {
+  describe("link / connect / predecessor", () => {
     it("connects two blocks bidirectionally", () => {
       const b0 = new CFGBlock(0);
       const b1 = new CFGBlock(1);
-      b0.addSuccessor(b1);
+      link(b0, b1);
       expect(b0.successors).toContain(b1);
       expect(b1.predecessors).toContain(b0);
     });
 
-    it("does not duplicate on repeated addSuccessor", () => {
+    it("does not duplicate on repeated link", () => {
       const b0 = new CFGBlock(0);
       const b1 = new CFGBlock(1);
-      b0.addSuccessor(b1);
-      b0.addSuccessor(b1);
+      link(b0, b1);
+      link(b0, b1);
       expect(b0.successors.filter(b => b === b1)).toHaveLength(1);
     });
 
-    it("edge args roundtrip through setEdgeArgs/getEdgeArgs", () => {
+    it("connect appends one phi input per predecessor", () => {
       const b0 = new CFGBlock(0);
       const b1 = new CFGBlock(1);
       const v = irConstant(99);
-      b0.addSuccessor(b1, [v]);
-      expect(b0.getEdgeArgs(b1)).toEqual([v]);
-      const v2 = irConstant(100);
-      b0.setEdgeArgs(b1, [v2]);
-      expect(b0.getEdgeArgs(b1)).toEqual([v2]);
+      const phi = addPhi(b1, []);
+      connect(b0, b1, [v]);
+      expect(b1.predecessors).toContain(b0);
+      expect(phi.inputs).toEqual([v]);
     });
   });
 });

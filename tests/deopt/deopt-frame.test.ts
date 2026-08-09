@@ -14,7 +14,7 @@ import {
   isNumber,
 } from "../../src/core/value/index.js";
 import {
-  IR_BLOCK_PARAM,
+  IR_PHI,
   IR_TYPEOF,
   IR_LOAD_LOCAL,
   IR_STORE_LOCAL,
@@ -32,16 +32,16 @@ function makeIRNode(type, props = {}, inputs = []) {
 }
 
 describe("materializeFrameValue — F1 block param / typeof / locals", () => {
-  it("materializes IR_BLOCK_PARAM by recursing into inputs[0]", () => {
+  it("materializes IR_PHI by recursing into inputs[0]", () => {
     const constant = makeIRNode(IR_CONSTANT, { value: 77 });
-    const blockParam = makeIRNode(IR_BLOCK_PARAM, {}, [constant]);
+    const blockParam = makeIRNode(IR_PHI, {}, [constant]);
     const result = materializeFrameValue(blockParam, new Map(), [], null, null);
     expect(getPayload(result)).toBe(77);
   });
 
-  it("materializes IR_BLOCK_PARAM with runtime value on inner node", () => {
+  it("materializes IR_PHI with runtime value on inner node", () => {
     const inner = makeIRNode("SomeOp", {}, []);
-    const blockParam = makeIRNode(IR_BLOCK_PARAM, {}, [inner]);
+    const blockParam = makeIRNode(IR_PHI, {}, [inner]);
     const rv = new Map([[inner.id, mkSmi(42)]]);
     const result = materializeFrameValue(blockParam, rv, [], null, null);
     expect(isSmi(result)).toBe(true);
@@ -98,14 +98,14 @@ describe("materializeFrameValue — F1 block param / typeof / locals", () => {
   it("materializes nested block param → check → constant chain", () => {
     const constant = makeIRNode(IR_CONSTANT, { value: 10 });
     const check = makeIRNode(IR_CHECK_SMI, {}, [constant]);
-    const blockParam = makeIRNode(IR_BLOCK_PARAM, {}, [check]);
+    const blockParam = makeIRNode(IR_PHI, {}, [check]);
     const result = materializeFrameValue(blockParam, new Map(), [], null, null);
     expect(getPayload(result)).toBe(10);
   });
 
   it("materializes IR_TYPEOF on runtime value resolved block param", () => {
     const inner = makeIRNode("SomeOp", {}, []);
-    const blockParam = makeIRNode(IR_BLOCK_PARAM, {}, [inner]);
+    const blockParam = makeIRNode(IR_PHI, {}, [inner]);
     const typeofNode = makeIRNode(IR_TYPEOF, {}, [blockParam]);
     const rv = new Map([[inner.id, mkSmi(5)]]);
     const result = materializeFrameValue(typeofNode, rv, [], null, null);

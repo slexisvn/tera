@@ -146,9 +146,9 @@ describe("Deoptimizer.materializeValue", () => {
     expect(result).toBe(tagged);
   });
 
-  it("materializes BlockParam by recursing inputs[0]", () => {
+  it("materializes Phi by recursing inputs[0]", () => {
     const inner = { id: 1, type: "Constant", props: { value: 50 } };
-    const blockParam = { id: 2, type: "BlockParam", inputs: [inner] };
+    const blockParam = { id: 2, type: "Phi", inputs: [inner] };
     const result = deopt.materializeValue(blockParam, new Map());
     expect(getPayload(result)).toBe(50);
   });

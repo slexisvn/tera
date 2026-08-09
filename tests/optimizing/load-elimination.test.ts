@@ -15,6 +15,7 @@ import {
   IR_CONSTANT,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { link } from "../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -111,7 +112,7 @@ describe("loadElimination", () => {
     b0.addNode(val);
     const store = irStoreField(obj, 0, val);
     b0.addNode(store);
-    b0.addSuccessor(b1);
+    link(b0, b1);
     b0.addNode(irJump(b1));
     const load = irLoadField(obj, 0);
     b1.addNode(load);

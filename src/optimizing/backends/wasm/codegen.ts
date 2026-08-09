@@ -476,7 +476,7 @@ export class WasmCodegen {
           (node.uses.length > 0 || observedFrameStateValues.has(node.id))
         ) {
           const paramRep = valueRepForRep(repForNode(node));
-          for (const incoming of ir.blockParamIncoming(node)) {
+          for (const incoming of node.inputs) {
             if (valueRepForRep(repForNode(incoming)) === paramRep) continue;
             return `block parameter is ${paramRep} but an incoming value is ${valueRepForRep(repForNode(incoming))}`;
           }
@@ -1698,10 +1698,9 @@ export class WasmCodegen {
     const emitPhiUpdates = (targetBlockId: number, predecessor: AnyBlock | null = null) => {
       const targetBlock = blockMap.get(targetBlockId);
       if (!targetBlock) return;
-      const edgeArgs =
-        predecessor
-          ? predecessor.getEdgeArgs(targetBlock)
-          : null;
+      const predIndex = predecessor
+        ? targetBlock.predecessors.indexOf(predecessor)
+        : -1;
       const pending: Array<{
         phiLocal: WasmLocalId;
         tempLocal: WasmLocalId;
@@ -1715,13 +1714,7 @@ export class WasmCodegen {
         const tempLocal = analysis.phiUpdateTempLocal?.get(node.id);
         if (phiLocal === undefined) continue;
         if (tempLocal === undefined) continue;
-        const phiIndex = metadataNumber(node.props.index) ?? 0;
-        const input =
-          edgeArgs && edgeArgs.length > phiIndex
-            ? edgeArgs[phiIndex]
-            : node.inputs.length > 1
-              ? node.inputs[1]
-              : node.inputs[0];
+        const input = predIndex >= 0 ? node.inputs[predIndex] : undefined;
         if (!input) continue;
         const inputLocal = this.resolveLocal(input.id, analysis);
         if (inputLocal === undefined) continue;

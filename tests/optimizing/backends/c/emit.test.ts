@@ -18,6 +18,7 @@ import {
   irReturn,
   resetIRNodeIds,
 } from "../../../../src/optimizing/ir/index.js";
+import { link, connect, addPhi } from "../../../../src/optimizing/ir/cfg-edit.js";
 import { emitNumericFunction } from "../../../../src/optimizing/backends/c/emit.js";
 import { runCFunction } from "./c-executor.js";
 
@@ -125,8 +126,8 @@ describe("emitNumericFunction control flow", () => {
     const cmp = irFloat64Compare("<", p0, p1);
     entry.addNode(cmp);
     entry.addNode(irBranch(cmp, whenTrue, whenFalse));
-    entry.addSuccessor(whenTrue);
-    entry.addSuccessor(whenFalse);
+    link(entry, whenTrue);
+    link(entry, whenFalse);
     whenTrue.addNode(irReturn(p1));
     whenFalse.addNode(irReturn(p0));
 
@@ -144,16 +145,16 @@ describe("emitNumericFunction control flow", () => {
     const start = irConstant(10);
     entry.addNode(start);
     entry.addNode(irJump(header));
-    entry.addSuccessor(header, [start]);
+    link(entry, header);
 
-    const counter = header.addParam();
+    const counter = addPhi(header, [start]);
     const zero = irConstant(0);
     const done = irInt32Compare("<=", counter, zero);
     header.addNode(zero);
     header.addNode(done);
     header.addNode(irBranch(done, exit, latch));
-    header.addSuccessor(exit);
-    header.addSuccessor(latch);
+    link(header, exit);
+    link(header, latch);
 
     exit.addNode(irReturn(counter));
 
@@ -162,7 +163,7 @@ describe("emitNumericFunction control flow", () => {
     latch.addNode(one);
     latch.addNode(next);
     latch.addNode(irJump(header));
-    latch.addSuccessor(header, [next]);
+    connect(latch, header, [next]);
 
     expect(run(graph)).toBe(0);
   });
@@ -178,7 +179,7 @@ describe("emitNumericFunction bail conditions", () => {
   it("bails on parameters attached to the entry block", () => {
     const graph = new CFGFunction("params");
     const block = graph.addBlock();
-    block.addParam();
+    addPhi(block, []);
     const constant = irConstant(1);
     block.addNode(constant);
     block.addNode(irReturn(constant));
@@ -191,7 +192,7 @@ describe("emitNumericFunction bail conditions", () => {
     const tail = graph.addBlock();
     entry.addNode(irReturn(irConstant(1)));
     tail.addNode(irConstant(2));
-    entry.addSuccessor(tail);
+    link(entry, tail);
     expect(expectBail(graph)).toContain("no terminator");
   });
 

@@ -48,7 +48,7 @@ const originLattice: Lattice<Origin> = {
 
 function transfer(value: Value, incoming: Origin): Origin {
   if (ALLOCATIONS.has(value.type)) return { kind: "alloc", alloc: value.id };
-  if (value.type === ir.IR_BLOCK_PARAM) return incoming;
+  if (value.type === ir.IR_PHI) return incoming;
   if (IDENTITY_GUARDS.has(value.type)) return incoming;
   return NONE;
 }
@@ -59,27 +59,6 @@ function collectValues(graph: ir.CFGFunction): Value[] {
     for (const node of block.nodes) values.push(node);
   }
   return values;
-}
-
-function edgeArgConsumers(graph: ir.CFGFunction): Map<number, Value[]> {
-  const consumers = new Map<number, Value[]>();
-  for (const block of graph.blocks) {
-    for (const successor of block.successors) {
-      const args = block.getEdgeArgs(successor);
-      for (let i = 0; i < args.length; i++) {
-        const arg = args[i];
-        const param = successor.params[i];
-        if (!arg || !param) continue;
-        let list = consumers.get(arg.id);
-        if (!list) {
-          list = [];
-          consumers.set(arg.id, list);
-        }
-        list.push(param);
-      }
-    }
-  }
-  return consumers;
 }
 
 export interface EscapeAnalysisResult {
@@ -93,19 +72,12 @@ export interface EscapeAnalysisResult {
 
 export function analyzeEscapes(graph: ir.CFGFunction): EscapeAnalysisResult {
   const values = collectValues(graph);
-  const consumers = edgeArgConsumers(graph);
-  const predecessorsOf = (value: Value): readonly Value[] =>
-    value.type === ir.IR_BLOCK_PARAM ? ir.blockParamIncoming(value) : value.inputs;
-  const successorsOf = (value: Value): readonly Value[] => {
-    const fed = consumers.get(value.id);
-    return fed ? [...value.uses, ...fed] : value.uses;
-  };
 
   const flow: FlowGraph<Value> = {
     nodes: values,
     entry: values[0]!,
-    predecessors: predecessorsOf,
-    successors: successorsOf,
+    predecessors: (value) => value.inputs,
+    successors: (value) => value.uses,
   };
 
   const solution = solveMonotone(flow, {
@@ -128,7 +100,7 @@ export function analyzeEscapes(graph: ir.CFGFunction): EscapeAnalysisResult {
       aliases.set(origin.alloc, list);
     }
     list.push(value);
-    if (value.type === ir.IR_BLOCK_PARAM) phiAllocs.add(origin.alloc);
+    if (value.type === ir.IR_PHI) phiAllocs.add(origin.alloc);
   }
 
   const escaped = new Set<number>();
@@ -144,10 +116,8 @@ export function analyzeEscapes(graph: ir.CFGFunction): EscapeAnalysisResult {
 
   for (const [alloc, aliasList] of aliases) {
     for (const alias of aliasList) {
-      const fed = consumers.get(alias.id);
-      const useList = fed ? [...alias.uses, ...fed] : alias.uses;
-      for (const use of useList) {
-        if (use.type === ir.IR_BLOCK_PARAM) {
+      for (const use of alias.uses) {
+        if (use.type === ir.IR_PHI) {
           const origin = originOf(use);
           if (origin.kind === "alloc" && origin.alloc === alloc) continue;
           escaped.add(alloc);

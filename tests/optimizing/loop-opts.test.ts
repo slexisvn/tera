@@ -21,6 +21,7 @@ import {
   IR_CONSTANT,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { link } from "../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -32,11 +33,11 @@ function makeSimpleLoop() {
   const exit = graph.addBlock();
 
   header.isLoopHeader = true;
-  preHeader.addSuccessor(header);
+  link(preHeader, header);
   preHeader.addNode(irJump(header));
-  header.addSuccessor(body);
-  header.addSuccessor(exit);
-  body.addSuccessor(header);
+  link(header, body);
+  link(header, exit);
+  link(body, header);
   body.addNode(irJump(header));
 
   return { graph, preHeader, header, body, exit };
@@ -58,7 +59,7 @@ describe("findLoops", () => {
     const graph = new CFGFunction("test");
     const b0 = graph.addBlock();
     const b1 = graph.addBlock();
-    b0.addSuccessor(b1);
+    link(b0, b1);
     b0.addNode(irJump(b1));
     b1.addNode(irReturn(irConstant(0)));
     const loops = findLoops(graph);

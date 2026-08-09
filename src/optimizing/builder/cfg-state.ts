@@ -4,6 +4,7 @@ import {
   type CFGBlock,
   type CFGInstruction,
 } from "../ir/index.js";
+import { addPhi } from "../ir/cfg-edit.js";
 
 const ACC_SLOT = -1;
 
@@ -59,38 +60,28 @@ export function restoreIncomingState(
     if (state.acc) slots.add(ACC_SLOT);
   }
 
-  const edgeArgs = new Map<CfgBlock, CfgNode[]>(
-    block.predecessors.map((pred) => [pred, []]),
-  );
   let nextAcc = acc ?? null;
 
   for (const slot of slots) {
-    const values = block.predecessors.map((pred) => {
+    const incoming = block.predecessors.map((pred) => {
       const state = byPred.get(pred);
-      if (!state) return slot === ACC_SLOT ? acc : regs.get(slot);
-      return slot === ACC_SLOT ? state.acc : state.regs.get(slot);
+      const value = !state
+        ? slot === ACC_SLOT
+          ? acc
+          : regs.get(slot)
+        : slot === ACC_SLOT
+          ? state.acc
+          : state.regs.get(slot);
+      return definedValue(value, pred);
     });
-    const incoming: CFGInstruction[] = values.map((value, index) =>
-      definedValue(value, block.predecessors[index]),
-    );
     const first = incoming[0];
     const same = incoming.every((value) => value === first);
-    const selected: CfgNode = same ? first : block.addParam(incoming);
-    if (!same) {
-      for (let i = 0; i < block.predecessors.length; i++) {
-        edgeArgs.get(block.predecessors[i])!.push(incoming[i]!);
-      }
-    }
+    const selected: CfgNode = same ? first : addPhi(block, incoming);
     if (slot === ACC_SLOT) {
       nextAcc = selected;
     } else {
       regs.set(slot, selected);
     }
-  }
-
-  for (const pred of block.predecessors) {
-    if (pred.successors.includes(block))
-      pred.setEdgeArgs(block, edgeArgs.get(pred)!);
   }
 
   return nextAcc ?? null;

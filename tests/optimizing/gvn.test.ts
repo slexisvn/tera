@@ -12,6 +12,7 @@ import {
   IR_INT32_ADD,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { link } from "../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -86,7 +87,7 @@ describe("globalValueNumbering", () => {
     b0.addNode(b);
     const add1 = irInt32Add(a, b);
     b0.addNode(add1);
-    b0.addSuccessor(b1);
+    link(b0, b1);
     b0.addNode(irJump(b1));
     const add2 = irInt32Add(a, b);
     b1.addNode(add2);

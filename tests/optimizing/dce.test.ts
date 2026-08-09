@@ -18,6 +18,7 @@ import {
   IR_RETURN,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { link, addPhi } from "../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -89,17 +90,17 @@ describe("deadCodeElimination", () => {
     expect(count).toBeGreaterThanOrEqual(2);
   });
 
-  it("preserves block params", () => {
+  it("preserves phis", () => {
     const { graph, block } = makeGraph();
     const b1 = graph.addBlock();
-    const param = b1.addParam([]);
     const jmp = irJump(b1);
     block.addNode(jmp);
-    block.addSuccessor(b1);
+    link(block, b1);
+    const param = addPhi(b1, []);
     const ret = irReturn(irConstant(0));
     b1.addNode(ret);
     deadCodeElimination(graph);
-    expect(b1.params).toContain(param);
+    expect(b1.phis).toContain(param);
   });
 });
 
@@ -109,7 +110,7 @@ describe("eliminateUnreachableBlocks", () => {
     const b0 = graph.addBlock();
     const b1 = graph.addBlock();
     const b2 = graph.addBlock();
-    b0.addSuccessor(b1);
+    link(b0, b1);
     const jmp = irJump(b1);
     b0.addNode(jmp);
     const ret = irReturn(irConstant(0));
@@ -125,7 +126,7 @@ describe("eliminateUnreachableBlocks", () => {
     const graph = new CFGFunction("test");
     const b0 = graph.addBlock();
     const b1 = graph.addBlock();
-    b0.addSuccessor(b1);
+    link(b0, b1);
     b0.addNode(irJump(b1));
     b1.addNode(irReturn(irConstant(0)));
     const removed = eliminateUnreachableBlocks(graph);
@@ -138,10 +139,10 @@ describe("eliminateUnreachableBlocks", () => {
     const b1 = graph.addBlock();
     const b2 = graph.addBlock();
     const b3 = graph.addBlock();
-    b0.addSuccessor(b1);
+    link(b0, b1);
     b0.addNode(irJump(b1));
     b1.addNode(irReturn(irConstant(0)));
-    b2.addSuccessor(b3);
+    link(b2, b3);
     b2.addNode(irJump(b3));
     b3.addNode(irReturn(irConstant(1)));
     eliminateUnreachableBlocks(graph);

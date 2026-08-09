@@ -1,5 +1,5 @@
 import {
-  IR_BLOCK_PARAM,
+  IR_PHI,
   IR_BRANCH,
   IR_CONSTANT,
   IR_DEOPTIMIZE,
@@ -52,7 +52,7 @@ export function validateOptimizedGraph(
     const locations = valueLocations(graph);
     validateFrameStates(graph, frameStates, errors);
     validateNodeOwnership(graph, errors);
-    validateBlockParams(graph, errors);
+    validatePhis(graph, errors);
     validateControlFlow(graph, errors);
     validateUseDefDominanceWith(graph, dominators, locations, errors);
     validateUseLists(graph, errors);
@@ -75,10 +75,10 @@ function validateNodeOwnership(
         errors.push(`B${block.id} v${node.id} ${node.type} has owner ${owner}`);
       }
     }
-    for (const param of block.params) {
-      if (!nodeSet.has(param)) {
+    for (const phi of block.phis) {
+      if (!nodeSet.has(phi)) {
         errors.push(
-          `B${block.id} v${param.id} block param is missing from node list`,
+          `B${block.id} v${phi.id} phi is missing from node list`,
         );
       }
     }
@@ -124,10 +124,12 @@ function validateControlFlow(graph: ValidationGraph, errors: string[]): void {
 }
 
 function validateBlockEdges(block: ValidationBlock, errors: string[]): void {
-  const successorIds = new Set(
-    block.successors.map((successor) => successor.id),
-  );
-  const predecessorSet = new Set(block.predecessors);
+  if (new Set(block.successors).size !== block.successors.length) {
+    errors.push(`B${block.id} has duplicate successors`);
+  }
+  if (new Set(block.predecessors).size !== block.predecessors.length) {
+    errors.push(`B${block.id} has duplicate predecessors`);
+  }
   for (const successor of block.successors) {
     const succPredSet = new Set(successor.predecessors);
     if (!succPredSet.has(block)) {
@@ -142,15 +144,6 @@ function validateBlockEdges(block: ValidationBlock, errors: string[]): void {
       errors.push(
         `B${predecessor.id}->B${block.id} predecessor is missing successor`,
       );
-    }
-  }
-  if (block.edgeArgs) {
-    for (const targetId of block.edgeArgs.keys()) {
-      if (!successorIds.has(targetId)) {
-        errors.push(
-          `B${block.id}->B${targetId} has edge args without successor`,
-        );
-      }
     }
   }
 }
@@ -234,46 +227,17 @@ function validateFrameStates(
   }
 }
 
-function validateBlockParams(graph: ValidationGraph, errors: string[]): void {
+function validatePhis(graph: ValidationGraph, errors: string[]): void {
   for (const block of graph.blocks) {
-    for (const pred of block.predecessors) {
-      const edgeArgs = pred.getEdgeArgs(block);
-      if (edgeArgs.length !== block.params.length) {
+    for (const phi of block.phis) {
+      if (phi.inputs.length !== block.predecessors.length) {
         errors.push(
-          `B${pred.id}->B${block.id} has ${edgeArgs.length} edge args for ${block.params.length} block params`,
+          `B${block.id} v${phi.id} has ${phi.inputs.length} inputs for ${block.predecessors.length} predecessors`,
         );
       }
-      for (let i = 0; i < edgeArgs.length; i++) {
-        if (!edgeArgs[i]) {
-          errors.push(`B${pred.id}->B${block.id} edge arg ${i} is empty`);
-        }
-      }
-    }
-    for (const param of block.params) {
-      if (param.inputs.length === 0 && block.predecessors.length > 0) {
-        errors.push(
-          `B${block.id} v${param.id} block param has no incoming values`,
-        );
-      }
-      if (
-        param.inputs.length !== block.predecessors.length &&
-        block.predecessors.length > 0
-      ) {
-        errors.push(
-          `B${block.id} v${param.id} has ${param.inputs.length} inputs for ${block.predecessors.length} predecessors`,
-        );
-      }
-      for (let i = 0; i < block.predecessors.length; i++) {
-        const pred = block.predecessors[i];
-        const edgeArgs = pred.getEdgeArgs(block);
-        const paramIndex = param.props.index as number;
-        if (
-          edgeArgs.length === block.params.length &&
-          edgeArgs[paramIndex] !== param.inputs[i]
-        ) {
-          errors.push(
-            `B${block.id} v${param.id} input ${i} does not match B${pred.id}->B${block.id} edge arg ${String(param.props.index)}`,
-          );
+      for (let i = 0; i < phi.inputs.length; i++) {
+        if (!phi.inputs[i]) {
+          errors.push(`B${block.id} v${phi.id} input ${i} is empty`);
         }
       }
     }
@@ -361,27 +325,28 @@ function validateUseDefDominanceWith(
 ): void {
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      if (node.type === IR_BLOCK_PARAM) continue;
+      if (node.type === IR_PHI) {
+        for (let i = 0; i < node.inputs.length; i++) {
+          const pred = block.predecessors[i];
+          if (!pred) continue;
+          validatePhiInputAvailable(
+            node.inputs[i],
+            pred,
+            block,
+            node,
+            i,
+            locations,
+            dominators,
+            errors,
+          );
+        }
+        continue;
+      }
       for (const input of node.inputs) {
         validateInputAvailable(
           input,
           block,
           node,
-          locations,
-          dominators,
-          errors,
-        );
-      }
-    }
-
-    for (const successor of block.successors) {
-      const edgeArgs = block.getEdgeArgs(successor);
-      for (let i = 0; i < edgeArgs.length; i++) {
-        validateEdgeArgAvailable(
-          edgeArgs[i],
-          block,
-          successor,
-          i,
           locations,
           dominators,
           errors,
@@ -552,21 +517,22 @@ function validateInputAvailable(
   }
 }
 
-function validateEdgeArgAvailable(
-  arg: ValidationNode | null | undefined,
+function validatePhiInputAvailable(
+  input: ValidationNode | null | undefined,
   predBlock: ValidationBlock,
-  successor: ValidationBlock,
-  argIndex: number,
+  phiBlock: ValidationBlock,
+  phi: ValidationNode,
+  inputIndex: number,
   locations: Map<ValidationNode, ValueLocation>,
   dominators: Map<DominatorBlock, DominatorBlock>,
   errors: string[],
 ): void {
-  if (!arg) return;
-  if (arg.type === IR_PARAMETER || arg.type === IR_CONSTANT) return;
-  const location = locations.get(arg);
+  if (!input) return;
+  if (input.type === IR_PARAMETER || input.type === IR_CONSTANT) return;
+  const location = locations.get(input);
   if (!location) {
     errors.push(
-      `B${predBlock.id}->B${successor.id} edge arg ${argIndex} uses v${arg.id} with no definition`,
+      `B${phiBlock.id} v${phi.id} input ${inputIndex} uses v${input.id} with no definition`,
     );
     return;
   }
@@ -575,7 +541,7 @@ function validateEdgeArgAvailable(
   if (!location.block) return;
   if (!dominates(dominators, location.block, predBlock)) {
     errors.push(
-      `B${predBlock.id}->B${successor.id} edge arg ${argIndex} uses v${arg.id} from B${location.block.id} which is unavailable at predecessor`,
+      `B${phiBlock.id} v${phi.id} input ${inputIndex} uses v${input.id} from B${location.block.id} which is unavailable at predecessor B${predBlock.id}`,
     );
   }
 }

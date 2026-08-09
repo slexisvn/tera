@@ -13,6 +13,7 @@ import {
   irInt32Compare,
   resetIRNodeIds,
 } from "../../../src/optimizing/ir/index.js";
+import { link } from "../../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -21,8 +22,8 @@ function makeLinearGraph() {
   const b0 = graph.addBlock();
   const b1 = graph.addBlock();
   const b2 = graph.addBlock();
-  b0.addSuccessor(b1);
-  b1.addSuccessor(b2);
+  link(b0, b1);
+  link(b1, b2);
   const jmp0 = irJump(b1);
   b0.addNode(jmp0);
   const jmp1 = irJump(b2);
@@ -42,14 +43,14 @@ function makeDiamondGraph() {
   b0.addNode(cond);
   const br = irBranch(cond, b1, b2);
   b0.addNode(br);
-  b0.addSuccessor(b1);
-  b0.addSuccessor(b2);
+  link(b0, b1);
+  link(b0, b2);
   const jmp1 = irJump(b3);
   b1.addNode(jmp1);
-  b1.addSuccessor(b3);
+  link(b1, b3);
   const jmp2 = irJump(b3);
   b2.addNode(jmp2);
-  b2.addSuccessor(b3);
+  link(b2, b3);
   const ret = irReturn(irConstant(0));
   b3.addNode(ret);
   return { graph, b0, b1, b2, b3 };
@@ -62,14 +63,14 @@ function makeLoopGraph() {
   const b2 = graph.addBlock();
   const b3 = graph.addBlock();
   b0.addNode(irJump(b1));
-  b0.addSuccessor(b1);
+  link(b0, b1);
   const cond = irConstant(1);
   b1.addNode(cond);
   b1.addNode(irBranch(cond, b2, b3));
-  b1.addSuccessor(b2);
-  b1.addSuccessor(b3);
+  link(b1, b2);
+  link(b1, b3);
   b2.addNode(irJump(b1));
-  b2.addSuccessor(b1);
+  link(b2, b1);
   b3.addNode(irReturn(irConstant(0)));
   return { graph, b0, b1, b2, b3 };
 }
@@ -80,7 +81,7 @@ function makeUnreachableGraph() {
   const b1 = graph.addBlock();
   const orphan = graph.addBlock();
   b0.addNode(irJump(b1));
-  b0.addSuccessor(b1);
+  link(b0, b1);
   b1.addNode(irReturn(irConstant(0)));
   orphan.addNode(irReturn(irConstant(1)));
   return { graph, b0, b1, orphan };

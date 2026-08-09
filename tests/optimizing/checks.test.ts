@@ -19,6 +19,7 @@ import {
   IR_JUMP,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { link } from "../../src/optimizing/ir/cfg-edit.js";
 import { DominatorTree } from "../../src/optimizing/analyses/dominance.js";
 
 beforeEach(() => resetIRNodeIds());
@@ -92,7 +93,7 @@ describe("eliminateRedundantChecks", () => {
     const val = graph.addParameter(0);
     const check1 = irCheckSmi(val);
     b0.addNode(check1);
-    b0.addSuccessor(b1);
+    link(b0, b1);
     b0.addNode(irJump(b1));
     const check2 = irCheckSmi(val);
     b1.addNode(check2);
@@ -150,7 +151,7 @@ describe("eliminateRedundantChecks", () => {
     b0.addNode(check1);
     const store = irStoreField(obj, 0, irConstant(5));
     b0.addNode(store);
-    b0.addSuccessor(b1);
+    link(b0, b1);
     b0.addNode(irJump(b1));
     const check2 = irCheckMap(obj, 42);
     b1.addNode(check2);
@@ -191,8 +192,8 @@ describe("rangeAnalysisAndBoundsCheckElimination", () => {
     b0.addNode(cmp);
     const br = irBranch(cmp, b1, b2);
     b0.addNode(br);
-    b0.addSuccessor(b1);
-    b0.addSuccessor(b2);
+    link(b0, b1);
+    link(b0, b2);
     b1.addNode(irReturn(irConstant(1)));
     b2.addNode(irReturn(irConstant(0)));
     const count = rangeAnalysisAndBoundsCheckElimination(graph);
@@ -215,8 +216,8 @@ describe("rangeAnalysisAndBoundsCheckElimination", () => {
     b0.addNode(cmp);
     const br = irBranch(cmp, b1, b2);
     b0.addNode(br);
-    b0.addSuccessor(b1);
-    b0.addSuccessor(b2);
+    link(b0, b1);
+    link(b0, b2);
     b1.addNode(irReturn(irConstant(1)));
     b2.addNode(irReturn(irConstant(0)));
     const count = rangeAnalysisAndBoundsCheckElimination(graph);
@@ -254,8 +255,8 @@ describe("rangeAnalysisAndBoundsCheckElimination", () => {
     b0.addNode(cmp);
     const br = irBranch(cmp, b1, b2);
     b0.addNode(br);
-    b0.addSuccessor(b1);
-    b0.addSuccessor(b2);
+    link(b0, b1);
+    link(b0, b2);
     b1.addNode(irReturn(irConstant(1)));
     b2.addNode(irReturn(irConstant(0)));
     const count = rangeAnalysisAndBoundsCheckElimination(graph);
@@ -277,8 +278,8 @@ describe("rangeAnalysisAndBoundsCheckElimination", () => {
     b0.addNode(cmp);
     const br = irBranch(cmp, b1, b2);
     b0.addNode(br);
-    b0.addSuccessor(b1);
-    b0.addSuccessor(b2);
+    link(b0, b1);
+    link(b0, b2);
     b1.addNode(irReturn(irConstant(1)));
     b2.addNode(irReturn(irConstant(0)));
     const count = rangeAnalysisAndBoundsCheckElimination(graph);

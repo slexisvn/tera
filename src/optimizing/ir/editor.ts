@@ -7,7 +7,6 @@ export class GraphEditor {
   replaceAllUses(from: CFGInstruction, to: CFGInstruction): void {
     if (from === to) return;
     replaceValueUses(this.graph, from, to);
-    this.replaceInEdgeArgs(from, to);
   }
 
   setInput(node: CFGInstruction, index: number, value: CFGInstruction): void {
@@ -36,15 +35,5 @@ export class GraphEditor {
       if (block.terminator === node) block.terminator = null;
     }
     node.block = null;
-  }
-
-  private replaceInEdgeArgs(from: CFGInstruction, to: CFGInstruction): void {
-    for (const block of this.graph.blocks) {
-      for (const args of block.edgeArgs.values()) {
-        for (let i = 0; i < args.length; i++) {
-          if (args[i] === from) args[i] = to;
-        }
-      }
-    }
   }
 }
