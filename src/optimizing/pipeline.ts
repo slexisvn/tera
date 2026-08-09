@@ -111,8 +111,7 @@ export function middleEndPhases(deps: MiddleEndDeps): OptimizationPhase<CFGFunct
       step(
         "allocation-shape",
         preservesControlFlow,
-        (g, analyses) => specializeAllocationShapes(g, analyses.get(loopForestAnalysisId)),
-        [loopId],
+        (g) => specializeAllocationShapes(g),
       ),
       step("ic-lowering", preservesControlFlow, (g) => inlineCacheLowering(g, deps.feedback)),
       step(
@@ -194,6 +193,20 @@ export function middleEndPhases(deps: MiddleEndDeps): OptimizationPhase<CFGFunct
       ),
       step("trivial-phi-elimination", preservesControlFlow, (g) => eliminateTrivialPhis(g)),
       step("dead-phi-elimination", preservesControlFlow, (g) => eliminateDeadPhis(g)),
+      step(
+        "escape-analysis-late",
+        preservesControlFlow,
+        (g, analyses) =>
+          escapeAnalysisAndScalarReplacement(
+            g,
+            analyses.get(dominanceAnalysisId),
+            analyses.get(pointsToAnalysisId),
+        ),
+        [dominanceId, pointsToId],
+      ),
+      step("trivial-phi-elimination-after-late-escape", preservesControlFlow, (g) => eliminateTrivialPhis(g)),
+      step("dead-phi-elimination-after-late-escape", preservesControlFlow, (g) => eliminateDeadPhis(g)),
+      step("dead-code-elimination-after-late-escape", preservesControlFlow, (g) => deadCodeElimination(g)),
     ]),
     phase("target-legalization", [
       step("representation-selection", preservesControlFlow, (g) => representationSelection(g)),

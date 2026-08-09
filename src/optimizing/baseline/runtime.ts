@@ -46,7 +46,7 @@ import {
 
 import { createJSObject, createJSArray } from "../../objects/heap/factory.js";
 import { AccessorPair } from "../../objects/heap/js-object.js";
-import { UpvalueCell } from "../../runtime/intrinsics/environment.js";
+import { Environment, UpvalueCell } from "../../runtime/intrinsics/environment.js";
 import {
   isJSProxyValue,
   runtimeDeleteProperty,
@@ -755,6 +755,25 @@ export class BaselineRuntime {
     }
     return mkBool(true);
   }
+  deletePropKey(obj: TaggedValue, key: TaggedValue) {
+    const propName = toDisplayString(key);
+    if (isObject(obj)) {
+      runtimeDeleteProperty(obj, propName, this.interp);
+    }
+    return mkBool(true);
+  }
+  loadUpvalue(cells: UpvalueCell[] | null, index: number) {
+    const cell = cells?.[index];
+    if (!cell) throw new Error(`Missing closure upvalue ${index}`);
+    const value = cell.get();
+    return value === null ? this.u : value as TaggedValue;
+  }
+  storeUpvalue(cells: UpvalueCell[] | null, index: number, value: TaggedValue) {
+    const cell = cells?.[index];
+    if (!cell) throw new Error(`Missing closure upvalue ${index}`);
+    cell.set(value);
+    return value;
+  }
   _recordBinaryFb(left: TaggedValue, right: TaggedValue, fbSlot: number) {
     if (fbSlot >= 0 && this.fv) {
       const slot = this.fv.getSlot(fbSlot);
@@ -854,14 +873,13 @@ export class BaselineRuntime {
     if (isConstructorLike(fn)) return null;
     if (
       !fn.compiled ||
-      fn.closure ||
       fn.compiled.disableOptimization ||
       !fn.compiled.optimizedCode
     )
       return null;
     if (this.hasConstructorCalls(fn.compiled)) return null;
     if (isInsideWasmExecution()) return null;
-    return fn.compiled.optimizedCode(args, this.u, this.interp);
+    return fn.compiled.optimizedCode(args, this.u, this.interp, fn.closure || null);
   }
 
   hasConstructorCalls(compiledFn: BaselineCompiledMetadata) {
@@ -1090,35 +1108,37 @@ export class BaselineRuntime {
       if (!uv) {
         throw new Error(`Missing upvalue descriptor ${i}`);
       }
-      if (uv.isLocal) {
-        if (uv.index === undefined) {
+      if (uv.outerType !== "upvalue" && uv.isLocal !== false) {
+        const slot = uv.outerSlot ?? uv.index;
+        if (slot === undefined) {
           throw new Error(`Missing upvalue index ${i}`);
         }
-        if (openUpvalues.has(uv.index)) {
-          const existing = openUpvalues.get(uv.index);
-          if (!existing) throw new Error(`Missing open upvalue ${uv.index}`);
+        if (openUpvalues.has(slot)) {
+          const existing = openUpvalues.get(slot);
+          if (!existing) throw new Error(`Missing open upvalue ${slot}`);
           cells.push(existing);
         } else {
-          const cell = new UpvalueCell({ locals: registers }, uv.index);
-          openUpvalues.set(uv.index, cell);
+          const cell = new UpvalueCell({ locals: registers }, slot);
+          openUpvalues.set(slot, cell);
           cells.push(cell);
         }
       } else {
         if (!closureEnv) {
           throw new Error("Missing closure environment");
         }
-        if (uv.index === undefined) {
+        const slot = uv.outerSlot ?? uv.index;
+        if (slot === undefined) {
           throw new Error(`Missing upvalue index ${i}`);
         }
-        const captured = closureEnv[uv.index];
-        if (!captured) throw new Error(`Missing captured upvalue ${uv.index}`);
+        const captured = closureEnv[slot];
+        if (!captured) throw new Error(`Missing captured upvalue ${slot}`);
         cells.push(captured);
       }
     }
     return mkFunction({
       name: compiled.name ?? undefined,
       compiled,
-      closure: null,
+      closure: new Environment(cells),
     });
   }
 }

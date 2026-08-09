@@ -26,6 +26,7 @@ import {
   numericPackedElementRep,
   constantString,
 } from "./feedback-utils.js";
+import { genericDeletePropNode } from "./property-nodes.js";
 
 type AnyNode = ir.CFGInstruction;
 type AnyBlock = ir.CFGBlock;
@@ -371,8 +372,8 @@ export function tryInline(
     }
 
     if (instr.opcode === bytecode.ROP_MOV) {
-      const dst = instr.operands[0];
-      const src = instr.operands[1];
+      const src = instr.operands[0];
+      const dst = instr.operands[1];
       inlineRegs.set(dst, inlineRegs.get(src) || ir.irConstant(undefined));
       return { block: currentBlock, acc: inlineAcc };
     }
@@ -429,6 +430,10 @@ export function tryInline(
       else if (instr.opcode === bytecode.ROP_DIV)
         result = ir.irGenericDiv(left, right);
       else result = ir.irGenericMod(left, right);
+      result.frameState = captureInlineFrameState(inlineBcIdx, inlineRegs, [
+        left,
+        right,
+      ]);
       currentBlock.addNode(result);
       return { block: currentBlock, acc: result };
     }
@@ -449,6 +454,10 @@ export function tryInline(
       const cmpOp = (COMPARE_OP_MAP as Record<number, string>)[instr.opcode];
 
       const cmp = ir.irGenericCompare(cmpOp, left, right);
+      cmp.frameState = captureInlineFrameState(inlineBcIdx, inlineRegs, [
+        left,
+        right,
+      ]);
       currentBlock.addNode(cmp);
       return { block: currentBlock, acc: cmp };
     }
@@ -696,6 +705,13 @@ export function tryInline(
       const node = ir.irGenericSetIndex(obj, index, inlineAcc);
       currentBlock.addNode(node);
       return { block: currentBlock, acc: inlineAcc };
+    }
+
+    if (instr.opcode === bytecode.ROP_DELETE_PROP) {
+      const node = genericDeletePropNode(instr, targetFn, inlineRegs);
+      node.frameState = captureInlineFrameState(inlineBcIdx, inlineRegs, []);
+      currentBlock.addNode(node);
+      return { block: currentBlock, acc: node };
     }
 
     if (instr.opcode === bytecode.ROP_NOT) {

@@ -68,6 +68,7 @@ export function escapeAnalysisAndScalarReplacement(
       values.filter((value) => pointsTo.allocClassOf(value) === alloc.id),
     );
     const safeUses = safeReceiverUses(aliases);
+    if (hasUnsupportedAliasUses(aliases, safeUses)) continue;
     if (callerFrameStatesReferenceAliases(graph, aliases)) continue;
 
     let allDominated = true;
@@ -82,16 +83,19 @@ export function escapeAnalysisAndScalarReplacement(
         break;
       }
     }
+    if (!allDominated) continue;
 
     const initialOffset = initialOffsetState(alloc);
-    if (requiresUnsupportedMergeState(safeUses, aliases, initialOffset)) continue;
+    if (requiresUnsupportedMergeState(graph, safeUses, aliases, initialOffset, dominance)) continue;
 
     const toDelete = new Set<number>([...aliases].map((node) => node.id));
     const phiFieldStates = createPhiFieldStates(
+      graph,
       aliases,
       safeUses,
       initialOffset,
       blockOf,
+      dominance,
     );
 
     let arrayLength: number | null = null;
@@ -319,15 +323,32 @@ function safeReceiverUses(aliases: ReadonlySet<EscapeNode>): Set<EscapeNode> {
   return uses;
 }
 
+function hasUnsupportedAliasUses(
+  aliases: ReadonlySet<EscapeNode>,
+  safeUses: ReadonlySet<EscapeNode>,
+): boolean {
+  for (const alias of aliases) {
+    for (const use of alias.uses) {
+      if (safeUses.has(use)) continue;
+      if (aliases.has(use) && use.type === ir.IR_PHI) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
 function requiresUnsupportedMergeState(
+  graph: EscapeGraph,
   safeUses: ReadonlySet<EscapeNode>,
   aliases: ReadonlySet<EscapeNode>,
   initialOffset: ValueState,
+  dominance: DominatorTree,
 ): boolean {
   for (const use of safeUses) {
+    if (IDENTITY_GUARDS.has(use.type)) continue;
     const block = use.block;
     if (!block || block.predecessors.length < 2) continue;
-    const base = use.inputs[0];
+    const base = receiverRoot(use.inputs[0]);
     if (base?.type !== ir.IR_PHI || !aliases.has(base) || base.block !== block) {
       return true;
     }
@@ -342,10 +363,36 @@ function requiresUnsupportedMergeState(
     for (let index = 0; index < block.predecessors.length; index++) {
       const predecessor = block.predecessors[index]!;
       if (latestStoreForField(predecessor, key, aliases)) continue;
-      const objectInput = base.inputs[index];
+      const objectInput: EscapeNode | undefined = base.inputs[index];
       if (objectInput === base) continue;
       if (initialOffset.has(key)) continue;
       return true;
+    }
+  }
+  for (const header of graph.blocks) {
+    if (!isLoopHeader(header, dominance)) continue;
+    const keys = new Set<ir.IRMetadataValue>();
+    for (const use of safeUses) {
+      if (IDENTITY_GUARDS.has(use.type)) continue;
+      const block = use.block;
+      if (!block || !dominance.dominates(header, block)) continue;
+      if (
+        use.type === ir.IR_GENERIC_GET_PROP ||
+        use.type === ir.IR_GENERIC_SET_PROP
+      ) {
+        return true;
+      }
+      const key = offsetStateKey(use);
+      if (key === null) continue;
+      if (hasBackedgeStore(header, key, aliases, dominance)) keys.add(key);
+    }
+    for (const key of keys) {
+      for (const predecessor of header.predecessors) {
+        if (latestStoreForField(predecessor, key, aliases)) continue;
+        if (dominance.dominates(header, predecessor)) continue;
+        if (initialOffset.has(key)) continue;
+        return true;
+      }
     }
   }
   return false;
@@ -362,44 +409,110 @@ function initialOffsetState(alloc: EscapeNode): ValueState {
 }
 
 function createPhiFieldStates(
+  graph: EscapeGraph,
   aliases: ReadonlySet<EscapeNode>,
   safeUses: ReadonlySet<EscapeNode>,
   initialOffset: ValueState,
   blockOf: Map<EscapeNode, EscapeBlock>,
+  dominance: DominatorTree,
 ): Map<EscapeBlock, ValueState> {
   const out = new Map<EscapeBlock, ValueState>();
+  const ensureBlockState = (block: EscapeBlock): ValueState => {
+    let blockState = out.get(block);
+    if (!blockState) {
+      blockState = new Map();
+      out.set(block, blockState);
+    }
+    return blockState;
+  };
+  const createFieldPhi = (
+    block: EscapeBlock,
+    key: ir.IRMetadataValue,
+    inputForPredecessor: (
+      predecessor: EscapeBlock,
+      index: number,
+      phi: EscapeNode,
+    ) => EscapeNode | null,
+  ): void => {
+    const blockState = ensureBlockState(block);
+    if (blockState.has(key)) return;
+    const phi = addPhi(block, []);
+    blockOf.set(phi, block);
+    blockState.set(key, phi);
+    for (let index = 0; index < block.predecessors.length; index++) {
+      const predecessor = block.predecessors[index]!;
+      const input = inputForPredecessor(predecessor, index, phi);
+      if (input) phi.addInput(input);
+    }
+  };
+
   for (const alias of aliases) {
     if (alias.type !== ir.IR_PHI || !alias.block || !alias.block.phis.includes(alias)) continue;
     const fieldKeys = fieldKeysForAlias(alias, safeUses);
     if (fieldKeys.size === 0) continue;
-    let blockState = out.get(alias.block);
-    if (!blockState) {
-      blockState = new Map();
-      out.set(alias.block, blockState);
-    }
     for (const key of fieldKeys) {
-      const phi = addPhi(alias.block, []);
-      blockOf.set(phi, alias.block);
-      blockState.set(key, phi);
-      for (let index = 0; index < alias.block.predecessors.length; index++) {
-        const predecessor = alias.block.predecessors[index]!;
+      createFieldPhi(alias.block, key, (predecessor, index, phi) => {
         const stored = latestStoreForField(predecessor, key, aliases);
-        if (stored) {
-          phi.addInput(stored);
-          continue;
-        }
+        if (stored) return stored;
         const objectInput = alias.inputs[index];
-        if (objectInput === alias) {
-          phi.addInput(phi);
-          continue;
-        }
-        if (initialOffset.has(key)) {
-          phi.addInput(initialOffset.get(key)!);
-        }
-      }
+        if (objectInput === alias) return phi;
+        return initialOffset.get(key) ?? null;
+      });
+    }
+  }
+  for (const header of graph.blocks) {
+    if (!isLoopHeader(header, dominance)) continue;
+    const fieldKeys = fieldKeysForLoopHeader(header, safeUses, aliases, dominance);
+    for (const key of fieldKeys) {
+      createFieldPhi(header, key, (predecessor, _index, phi) => {
+        const stored = latestStoreForField(predecessor, key, aliases);
+        if (stored) return stored;
+        if (dominance.dominates(header, predecessor)) return phi;
+        return initialOffset.get(key) ?? null;
+      });
     }
   }
   return out;
+}
+
+function isLoopHeader(block: EscapeBlock, dominance: DominatorTree): boolean {
+  return block.predecessors.some((predecessor) =>
+    dominance.dominates(block, predecessor),
+  );
+}
+
+function fieldKeysForLoopHeader(
+  header: EscapeBlock,
+  safeUses: ReadonlySet<EscapeNode>,
+  aliases: ReadonlySet<EscapeNode>,
+  dominance: DominatorTree,
+): Set<ir.IRMetadataValue> {
+  const keys = new Set<ir.IRMetadataValue>();
+  for (const use of safeUses) {
+    if (IDENTITY_GUARDS.has(use.type)) continue;
+    const block = use.block;
+    if (!block || !dominance.dominates(header, block)) continue;
+    const receiver = receiverRoot(use.inputs[0]);
+    if (!receiver || !aliases.has(receiver)) continue;
+    const key = offsetStateKey(use);
+    if (key !== null && hasBackedgeStore(header, key, aliases, dominance)) {
+      keys.add(key);
+    }
+  }
+  return keys;
+}
+
+function hasBackedgeStore(
+  header: EscapeBlock,
+  key: ir.IRMetadataValue,
+  aliases: ReadonlySet<EscapeNode>,
+  dominance: DominatorTree,
+): boolean {
+  for (const predecessor of header.predecessors) {
+    if (!dominance.dominates(header, predecessor)) continue;
+    if (latestStoreForField(predecessor, key, aliases)) return true;
+  }
+  return false;
 }
 
 function fieldKeysForAlias(
@@ -408,11 +521,26 @@ function fieldKeysForAlias(
 ): Set<ir.IRMetadataValue> {
   const keys = new Set<ir.IRMetadataValue>();
   for (const use of safeUses) {
-    if (use.inputs[0] !== alias) continue;
+    if (receiverRoot(use.inputs[0]) !== alias) continue;
     const key = offsetStateKey(use);
     if (key !== null) keys.add(key);
   }
   return keys;
+}
+
+function receiverRoot(value: EscapeNode | null | undefined): EscapeNode | null {
+  let current = value ?? null;
+  const seen = new Set<EscapeNode>();
+  while (
+    current &&
+    IDENTITY_GUARDS.has(current.type) &&
+    current.inputs[0] &&
+    !seen.has(current)
+  ) {
+    seen.add(current);
+    current = current.inputs[0];
+  }
+  return current;
 }
 
 function latestStoreForField(
@@ -422,7 +550,8 @@ function latestStoreForField(
 ): EscapeNode | null {
   for (let index = block.nodes.length - 1; index >= 0; index--) {
     const node = block.nodes[index]!;
-    if (!aliases.has(node.inputs[0])) continue;
+    const receiver = receiverRoot(node.inputs[0]);
+    if (!receiver || !aliases.has(receiver)) continue;
     if (offsetStateKey(node) !== key) continue;
     return storedValue(node);
   }

@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("../../src/bytecode/register/interpreter/index.js", () => {
   class MockRegisterFrame {
-    constructor(compiledFn, args, thisValue) {
+    constructor(compiledFn, args, thisValue, closureEnv) {
       this.compiledFn = compiledFn;
       this.locals = new Array(compiledFn.registerCount || 4).fill(undefined);
       this.acc = undefined;
       this.thisValue = thisValue;
+      this.closureEnv = closureEnv || null;
       this.pc = 0;
     }
   }
@@ -16,6 +17,7 @@ vi.mock("../../src/bytecode/register/interpreter/index.js", () => {
 import { Deoptimizer } from "../../src/deopt/deoptimizer.js";
 import { DeoptSignal } from "../../src/deopt/signal.js";
 import { FrameState } from "../../src/deopt/frame-state.js";
+import { Environment } from "../../src/runtime/intrinsics/environment.js";
 import {
   mkSmi,
   mkUndefined,
@@ -176,6 +178,27 @@ describe("Deoptimizer.deoptimizeFromFrameState", () => {
     deopt.deoptimize(signal, [fs]);
 
     expect(calls[0].thisValue).toBe(thisVal);
+  });
+
+  it("restores closure environment from deopt signal", () => {
+    let resumedFrame = null;
+    const interpreter = {
+      resumeAt: vi.fn((frame) => {
+        resumedFrame = frame;
+        return mkSmi(0);
+      }),
+      tieringPolicy: null,
+    };
+    const deopt = new Deoptimizer(interpreter);
+    const fn = makeFn("closure");
+    const fs = new FrameState(fn, 0);
+    fs.id = 0;
+    const env = new Environment([]);
+    const signal = new DeoptSignal("guard-failure", 0, [], [], 0, new Map(), env);
+
+    deopt.deoptimize(signal, [fs]);
+
+    expect(resumedFrame.closureEnv).toBe(env);
   });
 
   it("materializes sunk allocations and merges into runtimeValues", () => {
@@ -374,5 +397,36 @@ describe("Deoptimizer.resumeCascaded", () => {
     const outerFrame = frames.find((f) => f.name === "outer");
     expect(getPayload(outerFrame.locals[0])).toBe(111);
     expect(getPayload(outerFrame.locals[1])).toBe(222);
+  });
+
+  it("materializes caller frame values from the same runtime values", () => {
+    const frames = [];
+    const interpreter = {
+      resumeAt: vi.fn((frame) => {
+        frames.push({ name: frame.compiledFn.name, locals: [...frame.locals] });
+        return mkSmi(0);
+      }),
+      tieringPolicy: null,
+    };
+    const deopt = new Deoptimizer(interpreter);
+
+    const outer = makeFn("outer", 1);
+    const inner = makeFn("inner", 1);
+    const liveValue = { id: 77, type: "LiveValue" };
+
+    const outerFs = new FrameState(outer, 0);
+    outerFs.id = 0;
+    outerFs.setLocal(0, liveValue);
+
+    const innerFs = new FrameState(inner, 5);
+    innerFs.id = 1;
+    innerFs.setCallerFrame(outerFs);
+
+    const runtimeValues = new Map([[77, mkSmi(333)]]);
+    const signal = new DeoptSignal("overflow", 5, [], [], 1, runtimeValues);
+    deopt.deoptimize(signal, [outerFs, innerFs]);
+
+    const outerFrame = frames.find((f) => f.name === "outer");
+    expect(getPayload(outerFrame.locals[0])).toBe(333);
   });
 });

@@ -10,11 +10,14 @@ import {
   irConstant,
   irNewObject,
   irNewArray,
+  irLoadArrayLength,
   irGenericSetProp,
   irGenericGetProp,
   irStoreField,
   irLoadField,
+  irCheckMap,
   irGenericCall,
+  irCheckSmi,
   irInt32Add,
   irReturn,
   irJump,
@@ -92,6 +95,22 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     const count = runEscapeAnalysis(graph);
     expect(count).toBe(0);
     expect(block.nodes.some(n => n.type === IR_NEW_OBJECT)).toBe(true);
+  });
+
+  it("does NOT replace when an allocation has an unsupported alias use", () => {
+    const graph = new CFGFunction("test");
+    const block = graph.addBlock();
+    const value = irConstant(1);
+    block.addNode(value);
+    const alloc = irNewArray([value]);
+    block.addNode(alloc);
+    const length = irLoadArrayLength(alloc);
+    block.addNode(length);
+    const ret = irReturn(length);
+    block.addNode(ret);
+    const count = runEscapeAnalysis(graph);
+    expect(count).toBe(0);
+    expect(block.nodes.some(n => n === alloc)).toBe(true);
   });
 
   it("does NOT replace when object is returned (escapes)", () => {
@@ -397,5 +416,111 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     expect(header.phis[0].inputs).toContain(initial);
     expect(header.phis[0].inputs).toContain(next);
     expect(ret.inputs[0]).toBe(header.phis[0]);
+  });
+
+  it("scalar replaces loop-carried fields through identity map checks", () => {
+    const graph = new CFGFunction("test");
+    const entry = graph.addBlock();
+    const header = graph.addBlock();
+    const body = graph.addBlock();
+    const exit = graph.addBlock();
+
+    const alloc = irNewObject();
+    const initial = irConstant(0);
+    entry.addNode(alloc);
+    entry.addNode(initial);
+    entry.addNode(irStoreField(alloc, 0, initial));
+    link(entry, header);
+    entry.addNode(irJump(header));
+
+    const obj = addPhi(header, [alloc]);
+    const checked = irCheckMap(obj, 1);
+    const current = irLoadField(checked, 0);
+    const one = irConstant(1);
+    const next = irInt32Add(current, one);
+    const cond = irConstant(1);
+    header.addNode(checked);
+    header.addNode(current);
+    header.addNode(one);
+    header.addNode(next);
+    header.addNode(cond);
+    link(header, body);
+    link(header, exit);
+    header.addNode(irBranch(cond, body, exit));
+
+    body.addNode(irStoreField(checked, 0, next));
+    link(body, header);
+    body.addNode(irJump(header));
+    connect(body, header, [obj]);
+
+    const finalChecked = irCheckMap(obj, 1);
+    const finalLoad = irLoadField(finalChecked, 0);
+    exit.addNode(finalChecked);
+    exit.addNode(finalLoad);
+    const ret = irReturn(finalLoad);
+    exit.addNode(ret);
+
+    const count = runEscapeAnalysis(graph);
+
+    expect(count).toBe(1);
+    expect(graph.blocks.flatMap(block => block.nodes).some(n => n.type === IR_NEW_OBJECT)).toBe(false);
+    expect(graph.blocks.flatMap(block => block.nodes).some(n => n.type === IR_LOAD_FIELD)).toBe(false);
+    expect(graph.blocks.flatMap(block => block.nodes).some(n => n.type === IR_STORE_FIELD)).toBe(false);
+    expect(ret.inputs[0]?.type).toBe(IR_PHI);
+    expect(ret.inputs[0]?.inputs).toContain(initial);
+    expect(ret.inputs[0]?.inputs).toContain(next);
+  });
+
+  it("keeps loop-carried field updates through numeric checks", () => {
+    const graph = new CFGFunction("test");
+    const entry = graph.addBlock();
+    const header = graph.addBlock();
+    const body = graph.addBlock();
+    const exit = graph.addBlock();
+
+    const alloc = irNewObject();
+    const initial = irConstant(0);
+    const one = irConstant(1);
+    entry.addNode(alloc);
+    entry.addNode(initial);
+    entry.addNode(one);
+    entry.addNode(irStoreField(alloc, 0, initial));
+    link(entry, header);
+    entry.addNode(irJump(header));
+
+    const obj = addPhi(header, [alloc]);
+    const cond = irConstant(1);
+    header.addNode(cond);
+    link(header, body);
+    link(header, exit);
+    header.addNode(irBranch(cond, body, exit));
+
+    const checkedObj = irCheckMap(obj, 1);
+    const current = irLoadField(checkedObj, 0);
+    const checkedCurrent = irCheckSmi(current);
+    const checkedOne = irCheckSmi(one);
+    const next = irInt32Add(checkedCurrent, checkedOne);
+    body.addNode(checkedObj);
+    body.addNode(current);
+    body.addNode(checkedCurrent);
+    body.addNode(checkedOne);
+    body.addNode(next);
+    body.addNode(irStoreField(checkedObj, 0, next));
+    connect(body, header, [obj]);
+    body.addNode(irJump(header));
+
+    const finalChecked = irCheckMap(obj, 1);
+    const finalLoad = irLoadField(finalChecked, 0);
+    exit.addNode(finalChecked);
+    exit.addNode(finalLoad);
+    const ret = irReturn(finalLoad);
+    exit.addNode(ret);
+
+    const count = runEscapeAnalysis(graph);
+
+    expect(count).toBe(1);
+    expect(ret.inputs[0]?.type).toBe(IR_PHI);
+    expect(ret.inputs[0]?.inputs).toContain(initial);
+    expect(ret.inputs[0]?.inputs).toContain(next);
   });
 });

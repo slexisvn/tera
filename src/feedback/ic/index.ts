@@ -340,9 +340,14 @@ export class MegamorphicCache {
   setElementStore(elementsKind: ElementsKind, handler: StoreElementHandler): void {
     this.elementStoreCache.set(elementsKind, handler);
   }
-}
 
-export const globalMegamorphicCache = new MegamorphicCache();
+  clear(): void {
+    this.loadCache.clear();
+    this.storeCache.clear();
+    this.elementLoadCache.clear();
+    this.elementStoreCache.clear();
+  }
+}
 
 class ICEntry<THandler extends PropertyHandler = PropertyHandler> {
   hiddenClassId: MapId;
@@ -479,6 +484,7 @@ export class StoreElementHandler {
 
 export class PropertyLoadIC {
   siteId: SiteId;
+  megamorphicCache: MegamorphicCache;
   state: ICState;
   entries: Array<ICEntry<LoadPropertyHandler>> | null;
   hitCount: number;
@@ -487,8 +493,9 @@ export class PropertyLoadIC {
   monomorphicSinceCount: number;
   jitCandidate: boolean;
 
-  constructor(siteId: SiteId) {
+  constructor(siteId: SiteId, megamorphicCache = new MegamorphicCache()) {
     this.siteId = siteId;
+    this.megamorphicCache = megamorphicCache;
     this.state = IC_UNINITIALIZED;
     this.entries = [];
     this.hitCount = 0;
@@ -550,10 +557,10 @@ export class PropertyLoadIC {
     }
 
     if (this.state === IC_MEGAMORPHIC) {
-      const handler = globalMegamorphicCache.getLoad(hcId, propertyName);
+      const handler = this.megamorphicCache.getLoad(hcId, propertyName);
       if (handler) {
         if (!handler.matches(obj)) {
-          globalMegamorphicCache.deleteLoad(hcId, propertyName);
+          this.megamorphicCache.deleteLoad(hcId, propertyName);
         } else {
           this.hitCount++;
           tracer.icHit(siteTraceId(this.siteId), "megamorphic", hcId);
@@ -573,7 +580,7 @@ export class PropertyLoadIC {
           info.offset,
           propertyName,
         );
-        globalMegamorphicCache.setLoad(hcId, propertyName, newHandler);
+        this.megamorphicCache.setLoad(hcId, propertyName, newHandler);
         return { hit: false, value: newHandler.execute(obj) };
       }
       if (obj.prototype) {
@@ -593,7 +600,7 @@ export class PropertyLoadIC {
               propertyName,
               protoResult.depth,
             );
-            globalMegamorphicCache.setLoad(hcId, propertyName, protoHandler);
+            this.megamorphicCache.setLoad(hcId, propertyName, protoHandler);
             return { hit: false, value: protoResult.value };
           }
         }
@@ -603,7 +610,7 @@ export class PropertyLoadIC {
         obj.hiddenClass.version,
         propertyName,
       );
-      globalMegamorphicCache.setLoad(hcId, propertyName, missing);
+      this.megamorphicCache.setLoad(hcId, propertyName, missing);
       return { hit: false, value: undefined };
     }
 
@@ -771,6 +778,7 @@ export class PropertyLoadIC {
 
 export class PropertyStoreIC {
   siteId: SiteId;
+  megamorphicCache: MegamorphicCache;
   state: ICState;
   entries: Array<ICEntry<StorePropertyHandler>> | null;
   hitCount: number;
@@ -779,8 +787,9 @@ export class PropertyStoreIC {
   monomorphicSinceCount: number;
   jitCandidate: boolean;
 
-  constructor(siteId: SiteId) {
+  constructor(siteId: SiteId, megamorphicCache = new MegamorphicCache()) {
     this.siteId = siteId;
+    this.megamorphicCache = megamorphicCache;
     this.state = IC_UNINITIALIZED;
     this.entries = [];
     this.hitCount = 0;
@@ -832,7 +841,7 @@ export class PropertyStoreIC {
     }
 
     if (this.state === IC_MEGAMORPHIC) {
-      const handler = globalMegamorphicCache.getStore(hcId, propertyName);
+      const handler = this.megamorphicCache.getStore(hcId, propertyName);
       if (handler && handler.matches(obj)) {
         this.hitCount++;
         tracer.icHit(siteTraceId(this.siteId), "megamorphic-store", hcId);
@@ -871,7 +880,7 @@ export class PropertyStoreIC {
       }
 
       if (newHandler) {
-        globalMegamorphicCache.setStore(hcId, propertyName, newHandler);
+        this.megamorphicCache.setStore(hcId, propertyName, newHandler);
       }
       return true;
     }
@@ -1029,14 +1038,16 @@ export class PropertyStoreIC {
 
 export class ElementLoadIC {
   siteId: SiteId;
+  megamorphicCache: MegamorphicCache;
   state: ICState;
   entries: Array<ElementICEntry<LoadElementHandler>> | null;
   hitCount: number;
   missCount: number;
   transitionCount: number;
 
-  constructor(siteId: SiteId) {
+  constructor(siteId: SiteId, megamorphicCache = new MegamorphicCache()) {
     this.siteId = siteId;
+    this.megamorphicCache = megamorphicCache;
     this.state = IC_UNINITIALIZED;
     this.entries = [];
     this.hitCount = 0;
@@ -1071,14 +1082,14 @@ export class ElementLoadIC {
     }
 
     if (this.state === IC_MEGAMORPHIC) {
-      const handler = globalMegamorphicCache.getElementLoad(elementsKind);
+      const handler = this.megamorphicCache.getElementLoad(elementsKind);
       this.missCount++;
       if (handler) {
         tracer.icHit(siteTraceId(this.siteId), "megamorphic-element-load", kindTraceId(elementsKind));
         return { hit: false, value: handler.execute(arrayObj, index) };
       }
       const newHandler = new LoadElementHandler(elementsKind);
-      globalMegamorphicCache.setElementLoad(elementsKind, newHandler);
+      this.megamorphicCache.setElementLoad(elementsKind, newHandler);
       tracer.icMiss(siteTraceId(this.siteId), "megamorphic-element-load");
       return { hit: false, value: newHandler.execute(arrayObj, index) };
     }
@@ -1139,14 +1150,16 @@ export class ElementLoadIC {
 
 export class ElementStoreIC {
   siteId: SiteId;
+  megamorphicCache: MegamorphicCache;
   state: ICState;
   entries: Array<ElementICEntry<StoreElementHandler>> | null;
   hitCount: number;
   missCount: number;
   transitionCount: number;
 
-  constructor(siteId: SiteId) {
+  constructor(siteId: SiteId, megamorphicCache = new MegamorphicCache()) {
     this.siteId = siteId;
+    this.megamorphicCache = megamorphicCache;
     this.state = IC_UNINITIALIZED;
     this.entries = [];
     this.hitCount = 0;
@@ -1185,14 +1198,14 @@ export class ElementStoreIC {
     }
 
     if (this.state === IC_MEGAMORPHIC) {
-      let handler = globalMegamorphicCache.getElementStore(elementsKind);
+      let handler = this.megamorphicCache.getElementStore(elementsKind);
       if (!handler) {
         handler = new StoreElementHandler(elementsKind);
-        globalMegamorphicCache.setElementStore(elementsKind, handler);
+        this.megamorphicCache.setElementStore(elementsKind, handler);
       }
       this.missCount++;
       handler.execute(arrayObj, index, value);
-      globalMegamorphicCache.setElementStore(
+      this.megamorphicCache.setElementStore(
         arrayObj.getElementsKind(),
         new StoreElementHandler(arrayObj.getElementsKind()),
       );
@@ -1436,18 +1449,20 @@ export class CallIC {
 
 export class InlineCache {
   siteId: SiteId;
+  megamorphicCache: MegamorphicCache;
   loadIC: PropertyLoadIC;
   storeIC: PropertyStoreIC;
   elementLoadIC: ElementLoadIC;
   elementStoreIC: ElementStoreIC;
   callIC: CallIC;
 
-  constructor(siteId: SiteId) {
+  constructor(siteId: SiteId, megamorphicCache = new MegamorphicCache()) {
     this.siteId = siteId;
-    this.loadIC = new PropertyLoadIC(siteId + ":load");
-    this.storeIC = new PropertyStoreIC(siteId + ":store");
-    this.elementLoadIC = new ElementLoadIC(siteId + ":element-load");
-    this.elementStoreIC = new ElementStoreIC(siteId + ":element-store");
+    this.megamorphicCache = megamorphicCache;
+    this.loadIC = new PropertyLoadIC(siteId + ":load", megamorphicCache);
+    this.storeIC = new PropertyStoreIC(siteId + ":store", megamorphicCache);
+    this.elementLoadIC = new ElementLoadIC(siteId + ":element-load", megamorphicCache);
+    this.elementStoreIC = new ElementStoreIC(siteId + ":element-store", megamorphicCache);
     this.callIC = new CallIC(siteId + ":call");
   }
 
@@ -1518,15 +1533,17 @@ export class InlineCache {
 export class InlineCacheManager {
   caches: Map<SiteId, InlineCache>;
   hiddenClassToICs: Map<MapId, Set<SiteId>>;
+  megamorphicCache: MegamorphicCache;
 
   constructor() {
     this.caches = new Map();
     this.hiddenClassToICs = new Map();
+    this.megamorphicCache = new MegamorphicCache();
   }
 
   getOrCreate(siteId: SiteId): InlineCache {
     if (!this.caches.has(siteId)) {
-      this.caches.set(siteId, new InlineCache(siteId));
+      this.caches.set(siteId, new InlineCache(siteId, this.megamorphicCache));
     }
     return this.caches.get(siteId)!;
   }
@@ -1586,6 +1603,7 @@ export class InlineCacheManager {
   flush(): void {
     this.caches.clear();
     this.hiddenClassToICs.clear();
+    this.megamorphicCache.clear();
   }
 
   collectStats(): ManagerStats {

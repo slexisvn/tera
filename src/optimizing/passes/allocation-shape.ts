@@ -2,7 +2,6 @@ import * as ir from "../ir/index.js";
 import { getHiddenClassById } from "../../objects/maps/hidden-class.js";
 import { metadataNumber } from "../ir/metadata.js";
 import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
-import type { LoopForest } from "../analyses/loops.js";
 
 type ShapeNode = ir.CFGInstruction;
 type ShapeGraph = ir.CFGFunction;
@@ -15,18 +14,10 @@ type InitializerChain = {
 
 export function specializeAllocationShapes(
   graph: ShapeGraph,
-  forest: LoopForest,
 ): number {
   let specialized = 0;
 
-  const repeatedBlocks = new Set<number>();
   for (const block of graph.blocks) {
-    if (forest.loopOf(block) !== null) repeatedBlocks.add(block.id);
-  }
-
-  for (const block of graph.blocks) {
-    if (repeatedBlocks.has(block.id)) continue;
-
     const position = new Map<ShapeNode, number>();
     for (let index = 0; index < block.nodes.length; index++) {
       position.set(block.nodes[index], index);

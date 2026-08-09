@@ -14,8 +14,8 @@ const driver = src(
 
 const compiled = (body: string) => tierUp(src(body, driver), "run");
 
-describe("marshalling-dominated object code stays in baseline", () => {
-  it("declines a loop that mutates a global object and calls a heap-passing helper (seed 655 shape)", () => {
+describe("heap-marshalling object code tiers up through runtime stubs", () => {
+  it("optimizes a loop that mutates a global object and calls a heap-passing helper", () => {
     const fn = compiled(
       src(
         "g = {c: 0}",
@@ -36,22 +36,22 @@ describe("marshalling-dominated object code stays in baseline", () => {
         "  return g.c",
       ),
     );
-    expect(fn?.optimizedCode ?? null).toBeFalsy();
-    expect(fn?.lastCompileFailureReason ?? "").toContain("marshalling-dominated");
+    expect(fn?.optimizedCode).toBeTruthy();
+    expect(fn?.lastCompileFailureReason ?? null).toBeNull();
   });
 
-  it("declines a loopless leaf that allocates and returns a heap value (seed 1391 shape)", () => {
+  it("optimizes a loopless leaf that allocates and returns a heap value", () => {
     const fn = tierUp(
       src("fn run(n):", "  a = [n, n + 1]", "  return [a[n % 2], a]", driver),
       "run",
     );
-    expect(fn?.optimizedCode ?? null).toBeFalsy();
-    expect(fn?.lastCompileFailureReason ?? "").toContain("per-call marshalling-dominated");
+    expect(fn?.optimizedCode).toBeTruthy();
+    expect(fn?.lastCompileFailureReason ?? null).toBeNull();
   });
 });
 
-describe("escaping allocation stored to a global stays in baseline", () => {
-  it("declines a function that stores a fresh object into a global each iteration", () => {
+describe("escaping global heap stores tier through runtime stubs", () => {
+  it("optimizes a function that stores a fresh object into a global each iteration", () => {
     const fn = compiled(
       src(
         "g = {v: 0}",
@@ -63,11 +63,12 @@ describe("escaping allocation stored to a global stays in baseline", () => {
         "  return g.v",
       ),
     );
-    expect(fn?.optimizedCode ?? null).toBeFalsy();
+    expect(fn?.optimizedCode).toBeTruthy();
+    expect(fn?.lastCompileFailureReason ?? null).toBeNull();
   });
 });
 
-describe("self-recursive function returning a heap value stays in baseline (seed 233)", () => {
+describe("self-recursive heap-returning functions tier through runtime stubs", () => {
   const program = src(
     "g0 = 0.5",
     "g2 = [1]",
@@ -95,10 +96,174 @@ describe("self-recursive function returning a heap value stays in baseline (seed
     "[r0, r1]",
   );
 
-  it("agrees with the oracle across every tier and declines to optimize f0", () => {
+  it("agrees with the oracle across every tier and optimizes f0", () => {
     differential(program);
     const f0 = tierUp(program, "f0");
-    expect(f0?.optimizedCode ?? null).toBeFalsy();
+    expect(f0?.optimizedCode).toBeTruthy();
+    expect(f0?.lastCompileFailureReason ?? null).toBeNull();
+  });
+});
+
+describe("self-recursive numeric functions tier up", () => {
+  it("optimizes a recursive numeric result without changing its call representation", () => {
+    const program = src(
+      "fn fact(n):",
+      "  if n <= 1:",
+      "    return 1",
+      "  return n * fact(n - 1)",
+      "fn driver(m):",
+      "  k = 0",
+      "  t = 0",
+      "  while k < m:",
+      "    t = fact(5)",
+      "    k = k + 1",
+      "  return t",
+      "driver(300)",
+    );
+    differential(program);
+    const fact = tierUp(program, "fact");
+    expect(fact?.optimizedCode).toBeTruthy();
+    expect(fact?.lastCompileFailureReason ?? null).toBeNull();
+  });
+});
+
+describe("closure allocation tiers through context cells", () => {
+  it("optimizes a function that returns a closure capturing a local", () => {
+    const program = src(
+      "fn make(n):",
+      "  x = n + 1",
+      "  fn inner():",
+      "    return x + 2",
+      "  return inner",
+      "fn run(n):",
+      "  f = make(n)",
+      "  return f()",
+      "fn driver(m):",
+      "  k = 0",
+      "  t = 0",
+      "  while k < m:",
+      "    t = run(5)",
+      "    k = k + 1",
+      "  return t",
+      "driver(300)",
+    );
+    differential(program);
+    const make = tierUp(program, "make");
+    expect(make?.optimizedCode).toBeTruthy();
+    expect(make?.lastCompileFailureReason ?? null).toBeNull();
+  });
+
+  it("keeps captured local stores aliased after closure creation", () => {
+    const program = src(
+      "fn run(n):",
+      "  x = n",
+      "  fn inner():",
+      "    return x",
+      "  x = x + 1",
+      "  return inner()",
+      "fn driver(m):",
+      "  k = 0",
+      "  t = 0",
+      "  while k < m:",
+      "    t = run(5)",
+      "    k = k + 1",
+      "  return t",
+      "driver(300)",
+    );
+    differential(program);
+    const run = tierUp(program, "run");
+    expect(run?.optimizedCode).toBeTruthy();
+    expect(run?.lastCompileFailureReason ?? null).toBeNull();
+  });
+
+  it("optimizes closure bodies that read and write captured locals", () => {
+    const program = src(
+      "fn make(base):",
+      "  x = base",
+      "  fn add(y):",
+      "    x = x + y",
+      "    return x",
+      "  return add",
+      "fn run(n):",
+      "  f = make(3)",
+      "  i = 0",
+      "  s = 0",
+      "  while i < n:",
+      "    s = s + f((i % 5) + 1)",
+      "    i = i + 1",
+      "  return s",
+      "fn driver(m):",
+      "  k = 0",
+      "  t = 0",
+      "  while k < m:",
+      "    t = run(40 + (k % 3))",
+      "    k = k + 1",
+      "  return t",
+      "driver(300)",
+    );
+    differential(program);
+    const add = tierUp(program, "add");
+    expect(add?.optimizedCode).toBeTruthy();
+    expect(add?.lastCompileFailureReason ?? null).toBeNull();
+  });
+
+  it("resumes deoptimized closure bodies with their captured environment", () => {
+    const program = src(
+      "fn make():",
+      "  x = 0",
+      "  fn add(y):",
+      "    x = x + y",
+      "    return x",
+      "  return add",
+      "f = make()",
+      "fn warm(n):",
+      "  i = 0",
+      "  r = 0",
+      "  while i < n:",
+      "    r = f(1)",
+      "    i = i + 1",
+      "  return r",
+      "r0 = warm(300)",
+      'r1 = f("x")',
+      "r2 = f(2)",
+      "[r0, r1, r2]",
+    );
+    differential(program);
+  });
+
+  it("optimizes nested closure creation that captures an outer upvalue", () => {
+    const program = src(
+      "fn make(seed):",
+      "  x = seed",
+      "  fn middle(n):",
+      "    y = n",
+      "    fn inner(z):",
+      "      x = x + z",
+      "      return x + y",
+      "    return inner",
+      "  return middle",
+      "fn run(n):",
+      "  m = make(5)",
+      "  i = 0",
+      "  s = 0",
+      "  while i < n:",
+      "    f = m(i % 7)",
+      "    s = s + f(2)",
+      "    i = i + 1",
+      "  return s",
+      "fn driver(m):",
+      "  k = 0",
+      "  t = 0",
+      "  while k < m:",
+      "    t = run(38 + (k % 4))",
+      "    k = k + 1",
+      "  return t",
+      "driver(300)",
+    );
+    differential(program);
+    const middle = tierUp(program, "middle");
+    expect(middle?.optimizedCode).toBeTruthy();
+    expect(middle?.lastCompileFailureReason ?? null).toBeNull();
   });
 });
 

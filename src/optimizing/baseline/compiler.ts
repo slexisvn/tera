@@ -45,28 +45,17 @@ export class BaselineCompiler {
       )
     )
       return null;
-    if (
-      instrs.some((instr) => {
-        if (instr.opcode !== bytecode.ROP_MAKE_CLOSURE) return false;
-        const inner = compiledFn.constants[instr.operands[0]];
-        return (
-          inner instanceof bytecode.RegisterCompiledFunction &&
-          inner.upvalues.length > 0
-        );
-      })
-    )
-      return null;
-
     const body = this.generateBody(compiledFn);
     if (body === null) return null;
     const rt = new BaselineRuntime(compiledFn, interpreter);
 
     try {
-      const fn = new Function("args", "tv", "$", "pc", body) as (
+      const fn = new Function("args", "tv", "$", "pc", "env", body) as (
         args: TaggedValue[],
         thisValue: TaggedValue,
         runtime: BaselineRuntime,
         pc: number,
+        closureEnv: { cells: unknown[] } | null,
       ) => TaggedValue;
 
       tracer.jitCompile(
@@ -78,17 +67,18 @@ export class BaselineCompiler {
         args: TaggedValue[],
         thisValue: TaggedValue,
         interp: object,
+        closureEnv: { cells: unknown[] } | null,
       ) {
-        return fn(args, thisValue || rt.u, rt, 0);
+        return fn(args, thisValue || rt.u, rt, 0, closureEnv);
       };
       baselineFn._call0 = function baselineCall0(thisValue, interp) {
-        return fn([], thisValue || rt.u, rt, 0);
+        return fn([], thisValue || rt.u, rt, 0, null);
       };
       baselineFn._call1 = function baselineCall1(a0, thisValue, interp) {
-        return fn([a0], thisValue || rt.u, rt, 0);
+        return fn([a0], thisValue || rt.u, rt, 0, null);
       };
       baselineFn._call2 = function baselineCall2(a0, a1, thisValue, interp) {
-        return fn([a0, a1], thisValue || rt.u, rt, 0);
+        return fn([a0, a1], thisValue || rt.u, rt, 0, null);
       };
       baselineFn._call3 = function baselineCall3(
         a0,
@@ -97,7 +87,7 @@ export class BaselineCompiler {
         thisValue,
         interp,
       ) {
-        return fn([a0, a1, a2], thisValue || rt.u, rt, 0);
+        return fn([a0, a1, a2], thisValue || rt.u, rt, 0, null);
       };
       baselineFn._isBaseline = true;
       return baselineFn;
@@ -127,7 +117,7 @@ export class BaselineCompiler {
     c += `acc=$.u;\n`;
     c += `$.cf.lastExecutionTime=Date.now();\n`;
     if (hasClosures) {
-      c += `var _ouv=new Map(),_ce=null;\n`;
+      c += `var _ouv=new Map(),_ce=env?env.cells:null;\n`;
     }
     c += `$.enter(r,function(){return[acc,t,t2,t3,t4];});\ntry{\n`;
     c += `L:while(1){switch(pc){\n`;
@@ -173,7 +163,7 @@ export class BaselineCompiler {
         return `r[${o[0]}]=acc;`;
 
       case bytecode.ROP_MOV:
-        return `r[${o[0]}]=r[${o[1]}];`;
+        return `r[${o[1]}]=r[${o[0]}];`;
 
       case bytecode.ROP_LDA_GLOBAL:
         return `acc=$.lg(${o[0]});`;
@@ -349,10 +339,10 @@ export class BaselineCompiler {
         return `acc=$.f;`;
 
       case bytecode.ROP_LDA_UPVALUE:
-        return `acc=_ce?_ce[${o[0]}].get():$.u;`;
+        return `acc=$.loadUpvalue(_ce,${o[0]});`;
 
       case bytecode.ROP_STA_UPVALUE:
-        return `if(_ce)_ce[${o[0]}].set(acc);`;
+        return `$.storeUpvalue(_ce,${o[0]},acc);`;
 
       case bytecode.ROP_MAKE_CLOSURE:
         return `acc=$.closure($.cf.constants[${o[0]}],r,_ce,_ouv);`;
@@ -383,7 +373,9 @@ export class BaselineCompiler {
       case bytecode.ROP_VOID:
         return `acc=$.u;`;
       case bytecode.ROP_DELETE_PROP:
-        return `acc=$.deleteProp(r[${o[0]}],${o[1]});`;
+        return o.length > 2
+          ? `acc=$.deletePropKey(r[${o[0]}],r[${o[2]}]);`
+          : `acc=$.deleteProp(r[${o[0]}],${o[1]});`;
 
       case bytecode.ROP_LOOSE_EQ:
         return `t=r[${o[0]}];acc=$.looseEq(acc,t,${o[1]});`;

@@ -16,7 +16,12 @@ type ClassInfo = {
   readonly escaped: boolean;
 };
 
-const ALLOCATIONS = new Set([ir.IR_NEW_OBJECT, ir.IR_NEW_ARRAY, ir.IR_NEW_REGEX]);
+const ALLOCATIONS = new Set([
+  ir.IR_NEW_OBJECT,
+  ir.IR_NEW_ARRAY,
+  ir.IR_NEW_REGEX,
+  ir.IR_MAKE_CLOSURE,
+]);
 const IDENTITY_GUARDS = new Set([
   ir.IR_CHECK_MAP,
   ir.IR_CHECK_ARRAY,
@@ -24,6 +29,7 @@ const IDENTITY_GUARDS = new Set([
 ]);
 const CALLS = new Set([
   ir.IR_GENERIC_CALL,
+  ir.IR_MAKE_CLOSURE,
   ir.IR_CALL_BUILTIN,
   ir.IR_CALL_INTRINSIC,
   ir.IR_CALL_KNOWN_FUNCTION,
@@ -36,6 +42,7 @@ const EXTERNAL_VALUES = new Set([
   ir.IR_GENERIC_GET_PROP,
   ir.IR_GENERIC_GET_INDEX,
   ir.IR_LOAD_GLOBAL,
+  ir.IR_LOAD_CONTEXT_SLOT,
   ir.IR_POLYMORPHIC_LOAD,
   ir.IR_MEGAMORPHIC_LOAD,
   ir.IR_DISPATCH_MAP,
@@ -74,6 +81,7 @@ const NON_POINTER_VALUES = new Set([
   ir.IR_GENERIC_DIV,
   ir.IR_GENERIC_MOD,
   ir.IR_GENERIC_COMPARE,
+  ir.IR_GENERIC_DELETE_PROP,
   ir.IR_GENERIC_BITAND,
   ir.IR_GENERIC_BITOR,
   ir.IR_GENERIC_BITXOR,
@@ -91,12 +99,18 @@ const STORE_VALUE_INDEX = new Map<string, number>([
   [ir.IR_GENERIC_SET_PROP, 1],
   [ir.IR_GENERIC_SET_INDEX, 2],
   [ir.IR_STORE_GLOBAL, 0],
+  [ir.IR_STORE_CONTEXT_SLOT, 0],
 ]);
 const STORE_BASE_INDEX = new Map<string, number>([
   [ir.IR_STORE_FIELD, 0],
   [ir.IR_STORE_ELEMENT, 0],
   [ir.IR_GENERIC_SET_PROP, 0],
   [ir.IR_GENERIC_SET_INDEX, 0],
+]);
+
+const INPUT_ESCAPE_EFFECTS = new Set([
+  ...CALLS,
+  ir.IR_GENERIC_DELETE_PROP,
 ]);
 
 export interface PointsToResult {
@@ -262,7 +276,7 @@ function collectEscapedRoots(
       for (const input of value.inputs) mark(input);
       continue;
     }
-    if (CALLS.has(value.type) && value.props.pure !== true) {
+    if (INPUT_ESCAPE_EFFECTS.has(value.type) && value.props.pure !== true) {
       for (const input of value.inputs) mark(input);
       continue;
     }

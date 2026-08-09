@@ -29,7 +29,14 @@ import {
   numericFeedbackKind,
   constantString,
 } from "./feedback-utils.js";
-import { rememberIncomingState, restoreIncomingState, type IncomingStatesByTarget } from "./cfg-state.js";
+import { genericDeletePropNode } from "./property-nodes.js";
+import {
+  addInitialLoopPhis,
+  addLoopBackedgeInputs,
+  rememberIncomingState,
+  restoreIncomingState,
+  type IncomingStatesByTarget,
+} from "./cfg-state.js";
 import { addPhi, link } from "../ir/cfg-edit.js";
 import { captureFrameState } from "./frame-state.js";
 import {
@@ -57,6 +64,41 @@ type FrameStateList = FrameState[];
 type RegisterInstructionLike = bytecode.RegisterInstruction;
 type ConstructorLayoutEntry = { field: SimpleConstructorField; offset: number };
 
+function upvalueSlot(upvalue: bytecode.UpvalueDescriptor | undefined): number | null {
+  if (!upvalue) return null;
+  const slot = upvalue.outerSlot ?? upvalue.index;
+  return typeof slot === "number" ? slot : null;
+}
+
+function closureCaptures(target: bytecode.RegisterCompiledFunction): ir.ClosureCapture[] {
+  const captures: ir.ClosureCapture[] = [];
+  for (const upvalue of target.upvalues) {
+    const slot = upvalueSlot(upvalue);
+    if (slot === null) continue;
+    captures.push({
+      source:
+        upvalue?.outerType === "upvalue" || upvalue?.isLocal === false
+          ? "upvalue"
+          : "local",
+      slot,
+    });
+  }
+  return captures;
+}
+
+function capturedLocalSlots(compiledFn: AnyCompiledFunction): Set<number> {
+  const slots = new Set<number>();
+  for (const instr of compiledFn.instructions) {
+    if (instr.opcode !== bytecode.ROP_MAKE_CLOSURE) continue;
+    const target = compiledFn.constants[instr.operands[0]];
+    if (!(target instanceof bytecode.RegisterCompiledFunction)) continue;
+    for (const capture of closureCaptures(target)) {
+      if (capture.source === "local") slots.add(capture.slot);
+    }
+  }
+  return slots;
+}
+
 export function buildIR(
   graph: AnyGraph,
   currentBlock: AnyBlock,
@@ -73,6 +115,24 @@ export function buildIR(
 
   for (let i = 0; i < compiledFn.paramCount; i++) {
     regs.set(i, graph.parameters[i]);
+  }
+
+  const contextSlots = capturedLocalSlots(compiledFn);
+  if (contextSlots.size > 0) {
+    for (const slot of contextSlots) {
+      const initial =
+        regs.get(slot) || ir.homeInstruction(ir.irConstant(undefined), currentBlock);
+      const store = ir.irStoreContextSlot(slot, initial);
+      store.frameState = captureFrameState(
+        compiledFn,
+        0,
+        regs,
+        [initial],
+        frameStates,
+      );
+      currentBlock.addNode(store);
+      regs.set(slot, store);
+    }
   }
 
   const instructions = compiledFn.instructions;
@@ -115,11 +175,13 @@ export function buildIR(
   for (let i = 0; i < instructions.length; i++) {
     if (blockMap.has(i)) {
       const nextBlock = blockMap.get(i)!;
-      if (!currentBlock.isTerminated()) {
-        rememberIncomingState(savedBlockRegs, i, currentBlock, regs, acc);
+      const predecessorBlock = currentBlock;
+      const hasFallthrough = !predecessorBlock.isTerminated();
+      if (hasFallthrough) {
+        rememberIncomingState(savedBlockRegs, i, predecessorBlock, regs, acc);
         const jmp = ir.irJump(nextBlock);
-        currentBlock.addNode(jmp);
-        link(currentBlock, nextBlock);
+        predecessorBlock.addNode(jmp);
+        link(predecessorBlock, nextBlock);
       }
       currentBlock = nextBlock;
 
@@ -128,17 +190,18 @@ export function buildIR(
       }
 
       if (nextBlock.isLoopHeader) {
-        const phis = new Map<number, ir.CFGInstruction>();
-        for (const [slot, value] of regs) {
-          if (!value) continue;
-          const phi = addPhi(nextBlock, [value]);
-          phis.set(slot, phi);
-          regs.set(slot, phi);
-        }
+        const phis = addInitialLoopPhis(
+          nextBlock,
+          hasFallthrough ? predecessorBlock : nextBlock,
+          regs,
+          compiledFn.localCount,
+        );
+        const slots = [...phis.keys()];
         loopPhiMap.set(nextBlock.id, phis);
         graph.osrCandidates.set(i, {
           headerBlockId: nextBlock.id,
-          slots: [...phis.keys()],
+          slots,
+          phiIds: slots.map((slot) => phis.get(slot)!.id),
         });
       }
     }
@@ -158,6 +221,7 @@ export function buildIR(
       frameStates,
       savedBlockRegs,
       intrinsicMetadata,
+      contextSlots,
     );
     acc = currentBlock._lastAcc !== undefined ? currentBlock._lastAcc : acc;
   }
@@ -189,6 +253,7 @@ function compileInstruction(
   frameStates: FrameStateList,
   savedBlockRegs: SavedBlockRegs,
   intrinsicMetadata: IntrinsicOptimizationMetadata,
+  contextSlots: ReadonlySet<number>,
 ): AnyBlock {
   const op = instr.opcode;
   const operands = instr.operands;
@@ -204,9 +269,54 @@ function compileInstruction(
 
     case bytecode.ROP_MAKE_CLOSURE: {
       const value = compiledFn.constants[operands[0]];
-      const node = ir.irConstant(value);
+      let captures: ir.ClosureCapture[] = [];
+      if (value instanceof bytecode.RegisterCompiledFunction) {
+        captures = closureCaptures(value);
+        if (captures.length !== value.upvalues.length) {
+          throw new Error("Invalid closure capture descriptor");
+        }
+      }
+      const node =
+        value instanceof bytecode.RegisterCompiledFunction && value.upvalues.length > 0
+          ? ir.irMakeClosure(operands[0], value, captures)
+          : ir.irConstant(value);
+      node.frameState = captureFrameState(
+        compiledFn,
+        bytecodeIdx,
+        regs,
+        [],
+        frameStates,
+      );
       block.addNode(node);
       block._lastAcc = node;
+      break;
+    }
+
+    case bytecode.ROP_LDA_UPVALUE: {
+      const node = ir.irLoadContextSlot(operands[0], "upvalue");
+      node.frameState = captureFrameState(
+        compiledFn,
+        bytecodeIdx,
+        regs,
+        [],
+        frameStates,
+      );
+      block.addNode(node);
+      block._lastAcc = node;
+      break;
+    }
+
+    case bytecode.ROP_STA_UPVALUE: {
+      const value = acc || ir.homeInstruction(ir.irConstant(undefined), block);
+      const node = ir.irStoreContextSlot(operands[0], value, "upvalue");
+      node.frameState = captureFrameState(
+        compiledFn,
+        bytecodeIdx,
+        regs,
+        [value],
+        frameStates,
+      );
+      block.addNode(node);
       break;
     }
 
@@ -248,6 +358,20 @@ function compileInstruction(
 
     case bytecode.ROP_LDA_REG: {
       const reg = operands[0];
+      if (contextSlots.has(reg)) {
+        const node = ir.irLoadContextSlot(reg);
+        node.frameState = captureFrameState(
+          compiledFn,
+          bytecodeIdx,
+          regs,
+          [],
+          frameStates,
+        );
+        block.addNode(node);
+        regs.set(reg, node);
+        block._lastAcc = node;
+        break;
+      }
       const node = regs.get(reg) || ir.irConstant(undefined);
       block._lastAcc = node;
       break;
@@ -255,14 +379,57 @@ function compileInstruction(
 
     case bytecode.ROP_STAR: {
       const reg = operands[0];
+      if (contextSlots.has(reg)) {
+        const value = acc || ir.homeInstruction(ir.irConstant(undefined), block);
+        const node = ir.irStoreContextSlot(reg, value);
+        node.frameState = captureFrameState(
+          compiledFn,
+          bytecodeIdx,
+          regs,
+          [value],
+          frameStates,
+        );
+        block.addNode(node);
+        regs.set(reg, node);
+        break;
+      }
       regs.set(reg, acc);
       break;
     }
 
     case bytecode.ROP_MOV: {
-      const dst = operands[0];
-      const src = operands[1];
-      regs.set(dst, regs.get(src) || ir.irConstant(undefined));
+      const src = operands[0];
+      const dst = operands[1];
+      let value: ir.CFGInstruction;
+      if (contextSlots.has(src)) {
+        const node = ir.irLoadContextSlot(src);
+        node.frameState = captureFrameState(
+          compiledFn,
+          bytecodeIdx,
+          regs,
+          [],
+          frameStates,
+        );
+        block.addNode(node);
+        regs.set(src, node);
+        value = node;
+      } else {
+        value = regs.get(src) || ir.homeInstruction(ir.irConstant(undefined), block);
+      }
+      if (contextSlots.has(dst)) {
+        const node = ir.irStoreContextSlot(dst, value);
+        node.frameState = captureFrameState(
+          compiledFn,
+          bytecodeIdx,
+          regs,
+          [value],
+          frameStates,
+        );
+        block.addNode(node);
+        regs.set(dst, node);
+      } else {
+        regs.set(dst, value);
+      }
       break;
     }
 
@@ -854,6 +1021,20 @@ function compileInstruction(
       break;
     }
 
+    case bytecode.ROP_DELETE_PROP: {
+      const node = genericDeletePropNode(instr, compiledFn, regs);
+      node.frameState = captureFrameState(
+        compiledFn,
+        bytecodeIdx,
+        regs,
+        [],
+        frameStates,
+      );
+      block.addNode(node);
+      block._lastAcc = node;
+      break;
+    }
+
     case bytecode.ROP_LDA_INDEX: {
       const objReg = operands[0];
       const indexReg = operands[1];
@@ -1020,11 +1201,15 @@ function compileInstruction(
         rememberIncomingState(savedBlockRegs, target, block, regs, acc);
         if (targetBlock.isLoopHeader && loopPhiMap) {
           const phis = loopPhiMap.get(targetBlock.id);
-          if (phis) {
-            for (const [slot, phi] of phis) {
-              if (phi.inputs.length < 2) phi.addInput(regs.get(slot) || phi);
-            }
-          }
+          if (phis)
+            addLoopBackedgeInputs(
+              targetBlock,
+              phis,
+              savedBlockRegs,
+              target,
+              block,
+              regs,
+            );
         }
         const jmp = ir.irJump(targetBlock);
         block.addNode(jmp);

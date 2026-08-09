@@ -20,6 +20,8 @@ import {
   irCheckSmi,
   irCheckNumber,
   irReturn,
+  irJump,
+  irBranch,
   irNewObject,
   CFGInstruction,
   EFFECT_CALL,
@@ -29,6 +31,7 @@ import {
   IR_UNBOX,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
+import { addPhi, connect, link } from "../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -287,6 +290,79 @@ describe("representationSelection", () => {
       const boxNodes = block.nodes.filter(n => n.type === IR_BOX);
       const unboxNodes = block.nodes.filter(n => n.type === IR_UNBOX);
       expect(boxNodes.length + unboxNodes.length).toBe(0);
+    });
+
+    it("keeps loop-carried int32 phis unboxed after backedge reps are known", () => {
+      const graph = new CFGFunction("test");
+      const entry = graph.addBlock();
+      const header = graph.addBlock();
+      const body = graph.addBlock();
+      const exit = graph.addBlock();
+
+      const zero = irConstant(0);
+      entry.addNode(zero);
+      link(entry, header);
+      entry.addNode(irJump(header));
+
+      const counter = addPhi(header, [zero]);
+      const limit = irConstant(10);
+      const done = irInt32Compare("<", counter, limit);
+      header.addNode(limit);
+      header.addNode(done);
+      link(header, body);
+      link(header, exit);
+      header.addNode(irBranch(done, body, exit));
+
+      const one = irConstant(1);
+      const next = irInt32Add(counter, one);
+      body.addNode(one);
+      body.addNode(next);
+      connect(body, header, [next]);
+      body.addNode(irJump(header));
+
+      exit.addNode(irReturn(counter));
+
+      const insertCount = representationSelection(graph);
+      const nodes = graph.blocks.flatMap(block => block.nodes);
+
+      expect(insertCount).toBe(0);
+      expect(counter.props._rep).toBe(REP_INT32);
+      expect(nodes.filter(node => node.type === IR_BOX)).toHaveLength(0);
+      expect(nodes.filter(node => node.type === IR_UNBOX)).toHaveLength(0);
+    });
+
+    it("hoists constant phi input boxes to the constant block", () => {
+      const graph = new CFGFunction("test");
+      const entry = graph.addBlock();
+      const header = graph.addBlock();
+      const body = graph.addBlock();
+      const exit = graph.addBlock();
+
+      const undef = irConstant(undefined);
+      const one = irConstant(1);
+      entry.addNode(undef);
+      entry.addNode(one);
+      link(entry, header);
+      entry.addNode(irJump(header));
+
+      const carried = addPhi(header, [undef]);
+      const cond = irConstant(true);
+      header.addNode(cond);
+      link(header, body);
+      link(header, exit);
+      header.addNode(irBranch(cond, body, exit));
+
+      connect(body, header, [one]);
+      body.addNode(irJump(header));
+      exit.addNode(irReturn(carried));
+
+      representationSelection(graph);
+
+      const entryBoxes = entry.nodes.filter(node => node.type === IR_BOX);
+      const bodyBoxes = body.nodes.filter(node => node.type === IR_BOX);
+      expect(entryBoxes).toHaveLength(1);
+      expect(bodyBoxes).toHaveLength(0);
+      expect(carried.inputs[1]).toBe(entryBoxes[0]);
     });
   });
 });

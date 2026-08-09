@@ -63,6 +63,7 @@ import type { JSObject } from "../../../objects/heap/js-object.js";
 import type { JSArray } from "../../../objects/heap/js-array.js";
 import { getHiddenClassById } from "../../../objects/maps/hidden-class.js";
 import { dependencyRegistry } from "../../../deopt/dependencies.js";
+import type { Environment, UpvalueCell } from "../../../runtime/intrinsics/environment.js";
 import {
   REP_INT32,
   REP_FLOAT64,
@@ -199,6 +200,9 @@ type MathIntrinsicInfo = {
   intrinsic: MathIntrinsic;
   argInputs: AnyNode[];
 };
+type MergeResolver = {
+  find(trueBlockId: number, falseBlockId: number): number | null;
+};
 type GlobalCandidateEntry = {
   loads: AnyNode[];
   stores: AnyNode[];
@@ -279,6 +283,7 @@ type WasmAnalysis = {
   _syntheticConstants: SyntheticConstantNode[];
   globalCellOffsets: Map<string, number> | null;
   hasSelfRecursion: boolean;
+  selfRecursiveDirectNodes: Set<number>;
   selfCallFuncIdx?: number;
   _compiledFn: RegisterCompiledFunction | null;
   orphanConstants: SyntheticConstantNode[];
@@ -295,6 +300,9 @@ type WasmRuntime = {
   allocateTagged: (tagged: TaggedValue, skipSlotSerialization?: boolean, maxSlots?: number) => number;
   getTagged: (ptr: number) => TaggedValue;
   syncTagged?: (ptr: number) => void;
+  contextCells?: Map<number, UpvalueCell>;
+  contextLocals?: TaggedValue[];
+  closureCells?: UpvalueCell[] | null;
 };
 type WasmMemory = { buffer: ArrayBuffer; grow(delta: number): number };
 type WasmExport = ((...args: number[]) => number) | WasmMemory | object;
@@ -447,6 +455,7 @@ export class WasmCodegen {
         if (
           (node.type === ir.IR_GENERIC_GET_PROP ||
             node.type === ir.IR_GENERIC_SET_PROP ||
+            node.type === ir.IR_GENERIC_DELETE_PROP ||
             node.type === ir.IR_LOAD_FIELD ||
             node.type === ir.IR_STORE_FIELD ||
             node.type === ir.IR_CHECK_MAP ||
@@ -458,13 +467,6 @@ export class WasmCodegen {
           node.inputs[0].props.isThis
         ) {
           return "property access on this receiver";
-        }
-        if (
-          node.type === ir.IR_STORE_GLOBAL &&
-          node.inputs[0] &&
-          repForNode(node.inputs[0]) === REP_HANDLE
-        ) {
-          return "escaping heap value stored to global (marshalling-dominated)";
         }
         if (node.type === ir.IR_RETURN) hasReturn = true;
         if (
@@ -492,73 +494,7 @@ export class WasmCodegen {
     if (forest.irreducible) {
       return "irreducible control flow";
     }
-    if (this.hasMarshallingDominatedLoop(graph, forest)) {
-      return "global-object mutation with heap-marshalling calls in loop (marshalling-dominated)";
-    }
-    if (this.isMarshallingLeaf(graph, forest)) {
-      return "loopless heap allocator/returner (per-call marshalling-dominated)";
-    }
     return null;
-  }
-
-  isMarshallingLeaf(graph: AnyGraph, forest: LoopForest): boolean {
-    if ([...forest.loops()].length > 0) return false;
-    let returnsHeap = false;
-    let allocatesOrDynamic = false;
-    for (const block of graph.blocks) {
-      for (const node of block.nodes) {
-        if (
-          node.type === ir.IR_RETURN &&
-          node.inputs[0] &&
-          repForNode(node.inputs[0]) === REP_HANDLE
-        ) {
-          returnsHeap = true;
-        } else if (
-          node.type === ir.IR_NEW_OBJECT ||
-          node.type === ir.IR_NEW_ARRAY ||
-          node.type === ir.IR_NEW_REGEX ||
-          node.type === ir.IR_GENERIC_GET_PROP ||
-          node.type === ir.IR_GENERIC_SET_PROP ||
-          node.type === ir.IR_GENERIC_GET_INDEX ||
-          node.type === ir.IR_GENERIC_SET_INDEX ||
-          node.type === ir.IR_MEGAMORPHIC_LOAD ||
-          node.type === ir.IR_MEGAMORPHIC_STORE ||
-          node.type === ir.IR_DISPATCH_MAP
-        ) {
-          allocatesOrDynamic = true;
-        }
-      }
-    }
-    return returnsHeap && allocatesOrDynamic;
-  }
-
-  hasMarshallingDominatedLoop(graph: AnyGraph, forest: LoopForest): boolean {
-    for (const loop of forest.loops()) {
-      let touchesGlobal = false;
-      let heapMarshallingCall = false;
-      for (const block of loop.blocks) {
-        for (const node of block.nodes) {
-          if (
-            node.type === ir.IR_LOAD_GLOBAL ||
-            node.type === ir.IR_STORE_GLOBAL
-          ) {
-            touchesGlobal = true;
-          } else if (
-            node.type === ir.IR_GENERIC_CALL ||
-            node.type === ir.IR_CALL_KNOWN_FUNCTION
-          ) {
-            const firstArg = node.type === ir.IR_GENERIC_CALL ? 1 : 0;
-            let marshals = repForNode(node) === REP_HANDLE;
-            for (let i = firstArg; !marshals && i < node.inputs.length; i++) {
-              if (repForNode(node.inputs[i]) === REP_HANDLE) marshals = true;
-            }
-            if (marshals) heapMarshallingCall = true;
-          }
-          if (touchesGlobal && heapMarshallingCall) return true;
-        }
-      }
-    }
-    return false;
   }
 
   canCompile(graph: AnyGraph, forest: LoopForest): boolean {
@@ -580,6 +516,12 @@ export class WasmCodegen {
     let needsDeoptImport = false;
     let needsRuntimeStubImport = false;
     let needsAllocObjImport = false;
+    const registerRuntimeStubNode = (node: AnyNode): void => {
+      runtimeStubTable.register(node);
+      needsRuntimeStubImport = true;
+      needsMemory = true;
+      nodeWasmType.set(node.id, wasmTypeForRep(repForNode(node)));
+    };
     const allocObjNodes: AnyNode[] = [];
     const entryGuards: AnyNode[] = [];
     const phiNodes: AnyNode[] = [];
@@ -644,6 +586,7 @@ export class WasmCodegen {
       ir.IR_CALL_INTRINSIC,
       ir.IR_GENERIC_GET_PROP,
       ir.IR_GENERIC_SET_PROP,
+      ir.IR_GENERIC_DELETE_PROP,
       ir.IR_GENERIC_GET_INDEX,
       ir.IR_GENERIC_SET_INDEX,
       ir.IR_MEGAMORPHIC_LOAD,
@@ -706,11 +649,12 @@ export class WasmCodegen {
           allocObjNodes.push(node);
           continue;
         }
+        if (node.type === ir.IR_BOX && repForNode(node) === REP_HANDLE) {
+          registerRuntimeStubNode(node);
+          continue;
+        }
         if (this.needsFieldRuntimeStub(node)) {
-          runtimeStubTable.register(node);
-          needsRuntimeStubImport = true;
-          needsMemory = true;
-          nodeWasmType.set(node.id, wasmTypeForRep(repForNode(node)));
+          registerRuntimeStubNode(node);
           continue;
         }
         if (isNativeEligible(node)) {
@@ -1298,6 +1242,8 @@ export class WasmCodegen {
     }
 
     let hasSelfRecursion = false;
+    const selfRecursiveDirectNodes = new Set<number>();
+    const selfRecursiveDirectNodeList: AnyNode[] = [];
     if (this._selfRecursiveCandidates && this._selfRecursiveCandidates.length > 0) {
       const canPassSelfRecursiveParams = graph.parameters.every((param, index) => {
         const rep = paramValueReps[index];
@@ -1309,19 +1255,26 @@ export class WasmCodegen {
           (wasmType === wasmFormat.TYPE_I32 || wasmType === wasmFormat.TYPE_F64)
         );
       });
-      if (canPassSelfRecursiveParams) {
+      const directCandidates = this._selfRecursiveCandidates.filter(
+        (node) => valueRepOf(node) !== REP_HANDLE,
+      );
+      const stubCandidates =
+        canPassSelfRecursiveParams
+          ? this._selfRecursiveCandidates.filter((node) => valueRepOf(node) === REP_HANDLE)
+          : this._selfRecursiveCandidates;
+      for (const node of stubCandidates) {
+        registerRuntimeStubNode(node);
+      }
+      if (canPassSelfRecursiveParams && directCandidates.length > 0) {
         hasSelfRecursion = true;
-        for (const node of this._selfRecursiveCandidates) {
+        for (const node of directCandidates) {
+          selfRecursiveDirectNodes.add(node.id);
+          selfRecursiveDirectNodeList.push(node);
           const existingType = nodeWasmType.get(node.id);
           if (!existingType) {
             nodeWasmType.set(node.id, wasmTypeForRep(repForNode(node)));
           }
         }
-      } else {
-        this.lastAnalysisFailure =
-          "self-recursive call requires handle parameter support";
-        this._selfRecursiveCandidates = null;
-        return null;
       }
     }
     this._selfRecursiveCandidates = null;
@@ -1487,25 +1440,14 @@ export class WasmCodegen {
 
     if (hasSelfRecursion) {
       const returnedRep = resultValueRep ?? REP_TAGGED_NUMBER;
-      if (returnedRep === REP_HANDLE) {
-        this.lastAnalysisFailure =
-          "self-recursive function returns a heap value (unsound cross-recursion marshalling)";
-        return null;
+      for (const node of selfRecursiveDirectNodeList) {
+        if (!selfRecursiveDirectNodes.has(node.id)) continue;
+        const callRep = valueRepOf(node);
+        if (returnedRep !== REP_HANDLE && callRep === returnedRep) continue;
+        selfRecursiveDirectNodes.delete(node.id);
+        registerRuntimeStubNode(node);
       }
-      for (const block of graph.blocks) {
-        for (const node of block.nodes) {
-          if (
-            node.type !== ir.IR_CALL_KNOWN_FUNCTION ||
-            node.props.target !== compiledFn
-          ) {
-            continue;
-          }
-          const callRep = valueRepOf(node);
-          if (callRep === returnedRep) continue;
-          this.lastAnalysisFailure = `self-recursive call reads its result as ${callRep} but the function returns ${returnedRep}`;
-          return null;
-        }
-      }
+      hasSelfRecursion = selfRecursiveDirectNodes.size > 0;
     }
 
     if (needsDeoptImport) {
@@ -1576,6 +1518,7 @@ export class WasmCodegen {
       _syntheticConstants,
       globalCellOffsets,
       hasSelfRecursion,
+      selfRecursiveDirectNodes,
       _compiledFn: hasSelfRecursion ? compiledFn : null,
       orphanConstants,
       mathCallIntrinsics,
@@ -1670,6 +1613,7 @@ export class WasmCodegen {
     for (let i = 0; i < order.length; i++) {
       orderIndex.set(order[i].id, i);
     }
+    const mergeResolver = this.buildMergeResolver(order, orderIndex);
 
     const loopInfoMap = new Map<number, { loopBlocks: Set<number>; exitBlockIds: number[] }>();
     for (const loop of forest.loops()) {
@@ -1950,12 +1894,7 @@ export class WasmCodegen {
           const mergeBlockId =
             trueJoinId !== null && trueJoinId === falseJoinId
               ? trueJoinId
-              : this.findMergeBlock(
-                  trueBlockId,
-                  falseBlockId,
-                  blockMap,
-                  orderIndex,
-                );
+              : mergeResolver.find(trueBlockId, falseBlockId);
 
           if (trueJoinId === falseBlockId) {
             bytes.push(
@@ -2188,63 +2127,164 @@ export class WasmCodegen {
     return -1;
   }
 
-  findMergeBlock(
-    trueBlockId: number,
-    falseBlockId: number,
-    blockMap: Map<number, AnyBlock>,
+  buildMergeResolver(
+    order: AnyBlock[],
     orderIndex: Map<number, number>,
-  ): number | null {
-    const trueReachable = new Set<number>();
-    const queue: number[] = [trueBlockId];
-    while (queue.length > 0) {
-      const id = queue.shift();
-      if (id === undefined) continue;
-      if (trueReachable.has(id)) continue;
-      trueReachable.add(id);
-      const block = blockMap.get(id);
-      if (block) {
-        for (const succ of block.successors) {
-          queue.push(succ.id);
-        }
+  ): MergeResolver {
+    const blockCount = order.length;
+    const syntheticExit = blockCount;
+    const blockIdToNode = new Map<number, number>();
+    const nodeToBlockId = new Map<number, number>();
+    for (let i = 0; i < blockCount; i++) {
+      blockIdToNode.set(order[i].id, i);
+      nodeToBlockId.set(i, order[i].id);
+    }
+
+    const graph: number[][] = Array.from({ length: blockCount + 1 }, () => []);
+    for (let i = 0; i < blockCount; i++) {
+      const block = order[i];
+      if (block.successors.length === 0) {
+        graph[syntheticExit].push(i);
+      }
+      for (const pred of block.predecessors) {
+        const predNode = blockIdToNode.get(pred.id);
+        if (predNode !== undefined) graph[i].push(predNode);
       }
     }
 
-    const falseQueue: number[] = [falseBlockId];
-    const falseVisited = new Set<number>();
-    const candidates: number[] = [];
-    while (falseQueue.length > 0) {
-      const id = falseQueue.shift();
-      if (id === undefined) continue;
-      if (falseVisited.has(id)) continue;
-      falseVisited.add(id);
-      if (trueReachable.has(id)) {
-        candidates.push(id);
-        continue;
+    const state = this.computeDominators(graph, syntheticExit);
+    const depth = new Int32Array(blockCount + 1).fill(-1);
+    depth[syntheticExit] = 0;
+
+    const depthOf = (node: number): number => {
+      const known = depth[node];
+      if (known >= 0) return known;
+      const parent = state.idom[node];
+      if (parent < 0 || parent === node) return -1;
+      const parentDepth = depthOf(parent);
+      if (parentDepth < 0) return -1;
+      depth[node] = parentDepth + 1;
+      return depth[node];
+    };
+
+    for (let i = 0; i <= blockCount; i++) depthOf(i);
+
+    const lca = (left: number, right: number): number => {
+      let a = left;
+      let b = right;
+      let da = depthOf(a);
+      let db = depthOf(b);
+      while (a >= 0 && da > db) {
+        a = state.idom[a];
+        da--;
       }
-      const block = blockMap.get(id);
-      if (block) {
-        for (const succ of block.successors) {
-          falseQueue.push(succ.id);
+      while (b >= 0 && db > da) {
+        b = state.idom[b];
+        db--;
+      }
+      while (a !== b && a >= 0 && b >= 0) {
+        a = state.idom[a];
+        b = state.idom[b];
+      }
+      return a === b ? a : -1;
+    };
+
+    return {
+      find(trueBlockId, falseBlockId) {
+        const trueNode = blockIdToNode.get(trueBlockId);
+        const falseNode = blockIdToNode.get(falseBlockId);
+        if (trueNode === undefined || falseNode === undefined) return null;
+        const mergeNode = lca(trueNode, falseNode);
+        if (mergeNode < 0 || mergeNode === syntheticExit) return null;
+        const mergeBlockId = nodeToBlockId.get(mergeNode);
+        if (mergeBlockId === undefined) return null;
+        const minMergeIndex = Math.max(
+          orderIndex.get(trueBlockId) ?? -1,
+          orderIndex.get(falseBlockId) ?? -1,
+        );
+        const mergeIndex = orderIndex.get(mergeBlockId) ?? -1;
+        if (
+          mergeBlockId === trueBlockId ||
+          mergeBlockId === falseBlockId ||
+          mergeIndex <= minMergeIndex
+        ) {
+          return null;
         }
+        return mergeBlockId;
+      },
+    };
+  }
+
+  computeDominators(
+    graph: readonly number[][],
+    start: number,
+  ): { idom: Int32Array } {
+    const size = graph.length;
+    const semi = new Int32Array(size).fill(-1);
+    const vertex: number[] = [-1];
+    const parent = new Int32Array(size).fill(-1);
+    const ancestor = new Int32Array(size).fill(-1);
+    const label = new Int32Array(size);
+    const idom = new Int32Array(size).fill(-1);
+    const bucket: number[][] = Array.from({ length: size }, () => []);
+    const preds: number[][] = Array.from({ length: size }, () => []);
+
+    const dfs = (node: number): void => {
+      semi[node] = vertex.length;
+      vertex.push(node);
+      label[node] = node;
+      for (const succ of graph[node]) {
+        if (semi[succ] < 0) {
+          parent[succ] = node;
+          dfs(succ);
+        }
+        preds[succ].push(node);
       }
+    };
+
+    const compress = (node: number): void => {
+      const anc = ancestor[node];
+      if (anc < 0 || ancestor[anc] < 0) return;
+      compress(anc);
+      if (semi[label[anc]] < semi[label[node]]) label[node] = label[anc];
+      ancestor[node] = ancestor[anc];
+    };
+
+    const evalNode = (node: number): number => {
+      if (ancestor[node] < 0) return label[node];
+      compress(node);
+      return label[node];
+    };
+
+    const linkNode = (parentNode: number, childNode: number): void => {
+      ancestor[childNode] = parentNode;
+    };
+
+    dfs(start);
+
+    for (let i = vertex.length - 1; i >= 2; i--) {
+      const node = vertex[i];
+      for (const pred of preds[node]) {
+        const candidate = evalNode(pred);
+        if (semi[candidate] < semi[node]) semi[node] = semi[candidate];
+      }
+      bucket[vertex[semi[node]]].push(node);
+      linkNode(parent[node], node);
+      const parentBucket = bucket[parent[node]];
+      for (const bucketNode of parentBucket) {
+        const candidate = evalNode(bucketNode);
+        idom[bucketNode] =
+          semi[candidate] < semi[bucketNode] ? candidate : parent[node];
+      }
+      parentBucket.length = 0;
     }
 
-    const minMergeIndex = Math.max(
-      orderIndex.get(trueBlockId) ?? -1,
-      orderIndex.get(falseBlockId) ?? -1,
-    );
-    const forwardCandidates = candidates.filter(
-      (id) =>
-        id !== trueBlockId &&
-        id !== falseBlockId &&
-        (orderIndex.get(id) ?? -1) > minMergeIndex,
-    );
-    if (forwardCandidates.length === 0) return null;
-
-    forwardCandidates.sort(
-      (a, b) => (orderIndex.get(a) || 0) - (orderIndex.get(b) || 0),
-    );
-    return forwardCandidates[0] ?? null;
+    for (let i = 2; i < vertex.length; i++) {
+      const node = vertex[i];
+      if (idom[node] !== vertex[semi[node]]) idom[node] = idom[idom[node]];
+    }
+    idom[start] = -1;
+    return { idom };
   }
 
   emitDeoptSnapshot(fs: FrameState | null, analysis: AnyAnalysis, bytes: number[]): void {
@@ -2996,7 +3036,8 @@ export class WasmCodegen {
     if (
       analysis.hasSelfRecursion &&
       node.type === ir.IR_CALL_KNOWN_FUNCTION &&
-      node.props.target === analysis._compiledFn
+      node.props.target === analysis._compiledFn &&
+      analysis.selfRecursiveDirectNodes.has(node.id)
     ) {
       this.emitSelfRecursiveCall(node, analysis, bytes);
       return;
@@ -3949,6 +3990,16 @@ export class WasmCodegen {
       }
 
       case ir.IR_BOX: {
+        if (analysis.runtimeStubTable.getByNodeId?.(node.id)) {
+          this.emitRuntimeStubCall(
+            node,
+            analysis,
+            bytes,
+            runtimeStubImportIdx,
+            deoptImportIdx,
+          );
+          break;
+        }
         const loc = analysis.nodeLocal.get(node.id);
         if (loc === undefined) break;
         const inputLocal = local(node.inputs[0].id);
@@ -4409,6 +4460,7 @@ export class WasmCodegen {
       args: TaggedValue[],
       thisValue: TaggedValue,
       rawInterpreter: object,
+      closureEnv: Environment | null,
     ) {
       const interpreter = requireWasmInterpreter(rawInterpreter);
       const recordWasmDeopt = (reason: string, bytecodeOffset: number) => {
@@ -4436,7 +4488,7 @@ export class WasmCodegen {
           if (isNumber(cellValue)) continue;
           recordWasmDeopt(DEOPT_NUMBER_CHECK_FAILED, 0);
           return interpreter.resumeAt(
-            new RegisterFrame(compiledFn, args, thisValue),
+            new RegisterFrame(compiledFn, args, thisValue, closureEnv),
           );
         }
       }
@@ -4448,7 +4500,7 @@ export class WasmCodegen {
 
         const frameState = failedGuard.frameState;
         if (!frameState) {
-          const frame = new RegisterFrame(compiledFn, args, thisValue);
+          const frame = new RegisterFrame(compiledFn, args, thisValue, closureEnv);
           return interpreter.resumeAt(frame);
         }
         if (frameState.isInlinedFrame) {
@@ -4458,10 +4510,11 @@ export class WasmCodegen {
             frameState,
             new Map(),
             interpreter,
+            closureEnv,
           );
         }
         if (frameState.bytecodeOffset !== 0) {
-          const frame = new RegisterFrame(compiledFn, args, thisValue);
+          const frame = new RegisterFrame(compiledFn, args, thisValue, closureEnv);
           return interpreter.resumeAt(frame);
         }
         const frame = materializeFrameFromState(
@@ -4471,6 +4524,7 @@ export class WasmCodegen {
           frameState,
           new Map(),
           interpreter,
+          closureEnv,
         );
         return interpreter.resumeAt(frame);
       }
@@ -4672,7 +4726,7 @@ export class WasmCodegen {
         if (e instanceof SerializeTooDeep) {
           recordWasmDeopt(DEOPT_GUARD_FAILURE, 0);
           return interpreter.resumeAt(
-            new RegisterFrame(compiledFn, args, thisValue),
+            new RegisterFrame(compiledFn, args, thisValue, closureEnv),
           );
         }
         throw e;
@@ -4692,6 +4746,9 @@ export class WasmCodegen {
       let rawResult = 0;
       const prevObjPtrs = threadLocal.currentObjPtrs;
       const prevRuntime = threadLocal.currentRuntime;
+      const contextCells = new Map<number, UpvalueCell>();
+      const contextLocals: TaggedValue[] = [];
+      const closureCells = closureEnv?.cells ?? null;
       threadLocal.currentObjPtrs = objPtrs;
       threadLocal.currentRuntime = !needsRuntimeObj ? prevRuntime : {
         objPtrs,
@@ -4699,6 +4756,9 @@ export class WasmCodegen {
         interpreter,
         compiledFn,
         thisValue: (thisValue === undefined ? mkUndefined() : thisValue),
+        contextCells,
+        contextLocals,
+        closureCells,
         allocateTagged,
         getTagged(ptr: number) {
           const p = Math.trunc(ptr);
@@ -4814,6 +4874,7 @@ export class WasmCodegen {
               frameState,
               e.runtimeValues || new Map<number, TaggedValue>(),
               interpreter,
+              closureEnv,
             );
           }
           const frame = materializeFrameFromState(
@@ -4823,6 +4884,7 @@ export class WasmCodegen {
             frameState,
             e.runtimeValues || new Map<number, TaggedValue>(),
             interpreter,
+            closureEnv,
           );
           return interpreter.resumeAt(frame);
         }

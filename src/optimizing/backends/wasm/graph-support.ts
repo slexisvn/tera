@@ -71,6 +71,7 @@ export const RUNTIME_STUB_NODES = new Set([
   ir.IR_GENERIC_COMPARE,
   ir.IR_GENERIC_GET_PROP,
   ir.IR_GENERIC_SET_PROP,
+  ir.IR_GENERIC_DELETE_PROP,
   ir.IR_GENERIC_CALL,
   ir.IR_GENERIC_GET_INDEX,
   ir.IR_GENERIC_SET_INDEX,
@@ -86,8 +87,11 @@ export const RUNTIME_STUB_NODES = new Set([
   ir.IR_GENERIC_IN,
   ir.IR_LOAD_GLOBAL,
   ir.IR_STORE_GLOBAL,
+  ir.IR_LOAD_CONTEXT_SLOT,
+  ir.IR_STORE_CONTEXT_SLOT,
   ir.IR_NEW_OBJECT,
   ir.IR_NEW_ARRAY,
+  ir.IR_MAKE_CLOSURE,
   ir.IR_NEW_REGEX,
   ir.IR_TYPEOF,
   ir.IR_NOT,
@@ -136,6 +140,7 @@ export const VALUE_PRODUCING = new Set([
   ir.IR_LOAD_ELEMENT,
   ir.IR_POLYMORPHIC_LOAD,
   ir.IR_GENERIC_GET_PROP,
+  ir.IR_GENERIC_DELETE_PROP,
   ir.IR_GENERIC_ADD,
   ir.IR_GENERIC_SUB,
   ir.IR_GENERIC_MUL,
@@ -167,8 +172,11 @@ export const VALUE_PRODUCING = new Set([
   ir.IR_INT32_XOR,
   ir.IR_INT32_NOT,
   ir.IR_LOAD_GLOBAL,
+  ir.IR_LOAD_CONTEXT_SLOT,
+  ir.IR_STORE_CONTEXT_SLOT,
   ir.IR_NEW_OBJECT,
   ir.IR_NEW_ARRAY,
+  ir.IR_MAKE_CLOSURE,
   ir.IR_NEW_REGEX,
   ir.IR_TYPEOF,
   ir.IR_NOT,
@@ -176,6 +184,8 @@ export const VALUE_PRODUCING = new Set([
   ir.IR_BOX,
   ir.IR_UNBOX,
   ir.IR_LOAD_LOCAL,
+  ir.IR_LOAD_CONTEXT_SLOT,
+  ir.IR_STORE_CONTEXT_SLOT,
   ir.IR_LOAD_CONST,
   ir.IR_CALL_BUILTIN,
   ir.IR_CALL_INTRINSIC,
@@ -188,6 +198,7 @@ export const SUPPORTED_GRAPH_NODES = new Set([
   ir.IR_STORE_FIELD,
   ir.IR_STORE_ELEMENT,
   ir.IR_STORE_LOCAL,
+  ir.IR_STORE_CONTEXT_SLOT,
   ir.IR_STORE_GLOBAL,
   ir.IR_POLYMORPHIC_STORE,
   ir.IR_RETURN,
@@ -234,6 +245,8 @@ export const FIXED_INPUT_COUNTS = new Map([
   [ir.IR_GENERIC_SET_PROP, 2],
   [ir.IR_LOAD_LOCAL, 0],
   [ir.IR_STORE_LOCAL, 1],
+  [ir.IR_LOAD_CONTEXT_SLOT, 0],
+  [ir.IR_STORE_CONTEXT_SLOT, 1],
   [ir.IR_LOAD_GLOBAL, 0],
   [ir.IR_STORE_GLOBAL, 1],
   [ir.IR_BRANCH, 1],
@@ -314,6 +327,14 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
     if (node.inputs.length !== expectedInputs) {
       return `${nodeLocation(node, block)} has ${node.inputs.length} inputs, expected ${expectedInputs}`;
     }
+  }
+
+  if (
+    node.type === ir.IR_GENERIC_DELETE_PROP &&
+    node.inputs.length !== 1 &&
+    node.inputs.length !== 2
+  ) {
+    return `${nodeLocation(node, block)} has ${node.inputs.length} inputs, expected 1 or 2`;
   }
 
   const fixedInputCount = FIXED_INPUT_COUNTS.get(node.type);

@@ -364,6 +364,29 @@ export const expressionMethods: ExpressionMethodMap = {
 
   compileUnaryExpression(node: CompilerNode) {
     const argument = requireExpressionNode(node.argument, "unary expression");
+    if (node.op === "delete") {
+      if (argument.type === NodeType.MemberExpression) {
+        var objReg = this.temps.alloc();
+        this.compileExpression(argument.object);
+        this.func.emit(bytecode.ROP_STAR, objReg);
+        if (argument.computed) {
+          var keyReg = this.temps.alloc();
+          this.compileExpression(
+            requirePropertyExpression(argument.property, "delete"),
+          );
+          this.func.emit(bytecode.ROP_STAR, keyReg);
+          this.func.emit(bytecode.ROP_DELETE_PROP, objReg, 0, keyReg);
+          this.temps.free(keyReg);
+        } else {
+          var propIdx = this.func.addConstant(argument.property);
+          this.func.emit(bytecode.ROP_DELETE_PROP, objReg, propIdx);
+        }
+        this.temps.free(objReg);
+        return;
+      }
+      this.func.emit(bytecode.ROP_LDA_TRUE);
+      return;
+    }
     this.compileExpression(argument);
     switch (node.op) {
       case "!": {
@@ -392,29 +415,6 @@ export const expressionMethods: ExpressionMethodMap = {
       case "void":
         this.func.emit(bytecode.ROP_VOID);
         break;
-      case "delete": {
-        if (argument.type === NodeType.MemberExpression) {
-          var objReg = this.temps.alloc();
-          this.compileExpression(argument.object);
-          this.func.emit(bytecode.ROP_STAR, objReg);
-          if (argument.computed) {
-            var keyReg = this.temps.alloc();
-            this.compileExpression(
-              requirePropertyExpression(argument.property, "delete"),
-            );
-            this.func.emit(bytecode.ROP_STAR, keyReg);
-            this.func.emit(bytecode.ROP_DELETE_PROP, objReg, 0, keyReg);
-            this.temps.free(keyReg);
-          } else {
-            var propIdx = this.func.addConstant(argument.property);
-            this.func.emit(bytecode.ROP_DELETE_PROP, objReg, propIdx);
-          }
-          this.temps.free(objReg);
-          return;
-        }
-        this.func.emit(bytecode.ROP_LDA_TRUE);
-        break;
-      }
       default:
         throw new Error(`[RegCompiler] Unknown unary operator '${node.op}'`);
     }

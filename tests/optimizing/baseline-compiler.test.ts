@@ -27,10 +27,14 @@ import {
   ROP_LDA_FALSE,
   ROP_LDA_NULL,
   ROP_LDA_REG,
+  ROP_LDA_UPVALUE,
+  ROP_STA_UPVALUE,
   ROP_MOV,
   ROP_EQ,
   ROP_NEQ,
 } from "../../src/bytecode/register/ops/bytecode.js";
+import { mkSmi, mkUndefined } from "../../src/core/value/index.js";
+import { Environment, UpvalueCell } from "../../src/runtime/intrinsics/environment.js";
 
 function makeSimpleFn(name, instrs, opts = {}) {
   const fn = new RegisterCompiledFunction(name, opts.paramCount || 0);
@@ -91,14 +95,30 @@ describe("BaselineCompiler", () => {
       }
     });
 
-    it("rejects closures with upvalues", () => {
+    it("compiles closures with upvalues", () => {
       const innerFn = new RegisterCompiledFunction("inner", 0);
       innerFn.upvalues = [{ isLocal: true, index: 0 }];
       const fn = makeSimpleFn("outer", [
         new RegisterInstruction(ROP_MAKE_CLOSURE, 0),
         new RegisterInstruction(ROP_RETURN),
       ], { constants: [innerFn] });
-      expect(compiler.compile(fn, makeMockInterpreter())).toBeNull();
+      expect(compiler.compile(fn, makeMockInterpreter())).not.toBeNull();
+    });
+
+    it("compiles closure bodies that require a closure environment", () => {
+      const fn = makeSimpleFn("inner", [
+        new RegisterInstruction(ROP_LDA_CONST, 0),
+        new RegisterInstruction(ROP_STA_UPVALUE, 0),
+        new RegisterInstruction(ROP_LDA_UPVALUE, 0),
+        new RegisterInstruction(ROP_RETURN),
+      ], { constants: [13] });
+      fn.upvalues = [{ outerType: "local", outerSlot: 0 }];
+      const code = compiler.compile(fn, makeMockInterpreter());
+      const cell = new UpvalueCell({ locals: [mkSmi(1)] }, 0);
+      const env = new Environment([cell]);
+      expect(code).not.toBeNull();
+      expect(code!([], mkUndefined(), makeMockInterpreter(), env)).toBe(mkSmi(13));
+      expect(cell.get()).toBe(mkSmi(13));
     });
   });
 
@@ -188,7 +208,7 @@ describe("BaselineCompiler", () => {
       [ROP_LDA_THIS, [], "acc=tv"],
       [ROP_LDA_REG, [2], "r[2]"],
       [ROP_STAR, [3], "r[3]=acc"],
-      [ROP_MOV, [0, 1], "r[0]=r[1]"],
+      [ROP_MOV, [0, 1], "r[1]=r[0]"],
       [ROP_NOT, [0], "$.not(acc"],
       [ROP_NEW_OBJECT, [], "$.newObj()"],
     ];

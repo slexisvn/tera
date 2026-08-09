@@ -1,4 +1,5 @@
 import type { TaggedValue } from "../core/value/index.js";
+import type { Environment } from "../runtime/intrinsics/environment.js";
 
 export class DeoptSignal {
   reason: string;
@@ -7,6 +8,7 @@ export class DeoptSignal {
   locals: TaggedValue[];
   frameStateId: number;
   runtimeValues: Map<number, TaggedValue>;
+  closureEnv: Environment | null;
 
   constructor(
     reason: string,
@@ -15,6 +17,7 @@ export class DeoptSignal {
     locals: TaggedValue[],
     frameStateId = -1,
     runtimeValues: Map<number, TaggedValue> = new Map(),
+    closureEnv: Environment | null = null,
   ) {
     this.reason = reason;
     this.bytecodeOffset = bytecodeOffset;
@@ -22,6 +25,7 @@ export class DeoptSignal {
     this.locals = locals;
     this.frameStateId = frameStateId;
     this.runtimeValues = runtimeValues;
+    this.closureEnv = closureEnv;
   }
 
   toString(): string {

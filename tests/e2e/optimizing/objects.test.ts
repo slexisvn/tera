@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { differential, src, oracle as withoutJit, jit as withJit } from "./_tiers.js";
+import { IR_GENERIC_DELETE_PROP } from "../../../src/optimizing/ir/index.js";
+import { differential, src, baseline as baselineEngine, oracle as withoutJit, jit as withJit } from "./_tiers.js";
 
 const driver = src(
   "fn driver(m):",
@@ -111,7 +112,13 @@ describe("object literal allocation in optimized code", () => {
   });
 });
 
-type Invalidated = { name?: string | null; dependencyDeoptCount?: number };
+type OptimizedFunction = {
+  name?: string | null;
+  dependencyDeoptCount?: number;
+  optimizedCode?: unknown;
+  optimizedStubSummary?: Array<{ opcode?: string }>;
+  lastCompileFailureReason?: string | null;
+};
 
 const runOptimized = (source: string, name: string) => {
   const engine = withJit();
@@ -119,8 +126,8 @@ const runOptimized = (source: string, name: string) => {
   expect(value).toEqual(withoutJit().runNative(source));
   const fn = engine
     .collectFunctions()
-    .find((f) => (f as Invalidated).name === name) as Invalidated | undefined;
-  return { value, dependencyDeopts: fn?.dependencyDeoptCount ?? 0 };
+    .find((f) => (f as OptimizedFunction).name === name) as OptimizedFunction | undefined;
+  return { value, dependencyDeopts: fn?.dependencyDeoptCount ?? 0, fn };
 };
 
 const mutatingCallee = src(
@@ -259,6 +266,103 @@ describe("shape-preserving stores keep optimized code alive", () => {
         "peek",
       ).value,
     ).toEqual(2000);
+  });
+
+  it("keeps loop phis valid when a numeric initial value joins a call result", () => {
+    const { value, fn } = runOptimized(
+      src(
+        "fn bump(o):",
+        "  o.x = o.x + 1",
+        "  return o.x",
+        "fn run(n):",
+        "  o = {x: 0}",
+        "  i = 0",
+        "  last = 0",
+        "  while i < n:",
+        "    last = bump(o)",
+        "    i = i + 1",
+        "  return last",
+        driver,
+      ),
+      "run",
+    );
+    expect(value).toEqual(5);
+    expect(fn?.optimizedCode).toBeTruthy();
+    expect(fn?.lastCompileFailureReason).toBeNull();
+  });
+});
+
+const icIsolationSource = src(
+  "class Counter:",
+  "  constructor():",
+  "    this.n = 0",
+  "  inc(x):",
+  "    this.n = this.n + x",
+  "    return this.n",
+  "fn run(n):",
+  "  c = Counter()",
+  "  i = 0",
+  "  while i < n:",
+  "    c.inc((i % 3) + 1)",
+  "    i = i + 1",
+  "  return c.n",
+  "fn driver(m):",
+  "  k = 0",
+  "  t = 0",
+  "  while k < m:",
+  "    t = run(64)",
+  "    k = k + 1",
+  "  return t",
+  "driver(100)",
+);
+
+describe("inline cache isolation across engine heaps", () => {
+  it("does not reuse handlers across separate engines", () => {
+    expect(baselineEngine().runNative(icIsolationSource)).toBe(127);
+    expect(withJit().runNative(icIsolationSource)).toBe(127);
+  });
+});
+
+describe("delete property lowering in optimized code", () => {
+  it("lowers static delete property through a wasm runtime stub", () => {
+    const { value, fn } = runOptimized(
+      src(
+        "fn run(o):",
+        "  delete o.j",
+        "  return o.k + 0",
+        "fn driver(m):",
+        "  o = {j: 1, k: 6}",
+        "  k = 0",
+        "  t = 0",
+        "  while k < m:",
+        "    t = run(o)",
+        "    k = k + 1",
+        "  return t",
+        "driver(300)",
+      ),
+      "run",
+    );
+    expect(value).toEqual(6);
+    expect(fn?.optimizedCode).toBeTruthy();
+    expect(fn?.lastCompileFailureReason).toBeNull();
+    expect(
+      fn?.optimizedStubSummary?.some((stub) => stub.opcode === IR_GENERIC_DELETE_PROP),
+    ).toBe(true);
+  });
+
+  it("uses the runtime key for computed delete property", () => {
+    expect(
+      differential(
+        src(
+          "fn run(n):",
+          "  key = 1",
+          "  o = {a: n, b: n + 1}",
+          "  delete o[key]",
+          "  return o.a",
+          driver,
+        ),
+      ),
+    ).toEqual(5);
   });
 });
 

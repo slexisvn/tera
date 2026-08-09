@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { differential, src } from "./_tiers.js";
+import { differential, src, jit as withJit, oracle as withoutJit } from "./_tiers.js";
 
 const called = (...body: string[]) =>
   src(
@@ -65,5 +65,36 @@ describe("control flow emission", () => {
         called("  if false:", "    v1 = (({a: [1]})?.a)?.[0]", '  v2 = "" + p0'),
       ),
     ).toEqual(5);
+  });
+
+  it("emits nested branch merges inside loops", () => {
+    const source = src(
+      "fn run(n):",
+      "  i = 0",
+      "  s = 0",
+      "  while i < n:",
+      "    if i < 4:",
+      "      if i < 2:",
+      "        s = s + 3",
+      "      else:",
+      "        s = s + 5",
+      "    else:",
+      "      s = s + 7",
+      "    i = i + 1",
+      "  return s",
+      "fn driver(m):",
+      "  i = 0",
+      "  last = 0",
+      "  while i < m:",
+      "    last = run(5)",
+      "    i = i + 1",
+      "  return last",
+      "driver(300)",
+    );
+    const engine = withJit();
+    expect(engine.runNative(source)).toEqual(withoutJit().runNative(source));
+    const run = engine.collectFunctions().find((fn) => fn.name === "run");
+    expect(run?.optimizedCode).toBeTruthy();
+    expect(run?.lastCompileFailureReason ?? null).toBeNull();
   });
 });

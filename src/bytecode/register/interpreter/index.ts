@@ -466,7 +466,8 @@ function tryTierUp(
   if (debuggerForcesInterpreter(interpreter)) return null;
   const policy = interpreter.tieringPolicy;
   const engine = interpreter.jitEngine;
-  if (!engine || !policy || fn.closure) return null;
+  if (!engine || !policy) return null;
+  const closureEnv = fn.closure || null;
 
   if (typeof policy.recordExecution === "function") {
     policy.recordExecution(compiled, 0);
@@ -485,7 +486,7 @@ function tryTierUp(
     if (policy.shouldOptimize) policy.notifyCompilationEnd?.();
     if (compiled.optimizedCode) {
       updateCallMode(compiled);
-      return compiled.optimizedCode(args, thisValue, interpreter);
+      return compiled.optimizedCode(args, thisValue, interpreter, closureEnv);
     }
   }
 
@@ -500,7 +501,7 @@ function tryTierUp(
     const baselineCode = currentBaselineCode(compiled);
     if (baselineCode) {
       updateCallMode(compiled);
-      return baselineCode(args, thisValue, interpreter);
+      return baselineCode(args, thisValue, interpreter, closureEnv);
     }
   }
 
@@ -567,7 +568,12 @@ function callFunction(
 
   if (!debugInterpreted && compiled.callMode === CALL_OPTIMIZED) {
     if (compiled.optimizedCode) {
-      const result = compiled.optimizedCode(args, thisValue, interpreter);
+      const result = compiled.optimizedCode(
+        args,
+        thisValue,
+        interpreter,
+        fn.closure || null,
+      );
       recordReturnFeedback(slot, result);
       return result;
     }
@@ -605,7 +611,12 @@ function callFunction(
         return tierResult;
       }
       if (compiled.baselineCode) {
-        const result = compiled.baselineCode(args, thisValue, interpreter);
+        const result = compiled.baselineCode(
+          args,
+          thisValue,
+          interpreter,
+          fn.closure || null,
+        );
         recordReturnFeedback(slot, result);
         return result;
       }
@@ -903,7 +914,12 @@ export class RegisterInterpreter {
 
     if (!debugInterpreted && compiledFn.optimizedCode && !compiledFn.disableOptimization) {
       return finishExecution(
-        compiledFn.optimizedCode(args, thisValue ?? mkUndefined(), this),
+        compiledFn.optimizedCode(
+          args,
+          thisValue ?? mkUndefined(),
+          this,
+          null,
+        ),
       );
     }
 
@@ -943,14 +959,24 @@ export class RegisterInterpreter {
           this.tieringPolicy.notifyCompilationEnd?.();
         if (compiledFn.optimizedCode) {
           return finishExecution(
-            compiledFn.optimizedCode(args, thisValue ?? mkUndefined(), this),
+            compiledFn.optimizedCode(
+              args,
+              thisValue ?? mkUndefined(),
+              this,
+              null,
+            ),
           );
         }
       }
 
       if (compiledFn.baselineCode) {
         return finishExecution(
-          compiledFn.baselineCode(args, thisValue ?? mkUndefined(), this),
+          compiledFn.baselineCode(
+            args,
+            thisValue ?? mkUndefined(),
+            this,
+            null,
+          ),
         );
       }
 
@@ -965,7 +991,12 @@ export class RegisterInterpreter {
         const baselineCode = currentBaselineCode(compiledFn);
         if (baselineCode) {
           return finishExecution(
-            baselineCode(args, thisValue ?? mkUndefined(), this),
+            baselineCode(
+              args,
+              thisValue ?? mkUndefined(),
+              this,
+              null,
+            ),
           );
         }
       }
@@ -1108,6 +1139,17 @@ export class RegisterInterpreter {
         return value;
       }
       if (fn.closure) {
+        const debugInterpreted = debuggerForcesInterpreter(this);
+        if (
+          !debugInterpreted &&
+          fn.compiled.optimizedCode &&
+          !fn.compiled.disableOptimization
+        ) {
+          return fn.compiled.optimizedCode(args, thisValue, this, fn.closure);
+        }
+        if (!debugInterpreted && fn.compiled.baselineCode) {
+          return fn.compiled.baselineCode(args, thisValue, this, fn.closure);
+        }
         const closureFrame = new RegisterFrame(
           fn.compiled,
           args,
@@ -1330,7 +1372,7 @@ export class RegisterInterpreter {
       args.push(value === undefined ? mkUndefined() : value);
     }
     if (entry.code._declinesEntry?.(args)) return null;
-    return entry.code(args, frame.thisValue, this);
+    return entry.code(args, frame.thisValue, this, frame.closureEnv);
   }
 
   runFrame(frame: RegisterFrame): TaggedValue {

@@ -42,6 +42,7 @@ import { JSArray } from "../../../objects/heap/js-array.js";
 import type { RegisterCompiledFunction } from "../../../bytecode/register/ops/bytecode.js";
 import type { FrameState } from "../../../deopt/frame-state.js";
 import type { RuntimeStubEntry } from "./graph-support.js";
+import { Environment, UpvalueCell } from "../../../runtime/intrinsics/environment.js";
 import { applyBinaryOverload, hasRelationalOverload, RELATIONAL_BY_SYMBOL, type BinaryOverload } from "../../../runtime/operators.js";
 import {
   DeoptSignal,
@@ -53,6 +54,7 @@ import {
 import {
   runtimeGetProperty as proxyRuntimeGetProperty,
   runtimeSetProperty as proxyRuntimeSetProperty,
+  runtimeDeleteProperty as proxyRuntimeDeleteProperty,
   runtimeHasProperty as proxyRuntimeHasProperty,
 } from "../../../objects/exotic/proxy-ops.js";
 import { getRegexProperty } from "../../../runtime/intrinsics/regex-methods.js";
@@ -109,6 +111,9 @@ type RuntimeLike = {
   getTagged(raw: number): TaggedValue;
   allocateTagged(value: TaggedValue): number;
   syncTagged?(raw: number): void;
+  contextCells?: Map<number, UpvalueCell>;
+  contextLocals?: TaggedValue[];
+  closureCells?: UpvalueCell[] | null;
 };
 type AnalysisLike = {
   nodeValueRep: Map<number, string>;
@@ -130,6 +135,83 @@ function numberFromMetadata(value: ir.IRMetadataValue, fallback = 0): number {
 
 function numberArrayFromMetadata(value: ir.IRMetadataValue): number[] {
   return metadataNumberArrayOrNull(value) ?? [];
+}
+
+function compiledFunctionFromMetadata(
+  value: ir.IRMetadataValue | undefined,
+): RegisterCompiledFunction | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<RegisterCompiledFunction>;
+  return Array.isArray(candidate.instructions) && Array.isArray(candidate.upvalues)
+    ? candidate as RegisterCompiledFunction
+    : null;
+}
+
+function contextSourceFromMetadata(value: ir.IRMetadataValue | undefined): ir.ContextSlotSource {
+  if (value === "local" || value === "upvalue") return value;
+  throw new Error("Invalid context slot source");
+}
+
+function closureCapturesFromMetadata(
+  value: ir.IRMetadataValue | undefined,
+): ir.ClosureCapture[] {
+  if (!Array.isArray(value)) throw new Error("Invalid closure captures");
+  const captures: ir.ClosureCapture[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const item = value[i];
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`Invalid closure capture ${i}`);
+    }
+    const source = contextSourceFromMetadata(
+      (item as { source?: ir.IRMetadataValue }).source,
+    );
+    const slot = metadataNumberOrNull((item as { slot?: ir.IRMetadataValue }).slot);
+    if (slot === null) throw new Error(`Invalid closure capture slot ${i}`);
+    captures.push({ source, slot });
+  }
+  return captures;
+}
+
+function contextCell(
+  runtime: RuntimeLike,
+  slot: number,
+  source: ir.ContextSlotSource = "local",
+): UpvalueCell {
+  if (source === "upvalue") {
+    const cell = runtime.closureCells?.[slot];
+    if (!cell) throw new Error(`Missing closure upvalue ${slot}`);
+    return cell;
+  }
+  if (!runtime.contextLocals) runtime.contextLocals = [];
+  if (!runtime.contextCells) runtime.contextCells = new Map();
+  if (runtime.contextLocals[slot] === undefined) {
+    runtime.contextLocals[slot] = mkUndefined();
+  }
+  let cell = runtime.contextCells.get(slot);
+  if (!cell) {
+    cell = new UpvalueCell({ locals: runtime.contextLocals }, slot);
+    runtime.contextCells.set(slot, cell);
+  }
+  return cell;
+}
+
+function readContextCell(
+  runtime: RuntimeLike,
+  slot: number,
+  source: ir.ContextSlotSource,
+): TaggedValue {
+  const value = contextCell(runtime, slot, source).get();
+  return value === null ? mkUndefined() : value as TaggedValue;
+}
+
+function writeContextCell(
+  runtime: RuntimeLike,
+  slot: number,
+  value: TaggedValue,
+  source: ir.ContextSlotSource,
+): TaggedValue {
+  contextCell(runtime, slot, source).set(value);
+  return value;
 }
 
 function objectPayloadByOffset(value: TaggedValue): JSObject | null {
@@ -259,6 +341,21 @@ export function runtimeReturn(
   return runtime.allocateTagged((value === undefined ? mkUndefined() : value));
 }
 
+function runtimeTaggedReturn(
+  value: TaggedValue,
+  runtime: RuntimeLike,
+  outputRep: string,
+) {
+  if (
+    outputRep === REP_INT32 ||
+    outputRep === REP_FLOAT64 ||
+    outputRep === REP_TAGGED_NUMBER
+  ) {
+    return runtimeReturn(taggedToNumber(value), runtime, outputRep);
+  }
+  return runtimeReturn(value, runtime, outputRep);
+}
+
 export function compareValues(op: string, left: TaggedValue, right: TaggedValue): boolean {
   if (op === "loose==") return abstractLooseEqual(left, right);
   if (op === "loose!=") return !abstractLooseEqual(left, right);
@@ -355,6 +452,17 @@ function setRuntimeProperty(
   return value;
 }
 
+function deleteRuntimeProperty(
+  obj: TaggedValue,
+  propName: string,
+  interpreter: RuntimeInterpreterLike | null = null,
+) {
+  if (isObject(obj)) {
+    proxyRuntimeDeleteProperty(obj, propName, interpreter);
+  }
+  return mkBool(true);
+}
+
 function getRuntimeIndex(
   obj: TaggedValue,
   index: TaggedValue,
@@ -399,15 +507,12 @@ function executeRuntimeCall(
   if (fn.call) {
     result = fn.call(args, (receiver === undefined ? mkUndefined() : receiver), runtime.interpreter);
   } else if (fn.compiled) {
-    if (
-      fn.compiled === compiledFn &&
-      fn.compiled.baselineCode &&
-      !fn.closure
-    ) {
+    if (fn.compiled === compiledFn && fn.compiled.baselineCode) {
       result = fn.compiled.baselineCode(
         args,
         (receiver === undefined ? mkUndefined() : receiver),
         runtime.interpreter,
+        fn.closure || null,
       );
     } else {
       result = runtime.interpreter.callFunctionValue(
@@ -521,6 +626,23 @@ export function executeRuntimeStub(
       }
       return runtimeReturn(compareValues(symbol, args[0], args[1]), runtime, stub.outputRep);
     }
+    case ir.IR_LOAD_CONTEXT_SLOT: {
+      const val = readContextCell(
+        runtime,
+        numberFromMetadata(node.props.slot),
+        contextSourceFromMetadata(node.props.source),
+      );
+      return runtimeTaggedReturn(val, runtime, stub.outputRep);
+    }
+    case ir.IR_STORE_CONTEXT_SLOT: {
+      const val = writeContextCell(
+        runtime,
+        numberFromMetadata(node.props.slot),
+        args[0] ?? mkUndefined(),
+        contextSourceFromMetadata(node.props.source),
+      );
+      return runtimeTaggedReturn(val, runtime, stub.outputRep);
+    }
     case ir.IR_LOAD_GLOBAL: {
       const cell = runtime.interpreter.globalCells.get(propNameFromMetadata(node.props.name));
       const val = cell ? cell.read() : mkUndefined();
@@ -538,6 +660,30 @@ export function executeRuntimeStub(
       const val = args[0];
       runtime.interpreter.globalCells.write(propNameFromMetadata(node.props.name), val);
       return runtimeReturn(val, runtime, stub.outputRep);
+    }
+    case ir.IR_MAKE_CLOSURE: {
+      const target =
+        compiledFunctionFromMetadata(node.props.compiled) ??
+        compiledFunctionFromMetadata(
+          runtime.compiledFn.constants[numberFromMetadata(node.props.constIdx)],
+        );
+      if (!target) return runtimeReturn(mkUndefined(), runtime, stub.outputRep);
+      const captures = closureCapturesFromMetadata(node.props.captures);
+      const cells: UpvalueCell[] = [];
+      for (let i = 0; i < target.upvalues.length; i++) {
+        const capture = captures[i];
+        if (!capture) throw new Error(`Missing closure capture ${i}`);
+        cells.push(contextCell(runtime, capture.slot, capture.source));
+      }
+      return runtimeReturn(
+        mkFunction({
+          name: target.name ?? undefined,
+          compiled: target,
+          closure: new Environment(cells),
+        }),
+        runtime,
+        stub.outputRep,
+      );
     }
     case ir.IR_NEW_OBJECT: {
       const hcId = numberFromMetadata(node.props.targetHiddenClassId, -1);
@@ -676,6 +822,19 @@ export function executeRuntimeStub(
       runtime.syncTagged?.(rawArgs[0]);
       return runtimeReturn(val, runtime, stub.outputRep);
     }
+    case ir.IR_GENERIC_DELETE_PROP: {
+      const propName =
+        node.inputs.length > 1
+          ? toDisplayString(args[1])
+          : propNameFromMetadata(node.props.propName);
+      const val = deleteRuntimeProperty(
+        args[0],
+        propName,
+        runtime.interpreter,
+      );
+      runtime.syncTagged?.(rawArgs[0]);
+      return runtimeReturn(val, runtime, stub.outputRep);
+    }
     case ir.IR_GENERIC_GET_INDEX: {
       const val = getRuntimeIndex(args[0], args[1], runtime.interpreter);
       if (stub.outputRep === REP_INT32) return taggedToNumber(val) | 0;
@@ -699,16 +858,18 @@ export function executeRuntimeStub(
     case ir.IR_GENERIC_CALL: {
       const callee = args[0];
       const argCount = numberFromMetadata(node.props.argCount);
-      const callArgs = args.slice(1, 1 + argCount);
       if (node.props.isNew) {
-        const realArgs = callArgs.slice(1);
+        const callArgs = args.slice(2, 1 + argCount);
         const newResult = runtime.interpreter.constructFunctionValue(
           callee,
-          realArgs,
+          callArgs,
         );
         return runtimeReturn(newResult, runtime, stub.outputRep);
       }
-      const receiver = node.props.isMethod ? callArgs.shift() ?? mkUndefined() : mkUndefined();
+      const receiver = node.props.isMethod ? args[1] ?? mkUndefined() : mkUndefined();
+      const firstArg = node.props.isMethod ? 2 : 1;
+      const realArgCount = node.props.isMethod ? Math.max(0, argCount - 1) : argCount;
+      const callArgs = args.slice(firstArg, firstArg + realArgCount);
       const result = executeRuntimeCall(
         callee,
         callArgs,
@@ -740,6 +901,8 @@ export function executeRuntimeStub(
       return runtimeReturn(!isTruthy(args[0]), runtime, stub.outputRep);
     case ir.IR_NEG:
       return runtimeReturn(-taggedToNumber(args[0]), runtime, stub.outputRep);
+    case ir.IR_BOX:
+      return runtimeReturn(args[0], runtime, stub.outputRep);
     case ir.IR_UNBOX:
       if (node.props.toType === "bool")
         return runtimeReturn(isTruthy(args[0]), runtime, stub.outputRep);

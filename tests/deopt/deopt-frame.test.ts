@@ -32,20 +32,38 @@ function makeIRNode(type, props = {}, inputs = []) {
 }
 
 describe("materializeFrameValue — F1 block param / typeof / locals", () => {
-  it("materializes IR_PHI by recursing into inputs[0]", () => {
+  it("materializes single-input IR_PHI as a trivial value", () => {
     const constant = makeIRNode(IR_CONSTANT, { value: 77 });
     const blockParam = makeIRNode(IR_PHI, {}, [constant]);
     const result = materializeFrameValue(blockParam, new Map(), [], null, null);
     expect(getPayload(result)).toBe(77);
   });
 
-  it("materializes IR_PHI with runtime value on inner node", () => {
+  it("materializes single-input IR_PHI with runtime value on inner node", () => {
     const inner = makeIRNode("SomeOp", {}, []);
     const blockParam = makeIRNode(IR_PHI, {}, [inner]);
     const rv = new Map([[inner.id, mkSmi(42)]]);
     const result = materializeFrameValue(blockParam, rv, [], null, null);
     expect(isSmi(result)).toBe(true);
     expect(getPayload(result)).toBe(42);
+  });
+
+  it("materializes non-trivial IR_PHI from its runtime value", () => {
+    const left = makeIRNode(IR_CONSTANT, { value: 77 });
+    const right = makeIRNode(IR_CONSTANT, { value: 88 });
+    const blockParam = makeIRNode(IR_PHI, {}, [left, right]);
+    const rv = new Map([[blockParam.id, mkSmi(99)]]);
+    const result = materializeFrameValue(blockParam, rv, [], null, null);
+    expect(getPayload(result)).toBe(99);
+  });
+
+  it("rejects non-trivial IR_PHI without runtime value", () => {
+    const left = makeIRNode(IR_CONSTANT, { value: 77 });
+    const right = makeIRNode(IR_CONSTANT, { value: 88 });
+    const blockParam = makeIRNode(IR_PHI, {}, [left, right]);
+    expect(() => materializeFrameValue(blockParam, new Map(), [], null, null)).toThrow(
+      /Cannot materialize non-trivial Phi/,
+    );
   });
 
   it("materializes IR_LOAD_LOCAL by recursing into inputs[0]", () => {

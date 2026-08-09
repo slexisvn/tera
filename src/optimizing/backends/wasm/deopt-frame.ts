@@ -3,6 +3,7 @@ import { RegisterFrame } from "../../../bytecode/register/interpreter/index.js";
 import type { FrameState, FrameValue } from "../../../deopt/frame-state.js";
 import { withMaterializedAllocations } from "../../../deopt/materializer.js";
 import type { RegisterCompiledFunction } from "../../../bytecode/register/ops/bytecode.js";
+import type { Environment } from "../../../runtime/intrinsics/environment.js";
 import {
   isObject,
   isString,
@@ -213,8 +214,8 @@ export function materializeFrameValue(
       case ir.IR_CHECK_CALL_TARGET:
       case ir.IR_BOX:
       case ir.IR_UNBOX:
-      case ir.IR_PHI:
       case ir.IR_LOAD_LOCAL:
+      case ir.IR_STORE_CONTEXT_SLOT:
         return materializeFrameValue(
           value.inputs[0],
           runtimeValues,
@@ -222,6 +223,19 @@ export function materializeFrameValue(
           interpreter,
           thisValue,
         );
+    }
+    if (value.type === ir.IR_PHI) {
+      const input = ir.trivialPhiInput(value);
+      if (input) {
+        return materializeFrameValue(
+          input,
+          runtimeValues,
+          args,
+          interpreter,
+          thisValue,
+        );
+      }
+      throw new Error(ir.missingPhiRuntimeValueMessage(value));
     }
     if (value.type === ir.IR_TYPEOF) {
       const input = materializeFrameValue(
@@ -232,6 +246,15 @@ export function materializeFrameValue(
         thisValue,
       );
       return mkString(typeOf(input));
+    }
+    if (value.type === ir.IR_GENERIC_DELETE_PROP) {
+      return mkBool(true);
+    }
+    if (
+      value.type === ir.IR_LOAD_CONTEXT_SLOT ||
+      value.type === ir.IR_MAKE_CLOSURE
+    ) {
+      throw new Error(`Cannot materialize ${value.type} v${value.id} without runtime value`);
     }
     if (value.type === ir.IR_STORE_LOCAL) {
       return materializeFrameValue(
@@ -419,11 +442,13 @@ export function materializeFrameFromState(
   frameState: FrameStateLike | null | undefined,
   runtimeValues: Map<number, TaggedValue> | null | undefined,
   interpreter: InterpreterLike | null | undefined,
+  closureEnv: Environment | null,
 ): RegisterFrame {
   const frame = new RegisterFrame(
     compiledFn,
     args,
     thisValue === undefined ? mkUndefined() : thisValue,
+    closureEnv,
   );
   if (!frameState) return frame;
   const resolved = withMaterializedAllocations(frameState, runtimeValues);
@@ -467,6 +492,7 @@ export function resumeFrameStateChain(
   frameState: FrameState,
   runtimeValues: Map<number, TaggedValue> | null | undefined,
   interpreter: InterpreterLike,
+  closureEnv: Environment | null,
 ): TaggedValue {
   let currentFrameState = frameState;
   let currentFrame = materializeFrameFromState(
@@ -476,6 +502,7 @@ export function resumeFrameStateChain(
     currentFrameState,
     runtimeValues,
     interpreter,
+    closureEnv,
   );
   let finalResult = interpreter.resumeAt(currentFrame);
 
@@ -488,6 +515,7 @@ export function resumeFrameStateChain(
       currentFrameState,
       runtimeValues,
       interpreter,
+      closureEnv,
     );
     callerFrame.acc = finalResult;
     finalResult = interpreter.resumeAt(callerFrame);

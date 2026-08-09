@@ -11,7 +11,7 @@ const ACC_SLOT = -1;
 type Slot = number;
 type CfgNode = CFGInstruction;
 type CfgBlock = CFGBlock;
-type RegisterState = Map<Slot, CfgNode | null>;
+export type RegisterState = Map<Slot, CfgNode | null>;
 
 interface IncomingState {
   predecessor: CfgBlock;
@@ -32,12 +32,65 @@ export function rememberIncomingState(
   states.get(target)!.push({ predecessor, regs: new Map(regs), acc });
 }
 
-function definedValue(
+export function definedValue(
   value: CfgNode | null | undefined,
   home: CfgBlock,
 ): CfgNode {
   if (value) return value;
   return homeInstruction(irConstant(undefined), home);
+}
+
+export function addInitialLoopPhis(
+  block: CfgBlock,
+  predecessor: CfgBlock,
+  regs: RegisterState,
+  localCount: number,
+): Map<Slot, CfgNode> {
+  const phis = new Map<Slot, CfgNode>();
+  const slots = new Set<Slot>();
+  for (let slot = 0; slot < localCount; slot++) slots.add(slot);
+  for (const slot of regs.keys()) slots.add(slot);
+  for (const slot of [...slots].sort((a, b) => a - b)) {
+    const phi = addPhi(block, [definedValue(regs.get(slot), predecessor)]);
+    phis.set(slot, phi);
+    regs.set(slot, phi);
+  }
+  return phis;
+}
+
+export function addLoopBackedgeInputs(
+  block: CfgBlock,
+  phis: Map<Slot, CfgNode>,
+  statesByTarget: IncomingStatesByTarget,
+  target: number,
+  predecessor: CfgBlock,
+  regs: RegisterState,
+): void {
+  const states = statesByTarget.get(target) ?? [];
+  const byPred = new Map(states.map((state) => [state.predecessor, state]));
+  const updateHeaderStates = (slot: Slot, phi: CfgNode): void => {
+    for (const group of statesByTarget.values()) {
+      for (const state of group) {
+        if (state.predecessor === block) state.regs.set(slot, phi);
+      }
+    }
+  };
+
+  for (const slot of regs.keys()) {
+    let phi = phis.get(slot);
+    if (!phi) {
+      const incoming = block.predecessors.map((pred) => {
+        const state = byPred.get(pred);
+        return definedValue(state?.regs.get(slot), pred);
+      });
+      if (incoming.length === 0) incoming.push(definedValue(undefined, predecessor));
+      phi = addPhi(block, incoming);
+      phis.set(slot, phi);
+      updateHeaderStates(slot, phi);
+    }
+    const expectedInputs = block.predecessors.length + 1;
+    if (phi.inputs.length < expectedInputs) phi.addInput(regs.get(slot) || phi);
+  }
 }
 
 export function restoreIncomingState(
@@ -47,7 +100,7 @@ export function restoreIncomingState(
   acc: CfgNode | null | undefined,
 ): CfgNode | null {
   if (!states || states.length === 0) return acc ?? null;
-  if (states.length === 1 || block.predecessors.length <= 1) {
+  if (block.predecessors.length <= 1) {
     const state = states[0];
     for (const [slot, value] of state.regs) regs.set(slot, value ?? null);
     return state.acc ?? acc ?? null;
@@ -59,6 +112,8 @@ export function restoreIncomingState(
     for (const slot of state.regs.keys()) slots.add(slot);
     if (state.acc) slots.add(ACC_SLOT);
   }
+  for (const slot of regs.keys()) slots.add(slot);
+  if (acc) slots.add(ACC_SLOT);
 
   let nextAcc = acc ?? null;
 

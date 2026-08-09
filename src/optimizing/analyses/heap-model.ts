@@ -49,6 +49,7 @@ export function fieldOf(node: ir.CFGInstruction): Field | null {
   if (
     node.type === ir.IR_GENERIC_GET_PROP ||
     node.type === ir.IR_GENERIC_SET_PROP ||
+    node.type === ir.IR_GENERIC_DELETE_PROP ||
     node.type === ir.IR_GENERIC_GET_INDEX ||
     node.type === ir.IR_GENERIC_SET_INDEX
   ) {

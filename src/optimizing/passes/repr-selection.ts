@@ -45,6 +45,7 @@ const BOOL_PRODUCERS = new Set([
   ir.IR_INT32_COMPARE,
   ir.IR_FLOAT64_COMPARE,
   ir.IR_GENERIC_COMPARE,
+  ir.IR_GENERIC_DELETE_PROP,
   ir.IR_CHECK_CALL_TARGET,
   ir.IR_NOT,
 ]);
@@ -101,9 +102,12 @@ const HANDLE_PRODUCERS = new Set([
   ir.IR_GENERIC_SET_INDEX,
   ir.IR_LOAD_GLOBAL,
   ir.IR_LOAD_LOCAL,
+  ir.IR_LOAD_CONTEXT_SLOT,
+  ir.IR_STORE_CONTEXT_SLOT,
   ir.IR_LOAD_CONST,
   ir.IR_NEW_OBJECT,
   ir.IR_NEW_ARRAY,
+  ir.IR_MAKE_CLOSURE,
   ir.IR_CALL_BUILTIN,
   ir.IR_CALL_INTRINSIC,
   ir.IR_TYPEOF,
@@ -208,6 +212,13 @@ export function representationSelection(graph: ReprGraph): number {
     if (demand === REP_INT32) return REP_INT32;
     if (demand === REP_FLOAT64) return REP_FLOAT64;
     return REP_HANDLE;
+  };
+
+  const boxSourceType = (rep: Representation): string => {
+    if (rep === REP_INT32) return "int32";
+    if (rep === REP_FLOAT64) return "float64";
+    if (rep === REP_BOOL) return "bool";
+    return "tagged-number";
   };
 
   const isProvablyNumericOperand = (inp: ReprNode): boolean => {
@@ -318,7 +329,11 @@ export function representationSelection(graph: ReprGraph): number {
       } else if (node.type === ir.IR_BOX) {
         nodeRep.set(
           node.id,
-          node.props.fromType === "handle" ? REP_HANDLE : REP_TAGGED_NUMBER,
+          node.props.toType === "handle"
+            ? REP_HANDLE
+            : node.props.fromType === "handle"
+              ? REP_HANDLE
+              : REP_TAGGED_NUMBER,
         );
       } else if (node.type === ir.IR_UNBOX) {
         nodeRep.set(
@@ -364,7 +379,10 @@ export function representationSelection(graph: ReprGraph): number {
           node.inputs.every(isProvablyNumericOperand))
       ) {
         nodeRep.set(node.id, REP_TAGGED_NUMBER);
-      } else if (node.type === ir.IR_GENERIC_CALL) {
+      } else if (
+        node.type === ir.IR_GENERIC_CALL ||
+        node.type === ir.IR_CALL_KNOWN_FUNCTION
+      ) {
         nodeRep.set(node.id, unboxedRepForDemand(node));
       } else if (isOpaqueIntrinsicResult(node)) {
         nodeRep.set(node.id, REP_HANDLE);
@@ -400,6 +418,45 @@ export function representationSelection(graph: ReprGraph): number {
     }
     nodeRep.set(param.id, rep);
   }
+
+  const reflowPhiRepresentations = (): void => {
+    const blockParams: ReprNode[] = [];
+    for (const block of graph.blocks) {
+      for (const node of block.nodes) {
+        if (node.type === ir.IR_PHI) blockParams.push(node);
+      }
+    }
+
+    const reflowWorklist: ReprNode[] = [];
+    const reflowQueued = new Set<number>();
+    const enqueueReflow = (param: ReprNode): void => {
+      if (reflowQueued.has(param.id)) return;
+      reflowQueued.add(param.id);
+      reflowWorklist.push(param);
+    };
+
+    for (const param of blockParams) {
+      nodeRep.delete(param.id);
+      enqueueReflow(param);
+    }
+
+    while (reflowWorklist.length > 0) {
+      const param = reflowWorklist.pop()!;
+      reflowQueued.delete(param.id);
+      const rep = joinIncomingReps(param.inputs, false);
+      if (rep === null || rep === nodeRep.get(param.id)) continue;
+      nodeRep.set(param.id, rep);
+      for (const use of param.uses) {
+        if (use.type === ir.IR_PHI) enqueueReflow(use);
+      }
+    }
+
+    for (const param of blockParams) {
+      if (!nodeRep.has(param.id)) nodeRep.set(param.id, REP_HANDLE);
+    }
+  };
+
+  reflowPhiRepresentations();
 
   let insertCount = 0;
 
@@ -466,11 +523,15 @@ export function representationSelection(graph: ReprGraph): number {
     if (
       OVERLOADABLE_ARITHMETIC.has(consumer.type) ||
       consumer.type === ir.IR_GENERIC_CALL ||
+      consumer.type === ir.IR_CALL_KNOWN_FUNCTION ||
       consumer.type === ir.IR_GENERIC_GET_PROP ||
       consumer.type === ir.IR_GENERIC_SET_PROP ||
+      consumer.type === ir.IR_GENERIC_DELETE_PROP ||
       consumer.type === ir.IR_GENERIC_GET_INDEX ||
       consumer.type === ir.IR_GENERIC_SET_INDEX ||
       consumer.type === ir.IR_NEW_ARRAY ||
+      consumer.type === ir.IR_MAKE_CLOSURE ||
+      consumer.type === ir.IR_STORE_CONTEXT_SLOT ||
       consumer.type === ir.IR_STORE_GLOBAL
     ) {
       return nodeRep.get(consumer.inputs[inputIndex]?.id) || REP_HANDLE;
@@ -481,9 +542,118 @@ export function representationSelection(graph: ReprGraph): number {
     return null;
   };
 
+  const makeConversion = (
+    input: ReprNode,
+    producerRep: Representation,
+    expectedRep: Representation,
+    frameState: ReprNode["frameState"],
+  ): ReprNode | null => {
+    if (producerRep === REP_INT32 && expectedRep === REP_TAGGED_NUMBER) {
+      const boxNode = nodeFromIr(ir.irBox(input, "int32"));
+      boxNode.frameState = frameState;
+      nodeRep.set(boxNode.id, REP_TAGGED_NUMBER);
+      insertCount++;
+      return boxNode;
+    }
+    if (producerRep === REP_FLOAT64 && expectedRep === REP_TAGGED_NUMBER) {
+      const boxNode = nodeFromIr(ir.irBox(input, "float64"));
+      boxNode.frameState = frameState;
+      nodeRep.set(boxNode.id, REP_TAGGED_NUMBER);
+      insertCount++;
+      return boxNode;
+    }
+    if (producerRep === REP_BOOL && expectedRep === REP_INT32) {
+      return null;
+    }
+    if (producerRep === REP_INT32 && expectedRep === REP_BOOL) {
+      return null;
+    }
+    if (
+      (producerRep === REP_TAGGED_NUMBER || producerRep === REP_HANDLE) &&
+      expectedRep === REP_BOOL
+    ) {
+      const unboxNode = nodeFromIr(ir.irUnbox(input, "bool"));
+      unboxNode.frameState = frameState;
+      nodeRep.set(unboxNode.id, REP_BOOL);
+      insertCount++;
+      return unboxNode;
+    }
+    if (
+      (producerRep === REP_TAGGED_NUMBER || producerRep === REP_HANDLE) &&
+      expectedRep === REP_INT32
+    ) {
+      const unboxNode = nodeFromIr(ir.irUnbox(input, "int32"));
+      unboxNode.frameState = frameState;
+      nodeRep.set(unboxNode.id, REP_INT32);
+      insertCount++;
+      return unboxNode;
+    }
+    if (
+      (producerRep === REP_TAGGED_NUMBER || producerRep === REP_HANDLE) &&
+      expectedRep === REP_FLOAT64
+    ) {
+      const unboxNode = nodeFromIr(ir.irUnbox(input, "float64"));
+      unboxNode.frameState = frameState;
+      nodeRep.set(unboxNode.id, REP_FLOAT64);
+      insertCount++;
+      return unboxNode;
+    }
+    if (
+      expectedRep === REP_HANDLE &&
+      (producerRep === REP_INT32 ||
+        producerRep === REP_FLOAT64 ||
+        producerRep === REP_TAGGED_NUMBER ||
+        producerRep === REP_BOOL)
+    ) {
+      const boxNode = nodeFromIr(ir.irBox(input, boxSourceType(producerRep)));
+      boxNode.props.toType = "handle";
+      boxNode.frameState = frameState;
+      nodeRep.set(boxNode.id, REP_HANDLE);
+      insertCount++;
+      return boxNode;
+    }
+    return null;
+  };
+
+  const insertBeforeTerminator = (block: ReprBlock, node: ReprNode): void => {
+    node.block = block;
+    const terminator = block.getTerminator();
+    const index = terminator ? block.nodes.indexOf(terminator) : -1;
+    block.nodes.splice(index >= 0 ? index : block.nodes.length, 0, node);
+  };
+
+  for (const block of graph.blocks) {
+    for (const phi of block.phis) {
+      const expectedRep = nodeRep.get(phi.id) || REP_HANDLE;
+      for (let i = 0; i < phi.inputs.length; i++) {
+        const input = phi.inputs[i];
+        const producerRep = nodeRep.get(input.id);
+        if (!producerRep || producerRep === expectedRep) continue;
+        const conversion = makeConversion(
+          input,
+          producerRep,
+          expectedRep,
+          phi.frameState,
+        );
+        if (!conversion) continue;
+        const predecessor = block.predecessors[i];
+        const insertionBlock =
+          input.type === ir.IR_CONSTANT && input.block && input.block !== block
+            ? input.block
+            : predecessor ?? block;
+        insertBeforeTerminator(insertionBlock, conversion);
+        phi.replaceInput(i, conversion);
+      }
+    }
+  }
+
   for (const block of graph.blocks) {
     const result: ReprNode[] = [];
     for (const node of block.nodes) {
+      if (node.type === ir.IR_PHI) {
+        result.push(node);
+        continue;
+      }
       const pending: ReprNode[] = [];
       for (let i = 0; i < node.inputs.length; i++) {
         const input = node.inputs[i];
@@ -493,58 +663,15 @@ export function representationSelection(graph: ReprGraph): number {
         if (!expectedRep || !producerRep || producerRep === expectedRep)
           continue;
 
-        if (producerRep === REP_INT32 && expectedRep === REP_TAGGED_NUMBER) {
-          const boxNode = nodeFromIr(ir.irBox(input, "int32"));
-          boxNode.frameState = node.frameState;
-          nodeRep.set(boxNode.id, REP_TAGGED_NUMBER);
-          node.replaceInput(i, boxNode);
-          pending.push(boxNode);
-          insertCount++;
-        } else if (
-          producerRep === REP_FLOAT64 &&
-          expectedRep === REP_TAGGED_NUMBER
-        ) {
-          const boxNode = nodeFromIr(ir.irBox(input, "float64"));
-          boxNode.frameState = node.frameState;
-          nodeRep.set(boxNode.id, REP_TAGGED_NUMBER);
-          node.replaceInput(i, boxNode);
-          pending.push(boxNode);
-          insertCount++;
-        } else if (producerRep === REP_BOOL && expectedRep === REP_INT32) {
-          nodeRep.set(input.id, REP_INT32);
-        } else if (producerRep === REP_INT32 && expectedRep === REP_BOOL) {
-          nodeRep.set(input.id, REP_BOOL);
-        } else if (
-          (producerRep === REP_TAGGED_NUMBER || producerRep === REP_HANDLE) &&
-          expectedRep === REP_BOOL
-        ) {
-          const unboxNode = nodeFromIr(ir.irUnbox(input, "bool"));
-          unboxNode.frameState = node.frameState;
-          nodeRep.set(unboxNode.id, REP_BOOL);
-          node.replaceInput(i, unboxNode);
-          pending.push(unboxNode);
-          insertCount++;
-        } else if (
-          (producerRep === REP_TAGGED_NUMBER || producerRep === REP_HANDLE) &&
-          expectedRep === REP_INT32
-        ) {
-          const unboxNode = nodeFromIr(ir.irUnbox(input, "int32"));
-          unboxNode.frameState = node.frameState;
-          nodeRep.set(unboxNode.id, REP_INT32);
-          node.replaceInput(i, unboxNode);
-          pending.push(unboxNode);
-          insertCount++;
-        } else if (
-          (producerRep === REP_TAGGED_NUMBER || producerRep === REP_HANDLE) &&
-          expectedRep === REP_FLOAT64
-        ) {
-          const unboxNode = nodeFromIr(ir.irUnbox(input, "float64"));
-          unboxNode.frameState = node.frameState;
-          nodeRep.set(unboxNode.id, REP_FLOAT64);
-          node.replaceInput(i, unboxNode);
-          pending.push(unboxNode);
-          insertCount++;
-        }
+        const conversion = makeConversion(
+          input,
+          producerRep,
+          expectedRep,
+          node.frameState,
+        );
+        if (!conversion) continue;
+        node.replaceInput(i, conversion);
+        pending.push(conversion);
       }
 
       for (const p of pending) {
@@ -554,41 +681,6 @@ export function representationSelection(graph: ReprGraph): number {
       result.push(node);
     }
     block.nodes = result;
-  }
-
-  const blockParams: ReprNode[] = [];
-  for (const block of graph.blocks) {
-    for (const node of block.nodes) {
-      if (node.type === ir.IR_PHI) blockParams.push(node);
-    }
-  }
-
-  const reflowWorklist: ReprNode[] = [];
-  const reflowQueued = new Set<number>();
-  const enqueueReflow = (param: ReprNode): void => {
-    if (reflowQueued.has(param.id)) return;
-    reflowQueued.add(param.id);
-    reflowWorklist.push(param);
-  };
-
-  for (const param of blockParams) {
-    nodeRep.delete(param.id);
-    enqueueReflow(param);
-  }
-
-  while (reflowWorklist.length > 0) {
-    const param = reflowWorklist.pop()!;
-    reflowQueued.delete(param.id);
-    const rep = joinIncomingReps(param.inputs, false);
-    if (rep === null || rep === nodeRep.get(param.id)) continue;
-    nodeRep.set(param.id, rep);
-    for (const use of param.uses) {
-      if (use.type === ir.IR_PHI) enqueueReflow(use);
-    }
-  }
-
-  for (const param of blockParams) {
-    if (!nodeRep.has(param.id)) nodeRep.set(param.id, REP_HANDLE);
   }
 
   const nodeById = new Map<number, ReprNode>();

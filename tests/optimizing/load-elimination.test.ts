@@ -11,6 +11,7 @@ import {
   irGenericCall,
   irGenericGetProp,
   irGenericSetProp,
+  irInt32Add,
   irReturn,
   irJump,
   irBranch,
@@ -18,7 +19,7 @@ import {
   IR_CONSTANT,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
-import { link } from "../../src/optimizing/ir/cfg-edit.js";
+import { addPhi, connect, link } from "../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -129,6 +130,47 @@ describe("loadElimination", () => {
     const count = eliminateLoads(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(val);
+  });
+
+  it("does not replace a loop-carried field load with the preheader store", () => {
+    const graph = new CFGFunction("test");
+    const entry = graph.addBlock();
+    const header = graph.addBlock();
+    const body = graph.addBlock();
+    const exit = graph.addBlock();
+
+    const obj0 = irNewObject();
+    const initial = irConstant(0);
+    entry.addNode(obj0);
+    entry.addNode(initial);
+    entry.addNode(irStoreField(obj0, 0, initial));
+    link(entry, header);
+    entry.addNode(irJump(header));
+
+    const obj = addPhi(header, [obj0]);
+    const cond = irConstant(true);
+    header.addNode(cond);
+    link(header, body);
+    link(header, exit);
+    header.addNode(irBranch(cond, body, exit));
+
+    const current = irLoadField(obj, 0);
+    const one = irConstant(1);
+    const next = irInt32Add(current, one);
+    body.addNode(current);
+    body.addNode(one);
+    body.addNode(next);
+    body.addNode(irStoreField(obj, 0, next));
+    connect(body, header, [obj]);
+    body.addNode(irJump(header));
+
+    exit.addNode(irReturn(initial));
+
+    const count = eliminateLoads(graph);
+
+    expect(count).toBe(0);
+    expect(next.inputs[0]).toBe(current);
+    expect(body.nodes).toContain(current);
   });
 
   it("store overwrites previous store state", () => {

@@ -130,7 +130,9 @@ export function applyOsrTransform(
   if (!header || !forest.isHeader(header)) return false;
   const loop = forest.loopOf(header);
   if (!loop || loop.header !== header) return false;
-  if (header.phis.length !== candidate.slots.length) return false;
+  if (candidate.slots.length !== candidate.phiIds.length) return false;
+  const candidatePhiIds = new Set(candidate.phiIds);
+  if (candidatePhiIds.size !== candidate.phiIds.length) return false;
 
   const externalPredecessors = header.predecessors.filter(
     (predecessor) => !loop.blocks.has(predecessor),
@@ -158,22 +160,44 @@ export function applyOsrTransform(
   }
 
   const originalPhis = header.phis.slice();
+  const originalPhiById = new Map(originalPhis.map((phi) => [phi.id, phi]));
   const osrParams: CFGInstruction[] = [];
+  const osrParamByPhi = new Map<CFGInstruction, CFGInstruction>();
+  const osrPhiSet = new Set<CFGInstruction>();
+  for (const phiId of candidate.phiIds) {
+    const phi = originalPhiById.get(phiId);
+    if (!phi) return false;
+    const param = ir.irParameter(osrParams.length);
+    osrParams.push(param);
+    osrPhiSet.add(phi);
+    osrParamByPhi.set(phi, param);
+  }
+
   const folds = new Map<CFGInstruction, CFGInstruction>();
   const variantPhis: CFGInstruction[] = [];
-  const variantParams: CFGInstruction[] = [];
+  const osrVariantPhis: CFGInstruction[] = [];
+  const osrVariantParams: CFGInstruction[] = [];
 
-  for (let index = 0; index < originalPhis.length; index++) {
-    const phi = originalPhis[index];
-    const param = ir.irParameter(index);
-    osrParams.push(param);
+  for (const phi of originalPhis) {
     const latchValue = phi.inputs[latchIndex];
+    if (osrPhiSet.has(phi)) {
+      const param = osrParamByPhi.get(phi)!;
+      if (latchValue === phi) {
+        folds.set(phi, param);
+      } else {
+        phi.replaceInput(entryIndex, param);
+        variantPhis.push(phi);
+        osrVariantPhis.push(phi);
+        osrVariantParams.push(param);
+      }
+      continue;
+    }
+    const entryValue = phi.inputs[entryIndex];
+    if (!entryValue) return false;
     if (latchValue === phi) {
-      folds.set(phi, param);
+      folds.set(phi, entryValue);
     } else {
-      phi.replaceInput(entryIndex, param);
       variantPhis.push(phi);
-      variantParams.push(param);
     }
   }
 
@@ -206,21 +230,21 @@ export function applyOsrTransform(
   }
 
   const osrEntry = graph.addBlock();
-  const guardSources = loopGuardSources(graph, osrBlocks, variantPhis);
+  const guardSources = loopGuardSources(graph, osrBlocks, osrVariantPhis);
   const entryFolds = new Map<CFGInstruction, CFGInstruction>();
-  for (let index = 0; index < variantPhis.length; index++) {
-    entryFolds.set(variantPhis[index], variantParams[index]);
+  for (let index = 0; index < osrVariantPhis.length; index++) {
+    entryFolds.set(osrVariantPhis[index], osrVariantParams[index]);
   }
   const headerState = templateFrameState(header);
   const carriedNumbers = new Map<number, boolean>();
-  for (let index = 0; index < variantPhis.length; index++) {
-    const phi = variantPhis[index];
+  for (let index = 0; index < osrVariantPhis.length; index++) {
+    const phi = osrVariantPhis[index];
     const source = guardSources.get(phi);
     const latchValue = phi.inputs[latchIndex];
     if (!source && !carriesNumber(latchValue, carriedNumbers)) continue;
     const sourceState = source?.frameState ?? headerState;
     if (!sourceState) continue;
-    const param = variantParams[index];
+    const param = osrVariantParams[index];
     const guard =
       source && source.type === ir.IR_CHECK_SMI
         ? ir.irCheckSmi(param)

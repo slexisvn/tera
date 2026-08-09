@@ -146,11 +146,28 @@ describe("Deoptimizer.materializeValue", () => {
     expect(result).toBe(tagged);
   });
 
-  it("materializes Phi by recursing inputs[0]", () => {
+  it("materializes single-input Phi as a trivial value", () => {
     const inner = { id: 1, type: "Constant", props: { value: 50 } };
     const blockParam = { id: 2, type: "Phi", inputs: [inner] };
     const result = deopt.materializeValue(blockParam, new Map());
     expect(getPayload(result)).toBe(50);
+  });
+
+  it("uses a runtime value for non-trivial Phi", () => {
+    const left = { id: 1, type: "Constant", props: { value: 50 } };
+    const right = { id: 2, type: "Constant", props: { value: 60 } };
+    const blockParam = { id: 3, type: "Phi", inputs: [left, right] };
+    const result = deopt.materializeValue(blockParam, new Map([[3, mkSmi(99)]]));
+    expect(getPayload(result)).toBe(99);
+  });
+
+  it("rejects non-trivial Phi without runtime value", () => {
+    const left = { id: 1, type: "Constant", props: { value: 50 } };
+    const right = { id: 2, type: "Constant", props: { value: 60 } };
+    const blockParam = { id: 3, type: "Phi", inputs: [left, right] };
+    expect(() => deopt.materializeValue(blockParam, new Map())).toThrow(
+      /Cannot materialize non-trivial Phi/,
+    );
   });
 
   it("materializes TypeOf with number input to 'number'", () => {

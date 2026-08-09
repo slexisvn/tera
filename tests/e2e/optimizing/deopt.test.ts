@@ -121,3 +121,35 @@ describe("deopt from a no-frameState stub resumes at entry, not a stale offset",
     ).toEqual([undefined]);
   }, 30000);
 });
+
+describe("deoptimization materializes loop-carried phis from runtime values", () => {
+  it("resumes with the current loop accumulator after a late type miss", () => {
+    expect(
+      differential(
+        src(
+          "fn run(n, poison):",
+          "  i = 0",
+          "  acc = 0",
+          "  while i < n:",
+          "    v = 1",
+          "    if i == poison:",
+          '      v = "x"',
+          "    acc = acc + v",
+          "    i = i + 1",
+          "  return acc",
+          "fn driver(m):",
+          "  k = 0",
+          "  r = 0",
+          "  while k < m:",
+          "    r = run(5, -1)",
+          "    k = k + 1",
+          "  return r",
+          "warm = driver(300)",
+          "probe = run(4, 2)",
+          "[warm, probe]",
+        ),
+        { tiers: jitOsr },
+      ),
+    ).toEqual([5, "2x1"]);
+  });
+});

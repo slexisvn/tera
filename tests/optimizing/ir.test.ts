@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
+  RegisterCompiledFunction,
+  RegisterInstruction,
+  ROP_LDA_REG,
+  ROP_MOV,
+  ROP_RETURN,
+} from "../../src/bytecode/register/ops/bytecode.js";
+import { buildIR } from "../../src/optimizing/builder/ir-builder.js";
+import {
   CFGValue,
   CFGInstruction,
   CFGBlock,
@@ -58,6 +66,7 @@ import {
   IR_CONSTANT,
   IR_PARAMETER,
   IR_PHI,
+  IR_RETURN,
   EFFECT_NONE,
   EFFECT_GUARD,
   EFFECT_READ,
@@ -322,6 +331,29 @@ describe("CFGFunction", () => {
       expect(output).toContain("B0");
       expect(output).toContain("Return");
     });
+  });
+});
+
+describe("IR builder", () => {
+  it("lowers MOV as source then destination", () => {
+    const fn = new RegisterCompiledFunction("mov", 1);
+    fn.registerCount = 2;
+    fn.localCount = 2;
+    fn.instructions = [
+      new RegisterInstruction(ROP_MOV, 0, 1),
+      new RegisterInstruction(ROP_LDA_REG, 1),
+      new RegisterInstruction(ROP_RETURN),
+    ];
+
+    const graph = new IRGraph("mov");
+    graph.addParameter(0);
+    const entry = graph.addBlock();
+    buildIR(graph, entry, fn, null, []);
+    graph.rebuildUses();
+
+    const ret = graph.blocks[0].nodes.find((node) => node.type === IR_RETURN);
+    expect(ret?.inputs[0]?.type).toBe(IR_PARAMETER);
+    expect(ret?.inputs[0]?.props.index).toBe(0);
   });
 });
 

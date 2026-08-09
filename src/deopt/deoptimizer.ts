@@ -10,6 +10,7 @@ import type {
   OptimizedCode,
   RegisterCompiledFunction,
 } from "../bytecode/register/ops/bytecode.js";
+import type { Environment } from "../runtime/intrinsics/environment.js";
 import { DeoptSignal } from "./signal.js";
 import {
   ObjectMaterializer,
@@ -86,6 +87,7 @@ type DeoptSignalLike = {
   bytecodeOffset: number;
   frameStateId?: number;
   runtimeValues: Map<number, TaggedValue>;
+  closureEnv?: Environment | null;
 };
 
 type IRNodeLike = {
@@ -246,6 +248,7 @@ export class Deoptimizer {
       requireCompiledFunction(compiledFn, "deoptimizeFromFrameState"),
       [],
       null,
+      signal.closureEnv ?? null,
     );
 
     const localsCount = frame.locals.length;
@@ -279,7 +282,12 @@ export class Deoptimizer {
 
     if (frameState.isInlinedFrame && frameState.callerFrameState) {
       tracer.log("deopt", "Cascaded deoptimization: unwinding inline chain");
-      return this.resumeCascaded(frame, frameState);
+      return this.resumeCascaded(
+        frame,
+        frameState,
+        signal.runtimeValues,
+        signal.closureEnv ?? null,
+      );
     }
 
     tracer.jitResume(getFunctionName(compiledFn), bytecodeOffset);
@@ -294,7 +302,12 @@ export class Deoptimizer {
     );
   }
 
-  resumeCascaded(innerFrame: RegisterFrame, innerFrameState: FrameState): TaggedValue {
+  resumeCascaded(
+    innerFrame: RegisterFrame,
+    innerFrameState: FrameState,
+    runtimeValues: Map<number, TaggedValue>,
+    closureEnv: Environment | null,
+  ): TaggedValue {
     let currentFs = innerFrameState;
 
     let finalResult = this.interpreter.resumeAt(innerFrame);
@@ -306,6 +319,7 @@ export class Deoptimizer {
         requireCompiledFunction(callerFn, "resumeCascaded"),
         [],
         null,
+        closureEnv,
       );
 
       const localsCount = callerFrame.locals.length;
@@ -313,7 +327,7 @@ export class Deoptimizer {
         if (callerFs.hasLocal(i)) {
           callerFrame.locals[i] = this.materializeValue(
             callerFs.getLocal(i),
-            new Map(),
+            runtimeValues,
           );
         } else {
           callerFrame.locals[i] = mkUndefined();
@@ -322,7 +336,7 @@ export class Deoptimizer {
 
       if (callerFs.stackValues && callerFs.stackValues.length > 0) {
         const lastValue = callerFs.stackValues[callerFs.stackValues.length - 1];
-        callerFrame.acc = this.materializeValue(lastValue, new Map());
+        callerFrame.acc = this.materializeValue(lastValue, runtimeValues);
       }
 
       callerFrame.acc = finalResult;
@@ -330,7 +344,7 @@ export class Deoptimizer {
       if (callerFs.thisValue !== null) {
         callerFrame.thisValue = this.materializeValue(
           callerFs.thisValue,
-          new Map(),
+          runtimeValues,
         );
       }
 
@@ -396,14 +410,31 @@ export class Deoptimizer {
         case ir.IR_CHECK_CALL_TARGET:
         case ir.IR_BOX:
         case ir.IR_UNBOX:
-        case ir.IR_PHI:
         case ir.IR_LOAD_LOCAL:
+        case ir.IR_STORE_CONTEXT_SLOT:
           return this.materializeValue(nodeInput(irNodeOrValue, 0), runtimeValues);
+      }
+
+      if (irNodeOrValue.type === ir.IR_PHI) {
+        const input = ir.trivialPhiInput(irNodeOrValue);
+        if (input) return this.materializeValue(input as RuntimeValue, runtimeValues);
+        throw new Error(ir.missingPhiRuntimeValueMessage(irNodeOrValue));
       }
 
       if (irNodeOrValue.type === ir.IR_TYPEOF) {
         const input = this.materializeValue(nodeInput(irNodeOrValue, 0), runtimeValues);
         return mkString(typeOf(input));
+      }
+
+      if (irNodeOrValue.type === ir.IR_GENERIC_DELETE_PROP) {
+        return mkBool(true);
+      }
+
+      if (
+        irNodeOrValue.type === ir.IR_LOAD_CONTEXT_SLOT ||
+        irNodeOrValue.type === ir.IR_MAKE_CLOSURE
+      ) {
+        throw new Error(`Cannot materialize ${irNodeOrValue.type} v${irNodeOrValue.id} without runtime value`);
       }
 
       if (irNodeOrValue.type === ir.IR_STORE_LOCAL) {

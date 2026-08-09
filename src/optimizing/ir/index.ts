@@ -36,9 +36,12 @@ export const IR_POLYMORPHIC_LOAD = "PolymorphicLoad";
 export const IR_POLYMORPHIC_STORE = "PolymorphicStore";
 export const IR_GENERIC_GET_PROP = "GenericGetProp";
 export const IR_GENERIC_SET_PROP = "GenericSetProp";
+export const IR_GENERIC_DELETE_PROP = "GenericDeleteProp";
 export const IR_GENERIC_CALL = "GenericCall";
 export const IR_LOAD_LOCAL = "LoadLocal";
 export const IR_STORE_LOCAL = "StoreLocal";
+export const IR_LOAD_CONTEXT_SLOT = "LoadContextSlot";
+export const IR_STORE_CONTEXT_SLOT = "StoreContextSlot";
 export const IR_LOAD_GLOBAL = "LoadGlobal";
 export const IR_STORE_GLOBAL = "StoreGlobal";
 export const IR_BRANCH = "Branch";
@@ -53,6 +56,7 @@ export const IR_CALL_BUILTIN = "CallBuiltin";
 export const IR_CALL_INTRINSIC = "CallIntrinsic";
 export const IR_NEW_OBJECT = "NewObject";
 export const IR_NEW_ARRAY = "NewArray";
+export const IR_MAKE_CLOSURE = "MakeClosure";
 export const IR_TYPEOF = "TypeOf";
 export const IR_NOT = "Not";
 export const IR_NEG = "Neg";
@@ -152,7 +156,13 @@ export type IRValueLike =
   | CFGFunction
   | RegisterCompiledFunction;
 type CFGDependency = { kind: string; id: string | number; version: number | null };
-export type OsrCandidate = { headerBlockId: number; slots: number[] };
+export type OsrCandidate = {
+  headerBlockId: number;
+  slots: number[];
+  phiIds: number[];
+};
+export type ContextSlotSource = "local" | "upvalue";
+export type ClosureCapture = { source: ContextSlotSource; slot: number };
 
 export const EFFECT_NONE = "none";
 export const EFFECT_GUARD = "guard";
@@ -168,7 +178,9 @@ const WRITES = new Set([
   IR_STORE_ELEMENT,
   IR_STORE_GLOBAL,
   IR_STORE_LOCAL,
+  IR_STORE_CONTEXT_SLOT,
   IR_GENERIC_SET_PROP,
+  IR_GENERIC_DELETE_PROP,
   IR_GENERIC_SET_INDEX,
   IR_POLYMORPHIC_STORE,
   IR_MEGAMORPHIC_STORE,
@@ -179,12 +191,13 @@ const CALLS = new Set([
   IR_CALL_INTRINSIC,
   IR_CALL_KNOWN_FUNCTION,
 ]);
-const ALLOCS = new Set([IR_NEW_OBJECT, IR_NEW_ARRAY, IR_NEW_REGEX]);
+const ALLOCS = new Set([IR_NEW_OBJECT, IR_NEW_ARRAY, IR_NEW_REGEX, IR_MAKE_CLOSURE]);
 const READS = new Set([
   IR_LOAD_FIELD,
   IR_LOAD_ELEMENT,
   IR_LOAD_ARRAY_LENGTH,
   IR_LOAD_GLOBAL,
+  IR_LOAD_CONTEXT_SLOT,
   IR_GENERIC_GET_PROP,
   IR_GENERIC_GET_INDEX,
   IR_POLYMORPHIC_LOAD,
@@ -216,6 +229,9 @@ const DEOPT_CAPABLE = new Set([
   IR_NEW_OBJECT,
   IR_NEW_ARRAY,
   IR_NEW_REGEX,
+  IR_MAKE_CLOSURE,
+  IR_LOAD_CONTEXT_SLOT,
+  IR_STORE_CONTEXT_SLOT,
   IR_POLYMORPHIC_LOAD,
   IR_POLYMORPHIC_STORE,
   IR_DISPATCH_MAP,
@@ -310,6 +326,25 @@ export class CFGInstruction {
     const rep = this.props._rep ? ` :${String(this.props._rep)}` : "";
     return `v${this.id} = ${this.opcode}(${inputIds})${rep}${propsStr ? " [" + propsStr + "]" : ""}${this.effectKind !== EFFECT_NONE ? ` <${this.effectKind}>` : ""}${fs}`;
   }
+}
+
+export function trivialPhiInput<T extends { inputs?: readonly (T | null | undefined)[] }>(
+  phi: T,
+): T | null {
+  let candidate: T | null = null;
+  for (const input of phi.inputs ?? []) {
+    if (!input || input === phi) continue;
+    if (!candidate) {
+      candidate = input;
+      continue;
+    }
+    if (candidate !== input) return null;
+  }
+  return candidate;
+}
+
+export function missingPhiRuntimeValueMessage(phi: { id?: unknown }): string {
+  return `Cannot materialize non-trivial Phi v${String(phi.id ?? "?")} without runtime value`;
 }
 
 export class CFGBlock {
@@ -669,6 +704,17 @@ export function irGenericSetProp(obj: IRValueLike, propName: IRValueLike, value:
   return node;
 }
 
+export function irGenericDeleteProp(obj: IRValueLike, keyOrPropName: IRValueLike) {
+  const isDynamicKey = keyOrPropName instanceof CFGInstruction;
+  const node = new IRNode(
+    IR_GENERIC_DELETE_PROP,
+    isDynamicKey ? {} : { propName: keyOrPropName },
+  );
+  node.addInput(obj);
+  if (isDynamicKey) node.addInput(keyOrPropName);
+  return node;
+}
+
 export function irGenericCall(callee: IRValueLike, args: IRValueLike[]) {
   const node = new IRNode(IR_GENERIC_CALL, { argCount: args.length });
   node.addInput(callee);
@@ -886,6 +932,23 @@ export function irStoreLocal(slot: number, value: IRValueLike) {
   return node;
 }
 
+export function irLoadContextSlot(
+  slot: number,
+  source: ContextSlotSource = "local",
+) {
+  return new IRNode(IR_LOAD_CONTEXT_SLOT, { slot, source });
+}
+
+export function irStoreContextSlot(
+  slot: number,
+  value: IRValueLike,
+  source: ContextSlotSource = "local",
+) {
+  const node = new IRNode(IR_STORE_CONTEXT_SLOT, { slot, source });
+  node.addInput(value);
+  return node;
+}
+
 export function irLoadGlobal(name: string) {
   return new IRNode(IR_LOAD_GLOBAL, { name });
 }
@@ -893,6 +956,15 @@ export function irLoadGlobal(name: string) {
 export function irStoreGlobal(name: string, value: IRValueLike) {
   const node = new IRNode(IR_STORE_GLOBAL, { name });
   node.addInput(value);
+  return node;
+}
+
+export function irMakeClosure(
+  constIdx: number,
+  compiled: IRMetadataValue,
+  captures: ClosureCapture[],
+) {
+  const node = new IRNode(IR_MAKE_CLOSURE, { constIdx, compiled, captures });
   return node;
 }
 

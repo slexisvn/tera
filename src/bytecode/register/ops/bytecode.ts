@@ -3,6 +3,7 @@ import type { FeedbackVector } from "../../../feedback/vector/index.js";
 import type { RuntimeValue, TaggedValue } from "../../../core/value/index.js";
 import type { ClassVisibility } from "../../../core/class-visibility.js";
 import type { RuntimeInterfaceContract } from "../../../runtime/interface-contract.js";
+import type { Environment } from "../../../runtime/intrinsics/environment.js";
 
 export const ROP_LDA_CONST = 0x01;
 export const ROP_LDA_REG = 0x02;
@@ -116,7 +117,12 @@ export type RegisterOperand = number;
 export type RuntimeNameMap = Record<string, true>;
 export type RegisterConstant = RuntimeValue | RegisterCompiledFunction | string[] | RuntimeInterfaceContract[];
 export type BaselineCode = {
-  (args: TaggedValue[], thisValue: TaggedValue, interpreter: object): TaggedValue;
+  (
+    args: TaggedValue[],
+    thisValue: TaggedValue,
+    interpreter: object,
+    closureEnv: Environment | null,
+  ): TaggedValue;
   _call0?: (thisValue: TaggedValue, interpreter: object) => TaggedValue;
   _call1?: (
     a0: TaggedValue,
@@ -139,7 +145,12 @@ export type BaselineCode = {
   _isBaseline?: boolean;
 };
 export type OptimizedCode = {
-  (args: TaggedValue[], thisValue: TaggedValue, interpreter: object): TaggedValue;
+  (
+    args: TaggedValue[],
+    thisValue: TaggedValue,
+    interpreter: object,
+    closureEnv: Environment | null,
+  ): TaggedValue;
   _dispose?: () => void;
   _declinesEntry?: (args: TaggedValue[]) => boolean;
 };

@@ -20,7 +20,6 @@ import {
   IC_MONOMORPHIC,
   IC_POLYMORPHIC,
   IC_MEGAMORPHIC,
-  globalMegamorphicCache,
 } from "../../src/feedback/ic/index.js";
 
 function makeObj(hcId, version = 1, props = {}) {
