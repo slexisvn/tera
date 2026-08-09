@@ -8,14 +8,28 @@ import {
   visitFrameStateValues,
 } from "../ir/frame-state-values.js";
 import { detachInputs } from "../ir/graph-edit.js";
-import { analyzeEscapes } from "../analyses/escape.js";
+import type { PointsToResult } from "../analyses/points-to.js";
 import type { FrameValue } from "../../deopt/frame-state.js";
+import { addPhi } from "../ir/cfg-edit.js";
 
 type EscapeNode = ir.CFGInstruction;
 type EscapeBlock = ir.CFGBlock;
 type EscapeGraph = ir.CFGFunction;
 
 type ValueState = Map<ir.IRMetadataValue, EscapeNode>;
+
+const ALLOCATIONS = new Set([ir.IR_NEW_OBJECT, ir.IR_NEW_ARRAY]);
+const IDENTITY_GUARDS = new Set([ir.IR_CHECK_MAP, ir.IR_CHECK_ARRAY]);
+const RECEIVER_ACCESSES = new Set([
+  ir.IR_GENERIC_SET_PROP,
+  ir.IR_GENERIC_GET_PROP,
+  ir.IR_GENERIC_SET_INDEX,
+  ir.IR_GENERIC_GET_INDEX,
+  ir.IR_STORE_ELEMENT,
+  ir.IR_LOAD_ELEMENT,
+  ir.IR_STORE_FIELD,
+  ir.IR_LOAD_FIELD,
+]);
 
 function nodeFromIr(value: ir.CFGInstruction): EscapeNode {
   return value;
@@ -24,6 +38,7 @@ function nodeFromIr(value: ir.CFGInstruction): EscapeNode {
 export function escapeAnalysisAndScalarReplacement(
   graph: EscapeGraph,
   dominance: DominatorTree,
+  pointsTo: PointsToResult,
 ): number {
   let scalarReplCount = 0;
 
@@ -37,24 +52,23 @@ export function escapeAnalysisAndScalarReplacement(
   const allocations: EscapeNode[] = [];
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      if (node.type === ir.IR_NEW_OBJECT || node.type === ir.IR_NEW_ARRAY) {
-        allocations.push(node);
-      }
+      if (ALLOCATIONS.has(node.type)) allocations.push(node);
     }
   }
   if (allocations.length === 0) return 0;
 
-  const escapeInfo = analyzeEscapes(graph);
+  const values = collectValues(graph);
 
   for (const alloc of allocations) {
     const allocBlock = blockOf.get(alloc);
     if (!allocBlock) continue;
 
-    if (escapeInfo.escapes(alloc.id)) continue;
-    if (escapeInfo.flowsThroughPhi(alloc.id)) continue;
+    if (pointsTo.escapes(alloc)) continue;
 
-    const aliases = new Set<EscapeNode>(escapeInfo.aliasesOf(alloc.id));
-    const safeUses = new Set<EscapeNode>(escapeInfo.receiverUsesOf(alloc.id));
+    const aliases = new Set<EscapeNode>(
+      values.filter((value) => pointsTo.allocClassOf(value) === alloc.id),
+    );
+    const safeUses = safeReceiverUses(aliases);
 
     let allDominated = true;
     for (const use of safeUses) {
@@ -70,8 +84,16 @@ export function escapeAnalysisAndScalarReplacement(
     }
 
     if (!allDominated) continue;
+    if (requiresUnsupportedMergeState(safeUses, aliases)) continue;
 
     const toDelete = new Set<number>([...aliases].map((node) => node.id));
+    const initialOffset = initialOffsetState(alloc);
+    const phiFieldStates = createPhiFieldStates(
+      aliases,
+      safeUses,
+      initialOffset,
+      blockOf,
+    );
 
     let arrayLength: number | null = null;
     if (alloc.type === ir.IR_NEW_ARRAY) {
@@ -114,6 +136,10 @@ export function escapeAnalysisAndScalarReplacement(
       propState: ValueState,
       offsetState: ValueState,
     ): void => {
+      const blockPhiState = phiFieldStates.get(block);
+      if (blockPhiState) {
+        for (const [key, value] of blockPhiState) offsetState.set(key, value);
+      }
       for (let i = 0; i < block.nodes.length; i++) {
         const node = block.nodes[i];
         recordVirtualState(node, propState, offsetState);
@@ -222,13 +248,6 @@ export function escapeAnalysisAndScalarReplacement(
       }
     };
 
-    const initialOffset: ValueState = new Map();
-    if (alloc.type === ir.IR_NEW_ARRAY) {
-      for (let k = 0; k < alloc.inputs.length; k++) {
-        if (alloc.inputs[k]) initialOffset.set("elem_i" + k, alloc.inputs[k]);
-      }
-    }
-
     walkDom(allocBlock, new Map(), initialOffset);
 
     removeNodes(graph, toDelete);
@@ -241,6 +260,156 @@ export function escapeAnalysisAndScalarReplacement(
   }
 
   return scalarReplCount;
+}
+
+function collectValues(graph: EscapeGraph): EscapeNode[] {
+  const values: EscapeNode[] = [...graph.parameters];
+  for (const block of graph.blocks) values.push(...block.nodes);
+  return values;
+}
+
+function safeReceiverUses(aliases: ReadonlySet<EscapeNode>): Set<EscapeNode> {
+  const uses = new Set<EscapeNode>();
+  for (const alias of aliases) {
+    for (const use of alias.uses) {
+      if (IDENTITY_GUARDS.has(use.type) && use.inputs[0] === alias) {
+        uses.add(use);
+        continue;
+      }
+      if (RECEIVER_ACCESSES.has(use.type) && use.inputs[0] === alias) {
+        uses.add(use);
+      }
+    }
+  }
+  return uses;
+}
+
+function requiresUnsupportedMergeState(
+  safeUses: ReadonlySet<EscapeNode>,
+  aliases: ReadonlySet<EscapeNode>,
+): boolean {
+  for (const use of safeUses) {
+    const block = use.block;
+    if (!block || block.predecessors.length < 2) continue;
+    const base = use.inputs[0];
+    if (base?.type === ir.IR_PHI && aliases.has(base) && base.block === block) continue;
+    return true;
+  }
+  return false;
+}
+
+function initialOffsetState(alloc: EscapeNode): ValueState {
+  const state: ValueState = new Map();
+  if (alloc.type === ir.IR_NEW_ARRAY) {
+    for (let index = 0; index < alloc.inputs.length; index++) {
+      if (alloc.inputs[index]) state.set("elem_i" + index, alloc.inputs[index]);
+    }
+  }
+  return state;
+}
+
+function createPhiFieldStates(
+  aliases: ReadonlySet<EscapeNode>,
+  safeUses: ReadonlySet<EscapeNode>,
+  initialOffset: ValueState,
+  blockOf: Map<EscapeNode, EscapeBlock>,
+): Map<EscapeBlock, ValueState> {
+  const out = new Map<EscapeBlock, ValueState>();
+  for (const alias of aliases) {
+    if (alias.type !== ir.IR_PHI || !alias.block || !alias.block.phis.includes(alias)) continue;
+    const fieldKeys = fieldKeysForAlias(alias, safeUses);
+    if (fieldKeys.size === 0) continue;
+    let blockState = out.get(alias.block);
+    if (!blockState) {
+      blockState = new Map();
+      out.set(alias.block, blockState);
+    }
+    for (const key of fieldKeys) {
+      const phi = addPhi(alias.block, []);
+      blockOf.set(phi, alias.block);
+      blockState.set(key, phi);
+      for (let index = 0; index < alias.block.predecessors.length; index++) {
+        const predecessor = alias.block.predecessors[index]!;
+        const stored = latestStoreForField(predecessor, key, aliases);
+        if (stored) {
+          phi.addInput(stored);
+          continue;
+        }
+        const objectInput = alias.inputs[index];
+        if (objectInput === alias) {
+          phi.addInput(phi);
+          continue;
+        }
+        const initial = initialOffset.get(key);
+        phi.addInput(initial ?? insertUndefinedForPhi(predecessor, blockOf));
+      }
+    }
+  }
+  return out;
+}
+
+function fieldKeysForAlias(
+  alias: EscapeNode,
+  safeUses: ReadonlySet<EscapeNode>,
+): Set<ir.IRMetadataValue> {
+  const keys = new Set<ir.IRMetadataValue>();
+  for (const use of safeUses) {
+    if (use.inputs[0] !== alias) continue;
+    const key = offsetStateKey(use);
+    if (key !== null) keys.add(key);
+  }
+  return keys;
+}
+
+function latestStoreForField(
+  block: EscapeBlock,
+  key: ir.IRMetadataValue,
+  aliases: ReadonlySet<EscapeNode>,
+): EscapeNode | null {
+  for (let index = block.nodes.length - 1; index >= 0; index--) {
+    const node = block.nodes[index]!;
+    if (!aliases.has(node.inputs[0])) continue;
+    if (offsetStateKey(node) !== key) continue;
+    return storedValue(node);
+  }
+  return null;
+}
+
+function offsetStateKey(node: EscapeNode): ir.IRMetadataValue | null {
+  if (
+    node.type === ir.IR_STORE_FIELD ||
+    node.type === ir.IR_LOAD_FIELD
+  ) {
+    return node.props.offset ?? null;
+  }
+  if (
+    node.type === ir.IR_STORE_ELEMENT ||
+    node.type === ir.IR_LOAD_ELEMENT ||
+    node.type === ir.IR_GENERIC_SET_INDEX ||
+    node.type === ir.IR_GENERIC_GET_INDEX
+  ) {
+    return "elem_" + elementKey(node);
+  }
+  return null;
+}
+
+function storedValue(node: EscapeNode): EscapeNode | null {
+  if (node.type === ir.IR_STORE_FIELD) return node.inputs[1] ?? null;
+  if (node.type === ir.IR_STORE_ELEMENT || node.type === ir.IR_GENERIC_SET_INDEX) {
+    return node.inputs[2] ?? null;
+  }
+  return null;
+}
+
+function insertUndefinedForPhi(
+  block: EscapeBlock,
+  blockOf: Map<EscapeNode, EscapeBlock>,
+): EscapeNode {
+  const terminator = block.getTerminator();
+  const index = terminator ? block.nodes.indexOf(terminator) : block.nodes.length;
+  const value = insertUndefinedConstant(block, index < 0 ? block.nodes.length : index);
+  blockOf.set(value, block);
+  return value;
 }
 
 function elementKey(node: EscapeNode): string {
@@ -296,6 +465,8 @@ function removeNodes(graph: EscapeGraph, toDelete: Set<number>): void {
         kept.push(node);
       }
     }
+    block.phis = block.phis.filter((node) => !toDelete.has(node.id));
+    for (let index = 0; index < block.phis.length; index++) block.phis[index].props.index = index;
     block.nodes = kept;
   }
 }

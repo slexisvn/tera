@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { escapeAnalysisAndScalarReplacement } from "../../src/optimizing/passes/escape-analysis.js";
 import { DominatorTree } from "../../src/optimizing/analyses/dominance.js";
+import { AnalysisManager } from "../../src/optimizing/infra/analysis-manager.js";
+import { createAnalysisRegistry, pointsToAnalysisId } from "../../src/optimizing/analyses/index.js";
 import {
   CFGFunction,
   irConstant,
@@ -17,15 +19,22 @@ import {
   irBranch,
   IR_NEW_OBJECT,
   IR_LOAD_FIELD,
+  IR_STORE_FIELD,
+  IR_PHI,
   IR_CONSTANT,
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
-import { link } from "../../src/optimizing/ir/cfg-edit.js";
+import { addPhi, connect, link } from "../../src/optimizing/ir/cfg-edit.js";
 
 beforeEach(() => resetIRNodeIds());
 
 function runEscapeAnalysis(graph: CFGFunction): number {
-  return escapeAnalysisAndScalarReplacement(graph, new DominatorTree(graph));
+  const analyses = new AnalysisManager(graph, createAnalysisRegistry());
+  return escapeAnalysisAndScalarReplacement(
+    graph,
+    new DominatorTree(graph),
+    analyses.get(pointsToAnalysisId),
+  );
 }
 
 describe("escapeAnalysisAndScalarReplacement", () => {
@@ -170,6 +179,45 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     expect(falseHasLoad || falseHasUndefined).toBe(true);
   });
 
+  it("does not scalar replace when a field load needs unsupported merge state", () => {
+    const graph = new CFGFunction("test");
+    const entry = graph.addBlock();
+    const left = graph.addBlock();
+    const right = graph.addBlock();
+    const merge = graph.addBlock();
+
+    const alloc = irNewObject();
+    const cond = irConstant(1);
+    entry.addNode(alloc);
+    entry.addNode(cond);
+    link(entry, left);
+    link(entry, right);
+    entry.addNode(irBranch(cond, left, right));
+
+    const leftValue = irConstant(11);
+    left.addNode(leftValue);
+    left.addNode(irStoreField(alloc, 0, leftValue));
+    link(left, merge);
+    left.addNode(irJump(merge));
+
+    const rightValue = irConstant(12);
+    right.addNode(rightValue);
+    right.addNode(irStoreField(alloc, 0, rightValue));
+    link(right, merge);
+    right.addNode(irJump(merge));
+
+    const load = irLoadField(alloc, 0);
+    merge.addNode(load);
+    const ret = irReturn(load);
+    merge.addNode(ret);
+
+    const count = runEscapeAnalysis(graph);
+
+    expect(count).toBe(0);
+    expect(graph.blocks.flatMap(block => block.nodes).some(n => n.type === IR_NEW_OBJECT)).toBe(true);
+    expect(ret.inputs[0]).toBe(load);
+  });
+
   it("propagates store to dominated block correctly", () => {
     const graph = new CFGFunction("test");
     const b0 = graph.addBlock();
@@ -192,5 +240,56 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     const count = runEscapeAnalysis(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0].props.value).toBe(77);
+  });
+
+  it("scalar replaces a loop-carried object field with a phi", () => {
+    const graph = new CFGFunction("test");
+    const entry = graph.addBlock();
+    const header = graph.addBlock();
+    const body = graph.addBlock();
+    const exit = graph.addBlock();
+
+    const alloc = irNewObject();
+    const initial = irConstant(0);
+    entry.addNode(alloc);
+    entry.addNode(initial);
+    entry.addNode(irStoreField(alloc, 0, initial));
+    link(entry, header);
+    entry.addNode(irJump(header));
+
+    const obj = addPhi(header, [alloc]);
+    const current = irLoadField(obj, 0);
+    const one = irConstant(1);
+    const next = irInt32Add(current, one);
+    const cond = irConstant(1);
+    header.addNode(current);
+    header.addNode(one);
+    header.addNode(next);
+    header.addNode(cond);
+    link(header, body);
+    link(header, exit);
+    header.addNode(irBranch(cond, body, exit));
+
+    body.addNode(irStoreField(obj, 0, next));
+    link(body, header);
+    body.addNode(irJump(header));
+    connect(body, header, [obj]);
+
+    const finalLoad = irLoadField(obj, 0);
+    exit.addNode(finalLoad);
+    const ret = irReturn(finalLoad);
+    exit.addNode(ret);
+
+    const count = runEscapeAnalysis(graph);
+
+    expect(count).toBe(1);
+    expect(graph.blocks.flatMap(block => block.nodes).some(n => n.type === IR_NEW_OBJECT)).toBe(false);
+    expect(graph.blocks.flatMap(block => block.nodes).some(n => n.type === IR_LOAD_FIELD)).toBe(false);
+    expect(graph.blocks.flatMap(block => block.nodes).some(n => n.type === IR_STORE_FIELD)).toBe(false);
+    expect(header.phis).toHaveLength(1);
+    expect(header.phis[0].type).toBe(IR_PHI);
+    expect(header.phis[0].inputs).toContain(initial);
+    expect(header.phis[0].inputs).toContain(next);
+    expect(ret.inputs[0]).toBe(header.phis[0]);
   });
 });

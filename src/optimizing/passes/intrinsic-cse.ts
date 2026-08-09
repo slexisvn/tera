@@ -1,5 +1,6 @@
 import * as ir from "../ir/index.js";
 import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
+import { runSnapshotDataflow } from "../infra/snapshot-dataflow.js";
 
 type IntrinsicNode = ir.CFGInstruction;
 type IntrinsicBlock = ir.CFGBlock;
@@ -16,59 +17,14 @@ type AvailableState = {
 type MaybeAvailableState = AvailableState | null;
 
 export function commonSubexpressionIntrinsicReads(graph: IntrinsicGraph): number {
-  if (!graph.entry) return 0;
-
-  const reachable = reachableBlocks(graph.entry);
-  const inStates = new Map<IntrinsicBlock, MaybeAvailableState>();
-  const outStates = new Map<IntrinsicBlock, MaybeAvailableState>();
-  const worklist: IntrinsicBlock[] = [graph.entry];
-  const queued = new Set<IntrinsicBlock>(worklist);
-  inStates.set(graph.entry, emptyState());
-
-  for (let cursor = 0; cursor < worklist.length; cursor++) {
-    const block = worklist[cursor];
-    queued.delete(block);
-    const input = inStates.get(block);
-    if (!input) continue;
-    const output = transferBlock(block, input);
-    if (stateEquals(output, outStates.get(block) ?? null)) continue;
-    outStates.set(block, output);
-
-    for (const successor of block.successors) {
-      if (!reachable.has(successor)) continue;
-      const nextInput = successor === graph.entry ? emptyState() : meetPredecessors(successor, outStates, reachable);
-      if (!nextInput || stateEquals(nextInput, inStates.get(successor) ?? null)) continue;
-      inStates.set(successor, nextInput);
-      if (!queued.has(successor)) {
-        queued.add(successor);
-        worklist.push(successor);
-      }
-    }
-  }
-
-  let eliminated = 0;
-  for (const block of reachable) {
-    const input = inStates.get(block);
-    if (!input) continue;
-    eliminated += rewriteBlock(graph, block, input);
-  }
-
-  if (eliminated > 0) graph.rebuildUses?.();
-  return eliminated;
-}
-
-function reachableBlocks(entry: IntrinsicBlock): Set<IntrinsicBlock> {
-  const reachable = new Set<IntrinsicBlock>();
-  const stack = [entry];
-  while (stack.length > 0) {
-    const block = stack.pop()!;
-    if (reachable.has(block)) continue;
-    reachable.add(block);
-    for (let index = block.successors.length - 1; index >= 0; index--) {
-      stack.push(block.successors[index]);
-    }
-  }
-  return reachable;
+  return runSnapshotDataflow(graph, {
+    empty: emptyState,
+    clone: cloneState,
+    meet: intersectStates,
+    equals: stateEquals,
+    transfer: transferBlock,
+    rewrite: (block, state) => rewriteBlock(graph, block, state),
+  });
 }
 
 function transferBlock(block: IntrinsicBlock, input: AvailableState): AvailableState {
@@ -149,9 +105,7 @@ function intersectStates(left: AvailableState, right: AvailableState): Available
   return out;
 }
 
-function stateEquals(left: MaybeAvailableState, right: MaybeAvailableState): boolean {
-  if (left === right) return true;
-  if (!left || !right) return false;
+function stateEquals(left: AvailableState, right: AvailableState): boolean {
   if (left.entries.size !== right.entries.size) return false;
   for (const [key, entry] of left.entries) {
     const other = right.entries.get(key);

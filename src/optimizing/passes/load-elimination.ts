@@ -1,200 +1,300 @@
 import * as ir from "../ir/index.js";
-import { DominatorTree } from "../analyses/dominance.js";
-import { walkDominatorTree } from "../infra/dom-walk.js";
-import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
-import { detachNode } from "../ir/graph-edit.js";
+import { type ModRef } from "../analyses/mod-ref.js";
+import { type PointsToResult } from "../analyses/points-to.js";
+import {
+  fieldOf,
+  fieldsOverlap,
+  locationKey,
+  partitionKey,
+  type Field,
+  type Partition,
+} from "../analyses/heap-model.js";
+import { runSnapshotDataflow } from "../infra/snapshot-dataflow.js";
+import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
 
 type LoadNode = ir.CFGInstruction;
-type LoadBlock = ir.CFGBlock;
 type LoadGraph = ir.CFGFunction;
-type OffsetKey = ir.IRMetadataValue;
-type ObjectState = Map<OffsetKey, LoadNode>;
-type LoadState = Map<number, ObjectState>;
 
-const CALL_LIKE = new Set([
-  ir.IR_GENERIC_CALL,
-  ir.IR_CALL_BUILTIN,
-  ir.IR_CALL_INTRINSIC,
-  ir.IR_CALL_KNOWN_FUNCTION,
-]);
+type MemoryLocation = {
+  readonly key: string;
+  readonly baseKey: string;
+  readonly base: LoadNode | null;
+  readonly partition: Partition;
+  readonly field: Field;
+};
 
-const ARBITRARY_WRITE = new Set([
-  ir.IR_GENERIC_SET_PROP,
-  ir.IR_GENERIC_SET_INDEX,
-]);
+type MemoryEntry = MemoryLocation & {
+  readonly value: LoadNode;
+  readonly visible: boolean;
+};
 
-function cloneState(state: LoadState): LoadState {
-  const copy: LoadState = new Map();
-  for (const [objId, offsets] of state) {
-    copy.set(objId, new Map(offsets));
-  }
-  return copy;
-}
+type MemoryState = {
+  byLocation: Map<string, MemoryEntry>;
+  byBase: Map<string, Set<string>>;
+  visibleBaseKeys: Set<string>;
+};
 
-function stateGet(
-  state: LoadState,
-  objId: number,
-  offset: OffsetKey,
-): LoadNode | undefined {
-  const offsets = state.get(objId);
-  return offsets ? offsets.get(offset) : undefined;
-}
-
-function stateSet(
-  state: LoadState,
-  objId: number,
-  offset: OffsetKey,
-  val: LoadNode,
-): void {
-  let offsets = state.get(objId);
-  if (!offsets) {
-    offsets = new Map();
-    state.set(objId, offsets);
-  }
-  offsets.set(offset, val);
-}
-
-function stateDeleteObj(state: LoadState, objId: number): void {
-  state.delete(objId);
-}
+const LOADS = new Set([ir.IR_LOAD_FIELD, ir.IR_LOAD_ELEMENT, ir.IR_LOAD_GLOBAL]);
+const STORES = new Set([ir.IR_STORE_FIELD, ir.IR_STORE_ELEMENT, ir.IR_STORE_GLOBAL]);
 
 export function loadElimination(
   graph: LoadGraph,
-  dominance: DominatorTree,
+  pointsTo: PointsToResult,
+  modRef: ModRef,
 ): number {
-  let eliminatedCount = 0;
+  return runSnapshotDataflow(graph, {
+    empty: emptyState,
+    clone: cloneState,
+    meet: meetStates,
+    equals: stateEquals,
+    transfer: (block, input) => transferBlock(block, input, pointsTo, modRef),
+    rewrite: (block, input) => rewriteBlock(graph, block, input, pointsTo, modRef),
+  });
+}
 
-  const freshAllocations = new Set<number>();
-  const escapedAllocations = new Set<number>();
-  for (const block of graph.blocks) {
-    for (const node of block.nodes) {
-      if (node.type === ir.IR_NEW_OBJECT || node.type === ir.IR_NEW_ARRAY) {
-        freshAllocations.add(node.id);
+function transferBlock(
+  block: ir.CFGBlock,
+  input: MemoryState,
+  pointsTo: PointsToResult,
+  modRef: ModRef,
+): MemoryState {
+  const state = cloneState(input);
+  for (const node of block.nodes) transferNode(state, node, pointsTo, modRef);
+  return state;
+}
+
+function rewriteBlock(
+  graph: LoadGraph,
+  block: ir.CFGBlock,
+  input: MemoryState,
+  pointsTo: PointsToResult,
+  modRef: ModRef,
+): number {
+  const state = cloneState(input);
+  const removed = new Set<LoadNode>();
+  let eliminated = 0;
+
+  for (const node of block.nodes) {
+    if (LOADS.has(node.type)) {
+      const location = memoryLocation(node, pointsTo);
+      const existing = location ? state.byLocation.get(location.key) : undefined;
+      if (existing && existing.value !== node) {
+        replaceValueUses(graph, node, existing.value);
+        detachNode(node);
+        removed.add(node);
+        eliminated++;
+        continue;
       }
+      if (location) addLocation(state, location, node, pointsTo);
+      continue;
     }
-  }
-  for (const block of graph.blocks) {
-    for (const node of block.nodes) {
-      if (CALL_LIKE.has(node.type)) {
-        for (const input of node.inputs) {
-          if (input && freshAllocations.has(input.id)) {
-            escapedAllocations.add(input.id);
-          }
-        }
-      }
-      if (ARBITRARY_WRITE.has(node.type)) {
-        for (let i = 1; i < node.inputs.length; i++) {
-          const input = node.inputs[i];
-          if (input && freshAllocations.has(input.id)) {
-            escapedAllocations.add(input.id);
-          }
-        }
-      }
-    }
+    transferNode(state, node, pointsTo, modRef);
   }
 
-  const definiteNoAlias = (id1: number, id2: number): boolean => {
-    if (id1 !== id2 && freshAllocations.has(id1) && freshAllocations.has(id2)) {
-      return true;
+  if (removed.size > 0) block.nodes = block.nodes.filter((node) => !removed.has(node));
+  return eliminated;
+}
+
+function transferNode(
+  state: MemoryState,
+  node: LoadNode,
+  pointsTo: PointsToResult,
+  modRef: ModRef,
+): void {
+  if (LOADS.has(node.type)) {
+    const location = memoryLocation(node, pointsTo);
+    if (location && !state.byLocation.has(location.key)) addLocation(state, location, node, pointsTo);
+    return;
+  }
+  if (STORES.has(node.type)) {
+    const location = memoryLocation(node, pointsTo);
+    const value = storeValue(node);
+    if (location && value) {
+      killAliases(state, location, pointsTo);
+      addLocation(state, location, value, pointsTo);
     }
-    return false;
+    return;
+  }
+  if (modRef.killsEverything(node)) {
+    killVisible(state);
+    return;
+  }
+  for (const key of modRef.gmod(node)) removeLocation(state, key);
+}
+
+function memoryLocation(
+  node: LoadNode,
+  pointsTo: PointsToResult,
+): MemoryLocation | null {
+  if (node.type === ir.IR_LOAD_GLOBAL || node.type === ir.IR_STORE_GLOBAL) {
+    if (typeof node.props.name !== "string") return null;
+    const partition: Partition = { kind: "global", name: node.props.name };
+    const field: Field = { kind: "anyIndex" };
+    const baseKey = partitionKey(partition);
+    return {
+      key: locationKey(partition, field),
+      baseKey,
+      base: null,
+      partition,
+      field,
+    };
+  }
+  const base = node.inputs[0];
+  const field = fieldOf(node);
+  if (!base || !field) return null;
+  const partition = pointsTo.partitionOf(base);
+  const baseKey = partitionKey(partition);
+  return {
+    key: locationKey(partition, field),
+    baseKey,
+    base,
+    partition,
+    field,
   };
+}
 
-  const visitBlock = (block: LoadBlock, state: LoadState): void => {
-    const nodesToRemove: LoadNode[] = [];
+function storeValue(node: LoadNode): LoadNode | null {
+  if (node.type === ir.IR_STORE_FIELD) return node.inputs[1] ?? null;
+  if (node.type === ir.IR_STORE_ELEMENT) return node.inputs[2] ?? null;
+  if (node.type === ir.IR_STORE_GLOBAL) return node.inputs[0] ?? null;
+  return null;
+}
 
-    for (const node of block.nodes) {
-      if (node.type === ir.IR_STORE_FIELD) {
-        const obj = node.inputs[0];
-        const val = node.inputs[1];
-        const offset = node.props.offset;
-        if (obj && val && offset !== undefined) {
-          const objOffsets = state.get(obj.id);
-          if (objOffsets) {
-            objOffsets.delete(offset);
-            if (objOffsets.size === 0) state.delete(obj.id);
-          }
-          for (const [oid, offsets] of [...state]) {
-            if (oid === obj.id) continue;
-            if (definiteNoAlias(oid, obj.id)) continue;
-            if (freshAllocations.has(oid) || freshAllocations.has(obj.id)) {
-              continue;
-            }
-            if (offsets.has(offset)) {
-              offsets.delete(offset);
-              if (offsets.size === 0) state.delete(oid);
-            }
-          }
-          stateSet(state, obj.id, offset, val);
-        }
-        continue;
-      }
-
-      if (node.type === ir.IR_LOAD_FIELD) {
-        const obj = node.inputs[0];
-        const offset = node.props.offset;
-        if (obj && offset !== undefined) {
-          const available = stateGet(state, obj.id, offset);
-          if (available) {
-            for (const use of [...node.uses]) {
-              for (let i = 0; i < use.inputs.length; i++) {
-                if (use.inputs[i] === node) {
-                  use.replaceInput(i, available);
-                }
-              }
-            }
-            replaceGraphFrameStateValue(graph, node, available);
-            detachNode(node);
-            nodesToRemove.push(node);
-            eliminatedCount++;
-          } else {
-            stateSet(state, obj.id, offset, node);
-          }
-        }
-        continue;
-      }
-
-      if (CALL_LIKE.has(node.type)) {
-        if (node.props && node.props.pure) continue;
-        for (const oid of [...state.keys()]) {
-          if (freshAllocations.has(oid) && !escapedAllocations.has(oid)) {
-            continue;
-          }
-          stateDeleteObj(state, oid);
-        }
-        continue;
-      }
-
-      if (ARBITRARY_WRITE.has(node.type)) {
-        const obj = node.inputs[0];
-        if (obj) {
-          for (const key of [...state.keys()]) {
-            if (!definiteNoAlias(key, obj.id)) {
-              stateDeleteObj(state, key);
-            }
-          }
-        } else {
-          state.clear();
-        }
-        continue;
-      }
+function killAliases(
+  state: MemoryState,
+  location: MemoryLocation,
+  pointsTo: PointsToResult,
+): void {
+  const candidates = candidateBaseKeys(state, location, pointsTo);
+  for (const baseKey of candidates) {
+    const keys = state.byBase.get(baseKey);
+    if (!keys) continue;
+    for (const key of [...keys]) {
+      const entry = state.byLocation.get(key);
+      if (!entry) continue;
+      if (!fieldsOverlap(entry.field, location.field)) continue;
+      if (!locationsMayAlias(entry, location, pointsTo)) continue;
+      removeLocation(state, key);
     }
-
-    if (nodesToRemove.length > 0) {
-      const deadSet = new Set(nodesToRemove);
-      block.nodes = block.nodes.filter((n) => !deadSet.has(n));
-    }
-  };
-
-  const entry = graph.blocks[0];
-  if (entry) {
-    walkDominatorTree<LoadBlock, LoadState>(
-      entry,
-      (block) => dominance.childrenOf(block) as readonly LoadBlock[],
-      new Map(),
-      { fork: cloneState, visitBlock },
-    );
   }
+}
 
-  return eliminatedCount;
+function candidateBaseKeys(
+  state: MemoryState,
+  location: MemoryLocation,
+  pointsTo: PointsToResult,
+): Set<string> {
+  if (location.base === null || !isExternallyVisible(location, pointsTo)) {
+    return new Set([location.baseKey]);
+  }
+  return new Set([...state.visibleBaseKeys, location.baseKey]);
+}
+
+function locationsMayAlias(
+  left: MemoryLocation,
+  right: MemoryLocation,
+  pointsTo: PointsToResult,
+): boolean {
+  if (left.base === null || right.base === null) return left.baseKey === right.baseKey;
+  return pointsTo.mayAlias(left.base, right.base);
+}
+
+function addLocation(
+  state: MemoryState,
+  location: MemoryLocation,
+  value: LoadNode,
+  pointsTo: PointsToResult,
+): void {
+  removeLocation(state, location.key);
+  const entry: MemoryEntry = { ...location, value, visible: isExternallyVisible(location, pointsTo) };
+  state.byLocation.set(location.key, entry);
+  let keys = state.byBase.get(location.baseKey);
+  if (!keys) {
+    keys = new Set();
+    state.byBase.set(location.baseKey, keys);
+  }
+  keys.add(location.key);
+  if (entry.visible) state.visibleBaseKeys.add(location.baseKey);
+}
+
+function removeLocation(state: MemoryState, key: string): void {
+  const entry = state.byLocation.get(key);
+  if (!entry) return;
+  state.byLocation.delete(key);
+  const keys = state.byBase.get(entry.baseKey);
+  if (keys) {
+    keys.delete(key);
+    if (keys.size === 0) {
+      state.byBase.delete(entry.baseKey);
+      state.visibleBaseKeys.delete(entry.baseKey);
+    }
+  }
+}
+
+function killVisible(state: MemoryState): void {
+  for (const baseKey of [...state.visibleBaseKeys]) {
+    const keys = state.byBase.get(baseKey);
+    if (!keys) continue;
+    for (const key of [...keys]) removeLocation(state, key);
+  }
+}
+
+function isExternallyVisible(
+  location: MemoryLocation,
+  pointsTo: PointsToResult,
+): boolean {
+  if (location.base === null) return true;
+  return location.partition.kind !== "alloc" || pointsTo.escapes(location.base);
+}
+
+function emptyState(): MemoryState {
+  return {
+    byLocation: new Map(),
+    byBase: new Map(),
+    visibleBaseKeys: new Set(),
+  };
+}
+
+function cloneState(state: MemoryState): MemoryState {
+  const byBase = new Map<string, Set<string>>();
+  for (const [base, keys] of state.byBase) byBase.set(base, new Set(keys));
+  return {
+    byLocation: new Map(state.byLocation),
+    byBase,
+    visibleBaseKeys: new Set(state.visibleBaseKeys),
+  };
+}
+
+function meetStates(left: MemoryState, right: MemoryState): MemoryState {
+  const out = emptyState();
+  for (const [key, entry] of left.byLocation) {
+    const other = right.byLocation.get(key);
+    if (!other || !sameEntry(entry, other)) continue;
+    addEntry(out, entry);
+  }
+  return out;
+}
+
+function stateEquals(left: MemoryState, right: MemoryState): boolean {
+  if (left.byLocation.size !== right.byLocation.size) return false;
+  for (const [key, entry] of left.byLocation) {
+    const other = right.byLocation.get(key);
+    if (!other || !sameEntry(entry, other)) return false;
+  }
+  return true;
+}
+
+function sameEntry(left: MemoryEntry, right: MemoryEntry): boolean {
+  return left.value === right.value && left.base === right.base && left.key === right.key && left.visible === right.visible;
+}
+
+function addEntry(state: MemoryState, entry: MemoryEntry): void {
+  state.byLocation.set(entry.key, entry);
+  let keys = state.byBase.get(entry.baseKey);
+  if (!keys) {
+    keys = new Set();
+    state.byBase.set(entry.baseKey, keys);
+  }
+  keys.add(entry.key);
+  if (entry.visible) state.visibleBaseKeys.add(entry.baseKey);
 }

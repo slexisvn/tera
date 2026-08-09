@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { loadElimination } from "../../src/optimizing/passes/load-elimination.js";
-import { DominatorTree } from "../../src/optimizing/analyses/dominance.js";
+import { AnalysisManager } from "../../src/optimizing/infra/analysis-manager.js";
+import { createAnalysisRegistry, modRefAnalysisId, pointsToAnalysisId } from "../../src/optimizing/analyses/index.js";
 import {
   CFGFunction,
   irConstant,
@@ -11,6 +12,7 @@ import {
   irGenericSetProp,
   irReturn,
   irJump,
+  irBranch,
   IR_LOAD_FIELD,
   IR_CONSTANT,
   resetIRNodeIds,
@@ -20,7 +22,12 @@ import { link } from "../../src/optimizing/ir/cfg-edit.js";
 beforeEach(() => resetIRNodeIds());
 
 function eliminateLoads(graph: CFGFunction): number {
-  return loadElimination(graph, new DominatorTree(graph));
+  const analyses = new AnalysisManager(graph, createAnalysisRegistry());
+  return loadElimination(
+    graph,
+    analyses.get(pointsToAnalysisId),
+    analyses.get(modRefAnalysisId),
+  );
 }
 
 describe("loadElimination", () => {
@@ -185,6 +192,38 @@ describe("loadElimination", () => {
     const ret = irReturn(load);
     block.addNode(ret);
     const count = eliminateLoads(graph);
+    expect(count).toBe(1);
+    expect(ret.inputs[0]).toBe(val);
+  });
+
+  it("eliminates load available from every branch at a merge", () => {
+    const graph = new CFGFunction("test");
+    const entry = graph.addBlock();
+    const left = graph.addBlock();
+    const right = graph.addBlock();
+    const merge = graph.addBlock();
+    const obj = irNewObject();
+    const cond = irConstant(true);
+    const val = irConstant(7);
+    entry.addNode(obj);
+    entry.addNode(cond);
+    entry.addNode(val);
+    link(entry, left);
+    link(entry, right);
+    entry.addNode(irBranch(cond, left, right));
+    left.addNode(irStoreField(obj, 0, val));
+    link(left, merge);
+    left.addNode(irJump(merge));
+    right.addNode(irStoreField(obj, 0, val));
+    link(right, merge);
+    right.addNode(irJump(merge));
+    const load = irLoadField(obj, 0);
+    merge.addNode(load);
+    const ret = irReturn(load);
+    merge.addNode(ret);
+
+    const count = eliminateLoads(graph);
+
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(val);
   });
