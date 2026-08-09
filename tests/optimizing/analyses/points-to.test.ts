@@ -9,6 +9,8 @@ import {
   irNewObject,
   irReturn,
   irStoreField,
+  irCheckArray,
+  irCheckElementsKind,
   irCheckMap,
   resetIRNodeIds,
 } from "../../../src/optimizing/ir/index.js";
@@ -115,6 +117,26 @@ describe("pointsToAnalysis", () => {
 
     expect(result.escapes(outer)).toBe(true);
     expect(result.escapes(inner)).toBe(true);
+  });
+
+  it("keeps array element-kind checks in the allocation class", () => {
+    const graph = new CFGFunction("arrayKindGuard");
+    const block = graph.addBlock();
+    const value = irConstant(1);
+    const array = irNewArray([value]);
+    const checkedArray = irCheckArray(array);
+    const checkedKind = irCheckElementsKind(checkedArray, "PACKED_SMI");
+    block.addNode(value);
+    block.addNode(array);
+    block.addNode(checkedArray);
+    block.addNode(checkedKind);
+    block.addNode(irReturn(irConstant(0)));
+
+    const result = pointsTo(graph);
+
+    expect(result.allocClassOf(checkedKind)).toBe(array.id);
+    expect(result.mayAlias(array, checkedKind)).toBe(true);
+    expect(result.partitionOf(checkedKind)).toEqual({ kind: "alloc", site: array.id });
   });
 
   it("keeps a loop-carried allocation in the same class", () => {

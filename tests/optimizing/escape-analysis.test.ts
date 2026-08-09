@@ -3,6 +3,8 @@ import { escapeAnalysisAndScalarReplacement } from "../../src/optimizing/passes/
 import { DominatorTree } from "../../src/optimizing/analyses/dominance.js";
 import { AnalysisManager } from "../../src/optimizing/infra/analysis-manager.js";
 import { createAnalysisRegistry, pointsToAnalysisId } from "../../src/optimizing/analyses/index.js";
+import { FrameState } from "../../src/deopt/frame-state.js";
+import { validateOptimizedGraph } from "../../src/optimizing/validation/graph-validator.js";
 import {
   CFGFunction,
   irConstant,
@@ -240,6 +242,110 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     const count = runEscapeAnalysis(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0].props.value).toBe(77);
+  });
+
+  it("does not scalar replace object phi when predecessor field state is not exact", () => {
+    const graph = new CFGFunction("test");
+    const entry = graph.addBlock();
+    const left = graph.addBlock();
+    const right = graph.addBlock();
+    const merge = graph.addBlock();
+
+    const alloc = irNewObject();
+    const value = irConstant(33);
+    const cond = irConstant(1);
+    entry.addNode(alloc);
+    entry.addNode(value);
+    entry.addNode(irStoreField(alloc, 0, value));
+    entry.addNode(cond);
+    link(entry, left);
+    link(entry, right);
+    entry.addNode(irBranch(cond, left, right));
+
+    const obj = addPhi(merge, []);
+    connect(left, merge, [alloc]);
+    left.addNode(irJump(merge));
+    connect(right, merge, [alloc]);
+    right.addNode(irJump(merge));
+
+    const load = irLoadField(obj, 0);
+    merge.addNode(load);
+    const ret = irReturn(load);
+    merge.addNode(ret);
+
+    const count = runEscapeAnalysis(graph);
+
+    expect(count).toBe(0);
+    expect(graph.blocks.flatMap(block => block.nodes).some(n => n.type === IR_NEW_OBJECT)).toBe(true);
+    expect(ret.inputs[0]).toBe(load);
+  });
+
+  it("does not scalar replace generic property access through object phi", () => {
+    const graph = new CFGFunction("test");
+    const entry = graph.addBlock();
+    const left = graph.addBlock();
+    const right = graph.addBlock();
+    const merge = graph.addBlock();
+
+    const alloc = irNewObject();
+    const value = irConstant(44);
+    const cond = irConstant(1);
+    entry.addNode(alloc);
+    entry.addNode(value);
+    entry.addNode(irGenericSetProp(alloc, "x", value));
+    entry.addNode(cond);
+    link(entry, left);
+    link(entry, right);
+    entry.addNode(irBranch(cond, left, right));
+
+    const obj = addPhi(merge, []);
+    connect(left, merge, [alloc]);
+    left.addNode(irJump(merge));
+    connect(right, merge, [alloc]);
+    right.addNode(irJump(merge));
+
+    const get = irGenericGetProp(obj, "x");
+    merge.addNode(get);
+    const ret = irReturn(get);
+    merge.addNode(ret);
+
+    const count = runEscapeAnalysis(graph);
+
+    expect(count).toBe(0);
+    expect(graph.blocks.flatMap(block => block.nodes).some(n => n.type === IR_NEW_OBJECT)).toBe(true);
+    expect(ret.inputs[0]).toBe(get);
+  });
+
+  it("does not scalar replace allocations referenced by caller frame states", () => {
+    const graph = new CFGFunction("test");
+    const block = graph.addBlock();
+    const alloc = irNewObject();
+    const allocFrame = new FrameState(null, 0);
+    allocFrame.id = 0;
+    alloc.frameState = allocFrame;
+    block.addNode(alloc);
+    const value = irConstant(55);
+    block.addNode(value);
+    block.addNode(irStoreField(alloc, 0, value));
+    const load = irLoadField(alloc, 0);
+    block.addNode(load);
+    const ret = irReturn(load);
+    const outer = new FrameState(null, 0);
+    const caller = new FrameState(null, 0);
+    outer.id = 1;
+    caller.id = 2;
+    caller.setLocal(0, alloc);
+    outer.setCallerFrame(caller);
+    ret.frameState = outer;
+    block.addNode(ret);
+
+    const count = runEscapeAnalysis(graph);
+
+    expect(count).toBe(0);
+    expect(caller.sunkAllocations).toBeNull();
+    expect(graph.blocks.flatMap(block => block.nodes).some(n => n.type === IR_NEW_OBJECT)).toBe(true);
+    expect(ret.inputs[0]).toBe(load);
+    validateOptimizedGraph(graph, [allocFrame, outer, caller]);
   });
 
   it("scalar replaces a loop-carried object field with a phi", () => {

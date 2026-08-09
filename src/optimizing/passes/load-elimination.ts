@@ -36,6 +36,12 @@ type MemoryState = {
 
 const LOADS = new Set([ir.IR_LOAD_FIELD, ir.IR_LOAD_ELEMENT, ir.IR_LOAD_GLOBAL]);
 const STORES = new Set([ir.IR_STORE_FIELD, ir.IR_STORE_ELEMENT, ir.IR_STORE_GLOBAL]);
+const GENERIC_BASE_ACCESSES = new Set([
+  ir.IR_GENERIC_GET_PROP,
+  ir.IR_GENERIC_SET_PROP,
+  ir.IR_GENERIC_GET_INDEX,
+  ir.IR_GENERIC_SET_INDEX,
+]);
 
 export function loadElimination(
   graph: LoadGraph,
@@ -114,6 +120,10 @@ function transferNode(
       addLocation(state, location, value, pointsTo);
     }
     return;
+  }
+  if (GENERIC_BASE_ACCESSES.has(node.type)) {
+    const location = memoryLocation(node, pointsTo);
+    if (location) killAliases(state, location, pointsTo);
   }
   if (modRef.killsEverything(node)) {
     killVisible(state);

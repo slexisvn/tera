@@ -17,7 +17,11 @@ type ClassInfo = {
 };
 
 const ALLOCATIONS = new Set([ir.IR_NEW_OBJECT, ir.IR_NEW_ARRAY, ir.IR_NEW_REGEX]);
-const IDENTITY_GUARDS = new Set([ir.IR_CHECK_MAP, ir.IR_CHECK_ARRAY]);
+const IDENTITY_GUARDS = new Set([
+  ir.IR_CHECK_MAP,
+  ir.IR_CHECK_ARRAY,
+  ir.IR_CHECK_ELEMENTS_KIND,
+]);
 const CALLS = new Set([
   ir.IR_GENERIC_CALL,
   ir.IR_CALL_BUILTIN,

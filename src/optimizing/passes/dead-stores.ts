@@ -36,6 +36,12 @@ type LiveState = {
 
 const LOADS = new Set([ir.IR_LOAD_FIELD, ir.IR_LOAD_ELEMENT, ir.IR_LOAD_GLOBAL]);
 const STORES = new Set([ir.IR_STORE_FIELD, ir.IR_STORE_ELEMENT, ir.IR_STORE_GLOBAL]);
+const GENERIC_BASE_ACCESSES = new Set([
+  ir.IR_GENERIC_GET_PROP,
+  ir.IR_GENERIC_SET_PROP,
+  ir.IR_GENERIC_GET_INDEX,
+  ir.IR_GENERIC_SET_INDEX,
+]);
 
 export function deadStoreElimination(
   graph: StoreGraph,
@@ -121,6 +127,10 @@ function transferNode(
   if (node.type === ir.IR_RETURN) {
     for (const input of node.inputs) addBaseAliases(state, input, universe, pointsTo);
     return;
+  }
+  if (GENERIC_BASE_ACCESSES.has(node.type)) {
+    const location = memoryLocation(node, pointsTo);
+    if (location) addAliases(state, location, universe, pointsTo, true);
   }
   if (modRef.killsEverything(node)) {
     for (const key of universe.visibleKeys) state.live.add(key);

@@ -9,6 +9,8 @@ import {
   irStoreField,
   irLoadField,
   irGenericCall,
+  irGenericGetProp,
+  irGenericSetProp,
   irReturn,
   irJump,
   IR_STORE_FIELD,
@@ -86,6 +88,44 @@ describe("deadStoreElimination", () => {
 
       eliminateDeadStores(graph);
 
+      const stores = block.nodes.filter(n => n.type === IR_STORE_FIELD);
+      expect(stores).toHaveLength(1);
+    });
+
+    it("keeps local store before generic property read on the same object", () => {
+      const graph = new CFGFunction("test");
+      const block = graph.addBlock();
+      const obj = irNewObject();
+      block.addNode(obj);
+      const value = irConstant(1);
+      block.addNode(value);
+      block.addNode(irStoreField(obj, 0, value));
+      block.addNode(irGenericGetProp(obj, "x"));
+      block.addNode(irReturn(irConstant(0)));
+
+      const count = eliminateDeadStores(graph);
+
+      expect(count).toBe(0);
+      const stores = block.nodes.filter(n => n.type === IR_STORE_FIELD);
+      expect(stores).toHaveLength(1);
+    });
+
+    it("keeps local store before generic property write on the same object", () => {
+      const graph = new CFGFunction("test");
+      const block = graph.addBlock();
+      const obj = irNewObject();
+      block.addNode(obj);
+      const v1 = irConstant(1);
+      const v2 = irConstant(2);
+      block.addNode(v1);
+      block.addNode(v2);
+      block.addNode(irStoreField(obj, 0, v1));
+      block.addNode(irGenericSetProp(obj, "x", v2));
+      block.addNode(irReturn(irConstant(0)));
+
+      const count = eliminateDeadStores(graph);
+
+      expect(count).toBe(0);
       const stores = block.nodes.filter(n => n.type === IR_STORE_FIELD);
       expect(stores).toHaveLength(1);
     });

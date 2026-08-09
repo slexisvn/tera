@@ -9,6 +9,7 @@ import {
   irStoreField,
   irNewObject,
   irGenericCall,
+  irGenericGetProp,
   irGenericSetProp,
   irReturn,
   irJump,
@@ -150,6 +151,50 @@ describe("loadElimination", () => {
     const count = eliminateLoads(graph);
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(val2);
+  });
+
+  it("invalidates local field state across generic property write", () => {
+    const graph = new CFGFunction("test");
+    const block = graph.addBlock();
+    const obj = irNewObject();
+    block.addNode(obj);
+    const v1 = irConstant(1);
+    const v2 = irConstant(2);
+    block.addNode(v1);
+    block.addNode(v2);
+    block.addNode(irStoreField(obj, 0, v1));
+    block.addNode(irGenericSetProp(obj, "x", v2));
+    const load = irLoadField(obj, 0);
+    block.addNode(load);
+    const ret = irReturn(load);
+    block.addNode(ret);
+
+    const count = eliminateLoads(graph);
+
+    expect(count).toBe(0);
+    expect(ret.inputs[0]).toBe(load);
+    expect(block.nodes).toContain(load);
+  });
+
+  it("invalidates local field state across generic property read", () => {
+    const graph = new CFGFunction("test");
+    const block = graph.addBlock();
+    const obj = irNewObject();
+    block.addNode(obj);
+    const val = irConstant(1);
+    block.addNode(val);
+    block.addNode(irStoreField(obj, 0, val));
+    block.addNode(irGenericGetProp(obj, "x"));
+    const load = irLoadField(obj, 0);
+    block.addNode(load);
+    const ret = irReturn(load);
+    block.addNode(ret);
+
+    const count = eliminateLoads(graph);
+
+    expect(count).toBe(0);
+    expect(ret.inputs[0]).toBe(load);
+    expect(block.nodes).toContain(load);
   });
 
   it("two fresh allocations are no-alias", () => {

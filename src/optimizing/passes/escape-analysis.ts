@@ -5,11 +5,10 @@ import { tracer } from "../../core/tracing/index.js";
 import { DominatorTree } from "../analyses/dominance.js";
 import {
   replaceGraphFrameStateValue,
-  visitFrameStateValues,
 } from "../ir/frame-state-values.js";
 import { detachInputs } from "../ir/graph-edit.js";
 import type { PointsToResult } from "../analyses/points-to.js";
-import type { FrameValue } from "../../deopt/frame-state.js";
+import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
 import { addPhi } from "../ir/cfg-edit.js";
 
 type EscapeNode = ir.CFGInstruction;
@@ -69,6 +68,7 @@ export function escapeAnalysisAndScalarReplacement(
       values.filter((value) => pointsTo.allocClassOf(value) === alloc.id),
     );
     const safeUses = safeReceiverUses(aliases);
+    if (callerFrameStatesReferenceAliases(graph, aliases)) continue;
 
     let allDominated = true;
     for (const use of safeUses) {
@@ -83,11 +83,10 @@ export function escapeAnalysisAndScalarReplacement(
       }
     }
 
-    if (!allDominated) continue;
-    if (requiresUnsupportedMergeState(safeUses, aliases)) continue;
+    const initialOffset = initialOffsetState(alloc);
+    if (requiresUnsupportedMergeState(safeUses, aliases, initialOffset)) continue;
 
     const toDelete = new Set<number>([...aliases].map((node) => node.id));
-    const initialOffset = initialOffsetState(alloc);
     const phiFieldStates = createPhiFieldStates(
       aliases,
       safeUses,
@@ -118,17 +117,15 @@ export function escapeAnalysisAndScalarReplacement(
     ): void => {
       const frameState = node.frameState;
       if (!frameState) return;
-      let referenced = false;
-      visitFrameStateValues(frameState, (value) => {
-        if (value && aliases.has(value as EscapeNode)) referenced = true;
-      });
-      if (!referenced) return;
-      const sunk = frameState.sunkAllocations ?? new Map();
-      sunk.set(alloc.id, {
-        fields: new Map(offsetState) as Map<number, FrameValue>,
-        props: new Map(propState) as Map<string, FrameValue>,
-      });
-      frameState.setSunkAllocations(sunk);
+      for (let state: FrameState | null = frameState; state; state = state.callerFrameState) {
+        if (!frameStateOwnValuesReferenceAliases(state, aliases)) continue;
+        const sunk = state.sunkAllocations ?? new Map();
+        sunk.set(alloc.id, {
+          fields: new Map(offsetState) as Map<number, FrameValue>,
+          props: new Map(propState) as Map<string, FrameValue>,
+        });
+        state.setSunkAllocations(sunk);
+      }
     };
 
     const processBlock = (
@@ -250,6 +247,10 @@ export function escapeAnalysisAndScalarReplacement(
 
     walkDom(allocBlock, new Map(), initialOffset);
 
+    for (const alias of aliases) {
+      if (alias !== alloc) replaceGraphFrameStateValue(graph, alias, alloc);
+    }
+
     removeNodes(graph, toDelete);
 
     tracer.jitCompile(
@@ -260,6 +261,40 @@ export function escapeAnalysisAndScalarReplacement(
   }
 
   return scalarReplCount;
+}
+
+function callerFrameStatesReferenceAliases(
+  graph: EscapeGraph,
+  aliases: ReadonlySet<EscapeNode>,
+): boolean {
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      const seen = new Set<FrameState>();
+      let isCaller = false;
+      for (let state: FrameState | null = node.frameState; state; state = state.callerFrameState) {
+        if (seen.has(state)) break;
+        seen.add(state);
+        if (isCaller && frameStateOwnValuesReferenceAliases(state, aliases)) return true;
+        isCaller = true;
+      }
+    }
+  }
+  return false;
+}
+
+function frameStateOwnValuesReferenceAliases(
+  frameState: FrameState,
+  aliases: ReadonlySet<EscapeNode>,
+): boolean {
+  const isAlias = (value: FrameValue | null | undefined): boolean =>
+    !!value && aliases.has(value as EscapeNode);
+  for (const value of frameState.localValues.values()) {
+    if (isAlias(value)) return true;
+  }
+  for (const value of frameState.stackValues) {
+    if (isAlias(value)) return true;
+  }
+  return isAlias(frameState.thisValue);
 }
 
 function collectValues(graph: EscapeGraph): EscapeNode[] {
@@ -287,13 +322,31 @@ function safeReceiverUses(aliases: ReadonlySet<EscapeNode>): Set<EscapeNode> {
 function requiresUnsupportedMergeState(
   safeUses: ReadonlySet<EscapeNode>,
   aliases: ReadonlySet<EscapeNode>,
+  initialOffset: ValueState,
 ): boolean {
   for (const use of safeUses) {
     const block = use.block;
     if (!block || block.predecessors.length < 2) continue;
     const base = use.inputs[0];
-    if (base?.type === ir.IR_PHI && aliases.has(base) && base.block === block) continue;
-    return true;
+    if (base?.type !== ir.IR_PHI || !aliases.has(base) || base.block !== block) {
+      return true;
+    }
+    if (
+      use.type === ir.IR_GENERIC_GET_PROP ||
+      use.type === ir.IR_GENERIC_SET_PROP
+    ) {
+      return true;
+    }
+    const key = offsetStateKey(use);
+    if (key === null) return true;
+    for (let index = 0; index < block.predecessors.length; index++) {
+      const predecessor = block.predecessors[index]!;
+      if (latestStoreForField(predecessor, key, aliases)) continue;
+      const objectInput = base.inputs[index];
+      if (objectInput === base) continue;
+      if (initialOffset.has(key)) continue;
+      return true;
+    }
   }
   return false;
 }
@@ -340,8 +393,9 @@ function createPhiFieldStates(
           phi.addInput(phi);
           continue;
         }
-        const initial = initialOffset.get(key);
-        phi.addInput(initial ?? insertUndefinedForPhi(predecessor, blockOf));
+        if (initialOffset.has(key)) {
+          phi.addInput(initialOffset.get(key)!);
+        }
       }
     }
   }
@@ -399,17 +453,6 @@ function storedValue(node: EscapeNode): EscapeNode | null {
     return node.inputs[2] ?? null;
   }
   return null;
-}
-
-function insertUndefinedForPhi(
-  block: EscapeBlock,
-  blockOf: Map<EscapeNode, EscapeBlock>,
-): EscapeNode {
-  const terminator = block.getTerminator();
-  const index = terminator ? block.nodes.indexOf(terminator) : block.nodes.length;
-  const value = insertUndefinedConstant(block, index < 0 ? block.nodes.length : index);
-  blockOf.set(value, block);
-  return value;
 }
 
 function elementKey(node: EscapeNode): string {

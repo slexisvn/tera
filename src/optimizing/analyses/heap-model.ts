@@ -9,7 +9,8 @@ export type Partition =
 export type Field =
   | { readonly kind: "slot"; readonly offset: number }
   | { readonly kind: "index"; readonly value: number }
-  | { readonly kind: "anyIndex" };
+  | { readonly kind: "anyIndex" }
+  | { readonly kind: "any" };
 
 export function partitionKey(partition: Partition): string {
   if (partition.kind === "alloc") return `alloc:${partition.site}`;
@@ -21,6 +22,7 @@ export function partitionKey(partition: Partition): string {
 export function fieldKey(field: Field): string {
   if (field.kind === "slot") return `slot:${field.offset}`;
   if (field.kind === "index") return `index:${field.value}`;
+  if (field.kind === "any") return "any";
   return "anyIndex";
 }
 
@@ -36,9 +38,7 @@ export function fieldOf(node: ir.CFGInstruction): Field | null {
   }
   if (
     node.type === ir.IR_LOAD_ELEMENT ||
-    node.type === ir.IR_STORE_ELEMENT ||
-    node.type === ir.IR_GENERIC_GET_INDEX ||
-    node.type === ir.IR_GENERIC_SET_INDEX
+    node.type === ir.IR_STORE_ELEMENT
   ) {
     const index = node.inputs[1];
     if (index?.type === ir.IR_CONSTANT && typeof index.props.value === "number") {
@@ -46,10 +46,19 @@ export function fieldOf(node: ir.CFGInstruction): Field | null {
     }
     return { kind: "anyIndex" };
   }
+  if (
+    node.type === ir.IR_GENERIC_GET_PROP ||
+    node.type === ir.IR_GENERIC_SET_PROP ||
+    node.type === ir.IR_GENERIC_GET_INDEX ||
+    node.type === ir.IR_GENERIC_SET_INDEX
+  ) {
+    return { kind: "any" };
+  }
   return null;
 }
 
 export function fieldsOverlap(left: Field, right: Field): boolean {
+  if (left.kind === "any" || right.kind === "any") return true;
   if (left.kind === "slot" || right.kind === "slot") {
     return left.kind === "slot" && right.kind === "slot" && left.offset === right.offset;
   }
