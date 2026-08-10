@@ -151,4 +151,49 @@ describe("on-stack replacement", () => {
     expect(value).toBe(4950);
     expect(osrCompiled(engine, "small")).toBe(false);
   });
+
+  it("rebuilds the caller frame when a deopt fires inside an inlined callee", () => {
+    expect(
+      againstOracle(
+        src(
+          "fn checksum(s: string) -> int:",
+          "  acc = 0",
+          "  i = 0",
+          "  while (i < s.length):",
+          "    acc = (acc + s.char_code_at(i))",
+          "    i = (i + 1)",
+          "  return acc",
+          "fn work(n: int) -> int:",
+          "  acc = 0",
+          "  i = 0",
+          "  while (i < n):",
+          '    acc = checksum("benchmark")',
+          "    i = (i + 1)",
+          "  return acc",
+          "work(12000)",
+        ),
+      ),
+    ).toBe(939);
+  }, 30000);
+
+  it("keeps a deep inline chain correct once the outer loop is replaced on stack", () => {
+    expect(
+      againstOracle(
+        src(
+          "fn leaf(x: int) -> int:",
+          "  return ((x * 3) + 1)",
+          "fn mid(x: int) -> int:",
+          "  return (leaf(x) + leaf((x + 1)))",
+          "fn work(n: int) -> int:",
+          "  acc = 0",
+          "  i = 0",
+          "  while (i < n):",
+          "    acc = mid((i % 5))",
+          "    i = (i + 1)",
+          "  return acc",
+          "work(12000)",
+        ),
+      ),
+    ).toBe(29);
+  }, 30000);
 });

@@ -2268,8 +2268,10 @@ export class WasmCodegen {
   emitDeoptSnapshot(fs: FrameState | null, analysis: AnyAnalysis, bytes: number[]): void {
     if (!fs || !analysis.needsMemory) return;
 
-    let offset = 8;
+    let slot = 0;
     const writeValue = (val: FrameValue | null | undefined) => {
+      if (slot >= wasmFormat.DEOPT_SNAPSHOT_SLOTS) return;
+      const offset = wasmFormat.DEOPT_SNAPSHOT_BASE + slot * 8;
       const node = frameNode(val);
       if (node) {
         const loc = resolveNodeLocal(node.id, analysis);
@@ -2286,7 +2288,7 @@ export class WasmCodegen {
           );
         }
       }
-      offset += 8;
+      slot++;
     };
 
     visitDeoptSnapshotValues(fs, writeValue);
@@ -4220,9 +4222,11 @@ export class WasmCodegen {
 
         if (fs && memory) {
           const buffer = new Float64Array(memory.buffer);
-          let offsetIndex = 1;
+          let slot = 0;
 
           const readValue = (val: FrameValue | null | undefined) => {
+            if (slot >= wasmFormat.DEOPT_SNAPSHOT_SLOTS) return;
+            const offsetIndex = wasmFormat.DEOPT_SNAPSHOT_BASE / 8 + slot;
             const node = frameNode(val);
             if (node) {
               const loc = resolveNodeLocal(node.id, analysis);
@@ -4237,11 +4241,11 @@ export class WasmCodegen {
                     : null;
                 if (objInfo) {
                   runtimeValues.set(node.id, objInfo.value);
-                  offsetIndex++;
+                  slot++;
                   return;
                 }
                 if (analysis.nodeValueRep.get(node.id) === REP_HANDLE) {
-                  offsetIndex++;
+                  slot++;
                   return;
                 }
                 if (type === wasmFormat.TYPE_I32) {
@@ -4251,7 +4255,7 @@ export class WasmCodegen {
                 }
               }
             }
-            offsetIndex++;
+            slot++;
           };
 
           visitDeoptSnapshotValues(fs, readValue);
@@ -4503,7 +4507,7 @@ export class WasmCodegen {
       const ptrByIdentity: Map<HeapPayload, number> = new Map();
       const serializedThisPass = new Set<HeapPayload>();
       let serializeDepth = 0;
-      let nextObjPtr = 1024;
+      let nextObjPtr = wasmFormat.HEAP_BASE;
 
       const takeObjPtr = () => {
         if (analysis.hasInlineAlloc && memory) {
@@ -4738,7 +4742,7 @@ export class WasmCodegen {
             return info.value;
           }
           if (analysis.hasInlineAlloc && !memory) return mkNumber(ptr);
-          if (analysis.hasInlineAlloc && p >= 1024 && p < takeObjPtr()) {
+          if (analysis.hasInlineAlloc && p >= wasmFormat.HEAP_BASE && p < takeObjPtr()) {
             if (!memory) return mkNumber(ptr);
             const dv = new DataView(memory.buffer);
             const hcId = dv.getInt32(p, true);
@@ -4758,7 +4762,7 @@ export class WasmCodegen {
         syncTagged(ptr: number) {
           const p = Math.trunc(ptr);
           let info = objPtrs.get(p);
-          if (!info && analysis.hasInlineAlloc && p >= 1024) {
+          if (!info && analysis.hasInlineAlloc && p >= wasmFormat.HEAP_BASE) {
             this.getTagged?.(ptr);
             info = objPtrs.get(p);
           }
@@ -4892,7 +4896,7 @@ export class WasmCodegen {
 
       if (resultValueRep === REP_HANDLE) {
         const ptr = Math.trunc(rawResult);
-        if (ptr >= 1024 && ptr < nextObjPtr) {
+        if (ptr >= wasmFormat.HEAP_BASE && ptr < nextObjPtr) {
           if (!memory) return mkNumber(rawResult);
           const dv = new DataView(memory.buffer);
           const hcId = dv.getInt32(ptr, true);

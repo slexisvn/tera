@@ -428,3 +428,42 @@ describe("Lexer", () => {
     });
   });
 });
+
+describe("offside indentation", () => {
+  const layout = (...lines) => tokenizeLayout(lines.join("\n"));
+  const kinds = (tokens) =>
+    tokens.filter((t) => t.type === TokenType.Indent || t.type === TokenType.Dedent).length;
+
+  it("rejects a dedent that matches no enclosing block", () => {
+    expect(() =>
+      layout("fn f(n):", "  i = 0", "  while i < n:", "      i = i + 1", "    j = 2", "  return i"),
+    ).toThrow(/unindent does not match any outer indentation level/);
+  });
+
+  it("reports the line and column of the offending dedent", () => {
+    expect(() =>
+      layout("fn f(n):", "  while n:", "      a = 1", "    b = 2"),
+    ).toThrow(/at 4:5/);
+  });
+
+  it("accepts a dedent that returns to an enclosing level", () => {
+    expect(() =>
+      layout("fn f(n):", "  if n:", "    a = 1", "  return a"),
+    ).not.toThrow();
+  });
+
+  it("accepts a whole program indented from a common base", () => {
+    expect(() =>
+      layout("      fn f():", "        a = 1", "        return a", "      r = f()"),
+    ).not.toThrow();
+  });
+
+  it("balances indent and dedent tokens across nested blocks", () => {
+    const tokens = layout("fn f(n):", "  if n:", "    a = 1", "  return n");
+    const indents = tokens.filter((t) => t.type === TokenType.Indent).length;
+    const dedents = tokens.filter((t) => t.type === TokenType.Dedent).length;
+    expect(indents).toBe(2);
+    expect(dedents).toBe(2);
+    expect(kinds(tokens)).toBe(4);
+  });
+});

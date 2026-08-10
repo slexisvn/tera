@@ -22,6 +22,13 @@ import {
 } from "./frame-state.js";
 import { addPhi, link } from "../ir/cfg-edit.js";
 import {
+  addLoopBackedgeInputs,
+  mergeIncomingState,
+  openLoopHeader,
+  rememberIncomingState,
+  type IncomingStatesByTarget,
+} from "./cfg-state.js";
+import {
   COMPARE_OP_MAP,
   numericPackedElementRep,
   constantString,
@@ -314,6 +321,7 @@ export function tryInline(
           if (!inlineBlockMap.has(target)) {
             inlineBlockMap.set(target, graph.addBlock());
           }
+          inlineBlockMap.get(target)!.isLoopHeader = true;
         }
       }
     }
@@ -325,6 +333,8 @@ export function tryInline(
 
   const blockAccs = new Map<number, AnyNode | null | undefined>();
   const blockRegsMap = new Map<number, NodeMap>();
+  const inlineIncoming: IncomingStatesByTarget = new Map();
+  const inlineLoopPhis = new Map<number, Map<number, AnyNode>>();
   const makeCallerFrame =
     callerFrameFactory ||
     (() =>
@@ -958,6 +968,18 @@ export function tryInline(
     return { value: returnValue, block: currentBlock };
   }
 
+  const closeInlineLoopEdge = (
+    targetBlock: AnyBlock,
+    target: number,
+    from: AnyBlock,
+    regs: NodeMap,
+  ): void => {
+    if (!targetBlock.isLoopHeader) return;
+    const phis = inlineLoopPhis.get(targetBlock.id);
+    if (!phis) return;
+    addLoopBackedgeInputs(targetBlock, phis, inlineIncoming, target, from, regs);
+  };
+
   currentRegs = inlineRegs;
   inlineAcc = null;
 
@@ -970,24 +992,36 @@ export function tryInline(
       const targetBlock = inlineBlockMap.get(i);
       if (!targetBlock) return null;
 
-      if (!currentBlock.isTerminated()) {
+      const fellThrough = !currentBlock.isTerminated();
+      if (fellThrough) {
+        rememberIncomingState(inlineIncoming, i, currentBlock, currentRegs, inlineAcc);
         const jumpNode = ir.irJump(targetBlock);
         currentBlock.addNode(jumpNode);
         link(currentBlock, targetBlock);
       }
 
-      if (!blockAccs.has(i)) {
-        blockAccs.set(i, inlineAcc);
-        blockRegsMap.set(i, new Map<number, AnyNode | null>(currentRegs));
-      }
-
+      const predecessorBlock = currentBlock;
       currentBlock = targetBlock;
+      const incomingStates = inlineIncoming.get(i) ?? [];
 
-      if (blockAccs.has(i)) {
-        inlineAcc = blockAccs.get(i) ?? null;
-        const savedRegs = blockRegsMap.get(i);
-        if (!savedRegs) return null;
-        currentRegs = new Map<number, AnyNode | null>(savedRegs);
+      if (targetBlock.isLoopHeader) {
+        inlineLoopPhis.set(
+          targetBlock.id,
+          openLoopHeader(
+            targetBlock,
+            incomingStates,
+            currentRegs,
+            targetFn.localCount,
+            fellThrough ? predecessorBlock : targetBlock,
+          ),
+        );
+      } else if (incomingStates.length > 0) {
+        inlineAcc = mergeIncomingState(
+          targetBlock,
+          incomingStates,
+          currentRegs,
+          inlineAcc,
+        );
       }
     }
 
@@ -1008,14 +1042,12 @@ export function tryInline(
       const targetBlock = inlineBlockMap.get(target);
       if (!targetBlock) return null;
 
-      if (!blockAccs.has(target)) {
-        blockAccs.set(target, inlineAcc);
-        blockRegsMap.set(target, new Map<number, AnyNode | null>(currentRegs));
-      }
+      rememberIncomingState(inlineIncoming, target, currentBlock, currentRegs, inlineAcc);
 
       const jumpNode = ir.irJump(targetBlock);
       currentBlock.addNode(jumpNode);
       link(currentBlock, targetBlock);
+      closeInlineLoopEdge(targetBlock, target, currentBlock, currentRegs);
       continue;
     }
 
@@ -1029,19 +1061,14 @@ export function tryInline(
       const trueTarget = inlineBlockMap.get(i + 1);
       if (!falseTarget || !trueTarget) return null;
 
-      if (!blockAccs.has(target)) {
-        blockAccs.set(target, inlineAcc);
-        blockRegsMap.set(target, new Map<number, AnyNode | null>(currentRegs));
-      }
-      if (!blockAccs.has(i + 1)) {
-        blockAccs.set(i + 1, inlineAcc);
-        blockRegsMap.set(i + 1, new Map<number, AnyNode | null>(currentRegs));
-      }
+      rememberIncomingState(inlineIncoming, target, currentBlock, currentRegs, inlineAcc);
+      rememberIncomingState(inlineIncoming, i + 1, currentBlock, currentRegs, inlineAcc);
 
       if (trueTarget === falseTarget) {
         const jumpNode = ir.irJump(trueTarget);
         currentBlock.addNode(jumpNode);
         link(currentBlock, trueTarget);
+        closeInlineLoopEdge(trueTarget, target, currentBlock, currentRegs);
         continue;
       }
       const branchNode =
@@ -1051,6 +1078,8 @@ export function tryInline(
       currentBlock.addNode(branchNode);
       link(currentBlock, trueTarget);
       link(currentBlock, falseTarget);
+      closeInlineLoopEdge(falseTarget, target, currentBlock, currentRegs);
+      closeInlineLoopEdge(trueTarget, i + 1, currentBlock, currentRegs);
       continue;
     }
 

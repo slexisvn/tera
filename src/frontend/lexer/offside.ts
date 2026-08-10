@@ -50,6 +50,7 @@ export function tokenize(source: string): Token[] {
   let delimiterDepth = 0;
   let pendingBlock: Token | null = null;
   let lastLine = 1;
+  let baseIndentSet = false;
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
@@ -61,6 +62,11 @@ export function tokenize(source: string): Token[] {
     const text = raw.slice(indent).trimEnd();
     const lineTokens = tokenizeFragment(text, lineNo, indent + 1);
 
+    if (!baseIndentSet) {
+      indents[0] = indent;
+      baseIndentSet = true;
+    }
+
     if (delimiterDepth === 0) {
       if (pendingBlock) {
         if (indent > indents[indents.length - 1]) {
@@ -69,9 +75,16 @@ export function tokenize(source: string): Token[] {
         }
         pendingBlock = null;
       } else {
+        let dedented = false;
         while (indents.length > 1 && indent < indents[indents.length - 1]) {
           indents.pop();
           out.push(layout(TokenType.Dedent, lineNo, indent + 1));
+          dedented = true;
+        }
+        if (dedented && indent !== indents[indents.length - 1]) {
+          throw new SyntaxError(
+            `[Lexer] unindent does not match any outer indentation level at ${lineNo}:${indent + 1}`,
+          );
         }
       }
     }

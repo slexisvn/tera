@@ -303,3 +303,7 @@ export class WasmModuleBuilder {
     return new Uint8Array(out);
   }
 }
+
+export const DEOPT_SNAPSHOT_BASE = 8;
+export const HEAP_BASE = 1024;
+export const DEOPT_SNAPSHOT_SLOTS = (HEAP_BASE - DEOPT_SNAPSHOT_BASE) / 8;

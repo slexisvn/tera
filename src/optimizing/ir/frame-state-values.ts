@@ -34,12 +34,10 @@ export function sunkAllocationIds(
   return ids;
 }
 
-export function visitDeoptSnapshotValues(
-  frameState: FrameState | null | undefined,
+function visitOneDeoptSnapshot(
+  frameState: FrameState,
   visit: (value: FrameValue | null | undefined) => void,
 ): void {
-  if (!frameState) return;
-
   const maxSlot = Math.max(...frameState.localValues.keys(), -1);
   for (let slot = 0; slot <= maxSlot; slot++) {
     visit(frameState.localValues.get(slot));
@@ -51,24 +49,30 @@ export function visitDeoptSnapshotValues(
     for (const value of allocation.props?.values() ?? []) visit(value);
     for (const value of allocation.fields?.values() ?? []) visit(value);
   }
+
+  visit(frameState.thisValue);
+}
+
+export function visitDeoptSnapshotValues(
+  frameState: FrameState | null | undefined,
+  visit: (value: FrameValue | null | undefined) => void,
+): void {
+  const seen = new Set<FrameState>();
+  for (let state = frameState; state; state = state.callerFrameState) {
+    if (seen.has(state)) return;
+    seen.add(state);
+    visitOneDeoptSnapshot(state, visit);
+  }
 }
 
 export function frameStateValueIds(graph: FrameStateGraph): Set<number> {
   const ids = new Set<number>();
-  const seen = new Set<FrameState>();
   const add = (value: FrameValue | null | undefined) => {
     const id = (value as ValueWithId | null | undefined)?.id;
     if (typeof id === "number") ids.add(id);
   };
   for (const block of graph.blocks) {
-    for (const node of block.nodes) {
-      for (let state = node.frameState; state; state = state.callerFrameState) {
-        if (seen.has(state)) break;
-        seen.add(state);
-        visitDeoptSnapshotValues(state, add);
-        add(state.thisValue);
-      }
-    }
+    for (const node of block.nodes) visitDeoptSnapshotValues(node.frameState, add);
   }
   return ids;
 }
