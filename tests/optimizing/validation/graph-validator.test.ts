@@ -227,6 +227,21 @@ describe("validateOptimizedGraph", () => {
     expect(phi.inputs.length).toBeGreaterThan(b1.predecessors.length);
     expect(() => validateOptimizedGraph(graph)).toThrow(/2 inputs for 1 predecessors/);
   });
+
+  it("throws when a node carries an opcode the property table does not describe", () => {
+    const graph = new CFGFunction("test");
+    const block = graph.addBlock();
+    const value = irConstant(1);
+    block.addNode(value);
+    block.addNode(irReturn(value));
+    expect(validateOptimizedGraph(graph)).toBe(true);
+
+    value.type = "NotAnOperation";
+
+    expect(() => validateOptimizedGraph(graph)).toThrow(
+      /no operation spec for NotAnOperation/,
+    );
+  });
 });
 
 describe("GraphValidationError", () => {

@@ -88,13 +88,39 @@ describe("declared parameter types are guarded in the optimizing tier", () => {
     expect(
       differential(
         warmedThenViolated(
-          ["fn first(s: string) -> int:", "  return s.char_code_at(0)"],
-          'first("Hi")',
-          'first("Zz")',
+          ["fn tag(s: string) -> int:", '  if (s == "Hi"):', "    return 1", "  return 0"],
+          'tag("Hi")',
+          "tag(77)",
         ),
         { tiers: jitTiers },
       ),
-    ).toEqual(["H".charCodeAt(0), "Z".charCodeAt(0)]);
+    ).toEqual([1, 0]);
+  }, 30000);
+
+  it("deoptimizes cleanly when a declared int parameter receives a string", () => {
+    expect(
+      differential(
+        warmedThenViolated(
+          ["fn twice(x: int) -> int:", "  return (x + x)"],
+          "twice(3)",
+          'twice("a")',
+        ),
+        { tiers: jitTiers },
+      ),
+    ).toEqual([6, "aa"]);
+  }, 30000);
+
+  it("deoptimizes cleanly when a declared float parameter receives a string", () => {
+    expect(
+      differential(
+        warmedThenViolated(
+          ["fn half(x: float) -> float:", "  return (x / 2.0)"],
+          "half(9.0)",
+          'half("a")',
+        ),
+        { tiers: jitTiers },
+      ),
+    ).toEqual([4.5, NaN]);
   }, 30000);
 
   it("keeps a declared float parameter correct when handed an integer", () => {

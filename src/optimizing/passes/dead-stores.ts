@@ -35,16 +35,6 @@ type LiveState = {
   readonly live: Set<string>;
 };
 
-const LOADS = new Set([ir.IR_LOAD_FIELD, ir.IR_LOAD_ELEMENT, ir.IR_LOAD_GLOBAL]);
-const STORES = new Set([ir.IR_STORE_FIELD, ir.IR_STORE_ELEMENT, ir.IR_STORE_GLOBAL]);
-const GENERIC_BASE_ACCESSES = new Set([
-  ir.IR_GENERIC_GET_PROP,
-  ir.IR_GENERIC_SET_PROP,
-  ir.IR_GENERIC_DELETE_PROP,
-  ir.IR_GENERIC_GET_INDEX,
-  ir.IR_GENERIC_SET_INDEX,
-]);
-
 export function deadStoreElimination(
   graph: StoreGraph,
   pointsTo: PointsToResult,
@@ -89,7 +79,7 @@ function rewriteBlock(
 
   for (let index = block.nodes.length - 1; index >= 0; index--) {
     const node = block.nodes[index]!;
-    if (STORES.has(node.type)) {
+    if (ir.isTrackedStore(node.type)) {
       const location = memoryLocation(node, pointsTo);
       if (location && !hasLiveAlias(state, location, universe, pointsTo)) {
         dead.add(node);
@@ -116,12 +106,12 @@ function transferNode(
   pointsTo: PointsToResult,
   modRef: ModRef,
 ): void {
-  if (LOADS.has(node.type)) {
+  if (ir.isTrackedLoad(node.type)) {
     const location = memoryLocation(node, pointsTo);
     if (location) addAliases(state, location, universe, pointsTo, true);
     return;
   }
-  if (STORES.has(node.type)) {
+  if (ir.isTrackedStore(node.type)) {
     const location = memoryLocation(node, pointsTo);
     if (location) removeAliases(state, location, universe, pointsTo);
     return;
@@ -130,7 +120,7 @@ function transferNode(
     for (const input of node.inputs) addBaseAliases(state, input, universe, pointsTo);
     return;
   }
-  if (GENERIC_BASE_ACCESSES.has(node.type)) {
+  if (ir.isOpaquePropertyAccess(node.type)) {
     const location = memoryLocation(node, pointsTo);
     if (location) addAliases(state, location, universe, pointsTo, true);
   }
@@ -153,7 +143,7 @@ function buildUniverse(
   const visibleKeys = new Set<string>();
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      if (!LOADS.has(node.type) && !STORES.has(node.type)) continue;
+      if (!ir.isTrackedLoad(node.type) && !ir.isTrackedStore(node.type)) continue;
       const location = memoryLocation(node, pointsTo);
       if (!location || byKey.has(location.key)) continue;
       byKey.set(location.key, location);

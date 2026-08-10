@@ -19,8 +19,6 @@ type MemoryState = {
   visibleBaseKeys: Set<string>;
 };
 
-const LOADS = new Set([ir.IR_LOAD_FIELD, ir.IR_LOAD_ELEMENT, ir.IR_LOAD_GLOBAL]);
-const STORES = new Set([ir.IR_STORE_FIELD, ir.IR_STORE_ELEMENT, ir.IR_STORE_GLOBAL]);
 
 export function loadElimination(
   graph: LoadGraph,
@@ -60,7 +58,7 @@ function rewriteBlock(
   let eliminated = 0;
 
   for (const node of block.nodes) {
-    if (LOADS.has(node.type)) {
+    if (ir.isTrackedLoad(node.type)) {
       const location = modRef.locationOf(node);
       const existing = location ? state.byLocation.get(location.key) : undefined;
       if (existing && existing.value !== node) {
@@ -86,12 +84,12 @@ function transferNode(
   pointsTo: PointsToResult,
   modRef: ModRef,
 ): void {
-  if (LOADS.has(node.type)) {
+  if (ir.isTrackedLoad(node.type)) {
     const location = modRef.locationOf(node);
     if (location && !state.byLocation.has(location.key)) addLocation(state, location, node, pointsTo);
     return;
   }
-  if (STORES.has(node.type)) {
+  if (ir.isTrackedStore(node.type)) {
     const location = modRef.locationOf(node);
     const value = storeValue(node);
     if (location && value) {

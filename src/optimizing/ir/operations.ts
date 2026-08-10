@@ -198,12 +198,19 @@ export type Arity =
   | { readonly kind: "fixed"; readonly count: number }
   | { readonly kind: "variadic"; readonly least: number };
 
-export interface TypeContext {
-  typeOf(value: CFGInstruction): LatticeType;
-  returnTypeOf(node: CFGInstruction): LatticeType;
+export interface TransferNode {
+  readonly type: string;
+  readonly props: CFGInstruction["props"];
+  readonly inputs: readonly CFGInstruction[];
+  readonly uses: readonly CFGInstruction[];
 }
 
-export type Transfer = (node: CFGInstruction, context: TypeContext) => LatticeType;
+export interface TypeContext {
+  typeOf(value: CFGInstruction): LatticeType;
+  returnTypeOf(node: TransferNode): LatticeType;
+}
+
+export type Transfer = (node: TransferNode, context: TypeContext) => LatticeType;
 
 export interface OperationSpec {
   readonly effects: OperationEffects | ((node: CFGInstruction) => OperationEffects);
@@ -310,7 +317,7 @@ function isNumeric(type: LatticeType): boolean {
   return NUMERIC_KINDS.has(type.kind);
 }
 
-function inputType(node: CFGInstruction, index: number, context: TypeContext): LatticeType {
+function inputType(node: TransferNode, index: number, context: TypeContext): LatticeType {
   const input = node.inputs[index];
   return input === undefined ? anyType() : context.typeOf(input);
 }
@@ -337,11 +344,11 @@ export function isGuardablePrimitive(name: string): boolean {
   return PRIMITIVE_TYPES.has(name);
 }
 
-function guardTransfer(fact: (node: CFGInstruction) => LatticeType): Transfer {
+function guardTransfer(fact: (node: TransferNode) => LatticeType): Transfer {
   return (node, context) => narrowType(inputType(node, 0, context), fact(node));
 }
 
-function arithmeticTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
+function arithmeticTransfer(node: TransferNode, context: TypeContext): LatticeType {
   const left = inputType(node, 0, context);
   const right = inputType(node, 1, context);
   if (left.kind === TypeKind.Smi && right.kind === TypeKind.Smi) return smiType();
@@ -349,26 +356,26 @@ function arithmeticTransfer(node: CFGInstruction, context: TypeContext): Lattice
   return anyType();
 }
 
-function additionTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
+function additionTransfer(node: TransferNode, context: TypeContext): LatticeType {
   const left = inputType(node, 0, context);
   const right = inputType(node, 1, context);
   if (left.kind === TypeKind.String || right.kind === TypeKind.String) return stringType();
   return arithmeticTransfer(node, context);
 }
 
-function divisionTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
+function divisionTransfer(node: TransferNode, context: TypeContext): LatticeType {
   const left = inputType(node, 0, context);
   const right = inputType(node, 1, context);
   return isNumeric(left) && isNumeric(right) ? numberType() : anyType();
 }
 
-function negationTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
+function negationTransfer(node: TransferNode, context: TypeContext): LatticeType {
   const operand = inputType(node, 0, context);
   if (operand.kind === TypeKind.Smi) return smiType();
   return isNumeric(operand) ? numberType() : anyType();
 }
 
-function phiTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
+function phiTransfer(node: TransferNode, context: TypeContext): LatticeType {
   let merged: LatticeType | null = null;
   for (const input of node.inputs) merged = joinTypes(merged, context.typeOf(input));
   return merged ?? neverType();
@@ -376,13 +383,13 @@ function phiTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
 
 export function storedElementValue(
   store: CFGInstruction,
-  array: CFGInstruction,
+  array: TransferNode,
 ): CFGInstruction | null {
   if (!isElementStore(store.type) || store.inputs[0] !== array) return null;
   return store.inputs[2] ?? null;
 }
 
-function newArrayTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
+function newArrayTransfer(node: TransferNode, context: TypeContext): LatticeType {
   let merged: LatticeType | null = null;
   for (const input of node.inputs) merged = joinTypes(merged, context.typeOf(input));
   for (const use of node.uses) {
@@ -392,7 +399,7 @@ function newArrayTransfer(node: CFGInstruction, context: TypeContext): LatticeTy
   return arrayType(merged === null ? null : elementsKindFor(merged));
 }
 
-function loadElementTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
+function loadElementTransfer(node: TransferNode, context: TypeContext): LatticeType {
   const declared = latticeFromElementRep(node.props.elementRep);
   if (declared !== null) return declared;
   const container = inputType(node, 0, context);
@@ -400,18 +407,18 @@ function loadElementTransfer(node: CFGInstruction, context: TypeContext): Lattic
   return latticeFromElementsKind(container.elementsKind);
 }
 
-function memberOf(node: CFGInstruction, context: TypeContext): BuiltinMemberType | null {
+function memberOf(node: TransferNode, context: TypeContext): BuiltinMemberType | null {
   const receiver = node.inputs[0];
   if (receiver === undefined) return null;
   return builtinMemberType(context.typeOf(receiver), String(node.props.propName));
 }
 
-function memberTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
+function memberTransfer(node: TransferNode, context: TypeContext): LatticeType {
   const member = memberOf(node, context);
   return member !== null && member.getter ? member.type : anyType();
 }
 
-function callTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
+function callTransfer(node: TransferNode, context: TypeContext): LatticeType {
   const callee = node.inputs[0];
   if (callee !== undefined && callee.type === IR_GENERIC_GET_PROP) {
     const member = memberOf(callee, context);
@@ -420,19 +427,19 @@ function callTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
   return context.returnTypeOf(node);
 }
 
-function declaredReturnTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
+function declaredReturnTransfer(node: TransferNode, context: TypeContext): LatticeType {
   return context.returnTypeOf(node);
 }
 
-function boxTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
+function boxTransfer(node: TransferNode, context: TypeContext): LatticeType {
   return node.props.toType === "handle" ? anyType() : inputType(node, 0, context);
 }
 
-function unboxTransfer(node: CFGInstruction): LatticeType {
+function unboxTransfer(node: TransferNode): LatticeType {
   return UNBOX_RESULTS.get(String(node.props.toType)) ?? anyType();
 }
 
-function passthroughTransfer(node: CFGInstruction, context: TypeContext): LatticeType {
+function passthroughTransfer(node: TransferNode, context: TypeContext): LatticeType {
   return inputType(node, 0, context);
 }
 
@@ -686,7 +693,7 @@ export const OPERATIONS = {
   [IR_GENERIC_GET_PROP]: { ...load(READS_HEAP, ONE_INPUT, RESULT_HANDLE, memberTransfer), access: ACCESS_PROPERTY, opaqueMemory: true },
   [IR_GENERIC_SET_PROP]: { ...store(WRITES_HEAP, TWO_INPUTS), access: ACCESS_PROPERTY, opaqueMemory: true },
   [IR_GENERIC_DELETE_PROP]: {
-    ...memoryOp(WRITES_HEAP, variadic(1), RESULT_BOOL, ANY, false),
+    ...memoryOp(WRITES_HEAP, variadic(1), RESULT_BOOL, constant(booleanType()), false),
     access: ACCESS_PROPERTY,
     opaqueMemory: true,
   },
@@ -798,17 +805,74 @@ const UNCONSTRAINED_CONTEXT: TypeContext = {
   returnTypeOf: () => anyType(),
 };
 
-function resultKindWithoutOperandInfo(opcode: Opcode): string {
-  const probe = { type: opcode, props: {}, inputs: [], uses: [] } as unknown as CFGInstruction;
-  return OPERATIONS[opcode].transfer(probe, UNCONSTRAINED_CONTEXT).kind;
+function probeOf(opcode: Opcode): TransferNode {
+  return { type: opcode, props: {}, inputs: [], uses: [] };
 }
 
 const ALWAYS_BOOLEAN: ReadonlySet<string> = new Set(
-  ALL_OPCODES.filter((opcode) => resultKindWithoutOperandInfo(opcode) === TypeKind.Boolean),
+  ALL_OPCODES.filter(
+    (opcode) =>
+      transferOf(opcode)(probeOf(opcode), UNCONSTRAINED_CONTEXT).kind === TypeKind.Boolean,
+  ),
 );
 
 export function alwaysProducesBoolean(opcode: string): boolean {
   return ALWAYS_BOOLEAN.has(opcode);
+}
+
+const RESOLVABLE_ACCESS: ReadonlySet<MemoryAccessKind> = new Set<MemoryAccessKind>([
+  ACCESS_SLOT,
+  ACCESS_ELEMENT,
+  ACCESS_GLOBAL,
+]);
+
+function staticEffectsOf(spec: OperationSpec): OperationEffects | null {
+  return typeof spec.effects === "function" ? null : spec.effects;
+}
+
+export function isTrackedLoad(opcode: string): boolean {
+  const spec = operationOf(opcode);
+  const current = staticEffectsOf(spec);
+  return (
+    current !== null && RESOLVABLE_ACCESS.has(spec.access) && current.reads !== MEMORY_NONE
+  );
+}
+
+export function isTrackedStore(opcode: string): boolean {
+  const spec = operationOf(opcode);
+  const current = staticEffectsOf(spec);
+  return (
+    current !== null && RESOLVABLE_ACCESS.has(spec.access) && current.writes !== MEMORY_NONE
+  );
+}
+
+export function isOpaquePropertyAccess(opcode: string): boolean {
+  return operationOf(opcode).access === ACCESS_PROPERTY;
+}
+
+export function isRematerializable(opcode: string): boolean {
+  const spec = operationOf(opcode);
+  const current = staticEffectsOf(spec);
+  return (
+    current !== null &&
+    !spec.pinned &&
+    spec.arity.kind === "fixed" &&
+    spec.arity.count === 0 &&
+    current.reads === MEMORY_NONE &&
+    current.writes === MEMORY_NONE &&
+    !current.allocates &&
+    current.deopt === DEOPT_NEVER
+  );
+}
+
+export function isAllocationSite(opcode: string): boolean {
+  const current = staticEffectsOf(operationOf(opcode));
+  return (
+    current !== null &&
+    current.allocates &&
+    current.reads === MEMORY_NONE &&
+    current.writes === MEMORY_NONE
+  );
 }
 
 export function readsMemory(node: CFGInstruction): boolean {

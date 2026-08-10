@@ -45,7 +45,6 @@ import {
   OP_F64_CEIL,
   OP_F64_FLOOR,
   OP_F64_TRUNC,
-  OP_F64_NEAREST,
   OP_F64_SQRT,
   OP_F64_MIN,
   OP_F64_MAX,
@@ -631,7 +630,6 @@ export const MATH_INTRINSICS = new Map([
   ["Math.ceil", { opcode: OP_F64_CEIL, arity: 1 }],
   ["Math.sqrt", { opcode: OP_F64_SQRT, arity: 1 }],
   ["Math.trunc", { opcode: OP_F64_TRUNC, arity: 1 }],
-  ["Math.round", { opcode: OP_F64_NEAREST, arity: 1 }],
   ["Math.min", { opcode: OP_F64_MIN, arity: 2 }],
   ["Math.max", { opcode: OP_F64_MAX, arity: 2 }],
 ]);

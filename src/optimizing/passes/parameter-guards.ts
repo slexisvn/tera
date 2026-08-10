@@ -1,6 +1,7 @@
 import * as ir from "../ir/index.js";
+import { visitFrameStateValues } from "../ir/frame-state-values.js";
 import { latticeFromDeclaredType } from "../types/declared.js";
-import { TypeKind, type LatticeType } from "../types/lattice.js";
+import { anyType, isSubtype, TypeKind, type LatticeType } from "../types/lattice.js";
 
 type GuardBuilder = (param: ir.CFGInstruction) => ir.CFGInstruction;
 
@@ -12,13 +13,58 @@ const GUARD_BY_KIND = new Map<string, GuardBuilder>([
   [TypeKind.Boolean, (param) => ir.irCheckPrimitive(param, "boolean")],
 ]);
 
+const UNCONSTRAINED: ir.TypeContext = {
+  typeOf: () => anyType(),
+  returnTypeOf: () => anyType(),
+};
+
 function guardBuilderFor(declared: LatticeType): GuardBuilder | null {
   return GUARD_BY_KIND.get(declared.kind) ?? null;
 }
 
-function entryFrameState(entry: ir.CFGBlock): ir.CFGInstruction["frameState"] {
+function firstEntryUse(
+  param: ir.CFGInstruction,
+  entry: ir.CFGBlock,
+): ir.CFGInstruction | null {
   for (const node of entry.nodes) {
-    if (node.frameState !== null) return node.frameState;
+    if (node.inputs.includes(param)) return node;
+  }
+  return null;
+}
+
+function establishes(node: ir.CFGInstruction | null, declared: LatticeType): boolean {
+  if (node === null || !ir.isGuard(node)) return false;
+  return isSubtype(ir.transferType(node, UNCONSTRAINED), declared);
+}
+
+function definedAtOrAfter(entry: ir.CFGBlock, limit: number): ReadonlySet<unknown> {
+  const blocked = new Set<unknown>();
+  for (let index = limit; index < entry.nodes.length; index++) {
+    const node = entry.nodes[index]!;
+    if (!ir.isRematerializable(node.type)) blocked.add(node);
+  }
+  return blocked;
+}
+
+function availableBefore(
+  frameState: ir.CFGInstruction["frameState"],
+  blocked: ReadonlySet<unknown>,
+): boolean {
+  let available = true;
+  visitFrameStateValues(frameState, (value) => {
+    if (blocked.has(value)) available = false;
+  });
+  return available;
+}
+
+function guardFrameState(
+  entry: ir.CFGBlock,
+  limit: number,
+): ir.CFGInstruction["frameState"] {
+  const blocked = definedAtOrAfter(entry, limit);
+  for (const node of entry.nodes) {
+    if (node.frameState === null) continue;
+    return availableBefore(node.frameState, blocked) ? node.frameState : null;
   }
   return null;
 }
@@ -28,16 +74,18 @@ export function insertDeclaredParameterGuards(graph: ir.CFGFunction): number {
   const entry = graph.entry;
   if (signature === null || entry === null) return 0;
 
-  const frameState = entryFrameState(entry);
+  const insertAt = entry.phis.length;
+  const frameState = guardFrameState(entry, insertAt);
   if (frameState === null) return 0;
 
   const guards: ir.CFGInstruction[] = [];
   for (const param of graph.parameters) {
-    const declared = signature.params[Number(param.props.index)] ?? null;
-    if (declared === null) continue;
-    const build = guardBuilderFor(latticeFromDeclaredType(declared));
+    const declaredName = signature.params[Number(param.props.index)] ?? null;
+    if (declaredName === null) continue;
+    const declared = latticeFromDeclaredType(declaredName);
+    const build = guardBuilderFor(declared);
     if (build === null) continue;
-    if (param.uses.some((use) => use.inputs[0] === param && GUARDED.has(use.type))) continue;
+    if (establishes(firstEntryUse(param, entry), declared)) continue;
 
     const guard = build(param);
     guard.frameState = frameState;
@@ -52,13 +100,7 @@ export function insertDeclaredParameterGuards(graph: ir.CFGFunction): number {
   }
 
   if (guards.length === 0) return 0;
-  entry.nodes.splice(entry.phis.length, 0, ...guards);
+  entry.nodes.splice(insertAt, 0, ...guards);
   graph.rebuildUses();
   return guards.length;
 }
-
-const GUARDED = new Set<string>([
-  ir.IR_CHECK_SMI,
-  ir.IR_CHECK_NUMBER,
-  ir.IR_CHECK_PRIMITIVE,
-]);

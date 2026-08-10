@@ -110,6 +110,7 @@ import { getRegexProperty } from "../../../runtime/intrinsics/regex-methods.js";
 import { builtinMethodImplementation } from "../../../runtime/intrinsics/builtin-methods.js";
 import {
   builtinMethodIntrinsicByName,
+  builtinNamespaceIntrinsicByName,
   type BuiltinMethodIntrinsic,
 } from "../../metadata/builtin-methods.js";
 import { createJSObject, createJSArray } from "../../../objects/heap/factory.js";
@@ -576,6 +577,28 @@ function callBuiltinMethod(
   );
 }
 
+function callBuiltinNamespace(
+  intrinsic: BuiltinMethodIntrinsic,
+  args: TaggedValue[],
+  runtime: RuntimeLike,
+  compiledFn: RegisterCompiledFunction,
+  frameStateId: number,
+  frameStates: FrameState[],
+): TaggedValue {
+  const cell = runtime.interpreter.globalCells.get(intrinsic.owner);
+  const namespaceValue = cell ? cell.read() : undefined;
+  const receiver = namespaceValue !== undefined ? namespaceValue : mkUndefined();
+  return executeRuntimeCall(
+    getRuntimeProperty(receiver, intrinsic.name, runtime.interpreter),
+    args,
+    receiver,
+    runtime,
+    compiledFn,
+    frameStateId,
+    frameStates,
+  );
+}
+
 function executeRuntimeCall(
   callee: TaggedValue,
   args: TaggedValue[],
@@ -1006,6 +1029,21 @@ export function executeRuntimeStub(
         return runtimeTaggedResult(
           callBuiltinMethod(
             method,
+            builtinArgs,
+            runtime,
+            compiledFn,
+            frameStateId,
+            frameStates,
+          ),
+          runtime,
+          stub.outputRep,
+        );
+      }
+      const namespaced = builtinNamespaceIntrinsicByName(builtinName);
+      if (namespaced !== null) {
+        return runtimeTaggedResult(
+          callBuiltinNamespace(
+            namespaced,
             builtinArgs,
             runtime,
             compiledFn,

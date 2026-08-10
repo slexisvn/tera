@@ -16,12 +16,6 @@ type ClassInfo = {
   readonly escaped: boolean;
 };
 
-const ALLOCATIONS = new Set([
-  ir.IR_NEW_OBJECT,
-  ir.IR_NEW_ARRAY,
-  ir.IR_NEW_REGEX,
-  ir.IR_MAKE_CLOSURE,
-]);
 const CALLS = new Set([
   ir.IR_GENERIC_CALL,
   ir.IR_MAKE_CLOSURE,
@@ -157,7 +151,7 @@ function analyzePointsTo(graph: ir.CFGFunction): PointsToResult {
     const mapIds = new Set<number>();
     const globalNames = new Set<string>();
     for (const member of members) {
-      if (ALLOCATIONS.has(member.type)) allocSites.add(member.id);
+      if (ir.isAllocationSite(member.type)) allocSites.add(member.id);
       if (member.type === ir.IR_CHECK_MAP) {
         const mapId = metadataNumber(member.props.expectedMapId);
         if (mapId !== null) mapIds.add(mapId);

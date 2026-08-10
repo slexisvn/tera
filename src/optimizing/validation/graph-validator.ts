@@ -4,6 +4,8 @@ import {
   IR_CONSTANT,
   IR_DEOPTIMIZE,
   irRequiresFrameState,
+  isOpcode,
+  isTerminator as isTerminatorOpcode,
   IR_JUMP,
   IR_PARAMETER,
   IR_RETURN,
@@ -51,6 +53,7 @@ export function validateOptimizedGraph(
     const dominators = computeDominators(graph);
     const locations = valueLocations(graph);
     validateFrameStates(graph, frameStates, errors);
+    validateOpcodes(graph, errors);
     validateNodeOwnership(graph, errors);
     validatePhis(graph, errors);
     validateControlFlow(graph, errors);
@@ -60,6 +63,21 @@ export function validateOptimizedGraph(
   }
   if (errors.length > 0) throw new GraphValidationError(errors);
   return true;
+}
+
+function validateOpcodes(graph: ValidationGraph, errors: string[]): void {
+  for (const parameter of graph.parameters) {
+    if (!isOpcode(parameter.type)) {
+      errors.push(`v${parameter.id} has no operation spec for ${parameter.type}`);
+    }
+  }
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      if (!isOpcode(node.type)) {
+        errors.push(`B${block.id} v${node.id} has no operation spec for ${node.type}`);
+      }
+    }
+  }
 }
 
 function validateNodeOwnership(
@@ -190,12 +208,7 @@ function validateJumpTerminator(
 }
 
 function isTerminator(node: ValidationNode): boolean {
-  return (
-    node.type === IR_BRANCH ||
-    node.type === IR_JUMP ||
-    node.type === IR_RETURN ||
-    node.type === IR_DEOPTIMIZE
-  );
+  return isTerminatorOpcode(node.type);
 }
 
 function validateFrameStates(

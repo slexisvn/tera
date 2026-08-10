@@ -71,6 +71,50 @@ describe("operation property table", () => {
     );
   });
 
+  it("never classifies one operation as both a tracked load and a tracked store", () => {
+    const both = ops.ALL_OPCODES.filter(
+      (opcode) => ops.isTrackedLoad(opcode) && ops.isTrackedStore(opcode),
+    );
+
+    expect(both).toEqual([]);
+  });
+
+  it("keeps opaque property access out of the tracked memory operations", () => {
+    const overlapping = ops.ALL_OPCODES.filter(
+      (opcode) =>
+        ops.isOpaquePropertyAccess(opcode) &&
+        (ops.isTrackedLoad(opcode) || ops.isTrackedStore(opcode)),
+    );
+
+    expect(overlapping).toEqual([]);
+  });
+
+  it("tracks the field, element and global accesses the alias analyses can resolve", () => {
+    const tracked = ops.ALL_OPCODES.filter(
+      (opcode) => ops.isTrackedLoad(opcode) || ops.isTrackedStore(opcode),
+    );
+
+    expect([...tracked].sort()).toEqual(
+      [
+        ops.IR_LOAD_FIELD,
+        ops.IR_STORE_FIELD,
+        ops.IR_LOAD_ELEMENT,
+        ops.IR_STORE_ELEMENT,
+        ops.IR_LOAD_GLOBAL,
+        ops.IR_STORE_GLOBAL,
+      ].sort(),
+    );
+  });
+
+  it("counts an allocation site only when the operation touches nothing else", () => {
+    const call = ir.irGenericCall(ir.irConstant(1), []);
+
+    expect(ops.isAllocationSite(ops.IR_NEW_OBJECT)).toBe(true);
+    expect(ops.isAllocationSite(ops.IR_NEW_ARRAY)).toBe(true);
+    expect(ops.allocates(call)).toBe(true);
+    expect(ops.isAllocationSite(call.type)).toBe(false);
+  });
+
 
   it("types the previously-undeclared operations that fell back to any", () => {
     const context = {
@@ -142,6 +186,7 @@ describe("operation property table", () => {
         ops.IR_GENERIC_COMPARE,
         ops.IR_GENERIC_INSTANCEOF,
         ops.IR_GENERIC_IN,
+        ops.IR_GENERIC_DELETE_PROP,
         ops.IR_CHECK_CALL_TARGET,
       ].sort(),
     );
