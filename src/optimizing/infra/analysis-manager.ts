@@ -40,17 +40,23 @@ export class AnalysisManager<G> {
     return result;
   }
 
-  invalidate(id: AnalysisId<unknown>): void {
-    this.cache.delete(id);
+  invalidate(id: AnalysisId<unknown>): readonly AnalysisId<unknown>[] {
+    return this.cache.delete(id) ? [id] : [];
   }
 
-  invalidateAll(): void {
+  invalidateAll(): readonly AnalysisId<unknown>[] {
+    const dropped = [...this.cache.keys()] as AnalysisId<unknown>[];
     this.cache.clear();
+    return dropped;
   }
 
-  invalidateExcept(preserved: ReadonlySet<AnalysisId<unknown>>): void {
-    for (const id of [...this.cache.keys()]) {
-      if (!preserved.has(id as AnalysisId<unknown>)) this.cache.delete(id);
+  invalidateExcept(preserved: ReadonlySet<AnalysisId<unknown>>): readonly AnalysisId<unknown>[] {
+    const dropped: AnalysisId<unknown>[] = [];
+    for (const id of [...this.cache.keys()] as AnalysisId<unknown>[]) {
+      if (preserved.has(id)) continue;
+      this.cache.delete(id);
+      dropped.push(id);
     }
+    return dropped;
   }
 }

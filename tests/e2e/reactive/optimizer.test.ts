@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { Engine, nativeToTagged, taggedToNative, type RuntimeFunctionPayload, type TaggedValue, type TeraExtension } from "../../../src/index.js";
 import { REACTIVE_INTRINSICS, createReactiveRuntimeBuiltins, reactiveCheckerMetadata, reactiveCompilerMetadata, reactiveSyntaxPlugin } from "@slexisvn/reactive/tera";
 
+import { effectsOf, type CFGInstruction } from "../../../src/optimizing/ir/index.js";
+
 const converters = { nativeToTagged, taggedToNative };
 
 function optimizedOnlyExtension(): TeraExtension {
@@ -281,17 +283,16 @@ describe("reactive Tera optimizer", () => {
               name: "inspect-reactive-intrinsic-ir",
               phase: "ir",
               run(target) {
-                for (const block of (target as { blocks?: Array<{ nodes: Array<{ type: string; props: Record<string, unknown>; effectKind: string }> }> }).blocks ?? []) {
+                for (const block of (target as { blocks?: Array<{ nodes: Array<CFGInstruction> }> }).blocks ?? []) {
                   for (const node of block.nodes) {
                     if (node.type !== "CallIntrinsic") continue;
                     if (typeof node.props.name !== "string" || !node.props.name.startsWith("__tera_reactive_")) continue;
                     seen.push({
                       type: node.type,
                       name: node.props.name,
-                      effectKind: node.effectKind,
-                      pure: node.props.pure,
+                      derivedEffects: effectsOf(node),
                       readonly: node.props.readonly,
-                      effects: node.props.intrinsicEffects,
+                      effects: node.props.declaredEffects,
                       reads: node.props.intrinsicReads,
                       writes: node.props.intrinsicWrites,
                       allocates: node.props.intrinsicAllocates,
@@ -324,8 +325,7 @@ describe("reactive Tera optimizer", () => {
       expect.objectContaining({
         name: REACTIVE_INTRINSICS.peek,
         type: "CallIntrinsic",
-        effectKind: "read",
-        pure: true,
+        derivedEffects: { reads: "heap", writes: "none", allocates: false, deopt: "never" },
         readonly: true,
         effects: ["read"],
         reads: ["reactive-value"],
@@ -333,8 +333,7 @@ describe("reactive Tera optimizer", () => {
       expect.objectContaining({
         name: REACTIVE_INTRINSICS.write,
         type: "CallIntrinsic",
-        effectKind: "write",
-        pure: undefined,
+        derivedEffects: { reads: "heap", writes: "any", allocates: false, deopt: "always" },
         readonly: undefined,
         effects: ["reactive-write", "schedule"],
         writes: ["reactive-value"],
@@ -342,8 +341,7 @@ describe("reactive Tera optimizer", () => {
       expect.objectContaining({
         name: REACTIVE_INTRINSICS.read,
         type: "CallIntrinsic",
-        effectKind: "call",
-        pure: undefined,
+        derivedEffects: { reads: "any", writes: "any", allocates: true, deopt: "always" },
         readonly: undefined,
         effects: ["reactive-read"],
         reads: ["reactive-value"],

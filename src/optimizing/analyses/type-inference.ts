@@ -16,7 +16,7 @@ import {
   storedElementValue,
   transferType,
   type TypeContext,
-} from "../types/transfer.js";
+} from "../ir/operations.js";
 
 export interface TypeInference {
   typeOf(value: ir.CFGInstruction): LatticeType;

@@ -1,90 +1,10 @@
 import type { RuntimeValue } from "../../core/value/index.js";
 import type { DeclaredSignature } from "../types/signature.js";
+import * as ops from "./operations.js";
+import { canDeoptimize, isTerminator } from "./operations.js";
 
-export const IR_PARAMETER = "Parameter";
-export const IR_CONSTANT = "Constant";
-export const IR_CHECK_MAP = "CheckMap";
-export const IR_CHECK_SMI = "CheckSmi";
-export const IR_CHECK_NUMBER = "CheckNumber";
-export const IR_CHECK_CALL_TARGET = "CheckCallTarget";
-export const IR_CALL_KNOWN_FUNCTION = "CallKnownFunction";
-export const IR_INT32_ADD = "Int32Add";
-export const IR_INT32_SUB = "Int32Sub";
-export const IR_INT32_MUL = "Int32Mul";
-export const IR_INT32_DIV = "Int32Div";
-export const IR_INT32_MOD = "Int32Mod";
-export const IR_FLOAT64_ADD = "Float64Add";
-export const IR_FLOAT64_SUB = "Float64Sub";
-export const IR_FLOAT64_MUL = "Float64Mul";
-export const IR_FLOAT64_DIV = "Float64Div";
-export const IR_INT32_COMPARE = "Int32Compare";
-export const IR_FLOAT64_COMPARE = "Float64Compare";
-export const IR_LOAD_FIELD = "LoadField";
-export const IR_STORE_FIELD = "StoreField";
-export const IR_GENERIC_ADD = "GenericAdd";
-export const IR_GENERIC_SUB = "GenericSub";
-export const IR_GENERIC_MUL = "GenericMul";
-export const IR_GENERIC_DIV = "GenericDiv";
-export const IR_GENERIC_MOD = "GenericMod";
-export const IR_GENERIC_COMPARE = "GenericCompare";
-export const IR_CHECK_ARRAY = "CheckArray";
-export const IR_CHECK_ELEMENTS_KIND = "CheckElementsKind";
-export const IR_CHECK_BOUNDS = "CheckBounds";
-export const IR_LOAD_ARRAY_LENGTH = "LoadArrayLength";
-export const IR_LOAD_ELEMENT = "LoadElement";
-export const IR_STORE_ELEMENT = "StoreElement";
-export const IR_POLYMORPHIC_LOAD = "PolymorphicLoad";
-export const IR_POLYMORPHIC_STORE = "PolymorphicStore";
-export const IR_GENERIC_GET_PROP = "GenericGetProp";
-export const IR_GENERIC_SET_PROP = "GenericSetProp";
-export const IR_GENERIC_DELETE_PROP = "GenericDeleteProp";
-export const IR_GENERIC_CALL = "GenericCall";
-export const IR_LOAD_LOCAL = "LoadLocal";
-export const IR_STORE_LOCAL = "StoreLocal";
-export const IR_LOAD_CONTEXT_SLOT = "LoadContextSlot";
-export const IR_STORE_CONTEXT_SLOT = "StoreContextSlot";
-export const IR_LOAD_GLOBAL = "LoadGlobal";
-export const IR_STORE_GLOBAL = "StoreGlobal";
-export const IR_BRANCH = "Branch";
-export const IR_JUMP = "Jump";
-export const IR_RETURN = "Return";
-export const IR_DEOPTIMIZE = "Deoptimize";
-export const IR_PHI = "Phi";
-export const IR_BOX = "Box";
-export const IR_UNBOX = "Unbox";
-export const IR_LOAD_CONST = "LoadConst";
-export const IR_CALL_BUILTIN = "CallBuiltin";
-export const IR_CALL_INTRINSIC = "CallIntrinsic";
-export const IR_NEW_OBJECT = "NewObject";
-export const IR_NEW_ARRAY = "NewArray";
-export const IR_MAKE_CLOSURE = "MakeClosure";
-export const IR_TYPEOF = "TypeOf";
-export const IR_NOT = "Not";
-export const IR_NEG = "Neg";
-export const IR_GENERIC_GET_INDEX = "GenericGetIndex";
-export const IR_GENERIC_SET_INDEX = "GenericSetIndex";
-export const IR_INT32_SHL = "Int32Shl";
-export const IR_INT32_SHR = "Int32Shr";
-export const IR_INT32_USHR = "Int32Ushr";
-export const IR_INT32_AND = "Int32And";
-export const IR_INT32_OR = "Int32Or";
-export const IR_INT32_XOR = "Int32Xor";
-export const IR_INT32_NOT = "Int32Not";
-export const IR_FLOAT64_POW = "Float64Pow";
-export const IR_GENERIC_BITAND = "GenericBitwiseAnd";
-export const IR_GENERIC_BITOR = "GenericBitwiseOr";
-export const IR_GENERIC_BITXOR = "GenericBitwiseXor";
-export const IR_GENERIC_SHL = "GenericShiftLeft";
-export const IR_GENERIC_SHR = "GenericShiftRight";
-export const IR_GENERIC_USHR = "GenericShiftRightLogical";
-export const IR_GENERIC_POW = "GenericPow";
-export const IR_GENERIC_BITNOT = "GenericBitwiseNot";
-export const IR_GENERIC_INSTANCEOF = "GenericInstanceOf";
-export const IR_GENERIC_IN = "GenericIn";
-export const IR_DISPATCH_MAP = "DispatchMap";
-export const IR_MEGAMORPHIC_LOAD = "MegamorphicLoad";
-export const IR_MEGAMORPHIC_STORE = "MegamorphicStore";
-export const IR_NEW_REGEX = "NewRegex";
+export * from "./operations.js";
+
 
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
@@ -126,15 +46,6 @@ export function getDefaultIRNodeIdAllocator(): IRNodeIdAllocator {
   return defaultIRNodeIdAllocator;
 }
 
-export type EffectKind =
-  | typeof EFFECT_NONE
-  | typeof EFFECT_GUARD
-  | typeof EFFECT_READ
-  | typeof EFFECT_WRITE
-  | typeof EFFECT_CALL
-  | typeof EFFECT_ALLOC
-  | typeof EFFECT_TERMINATOR;
-
 export type IRPrimitive = string | number | boolean | symbol | null | undefined;
 export type IRMetadataValue =
   | IRPrimitive
@@ -165,105 +76,9 @@ export type OsrCandidate = {
 export type ContextSlotSource = "local" | "upvalue";
 export type ClosureCapture = { source: ContextSlotSource; slot: number };
 
-export const EFFECT_NONE = "none";
-export const EFFECT_GUARD = "guard";
-export const EFFECT_READ = "read";
-export const EFFECT_WRITE = "write";
-export const EFFECT_CALL = "call";
-export const EFFECT_ALLOC = "alloc";
-export const EFFECT_TERMINATOR = "terminator";
-
-const TERMINATORS = new Set([IR_BRANCH, IR_JUMP, IR_RETURN, IR_DEOPTIMIZE]);
-const WRITES = new Set([
-  IR_STORE_FIELD,
-  IR_STORE_ELEMENT,
-  IR_STORE_GLOBAL,
-  IR_STORE_LOCAL,
-  IR_STORE_CONTEXT_SLOT,
-  IR_GENERIC_SET_PROP,
-  IR_GENERIC_DELETE_PROP,
-  IR_GENERIC_SET_INDEX,
-  IR_POLYMORPHIC_STORE,
-  IR_MEGAMORPHIC_STORE,
-]);
-const CALLS = new Set([
-  IR_GENERIC_CALL,
-  IR_CALL_BUILTIN,
-  IR_CALL_INTRINSIC,
-  IR_CALL_KNOWN_FUNCTION,
-]);
-const ALLOCS = new Set([IR_NEW_OBJECT, IR_NEW_ARRAY, IR_NEW_REGEX, IR_MAKE_CLOSURE]);
-const READS = new Set([
-  IR_LOAD_FIELD,
-  IR_LOAD_ELEMENT,
-  IR_LOAD_ARRAY_LENGTH,
-  IR_LOAD_GLOBAL,
-  IR_LOAD_CONTEXT_SLOT,
-  IR_GENERIC_GET_PROP,
-  IR_GENERIC_GET_INDEX,
-  IR_POLYMORPHIC_LOAD,
-  IR_DISPATCH_MAP,
-  IR_MEGAMORPHIC_LOAD,
-]);
-const GUARDS = new Set([
-  IR_CHECK_MAP,
-  IR_CHECK_SMI,
-  IR_CHECK_NUMBER,
-  IR_CHECK_CALL_TARGET,
-  IR_CHECK_ARRAY,
-  IR_CHECK_ELEMENTS_KIND,
-  IR_CHECK_BOUNDS,
-]);
-const DEOPT_CAPABLE = new Set([
-  IR_CHECK_ARRAY,
-  IR_CHECK_BOUNDS,
-  IR_CHECK_CALL_TARGET,
-  IR_CHECK_ELEMENTS_KIND,
-  IR_CHECK_MAP,
-  IR_CHECK_NUMBER,
-  IR_CHECK_SMI,
-  IR_DEOPTIMIZE,
-  IR_GENERIC_CALL,
-  IR_CALL_BUILTIN,
-  IR_CALL_INTRINSIC,
-  IR_CALL_KNOWN_FUNCTION,
-  IR_NEW_OBJECT,
-  IR_NEW_ARRAY,
-  IR_NEW_REGEX,
-  IR_MAKE_CLOSURE,
-  IR_LOAD_CONTEXT_SLOT,
-  IR_STORE_CONTEXT_SLOT,
-  IR_POLYMORPHIC_LOAD,
-  IR_POLYMORPHIC_STORE,
-  IR_DISPATCH_MAP,
-  IR_MEGAMORPHIC_LOAD,
-  IR_MEGAMORPHIC_STORE,
-]);
-const OVERFLOW_DEOPT_CAPABLE = new Set([
-  IR_INT32_ADD,
-  IR_INT32_SUB,
-  IR_INT32_MUL,
-]);
-
-function inferEffectKind(opcode: string, metadata: IRMetadata = {}): EffectKind {
-  if (TERMINATORS.has(opcode)) return EFFECT_TERMINATOR;
-  if (opcode === IR_DISPATCH_MAP && metadata.isStore === true)
-    return EFFECT_WRITE;
-  if (WRITES.has(opcode)) return EFFECT_WRITE;
-  if (CALLS.has(opcode)) return EFFECT_CALL;
-  if (ALLOCS.has(opcode)) return EFFECT_ALLOC;
-  if (READS.has(opcode)) return EFFECT_READ;
-  if (GUARDS.has(opcode)) return EFFECT_GUARD;
-  return EFFECT_NONE;
-}
-
 export function irRequiresFrameState(node: IRValueLike) {
   if (!(node instanceof CFGInstruction)) return false;
-  if (node.props.pure === true) return false;
-  if (DEOPT_CAPABLE.has(node.type)) return true;
-  if (OVERFLOW_DEOPT_CAPABLE.has(node.type))
-    return node.props.noOverflow !== true;
-  return false;
+  return canDeoptimize(node);
 }
 
 export class CFGInstruction {
@@ -275,7 +90,6 @@ export class CFGInstruction {
   inputs: CFGInstruction[];
   uses: CFGInstruction[];
   rep: IRMetadataValue | null;
-  effectKind: EffectKind;
   frameState: FrameState | null;
   block: CFGBlock | null;
   _deadForSelfRecursion?: boolean;
@@ -292,10 +106,6 @@ export class CFGInstruction {
     this.inputs = [];
     this.uses = [];
     this.rep = metadata._rep || null;
-    this.effectKind =
-      typeof metadata.effectKind === "string"
-        ? (metadata.effectKind as EffectKind)
-        : inferEffectKind(opcode, metadata);
     this.frameState = null;
     this.block = null;
   }
@@ -321,12 +131,12 @@ export class CFGInstruction {
   toString() {
     const inputIds = this.inputs.map((n) => valueLabel(n)).join(", ");
     const propsStr = Object.entries(this.props)
-      .filter(([k]) => k !== "effectKind")
       .map(([k, v]) => `${k}=${typeof v === "string" ? '"' + v + '"' : String(v)}`)
       .join(", ");
     const fs = this.frameState ? ` {fs}` : "";
     const rep = this.props._rep ? ` :${String(this.props._rep)}` : "";
-    return `v${this.id} = ${this.opcode}(${inputIds})${rep}${propsStr ? " [" + propsStr + "]" : ""}${this.effectKind !== EFFECT_NONE ? ` <${this.effectKind}>` : ""}${fs}`;
+    const effectTag = isTerminator(this.type) ? " <terminator>" : "";
+    return `v${this.id} = ${this.opcode}(${inputIds})${rep}${propsStr ? " [" + propsStr + "]" : ""}${effectTag}${fs}`;
   }
 }
 
@@ -373,7 +183,7 @@ export class CFGBlock {
 
   addNode(instruction: CFGInstruction) {
     instruction.block = this;
-    if (TERMINATORS.has(instruction.type)) this.terminator = instruction;
+    if (isTerminator(instruction.type)) this.terminator = instruction;
     this.nodes.push(instruction);
     return instruction;
   }
@@ -382,7 +192,7 @@ export class CFGBlock {
     if (this.terminator && this.nodes.includes(this.terminator))
       return this.terminator;
     const last = this.nodes[this.nodes.length - 1];
-    if (last && TERMINATORS.has(last.type)) {
+    if (last && isTerminator(last.type)) {
       this.terminator = last;
       return last;
     }
@@ -432,7 +242,7 @@ export class CFGFunction {
   }
 
   addParameter(index: number) {
-    const param = new CFGInstruction(IR_PARAMETER, { index });
+    const param = new CFGInstruction(ops.IR_PARAMETER, { index });
     this.parameters.push(param);
     this.parameterCount++;
     return param;
@@ -520,122 +330,128 @@ function valueLabel(value: IRValueLike): string {
 }
 
 export function irParameter(index: number) {
-  return new IRNode(IR_PARAMETER, { index });
+  return new IRNode(ops.IR_PARAMETER, { index });
 }
 
 export function irConstant(value: IRValueLike) {
-  return new IRNode(IR_CONSTANT, { value });
+  return new IRNode(ops.IR_CONSTANT, { value });
 }
 
 export function irCheckMap(obj: IRValueLike, expectedMapId: IRValueLike, expectedMapVersion: IRValueLike= null) {
-  const node = new IRNode(IR_CHECK_MAP, { expectedMapId, expectedMapVersion });
+  const node = new IRNode(ops.IR_CHECK_MAP, { expectedMapId, expectedMapVersion });
   node.addInput(obj);
   return node;
 }
 
+export function irCheckPrimitive(value: IRValueLike, primitive: string) {
+  const node = new IRNode(ops.IR_CHECK_PRIMITIVE, { primitive });
+  node.addInput(value);
+  return node;
+}
+
 export function irCheckSmi(value: IRValueLike) {
-  const node = new IRNode(IR_CHECK_SMI);
+  const node = new IRNode(ops.IR_CHECK_SMI);
   node.addInput(value);
   return node;
 }
 
 export function irCheckNumber(value: IRValueLike) {
-  const node = new IRNode(IR_CHECK_NUMBER);
+  const node = new IRNode(ops.IR_CHECK_NUMBER);
   node.addInput(value);
   return node;
 }
 
 export function irInt32Add(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_INT32_ADD);
+  const node = new IRNode(ops.IR_INT32_ADD);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irInt32Sub(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_INT32_SUB);
+  const node = new IRNode(ops.IR_INT32_SUB);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irInt32Mul(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_INT32_MUL);
+  const node = new IRNode(ops.IR_INT32_MUL);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irInt32Div(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_INT32_DIV);
+  const node = new IRNode(ops.IR_INT32_DIV);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irInt32Mod(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_INT32_MOD);
+  const node = new IRNode(ops.IR_INT32_MOD);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irFloat64Add(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_FLOAT64_ADD);
+  const node = new IRNode(ops.IR_FLOAT64_ADD);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irFloat64Sub(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_FLOAT64_SUB);
+  const node = new IRNode(ops.IR_FLOAT64_SUB);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irFloat64Mul(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_FLOAT64_MUL);
+  const node = new IRNode(ops.IR_FLOAT64_MUL);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irFloat64Div(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_FLOAT64_DIV);
+  const node = new IRNode(ops.IR_FLOAT64_DIV);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irInt32Compare(op: string, left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_INT32_COMPARE, { op });
+  const node = new IRNode(ops.IR_INT32_COMPARE, { op });
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irFloat64Compare(op: string, left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_FLOAT64_COMPARE, { op });
+  const node = new IRNode(ops.IR_FLOAT64_COMPARE, { op });
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irLoadField(obj: IRValueLike, offset: number) {
-  const node = new IRNode(IR_LOAD_FIELD, { offset });
+  const node = new IRNode(ops.IR_LOAD_FIELD, { offset });
   node.addInput(obj);
   return node;
 }
 
 export function irPolymorphicLoad(obj: IRValueLike, maps: IRValueLike[], offsets: IRValueLike[]) {
-  const node = new IRNode(IR_POLYMORPHIC_LOAD, { maps, offsets });
+  const node = new IRNode(ops.IR_POLYMORPHIC_LOAD, { maps, offsets });
   node.addInput(obj);
   return node;
 }
 
 export function irPolymorphicStore(obj: IRValueLike, maps: IRValueLike[], offsets: IRValueLike[], value: IRValueLike) {
-  const node = new IRNode(IR_POLYMORPHIC_STORE, { maps, offsets });
+  const node = new IRNode(ops.IR_POLYMORPHIC_STORE, { maps, offsets });
   node.addInput(obj);
   node.addInput(value);
   return node;
@@ -647,62 +463,62 @@ export function irStoreField(
   value: IRValueLike,
   propName?: string,
 ) {
-  const node = new IRNode(IR_STORE_FIELD, { offset, propName });
+  const node = new IRNode(ops.IR_STORE_FIELD, { offset, propName });
   node.addInput(obj);
   node.addInput(value);
   return node;
 }
 
 export function irGenericAdd(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_ADD);
+  const node = new IRNode(ops.IR_GENERIC_ADD);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericSub(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_SUB);
+  const node = new IRNode(ops.IR_GENERIC_SUB);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericMul(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_MUL);
+  const node = new IRNode(ops.IR_GENERIC_MUL);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericDiv(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_DIV);
+  const node = new IRNode(ops.IR_GENERIC_DIV);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericMod(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_MOD);
+  const node = new IRNode(ops.IR_GENERIC_MOD);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericCompare(op: string, left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_COMPARE, { op });
+  const node = new IRNode(ops.IR_GENERIC_COMPARE, { op });
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericGetProp(obj: IRValueLike, propName: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_GET_PROP, { propName });
+  const node = new IRNode(ops.IR_GENERIC_GET_PROP, { propName });
   node.addInput(obj);
   return node;
 }
 
 export function irGenericSetProp(obj: IRValueLike, propName: IRValueLike, value: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_SET_PROP, { propName });
+  const node = new IRNode(ops.IR_GENERIC_SET_PROP, { propName });
   node.addInput(obj);
   node.addInput(value);
   return node;
@@ -711,7 +527,7 @@ export function irGenericSetProp(obj: IRValueLike, propName: IRValueLike, value:
 export function irGenericDeleteProp(obj: IRValueLike, keyOrPropName: IRValueLike) {
   const isDynamicKey = keyOrPropName instanceof CFGInstruction;
   const node = new IRNode(
-    IR_GENERIC_DELETE_PROP,
+    ops.IR_GENERIC_DELETE_PROP,
     isDynamicKey ? {} : { propName: keyOrPropName },
   );
   node.addInput(obj);
@@ -720,7 +536,7 @@ export function irGenericDeleteProp(obj: IRValueLike, keyOrPropName: IRValueLike
 }
 
 export function irGenericCall(callee: IRValueLike, args: IRValueLike[]) {
-  const node = new IRNode(IR_GENERIC_CALL, { argCount: args.length });
+  const node = new IRNode(ops.IR_GENERIC_CALL, { argCount: args.length });
   node.addInput(callee);
   for (const arg of args) {
     node.addInput(arg);
@@ -729,13 +545,13 @@ export function irGenericCall(callee: IRValueLike, args: IRValueLike[]) {
 }
 
 export function irCheckCallTarget(callee: IRValueLike, expectedTarget: IRValueLike) {
-  const node = new IRNode(IR_CHECK_CALL_TARGET, { expectedTarget });
+  const node = new IRNode(ops.IR_CHECK_CALL_TARGET, { expectedTarget });
   node.addInput(callee);
   return node;
 }
 
 export function irCallKnownFunction(target: IRValueLike, args: IRValueLike[]) {
-  const node = new IRNode(IR_CALL_KNOWN_FUNCTION, {
+  const node = new IRNode(ops.IR_CALL_KNOWN_FUNCTION, {
     target,
     argCount: args.length,
   });
@@ -750,7 +566,7 @@ export function irCallBuiltin(
   args: IRValueLike[],
   metadata: IRMetadata = {},
 ) {
-  const node = new IRNode(IR_CALL_BUILTIN, {
+  const node = new IRNode(ops.IR_CALL_BUILTIN, {
     ...metadata,
     name,
     argCount: args.length,
@@ -762,14 +578,14 @@ export function irCallBuiltin(
 }
 
 export function irGenericGetIndex(obj: IRValueLike, index: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_GET_INDEX);
+  const node = new IRNode(ops.IR_GENERIC_GET_INDEX);
   node.addInput(obj);
   node.addInput(index);
   return node;
 }
 
 export function irGenericSetIndex(obj: IRValueLike, index: IRValueLike, value: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_SET_INDEX);
+  const node = new IRNode(ops.IR_GENERIC_SET_INDEX);
   node.addInput(obj);
   node.addInput(index);
   node.addInput(value);
@@ -777,116 +593,116 @@ export function irGenericSetIndex(obj: IRValueLike, index: IRValueLike, value: I
 }
 
 export function irInt32Or(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_INT32_OR);
+  const node = new IRNode(ops.IR_INT32_OR);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irInt32Xor(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_INT32_XOR);
+  const node = new IRNode(ops.IR_INT32_XOR);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irInt32Ushr(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_INT32_USHR);
+  const node = new IRNode(ops.IR_INT32_USHR);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irInt32Not(value: IRValueLike) {
-  const node = new IRNode(IR_INT32_NOT);
+  const node = new IRNode(ops.IR_INT32_NOT);
   node.addInput(value);
   return node;
 }
 
 export function irFloat64Pow(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_FLOAT64_POW);
+  const node = new IRNode(ops.IR_FLOAT64_POW);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericBitand(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_BITAND);
+  const node = new IRNode(ops.IR_GENERIC_BITAND);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericBitor(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_BITOR);
+  const node = new IRNode(ops.IR_GENERIC_BITOR);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericBitxor(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_BITXOR);
+  const node = new IRNode(ops.IR_GENERIC_BITXOR);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericShl(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_SHL);
+  const node = new IRNode(ops.IR_GENERIC_SHL);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericShr(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_SHR);
+  const node = new IRNode(ops.IR_GENERIC_SHR);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericUshr(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_USHR);
+  const node = new IRNode(ops.IR_GENERIC_USHR);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericPow(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_POW);
+  const node = new IRNode(ops.IR_GENERIC_POW);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericBitnot(value: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_BITNOT);
+  const node = new IRNode(ops.IR_GENERIC_BITNOT);
   node.addInput(value);
   return node;
 }
 
 export function irGenericInstanceof(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_INSTANCEOF);
+  const node = new IRNode(ops.IR_GENERIC_INSTANCEOF);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irGenericIn(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_GENERIC_IN);
+  const node = new IRNode(ops.IR_GENERIC_IN);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irReturn(value: IRValueLike) {
-  const node = new IRNode(IR_RETURN);
+  const node = new IRNode(ops.IR_RETURN);
   node.addInput(value);
   return node;
 }
 
 export function irBranch(condition: IRValueLike, trueBlock: CFGBlock, falseBlock: CFGBlock) {
-  const node = new IRNode(IR_BRANCH, {
+  const node = new IRNode(ops.IR_BRANCH, {
     trueBlock: trueBlock.id,
     falseBlock: falseBlock.id,
   });
@@ -895,43 +711,43 @@ export function irBranch(condition: IRValueLike, trueBlock: CFGBlock, falseBlock
 }
 
 export function irJump(targetBlock: CFGBlock) {
-  return new IRNode(IR_JUMP, { targetBlock: targetBlock.id });
+  return new IRNode(ops.IR_JUMP, { targetBlock: targetBlock.id });
 }
 
 export function irDeoptimize(reason: string) {
-  return new IRNode(IR_DEOPTIMIZE, { reason });
+  return new IRNode(ops.IR_DEOPTIMIZE, { reason });
 }
 
 export function irBox(value: IRValueLike, fromType: string) {
-  const node = new IRNode(IR_BOX, { fromType });
+  const node = new IRNode(ops.IR_BOX, { fromType });
   node.addInput(value);
   return node;
 }
 
 export function irUnbox(value: IRValueLike, toType: string) {
-  const node = new IRNode(IR_UNBOX, { toType });
+  const node = new IRNode(ops.IR_UNBOX, { toType });
   node.addInput(value);
   return node;
 }
 
 export function irNot(value: IRValueLike) {
-  const node = new IRNode(IR_NOT);
+  const node = new IRNode(ops.IR_NOT);
   node.addInput(value);
   return node;
 }
 
 export function irNeg(value: IRValueLike) {
-  const node = new IRNode(IR_NEG);
+  const node = new IRNode(ops.IR_NEG);
   node.addInput(value);
   return node;
 }
 
 export function irNewObject() {
-  return new IRNode(IR_NEW_OBJECT);
+  return new IRNode(ops.IR_NEW_OBJECT);
 }
 
 export function irNewArray(elements: IRValueLike[]) {
-  const node = new IRNode(IR_NEW_ARRAY, { elementCount: elements.length });
+  const node = new IRNode(ops.IR_NEW_ARRAY, { elementCount: elements.length });
   for (const el of elements) {
     node.addInput(el);
   }
@@ -939,15 +755,15 @@ export function irNewArray(elements: IRValueLike[]) {
 }
 
 export function irNewRegex(constIdx: number) {
-  return new IRNode(IR_NEW_REGEX, { constIdx });
+  return new IRNode(ops.IR_NEW_REGEX, { constIdx });
 }
 
 export function irLoadLocal(slot: number) {
-  return new IRNode(IR_LOAD_LOCAL, { slot });
+  return new IRNode(ops.IR_LOAD_LOCAL, { slot });
 }
 
 export function irStoreLocal(slot: number, value: IRValueLike) {
-  const node = new IRNode(IR_STORE_LOCAL, { slot });
+  const node = new IRNode(ops.IR_STORE_LOCAL, { slot });
   node.addInput(value);
   return node;
 }
@@ -956,7 +772,7 @@ export function irLoadContextSlot(
   slot: number,
   source: ContextSlotSource = "local",
 ) {
-  return new IRNode(IR_LOAD_CONTEXT_SLOT, { slot, source });
+  return new IRNode(ops.IR_LOAD_CONTEXT_SLOT, { slot, source });
 }
 
 export function irStoreContextSlot(
@@ -964,17 +780,17 @@ export function irStoreContextSlot(
   value: IRValueLike,
   source: ContextSlotSource = "local",
 ) {
-  const node = new IRNode(IR_STORE_CONTEXT_SLOT, { slot, source });
+  const node = new IRNode(ops.IR_STORE_CONTEXT_SLOT, { slot, source });
   node.addInput(value);
   return node;
 }
 
 export function irLoadGlobal(name: string) {
-  return new IRNode(IR_LOAD_GLOBAL, { name });
+  return new IRNode(ops.IR_LOAD_GLOBAL, { name });
 }
 
 export function irStoreGlobal(name: string, value: IRValueLike) {
-  const node = new IRNode(IR_STORE_GLOBAL, { name });
+  const node = new IRNode(ops.IR_STORE_GLOBAL, { name });
   node.addInput(value);
   return node;
 }
@@ -984,31 +800,31 @@ export function irMakeClosure(
   compiled: IRMetadataValue,
   captures: ClosureCapture[],
 ) {
-  const node = new IRNode(IR_MAKE_CLOSURE, { constIdx, compiled, captures });
+  const node = new IRNode(ops.IR_MAKE_CLOSURE, { constIdx, compiled, captures });
   return node;
 }
 
 export function irCheckArray(obj: IRValueLike) {
-  const node = new IRNode(IR_CHECK_ARRAY);
+  const node = new IRNode(ops.IR_CHECK_ARRAY);
   node.addInput(obj);
   return node;
 }
 
 export function irCheckElementsKind(arrayObj: IRValueLike, elementsKind: IRValueLike) {
-  const node = new IRNode(IR_CHECK_ELEMENTS_KIND, { elementsKind });
+  const node = new IRNode(ops.IR_CHECK_ELEMENTS_KIND, { elementsKind });
   node.addInput(arrayObj);
   return node;
 }
 
 export function irCheckBounds(index: IRValueLike, arrayObj: IRValueLike) {
-  const node = new IRNode(IR_CHECK_BOUNDS);
+  const node = new IRNode(ops.IR_CHECK_BOUNDS);
   node.addInput(index);
   node.addInput(arrayObj);
   return node;
 }
 
 export function irLoadArrayLength(arrayObj: IRValueLike) {
-  const node = new IRNode(IR_LOAD_ARRAY_LENGTH);
+  const node = new IRNode(ops.IR_LOAD_ARRAY_LENGTH);
   node.addInput(arrayObj);
   return node;
 }
@@ -1020,7 +836,7 @@ export function irLoadElement(
   elementRep: IRValueLike = null,
   requiresBoundsCheck = true,
 ) {
-  const node = new IRNode(IR_LOAD_ELEMENT, {
+  const node = new IRNode(ops.IR_LOAD_ELEMENT, {
     elementsKind,
     elementRep,
     requiresBoundsCheck,
@@ -1038,7 +854,7 @@ export function irStoreElement(
   elementRep: IRValueLike = null,
   requiresBoundsCheck = true,
 ) {
-  const node = new IRNode(IR_STORE_ELEMENT, {
+  const node = new IRNode(ops.IR_STORE_ELEMENT, {
     elementsKind,
     elementRep,
     requiresBoundsCheck,
@@ -1050,21 +866,21 @@ export function irStoreElement(
 }
 
 export function irInt32Shl(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_INT32_SHL);
+  const node = new IRNode(ops.IR_INT32_SHL);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irInt32Shr(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_INT32_SHR);
+  const node = new IRNode(ops.IR_INT32_SHR);
   node.addInput(left);
   node.addInput(right);
   return node;
 }
 
 export function irInt32And(left: IRValueLike, right: IRValueLike) {
-  const node = new IRNode(IR_INT32_AND);
+  const node = new IRNode(ops.IR_INT32_AND);
   node.addInput(left);
   node.addInput(right);
   return node;

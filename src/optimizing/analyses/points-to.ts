@@ -22,11 +22,6 @@ const ALLOCATIONS = new Set([
   ir.IR_NEW_REGEX,
   ir.IR_MAKE_CLOSURE,
 ]);
-const IDENTITY_GUARDS = new Set([
-  ir.IR_CHECK_MAP,
-  ir.IR_CHECK_ARRAY,
-  ir.IR_CHECK_ELEMENTS_KIND,
-]);
 const CALLS = new Set([
   ir.IR_GENERIC_CALL,
   ir.IR_MAKE_CLOSURE,
@@ -140,7 +135,7 @@ function analyzePointsTo(graph: ir.CFGFunction): PointsToResult {
       for (const input of value.inputs) uf.union(value, input);
       continue;
     }
-    if (IDENTITY_GUARDS.has(value.type) && value.inputs[0]) {
+    if (ir.forwardsPointerIdentity(value.type) && value.inputs[0]) {
       uf.union(value, value.inputs[0]);
     }
   }
@@ -276,7 +271,7 @@ function collectEscapedRoots(
       for (const input of value.inputs) mark(input);
       continue;
     }
-    if (INPUT_ESCAPE_EFFECTS.has(value.type) && value.props.pure !== true) {
+    if (INPUT_ESCAPE_EFFECTS.has(value.type) && !ir.isEffectFree(value) && !ir.isReadOnly(value)) {
       for (const input of value.inputs) mark(input);
       continue;
     }

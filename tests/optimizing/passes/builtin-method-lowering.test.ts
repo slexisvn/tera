@@ -17,6 +17,8 @@ import {
   IR_GENERIC_GET_PROP,
   IR_RETURN,
   irRequiresFrameState,
+  isReadOnly,
+  clobbersAllMemory,
   resetIRNodeIds,
 } from "../../../src/optimizing/ir/index.js";
 import type { FrameState } from "../../../src/deopt/frame-state.js";
@@ -91,7 +93,8 @@ describe("lowerBuiltinMethods", () => {
     lower(graph);
 
     const call = nodesOf(graph).find((node) => node.type === IR_CALL_BUILTIN)!;
-    expect(call.props.pure).toBe(true);
+    expect(isReadOnly(call)).toBe(true);
+    expect(clobbersAllMemory(call)).toBe(false);
   });
 
   it("leaves a method that the registry does not declare alone", () => {

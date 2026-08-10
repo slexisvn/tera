@@ -1,11 +1,7 @@
 import * as ir from "../ir/index.js";
 import { type ModRef } from "../analyses/mod-ref.js";
 import { type PointsToResult } from "../analyses/points-to.js";
-import {
-  locationsMayAlias,
-  memoryLocationOf,
-  type MemoryLocation,
-} from "../analyses/heap-model.js";
+import { type MemoryLocation } from "../analyses/heap-model.js";
 import { runSnapshotDataflow } from "../infra/snapshot-dataflow.js";
 import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
 
@@ -25,13 +21,6 @@ type MemoryState = {
 
 const LOADS = new Set([ir.IR_LOAD_FIELD, ir.IR_LOAD_ELEMENT, ir.IR_LOAD_GLOBAL]);
 const STORES = new Set([ir.IR_STORE_FIELD, ir.IR_STORE_ELEMENT, ir.IR_STORE_GLOBAL]);
-const GENERIC_BASE_ACCESSES = new Set([
-  ir.IR_GENERIC_GET_PROP,
-  ir.IR_GENERIC_SET_PROP,
-  ir.IR_GENERIC_DELETE_PROP,
-  ir.IR_GENERIC_GET_INDEX,
-  ir.IR_GENERIC_SET_INDEX,
-]);
 
 export function loadElimination(
   graph: LoadGraph,
@@ -72,7 +61,7 @@ function rewriteBlock(
 
   for (const node of block.nodes) {
     if (LOADS.has(node.type)) {
-      const location = memoryLocationOf(node, pointsTo);
+      const location = modRef.locationOf(node);
       const existing = location ? state.byLocation.get(location.key) : undefined;
       if (existing && existing.value !== node) {
         replaceValueUses(graph, node, existing.value);
@@ -98,22 +87,22 @@ function transferNode(
   modRef: ModRef,
 ): void {
   if (LOADS.has(node.type)) {
-    const location = memoryLocationOf(node, pointsTo);
+    const location = modRef.locationOf(node);
     if (location && !state.byLocation.has(location.key)) addLocation(state, location, node, pointsTo);
     return;
   }
   if (STORES.has(node.type)) {
-    const location = memoryLocationOf(node, pointsTo);
+    const location = modRef.locationOf(node);
     const value = storeValue(node);
     if (location && value) {
-      killAliases(state, location, pointsTo);
+      killAliases(state, location, pointsTo, modRef);
       addLocation(state, location, value, pointsTo);
     }
     return;
   }
-  if (GENERIC_BASE_ACCESSES.has(node.type)) {
-    const location = memoryLocationOf(node, pointsTo);
-    if (location) killAliases(state, location, pointsTo);
+  if (ir.memoryAccessOf(node.type) === ir.ACCESS_PROPERTY) {
+    const location = modRef.locationOf(node);
+    if (location) killAliases(state, location, pointsTo, modRef);
   }
   if (modRef.killsEverything(node)) {
     killVisible(state);
@@ -134,6 +123,7 @@ function killAliases(
   state: MemoryState,
   location: MemoryLocation,
   pointsTo: PointsToResult,
+  modRef: ModRef,
 ): void {
   const candidates = candidateBaseKeys(state, location, pointsTo);
   for (const baseKey of candidates) {
@@ -142,7 +132,7 @@ function killAliases(
     for (const key of [...keys]) {
       const entry = state.byLocation.get(key);
       if (!entry) continue;
-      if (!locationsMayAlias(entry, location, pointsTo)) continue;
+      if (!modRef.mayAlias(entry, location)) continue;
       removeLocation(state, key);
     }
   }

@@ -23,102 +23,31 @@ function nodeFromIr(value: ir.CFGInstruction): ReprNode {
   return value;
 }
 
-const INT32_PRODUCERS = new Set([
-  ir.IR_INT32_ADD,
-  ir.IR_INT32_SUB,
-  ir.IR_INT32_MUL,
-  ir.IR_INT32_DIV,
-  ir.IR_INT32_MOD,
-  ir.IR_INT32_SHL,
-  ir.IR_INT32_SHR,
-  ir.IR_INT32_AND,
-  ir.IR_LOAD_ARRAY_LENGTH,
-  ir.IR_GENERIC_BITAND,
-  ir.IR_GENERIC_BITOR,
-  ir.IR_GENERIC_BITXOR,
-  ir.IR_GENERIC_SHL,
-  ir.IR_GENERIC_SHR,
-  ir.IR_GENERIC_BITNOT,
-]);
-
-const BOOL_PRODUCERS = new Set([
-  ir.IR_INT32_COMPARE,
-  ir.IR_FLOAT64_COMPARE,
-  ir.IR_GENERIC_COMPARE,
-  ir.IR_GENERIC_DELETE_PROP,
-  ir.IR_CHECK_CALL_TARGET,
-  ir.IR_NOT,
-]);
-
-const FLOAT64_PRODUCERS = new Set([
-  ir.IR_FLOAT64_ADD,
-  ir.IR_FLOAT64_SUB,
-  ir.IR_FLOAT64_MUL,
-  ir.IR_FLOAT64_DIV,
-]);
-
-const INT32_CONSUMERS = new Set([
-  ir.IR_INT32_ADD,
-  ir.IR_INT32_SUB,
-  ir.IR_INT32_MUL,
-  ir.IR_INT32_DIV,
-  ir.IR_INT32_MOD,
-  ir.IR_INT32_SHL,
-  ir.IR_INT32_SHR,
-  ir.IR_INT32_AND,
-  ir.IR_INT32_COMPARE,
-]);
-
-const FLOAT64_CONSUMERS = new Set([
-  ir.IR_FLOAT64_ADD,
-  ir.IR_FLOAT64_SUB,
-  ir.IR_FLOAT64_MUL,
-  ir.IR_FLOAT64_DIV,
-  ir.IR_FLOAT64_COMPARE,
-]);
-
-const NUMERIC_UNLESS_OVERLOADED = new Set([
-  ir.IR_GENERIC_SUB,
-  ir.IR_GENERIC_MUL,
-  ir.IR_GENERIC_DIV,
-  ir.IR_GENERIC_POW,
-]);
-
-const OVERLOADABLE_ARITHMETIC = new Set([
-  ir.IR_GENERIC_ADD,
-  ...NUMERIC_UNLESS_OVERLOADED,
-]);
-
-const TAGGED_NUMBER_PRODUCERS = new Set([
-  ir.IR_GENERIC_MOD,
-  ir.IR_GENERIC_USHR,
-]);
-
-const HANDLE_PRODUCERS = new Set([
-  ...OVERLOADABLE_ARITHMETIC,
-  ir.IR_GENERIC_GET_PROP,
-  ir.IR_GENERIC_SET_PROP,
-  ir.IR_GENERIC_GET_INDEX,
-  ir.IR_GENERIC_SET_INDEX,
-  ir.IR_LOAD_GLOBAL,
-  ir.IR_LOAD_LOCAL,
-  ir.IR_LOAD_CONTEXT_SLOT,
-  ir.IR_STORE_CONTEXT_SLOT,
-  ir.IR_LOAD_CONST,
-  ir.IR_NEW_OBJECT,
-  ir.IR_NEW_ARRAY,
-  ir.IR_MAKE_CLOSURE,
-  ir.IR_CALL_BUILTIN,
-  ir.IR_CALL_INTRINSIC,
-  ir.IR_TYPEOF,
-]);
+const isInt32Producer = (opcode: string): boolean =>
+  ir.resultClassOf(opcode) === ir.RESULT_INT32;
+const isBoolProducer = (opcode: string): boolean =>
+  ir.resultClassOf(opcode) === ir.RESULT_BOOL;
+const isFloat64Producer = (opcode: string): boolean =>
+  ir.resultClassOf(opcode) === ir.RESULT_FLOAT64;
+const isTaggedNumberProducer = (opcode: string): boolean =>
+  ir.resultClassOf(opcode) === ir.RESULT_TAGGED_NUMBER;
+const isHandleProducer = (opcode: string): boolean =>
+  ir.resultClassOf(opcode) === ir.RESULT_HANDLE || isOverloadableArithmetic(opcode);
+const isInt32Consumer = (opcode: string): boolean =>
+  ir.operandClassOf(opcode) === ir.RESULT_INT32;
+const isFloat64Consumer = (opcode: string): boolean =>
+  ir.operandClassOf(opcode) === ir.RESULT_FLOAT64;
+const isNumericUnlessOverloaded = (opcode: string): boolean =>
+  ir.overloadOf(opcode) === ir.OVERLOAD_NUMERIC;
+const isOverloadableArithmetic = (opcode: string): boolean =>
+  ir.overloadOf(opcode) !== ir.OVERLOAD_NONE;
 
 export function producesNumber(node: ReprNode): boolean {
   if (
-    INT32_PRODUCERS.has(node.type) ||
-    FLOAT64_PRODUCERS.has(node.type) ||
-    BOOL_PRODUCERS.has(node.type) ||
-    TAGGED_NUMBER_PRODUCERS.has(node.type)
+    isInt32Producer(node.type) ||
+    isFloat64Producer(node.type) ||
+    isBoolProducer(node.type) ||
+    isTaggedNumberProducer(node.type)
   )
     return true;
   if (node.type === ir.IR_CHECK_SMI || node.type === ir.IR_CHECK_NUMBER)
@@ -304,11 +233,11 @@ export function representationSelection(graph: ReprGraph): number {
 
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      if (INT32_PRODUCERS.has(node.type)) {
+      if (isInt32Producer(node.type)) {
         nodeRep.set(node.id, REP_INT32);
-      } else if (BOOL_PRODUCERS.has(node.type)) {
+      } else if (isBoolProducer(node.type)) {
         nodeRep.set(node.id, REP_BOOL);
-      } else if (FLOAT64_PRODUCERS.has(node.type)) {
+      } else if (isFloat64Producer(node.type)) {
         nodeRep.set(node.id, REP_FLOAT64);
       } else if (node.type === ir.IR_CONSTANT) {
         nodeRep.set(node.id, constantRep(node.props.value));
@@ -318,7 +247,7 @@ export function representationSelection(graph: ReprGraph): number {
         const inRep = nodeRep.get(node.inputs[0]?.id);
         let needsFloat = inRep !== REP_INT32 && inRep !== REP_BOOL;
         for (const use of node.uses) {
-          if (FLOAT64_CONSUMERS.has(use.type)) {
+          if (isFloat64Consumer(use.type)) {
             needsFloat = true;
             break;
           }
@@ -374,8 +303,8 @@ export function representationSelection(graph: ReprGraph): number {
             : REP_FLOAT64,
         );
       } else if (
-        TAGGED_NUMBER_PRODUCERS.has(node.type) ||
-        (NUMERIC_UNLESS_OVERLOADED.has(node.type) &&
+        isTaggedNumberProducer(node.type) ||
+        (isNumericUnlessOverloaded(node.type) &&
           node.inputs.every(isProvablyNumericOperand))
       ) {
         nodeRep.set(node.id, REP_TAGGED_NUMBER);
@@ -386,9 +315,9 @@ export function representationSelection(graph: ReprGraph): number {
         nodeRep.set(node.id, unboxedRepForDemand(node));
       } else if (isOpaqueIntrinsicResult(node)) {
         nodeRep.set(node.id, REP_HANDLE);
-      } else if (HANDLE_PRODUCERS.has(node.type)) {
+      } else if (isHandleProducer(node.type)) {
         const operandsNumeric =
-          !OVERLOADABLE_ARITHMETIC.has(node.type) ||
+          !isOverloadableArithmetic(node.type) ||
           node.inputs.every(isProvablyNumericOperand);
         nodeRep.set(
           node.id,
@@ -411,9 +340,9 @@ export function representationSelection(graph: ReprGraph): number {
         rep = REP_HANDLE;
         break;
       }
-      if (use.type === ir.IR_CHECK_NUMBER || FLOAT64_CONSUMERS.has(use.type))
+      if (use.type === ir.IR_CHECK_NUMBER || isFloat64Consumer(use.type))
         rep = REP_FLOAT64;
-      else if (use.type === ir.IR_CHECK_SMI || INT32_CONSUMERS.has(use.type))
+      else if (use.type === ir.IR_CHECK_SMI || isInt32Consumer(use.type))
         rep = rep === REP_FLOAT64 ? REP_FLOAT64 : REP_INT32;
     }
     nodeRep.set(param.id, rep);
@@ -464,8 +393,8 @@ export function representationSelection(graph: ReprGraph): number {
     consumer: ReprNode,
     inputIndex: number,
   ): Representation | null => {
-    if (INT32_CONSUMERS.has(consumer.type)) return REP_INT32;
-    if (FLOAT64_CONSUMERS.has(consumer.type)) return REP_FLOAT64;
+    if (isInt32Consumer(consumer.type)) return REP_INT32;
+    if (isFloat64Consumer(consumer.type)) return REP_FLOAT64;
     if (consumer.type === ir.IR_RETURN)
       return nodeRep.get(consumer.inputs[inputIndex]?.id) || REP_HANDLE;
     if (consumer.type === ir.IR_CHECK_SMI) return REP_INT32;
@@ -515,13 +444,13 @@ export function representationSelection(graph: ReprGraph): number {
     }
     if (
       consumer.type === ir.IR_GENERIC_MOD ||
-      (NUMERIC_UNLESS_OVERLOADED.has(consumer.type) &&
+      (isNumericUnlessOverloaded(consumer.type) &&
         consumer.inputs.every(isProvablyNumericOperand))
     ) {
       return REP_TAGGED_NUMBER;
     }
     if (
-      OVERLOADABLE_ARITHMETIC.has(consumer.type) ||
+      isOverloadableArithmetic(consumer.type) ||
       consumer.type === ir.IR_GENERIC_CALL ||
       consumer.type === ir.IR_CALL_KNOWN_FUNCTION ||
       consumer.type === ir.IR_GENERIC_GET_PROP ||
@@ -706,6 +635,6 @@ function isOpaqueIntrinsicResult(node: ReprNode): boolean {
   const returns = node.props.returns;
   if (returns === "T" || returns === "any") return true;
   if (typeof returns === "string" && returns.startsWith("Reactive")) return true;
-  const effects = node.props.intrinsicEffects;
+  const effects = node.props.declaredEffects;
   return Array.isArray(effects) && effects.length === 1 && effects[0] === "reactive-read";
 }

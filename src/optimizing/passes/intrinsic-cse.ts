@@ -116,20 +116,20 @@ function stateEquals(left: AvailableState, right: AvailableState): boolean {
 
 function isReactiveReadIntrinsic(node: IntrinsicNode): boolean {
   if (node.type !== ir.IR_CALL_INTRINSIC) return false;
-  const effects = node.props.intrinsicEffects;
+  const effects = node.props.declaredEffects;
   return Array.isArray(effects) && effects.length === 1 && effects[0] === "reactive-read";
 }
 
 function isCseEligibleIntrinsicRead(node: IntrinsicNode): boolean {
-  return node.type === ir.IR_CALL_INTRINSIC && (node.effectKind === ir.EFFECT_READ || isReactiveReadIntrinsic(node));
+  return node.type === ir.IR_CALL_INTRINSIC && (ir.isReadOnly(node) || isReactiveReadIntrinsic(node));
 }
 
 function applyBarrier(state: AvailableState, node: IntrinsicNode): void {
-  if (node.effectKind === ir.EFFECT_CALL) {
+  if (ir.clobbersAllMemory(node)) {
     clearState(state);
     return;
   }
-  if (node.effectKind !== ir.EFFECT_WRITE) return;
+  if (!ir.writesMemory(node)) return;
   const writes = intrinsicWriteDomains(node);
   if (!writes) {
     clearState(state);

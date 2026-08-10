@@ -5,6 +5,7 @@ import type { AotBackend } from "../target/backend.js";
 import { AnalysisManager } from "../infra/analysis-manager.js";
 import { PassManager } from "../infra/pass-manager.js";
 import { compilerOptions, type CompilerOptions } from "../options.js";
+import { cfgPassTracer } from "../pipeline.js";
 import { createAnalysisRegistry } from "../analyses/index.js";
 import type { ModuleIR } from "../compilation-unit.js";
 
@@ -115,7 +116,7 @@ export function compileModule(
     );
     let artifact;
     try {
-      new PassManager<CFGFunction>(analyses, opts).run(
+      new PassManager<CFGFunction>(analyses, opts, cfgPassTracer(opts)).run(
         graph,
         backend.loweringPipeline(opts),
       );

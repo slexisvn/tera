@@ -1,14 +1,9 @@
 import {
   type CFGFunction,
   type CFGInstruction,
-  IR_CHECK_SMI,
-  IR_CHECK_NUMBER,
-  IR_CHECK_CALL_TARGET,
-  IR_CHECK_ARRAY,
-  IR_CHECK_BOUNDS,
-  IR_CHECK_ELEMENTS_KIND,
-  IR_BOX,
-  IR_UNBOX,
+  speculationRoleOf,
+  SPECULATION_BASE_GUARD,
+  SPECULATION_NATIVE_GUARD,
   IR_INT32_ADD,
   IR_INT32_SUB,
   IR_INT32_MUL,
@@ -57,15 +52,6 @@ const NUMERIC_OR_UNKNOWN = new Set<string>([
   TypeKind.Never,
 ]);
 
-const BASE_PASSTHROUGH = new Set<string>([IR_CHECK_SMI, IR_CHECK_NUMBER]);
-const NATIVE_PASSTHROUGH = new Set<string>([
-  IR_CHECK_CALL_TARGET,
-  IR_CHECK_ARRAY,
-  IR_CHECK_BOUNDS,
-  IR_CHECK_ELEMENTS_KIND,
-  IR_BOX,
-  IR_UNBOX,
-]);
 
 type Rewrite = (node: CFGInstruction) => CFGInstruction;
 
@@ -147,7 +133,8 @@ function proveOrGeneric(
   const genericCalls: CFGInstruction[] = [];
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      if (BASE_PASSTHROUGH.has(node.type) || (lowerGenerics && NATIVE_PASSTHROUGH.has(node.type))) {
+      const role = speculationRoleOf(node.type);
+      if (role === SPECULATION_BASE_GUARD || (lowerGenerics && role === SPECULATION_NATIVE_GUARD)) {
         passthrough.push(node);
       } else if (DESPECIALIZE.has(node.type) && !isProven(node)) specialized.push(node);
       else if (

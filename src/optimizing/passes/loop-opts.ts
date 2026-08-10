@@ -8,11 +8,6 @@ import type { DominatorTree } from "../analyses/dominance.js";
 import type { LoopForest } from "../analyses/loops.js";
 import type { ModRef } from "../analyses/mod-ref.js";
 import type { PointsToResult } from "../analyses/points-to.js";
-import {
-  locationsMayAlias,
-  memoryLocationOf,
-  type MemoryLocation,
-} from "../analyses/heap-model.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
 
 type LoopNode = ir.CFGInstruction;
@@ -25,76 +20,8 @@ function nodeFromIr(value: ir.CFGInstruction): LoopNode {
   return value;
 }
 
-const SIDE_EFFECT_FREE = new Set<ir.EffectKind>([
-  ir.EFFECT_NONE,
-  ir.EFFECT_READ,
-  ir.EFFECT_GUARD,
-]);
-
-const MEMORY_READING = new Set<ir.EffectKind>([ir.EFFECT_READ, ir.EFFECT_GUARD]);
-
-const PINNED_TO_BLOCK = new Set<string>([
-  ir.IR_PHI,
-  ir.IR_PARAMETER,
-  ir.IR_LOAD_LOCAL,
-]);
-
-type LoopMemory = {
-  readonly clobbersEverything: boolean;
-  readonly locations: readonly MemoryLocation[];
-  readonly keys: ReadonlySet<string>;
-};
-
-function loopMemoryEffects(
-  blocks: Iterable<LoopBlock>,
-  pointsTo: PointsToResult,
-  modRef: ModRef,
-): LoopMemory {
-  const locations: MemoryLocation[] = [];
-  const keys = new Set<string>();
-  let clobbersEverything = false;
-
-  for (const block of blocks) {
-    for (const node of block.nodes) {
-      if (modRef.killsEverything(node)) {
-        clobbersEverything = true;
-        continue;
-      }
-      if (node.effectKind === ir.EFFECT_WRITE) {
-        const location = memoryLocationOf(node, pointsTo);
-        if (location === null) clobbersEverything = true;
-        else locations.push(location);
-      }
-      for (const key of modRef.gmod(node)) keys.add(key);
-    }
-  }
-
-  return { clobbersEverything, locations, keys };
-}
-
 function isSideEffectFree(node: LoopNode): boolean {
-  return (
-    !PINNED_TO_BLOCK.has(node.type) &&
-    SIDE_EFFECT_FREE.has(node.effectKind) &&
-    node.frameState === null
-  );
-}
-
-function readsLoopWrites(
-  node: LoopNode,
-  memory: LoopMemory,
-  pointsTo: PointsToResult,
-): boolean {
-  if (node.props.pure === true) return false;
-  if (!MEMORY_READING.has(node.effectKind)) return false;
-  if (memory.clobbersEverything) return true;
-  if (memory.locations.length === 0 && memory.keys.size === 0) return false;
-  const location = memoryLocationOf(node, pointsTo);
-  if (location === null) return true;
-  if (memory.keys.has(location.key)) return true;
-  return memory.locations.some((written) =>
-    locationsMayAlias(written, location, pointsTo),
-  );
+  return ir.isMovable(node) && node.frameState === null;
 }
 
 const MAX_PEEL_NODES = 80;
@@ -115,9 +42,9 @@ export function hoistLoopInvariants(
     const header = loop.header;
     const bodyBlocks = loop.blocks;
 
-    const memory = loopMemoryEffects(bodyBlocks, pointsTo, modRef);
+    const memory = modRef.writesOf(bodyBlocks);
     const isHoistable = (node: LoopNode): boolean =>
-      isSideEffectFree(node) && !readsLoopWrites(node, memory, pointsTo);
+      isSideEffectFree(node) && !modRef.mayReadFrom(node, memory);
 
     const isDefinedOutsideLoop = (node: LoopNode): boolean => {
       if (node.type === ir.IR_PARAMETER || node.type === ir.IR_CONSTANT) return true;

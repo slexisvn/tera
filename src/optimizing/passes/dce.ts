@@ -60,7 +60,7 @@ export function deadCodeElimination(graph: DceGraph): number {
 }
 
 function isRequiredEffect(node: DceNode): boolean {
-  return node.effectKind !== ir.EFFECT_NONE && node.effectKind !== ir.EFFECT_READ;
+  return ir.hasObservableEffect(node);
 }
 
 export function eliminateTrivialPhis(graph: DceGraph): number {

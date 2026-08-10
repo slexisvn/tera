@@ -42,6 +42,7 @@ export type BinaryOpHint = {
 export type PropertyHint = {
   slot: FeedbackSlot | null;
   kind: FeedbackHint;
+  primitiveReceiver?: string;
   stable?: boolean;
   objectType?: LatticeType;
   map?: number | null;
@@ -124,6 +125,10 @@ export class FeedbackNexus {
   property(index: number): PropertyHint {
     const slot = this.getSlot(index);
     if (!slot) return { slot: null, kind: FEEDBACK_HINT_GENERIC };
+    const primitiveReceiver = slot.dominantPrimitiveReceiver();
+    if (primitiveReceiver !== null) {
+      return { slot, kind: FEEDBACK_HINT_MONOMORPHIC, primitiveReceiver, stable: isStableSlot(slot) };
+    }
     if (slot.icState === IC_MONOMORPHIC) {
       return {
         slot,

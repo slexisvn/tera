@@ -31,30 +31,21 @@ export function locationKey(partition: Partition, field: Field): string {
 }
 
 export function fieldOf(node: ir.CFGInstruction): Field | null {
-  if (node.type === ir.IR_LOAD_FIELD || node.type === ir.IR_STORE_FIELD) {
+  const access = ir.memoryAccessOf(node.type);
+  if (access === ir.ACCESS_SLOT) {
     return typeof node.props.offset === "number"
       ? { kind: "slot", offset: node.props.offset }
       : null;
   }
-  if (
-    node.type === ir.IR_LOAD_ELEMENT ||
-    node.type === ir.IR_STORE_ELEMENT
-  ) {
+  if (access === ir.ACCESS_ELEMENT) {
     const index = node.inputs[1];
     if (index?.type === ir.IR_CONSTANT && typeof index.props.value === "number") {
       return { kind: "index", value: index.props.value };
     }
     return { kind: "anyIndex" };
   }
-  if (
-    node.type === ir.IR_GENERIC_GET_PROP ||
-    node.type === ir.IR_GENERIC_SET_PROP ||
-    node.type === ir.IR_GENERIC_DELETE_PROP ||
-    node.type === ir.IR_GENERIC_GET_INDEX ||
-    node.type === ir.IR_GENERIC_SET_INDEX
-  ) {
-    return { kind: "any" };
-  }
+  if (access === ir.ACCESS_PROPERTY) return { kind: "any" };
+  if (access === ir.ACCESS_GLOBAL) return { kind: "anyIndex" };
   return null;
 }
 
@@ -98,14 +89,24 @@ export function memoryLocationOf(
   node: ir.CFGInstruction,
   partitions: PartitionResolver,
 ): MemoryLocation | null {
-  if (node.type === ir.IR_LOAD_GLOBAL || node.type === ir.IR_STORE_GLOBAL) {
+  const field = fieldOf(node);
+  if (!field) return null;
+  if (ir.memoryAccessOf(node.type) === ir.ACCESS_GLOBAL) {
     if (typeof node.props.name !== "string") return null;
-    return locationOf(null, { kind: "global", name: node.props.name }, { kind: "anyIndex" });
+    return locationOf(null, { kind: "global", name: node.props.name }, field);
   }
   const base = node.inputs[0];
-  const field = fieldOf(node);
-  if (!base || !field) return null;
+  if (!base) return null;
   return locationOf(base, partitions.partitionOf(base), field);
+}
+
+export function basesMayAlias(
+  left: Pick<MemoryLocation, "base" | "baseKey">,
+  right: Pick<MemoryLocation, "base" | "baseKey">,
+  aliases: AliasResolver,
+): boolean {
+  if (left.base === null || right.base === null) return left.baseKey === right.baseKey;
+  return aliases.mayAlias(left.base, right.base);
 }
 
 export function locationsMayAlias(
@@ -114,6 +115,5 @@ export function locationsMayAlias(
   aliases: AliasResolver,
 ): boolean {
   if (!fieldsOverlap(left.field, right.field)) return false;
-  if (left.base === null || right.base === null) return left.baseKey === right.baseKey;
-  return aliases.mayAlias(left.base, right.base);
+  return basesMayAlias(left, right, aliases);
 }

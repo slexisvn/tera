@@ -19,17 +19,14 @@ export function createIntrinsicOptimizationMetadata(compiler?: Pick<Required<Ter
 export function intrinsicCallMetadata(name: string, argCount: number, metadata: IntrinsicOptimizationMetadata = EMPTY_INTRINSIC_METADATA): ir.IRMetadata {
   const intrinsic = metadata.intrinsics.get(name);
   const effects = intrinsic?.effects ?? ["unknown"];
-  const effectKind = effectKindForEffects(effects);
   const props: ir.IRMetadata = {
     name,
     argCount,
     intrinsic: true,
-    effectKind,
+    declaredEffects: [...effects],
   };
-  if (effectKind === ir.EFFECT_NONE || effectKind === ir.EFFECT_READ) props.pure = true;
-  if (effectKind === ir.EFFECT_READ) props.readonly = true;
+  if (ir.isReadOnlyDeclaredEffects(effects)) props.readonly = true;
   if (intrinsic) {
-    props.intrinsicEffects = [...effects];
     if (intrinsic.reads?.length) props.intrinsicReads = [...intrinsic.reads];
     if (intrinsic.writes?.length) props.intrinsicWrites = [...intrinsic.writes];
     if (intrinsic.allocates?.length) props.intrinsicAllocates = [...intrinsic.allocates];
@@ -39,15 +36,4 @@ export function intrinsicCallMetadata(name: string, argCount: number, metadata: 
     if (intrinsic.returns) props.returns = intrinsic.returns;
   }
   return props;
-}
-
-function effectKindForEffects(effects: readonly TeraCompilerEffect[]): ir.EffectKind {
-  const set = new Set(effects);
-  if (set.has("unknown") || set.has("io")) return ir.EFFECT_CALL;
-  if (set.has("write") || set.has("reactive-write") || set.has("schedule")) return ir.EFFECT_WRITE;
-  if (set.has("allocate")) return ir.EFFECT_ALLOC;
-  if (set.has("reactive-read")) return ir.EFFECT_CALL;
-  if (set.has("read")) return ir.EFFECT_READ;
-  if (set.has("pure")) return ir.EFFECT_NONE;
-  return ir.EFFECT_CALL;
 }

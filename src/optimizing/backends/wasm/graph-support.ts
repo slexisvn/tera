@@ -636,16 +636,6 @@ export const MATH_INTRINSICS = new Map([
   ["Math.max", { opcode: OP_F64_MAX, arity: 2 }],
 ]);
 
-export function mathIntrinsicForNode(node: AnyNode) {
-  if (node.type !== ir.IR_CALL_BUILTIN) return null;
-  const name = metadataString(node.props.name) ?? metadataString(node.props.builtinName);
-  if (!name) return null;
-  const intrinsic = MATH_INTRINSICS.get(name);
-  if (!intrinsic) return null;
-  if (node.props.argCount !== intrinsic.arity) return null;
-  return intrinsic;
-}
-
 export function computeBlockOrder(graph: AnyGraph) {
   const visited = new Set<number>();
   const order: AnyBlock[] = [];
@@ -694,7 +684,6 @@ export class RuntimeStubTable {
       frameStateId: node.frameState ? node.frameState.id : -1,
       inputReps: node.inputs.map((input) => repForNode(input)),
       outputRep: repForNode(node),
-      sideEffect: runtimeStubHasSideEffect(node),
     };
     this.stubs.push(stub);
     this.byNodeId.set(node.id, stub);
@@ -753,11 +742,5 @@ export type RuntimeStubEntry = {
   frameStateId: number;
   inputReps: WasmRep[];
   outputRep: WasmRep;
-  sideEffect: boolean;
 };
 
-function runtimeStubHasSideEffect(node: AnyNode) {
-  return (
-    node.effectKind !== ir.EFFECT_NONE && node.effectKind !== ir.EFFECT_READ
-  );
-}

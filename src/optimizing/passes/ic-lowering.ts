@@ -19,7 +19,6 @@ type ICNodeProps = {
   feedbackSlot?: ir.IRMetadataValue;
   isStore?: boolean;
   dominant?: ICHandler | null;
-  effectKind?: ir.EffectKind;
 };
 
 type ICNode = ir.CFGInstruction;
@@ -128,10 +127,7 @@ function makeLoweredNode(
   type: string,
   props: ICNodeProps,
 ): ICNode {
-  const metadata = props.isStore
-    ? { ...props, effectKind: ir.EFFECT_WRITE }
-    : props;
-  const node = new ir.IRNode(type, metadata);
+  const node = new ir.IRNode(type, props);
   node.id = oldNode.id;
   node.inputs = [...oldNode.inputs];
   node.uses = [...oldNode.uses];

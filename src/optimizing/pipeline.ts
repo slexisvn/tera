@@ -1,6 +1,8 @@
 import type { CFGFunction } from "./ir/index.js";
 import { AnalysisManager, type AnalysisId } from "./infra/analysis-manager.js";
 import { PassManager, type Preservation, type TransformPass } from "./infra/pass-manager.js";
+import { consolePassTraceSink, type PassTracer } from "./infra/pass-trace.js";
+import { cfgGraphProbe } from "./ir/probe.js";
 import { compilerOptions, type CompilerOptions } from "./options.js";
 import { buildFrameStateIndex } from "./ir/frame-state-values.js";
 import { homeFloatingValues } from "./ir/graph-edit.js";
@@ -31,6 +33,7 @@ import { deadStoreElimination } from "./passes/dead-stores.js";
 import { commonSubexpressionIntrinsicReads } from "./passes/intrinsic-cse.js";
 import { typeNarrowing } from "./passes/type-narrowing.js";
 import { specializeAllocationShapes } from "./passes/allocation-shape.js";
+import { insertDeclaredParameterGuards } from "./passes/parameter-guards.js";
 import { dominanceAnalysisId } from "./analyses/dominance.js";
 import { loopForestAnalysisId } from "./analyses/loops.js";
 import { modRefAnalysisId } from "./analyses/mod-ref.js";
@@ -113,6 +116,11 @@ export function middleEndPhases(
     options.scalarReplaceAggregates ? passes : [];
   return [
     phase("high-level-optimization", [
+      step(
+        "parameter-type-guards",
+        preservesControlFlow,
+        (g) => insertDeclaredParameterGuards(g),
+      ),
       step(
         "allocation-shape",
         preservesControlFlow,
@@ -262,12 +270,17 @@ export function middleEndPipeline(
   return middleEndPhases(options).flatMap((pipelinePhase) => pipelinePhase.passes);
 }
 
+export function cfgPassTracer(options: CompilerOptions): PassTracer<CFGFunction> | null {
+  if (!options.printAfterAll) return null;
+  return { probe: cfgGraphProbe, sink: consolePassTraceSink };
+}
+
 export function runMiddleEnd(
   graph: CFGFunction,
   options: CompilerOptions = compilerOptions(),
 ): AnalysisManager<CFGFunction> {
   const analyses = new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
-  const passManager = new PassManager<CFGFunction>(analyses, options);
+  const passManager = new PassManager<CFGFunction>(analyses, options, cfgPassTracer(options));
   for (const pipelinePhase of middleEndPhases(options)) {
     passManager.run(graph, pipelinePhase.passes);
   }

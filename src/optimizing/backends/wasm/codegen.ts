@@ -107,7 +107,6 @@ import {
   CONDITIONALLY_NATIVE,
   GENERIC_BITWISE_OPCODES,
   isNativeEligible,
-  mathIntrinsicForNode,
   MATH_INTRINSICS,
   SPECULATIVE_ARITH_I32,
   SPECULATIVE_ARITH_F64,
@@ -228,7 +227,6 @@ type WasmInterpreter = {
     receiver: TaggedValue,
   ): TaggedValue;
   constructFunctionValue(callee: TaggedValue, args: TaggedValue[]): TaggedValue;
-  callBuiltin(name: string, args: TaggedValue[]): TaggedValue;
   callRuntimeIntrinsic(name: string, args: TaggedValue[]): TaggedValue;
   consumePendingLazyDeopt?(
     compiledFn: RegisterCompiledFunction,
@@ -530,23 +528,11 @@ export class WasmCodegen {
     const mathCallDead = new Set<number>();
     for (const block of graph.blocks) {
       for (const node of block.nodes) {
-        if (node.type !== ir.IR_GENERIC_CALL || !node.props.isMethod) continue;
-        const callee = node.inputs[0];
-        if (!callee || callee.type !== ir.IR_GENERIC_GET_PROP) continue;
-        const receiver = callee.inputs[0];
-        if (!receiver || receiver.type !== ir.IR_LOAD_GLOBAL) continue;
-        if (receiver.props.name !== "Math") continue;
-        const methodName = "Math." + String(callee.props.propName);
-        const intrinsic = MATH_INTRINSICS.get(methodName);
+        if (node.type !== ir.IR_CALL_BUILTIN) continue;
+        const intrinsic = MATH_INTRINSICS.get(String(node.props.name));
         if (!intrinsic) continue;
-        const actualArgs = node.inputs.length - 2;
-        if (actualArgs !== intrinsic.arity) continue;
-        mathCallIntrinsics.set(node.id, {
-          intrinsic,
-          argInputs: node.inputs.slice(2),
-        });
-        mathCallDead.add(callee.id);
-        mathCallDead.add(receiver.id);
+        if (node.inputs.length !== intrinsic.arity) continue;
+        mathCallIntrinsics.set(node.id, { intrinsic, argInputs: [...node.inputs] });
       }
     }
 
@@ -699,14 +685,6 @@ export class WasmCodegen {
             nodeWasmType.set(node.id, wasmFormat.TYPE_I32);
           }
           continue;
-        }
-        {
-          const intrinsic = mathIntrinsicForNode(node);
-          if (intrinsic) {
-            nodeWasmType.set(node.id, wasmFormat.TYPE_F64);
-            nodeValueRep.set(node.id, REP_FLOAT64);
-            continue;
-          }
         }
         if (node.type === ir.IR_LOAD_GLOBAL || node.type === ir.IR_STORE_GLOBAL) {
           if (!this._globalCandidates) this._globalCandidates = new Map();
@@ -2998,14 +2976,6 @@ export class WasmCodegen {
     if (isNativeEligible(node)) {
       this.emitNativeNode(node, analysis, bytes);
       return;
-    }
-
-    {
-      const intrinsic = mathIntrinsicForNode(node);
-      if (intrinsic) {
-        this.emitMathIntrinsic(node, intrinsic, analysis, bytes);
-        return;
-      }
     }
 
     if (

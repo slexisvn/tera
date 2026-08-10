@@ -4,6 +4,7 @@ import { Optimizer } from "../../../src/optimizing/optimizer.js";
 import { differential, src, type Tier } from "../../helpers/tiers.js";
 import {
   IR_CALL_BUILTIN,
+  IR_CHECK_PRIMITIVE,
   IR_GENERIC_CALL,
   IR_GENERIC_GET_PROP,
 } from "../../../src/optimizing/ir/index.js";
@@ -56,14 +57,60 @@ describe("builtin string methods in the optimizing engine", () => {
     expect(opcodes).not.toContain(IR_GENERIC_GET_PROP);
   });
 
-  it("keeps an undeclared receiver on the generic call path", () => {
+  it("guards and lowers an undeclared receiver that feedback saw as a string", () => {
     const graph = graphOf(
       hot("fn code_at(s, i):\n  return s.char_code_at(i)", 'code_at("Hi", 0)'),
       "code_at",
     );
+    const opcodes = opcodesOf(graph);
 
-    expect(opcodesOf(graph)).not.toContain(IR_CALL_BUILTIN);
+    expect(opcodes).toContain(IR_CHECK_PRIMITIVE);
+    expect(opcodes).toContain(IR_CALL_BUILTIN);
+    expect(opcodes).not.toContain(IR_GENERIC_CALL);
   });
+
+  it("leaves an undeclared receiver alone when feedback never saw a primitive", () => {
+    const graph = graphOf(
+      hot(
+        "fn code_at(s, i):\n  return s.char_code_at(i)",
+        "code_at({char_code_at: n => n}, 0)",
+      ),
+      "code_at",
+    );
+
+    expect(opcodesOf(graph)).not.toContain(IR_CHECK_PRIMITIVE);
+  });
+
+  it("agrees across tiers for a hot undeclared string receiver", () => {
+    expect(
+      differential(
+        hot("fn code_at(s, i):\n  return s.char_code_at(i)", 'code_at("Hi", 0)'),
+        { tiers: jitTiers },
+      ),
+    ).toEqual(["H".charCodeAt(0)]);
+  }, 30000);
+
+  it("deoptimizes correctly when the guarded receiver stops being a string", () => {
+    expect(
+      differential(
+        src(
+          "fn code_at(s, i):",
+          "  return s.char_code_at(i)",
+          "fn run(n: int) -> int:",
+          "  last = 0",
+          "  i = 0",
+          "  while (i < n):",
+          "    i = (i + 1)",
+          '    last = code_at("Hi", 0)',
+          "  return last",
+          "warm = run(1200)",
+          "swapped = code_at({char_code_at: k => (k + 41)}, 1)",
+          "[warm, swapped]",
+        ),
+        { tiers: jitTiers },
+      ),
+    ).toEqual(["H".charCodeAt(0), 42]);
+  }, 30000);
 
   it("agrees with the interpreter on a hot declared call", () => {
     expect(

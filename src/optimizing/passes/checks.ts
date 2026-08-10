@@ -736,7 +736,7 @@ function removeDeadPureNodes(graph: IRGraphLike): void {
 function isDeadPureNode(node: IRNodeLike): boolean {
   if (node.uses.length > 0) return false;
   if (node.inputs.length === 0) return false;
-  if (node.effectKind !== "none") return false;
+  if (!ir.isEffectFree(node as ir.CFGInstruction)) return false;
   return (
     node.type !== ir.IR_RETURN &&
     node.type !== ir.IR_BRANCH &&

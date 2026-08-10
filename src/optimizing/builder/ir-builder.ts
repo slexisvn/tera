@@ -99,6 +99,18 @@ function capturedLocalSlots(compiledFn: AnyCompiledFunction): Set<number> {
   return slots;
 }
 
+function genericGetPropWithHint(
+  obj: ir.CFGInstruction,
+  propName: string,
+  hint: { primitiveReceiver?: string } | null,
+): ir.CFGInstruction {
+  const node = ir.irGenericGetProp(obj, propName);
+  if (hint?.primitiveReceiver !== undefined) {
+    node.props.receiverPrimitive = hint.primitiveReceiver;
+  }
+  return node;
+}
+
 export function buildIR(
   graph: AnyGraph,
   currentBlock: AnyBlock,
@@ -828,7 +840,7 @@ function compileInstruction(
             `GetProp "length" at bc:${bytecodeIdx} → LoadArrayLength (${elementsKind})`,
           );
         } else {
-          const node = ir.irGenericGetProp(obj, propName);
+          const node = genericGetPropWithHint(obj, propName, propertyHint);
           node.frameState = captureFrameState(
             compiledFn,
             bytecodeIdx,
@@ -872,7 +884,7 @@ function compileInstruction(
             `GetProp "${propName}" at bc:${bytecodeIdx} → LoadField(offset=${offset}) (monomorphic, map=HC${mapId})`,
           );
         } else {
-          const node = ir.irGenericGetProp(obj, propName);
+          const node = genericGetPropWithHint(obj, propName, propertyHint);
           node.frameState = captureFrameState(
             compiledFn,
             bytecodeIdx,
@@ -911,7 +923,7 @@ function compileInstruction(
             `GetProp "${propName}" at bc:${bytecodeIdx} → PolymorphicLoad(degree=${maps.length})`,
           );
         } else {
-          const node = ir.irGenericGetProp(obj, propName);
+          const node = genericGetPropWithHint(obj, propName, propertyHint);
           node.frameState = captureFrameState(
             compiledFn,
             bytecodeIdx,
@@ -923,7 +935,7 @@ function compileInstruction(
           block._lastAcc = node;
         }
       } else {
-        const node = ir.irGenericGetProp(obj, propName);
+        const node = genericGetPropWithHint(obj, propName, propertyHint);
         node.frameState = captureFrameState(
           compiledFn,
           bytecodeIdx,

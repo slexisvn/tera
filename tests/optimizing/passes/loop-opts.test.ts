@@ -223,8 +223,7 @@ describe("hoistLoopInvariants speculation and memory dependence", () => {
 
   const pureCall = (receiver: ReturnType<typeof irConstant>) =>
     irCallBuiltin("string.length", [receiver], {
-      effectKind: EFFECT_READ,
-      pure: true,
+      declaredEffects: ["immutable-read"],
     });
 
   it("hoists a pure builtin call whose operands come from outside the loop", () => {

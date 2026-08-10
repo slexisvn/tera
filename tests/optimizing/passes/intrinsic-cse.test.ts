@@ -29,8 +29,7 @@ function reactiveRead(input: CFGInstruction): CFGInstruction {
   const node = new CFGInstruction(IR_CALL_INTRINSIC, {
     name: "__read",
     argCount: 1,
-    intrinsicEffects: ["reactive-read"],
-    effectKind: EFFECT_CALL,
+    declaredEffects: ["reactive-read"],
   });
   node.addInput(input);
   return node;
@@ -40,8 +39,7 @@ function reactiveWrite(input: CFGInstruction): CFGInstruction {
   const node = new CFGInstruction(IR_CALL_INTRINSIC, {
     name: "__write",
     argCount: 1,
-    intrinsicEffects: ["reactive-write"],
-    effectKind: EFFECT_WRITE,
+    declaredEffects: ["reactive-write"],
   });
   node.addInput(input);
   return node;
@@ -51,9 +49,8 @@ function domainRead(input: CFGInstruction, domain: string): CFGInstruction {
   const node = new CFGInstruction(IR_CALL_INTRINSIC, {
     name: "__domain_read",
     argCount: 1,
-    intrinsicEffects: ["reactive-read"],
+    declaredEffects: ["reactive-read"],
     intrinsicReads: [domain],
-    effectKind: EFFECT_CALL,
   });
   node.addInput(input);
   return node;
@@ -63,9 +60,8 @@ function domainWrite(input: CFGInstruction, domain: string): CFGInstruction {
   const node = new CFGInstruction(IR_CALL_INTRINSIC, {
     name: "__domain_write",
     argCount: 1,
-    intrinsicEffects: ["reactive-write"],
+    declaredEffects: ["reactive-write"],
     intrinsicWrites: [domain],
-    effectKind: EFFECT_WRITE,
   });
   node.addInput(input);
   return node;
@@ -75,9 +71,7 @@ function readonlyIntrinsic(input: CFGInstruction): CFGInstruction {
   const node = new CFGInstruction(IR_CALL_INTRINSIC, {
     name: "__peek",
     argCount: 1,
-    intrinsicEffects: ["read"],
-    effectKind: EFFECT_READ,
-    pure: true,
+    declaredEffects: ["read"],
     readonly: true,
   });
   node.addInput(input);

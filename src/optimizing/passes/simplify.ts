@@ -14,20 +14,10 @@ function nodeFromIr(value: ir.CFGInstruction): SimplifyNode {
   return value;
 }
 
-const BOOLEAN_PRODUCING = new Set([
-  ir.IR_NOT,
-  ir.IR_INT32_COMPARE,
-  ir.IR_FLOAT64_COMPARE,
-  ir.IR_GENERIC_COMPARE,
-  ir.IR_GENERIC_INSTANCEOF,
-  ir.IR_GENERIC_IN,
-  ir.IR_CHECK_CALL_TARGET,
-]);
-
 function producesBoolean(node: SimplifyNode | undefined): boolean {
   if (!node) return false;
   if (node.type === ir.IR_CONSTANT) return typeof node.props.value === "boolean";
-  return BOOLEAN_PRODUCING.has(node.type);
+  return ir.alwaysProducesBoolean(node.type);
 }
 
 function rewireUses(

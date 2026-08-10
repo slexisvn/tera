@@ -74,7 +74,7 @@ export function globalValueNumbering(
   ): void => {
     const valueTable = new Map(inheritedTable);
     for (const node of block.nodes) {
-      if (node.effectKind !== ir.EFFECT_NONE) continue;
+      if (!ir.isEffectFree(node)) continue;
       if (KEEP_ALIVE.has(node.type)) continue;
       if (node.inputs.length === 0) continue;
 
@@ -102,7 +102,7 @@ export function globalValueNumbering(
         (n) =>
           n.inputs.length > 0 ||
           n.uses.length > 0 ||
-          n.effectKind !== ir.EFFECT_NONE ||
+          !ir.isEffectFree(n) ||
           KEEP_ALIVE.has(n.type),
       );
     }

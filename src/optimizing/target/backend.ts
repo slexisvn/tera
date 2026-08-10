@@ -11,11 +11,11 @@ export interface CodeBackend {
   readonly id: string;
   readonly mode: ExecutionMode;
   readonly target: TargetModel;
+  loweringPipeline(options: CompilerOptions): ReadonlyArray<TransformPass<CFGFunction>>;
 }
 
 export interface AotBackend extends CodeBackend {
   readonly mode: "aot";
-  loweringPipeline(options: CompilerOptions): ReadonlyArray<TransformPass<CFGFunction>>;
   createEmitter(graph: CFGFunction, analyses: AnalysisManager<CFGFunction>): Emitter;
 }
 

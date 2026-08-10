@@ -24,8 +24,64 @@ export const BUILTIN_METHOD_DECLARATIONS: readonly BuiltinMethodDeclaration[] = 
   { owner: "string", name: "length", pure: true },
 ];
 
+export const BUILTIN_NAMESPACE = "Math";
+
+type NamespaceFunctionDeclaration = {
+  readonly name: string;
+  readonly argCount: number;
+};
+
+const NAMESPACE_FUNCTION_DECLARATIONS: readonly NamespaceFunctionDeclaration[] = [
+  { name: "abs", argCount: 1 },
+  { name: "floor", argCount: 1 },
+  { name: "ceil", argCount: 1 },
+  { name: "sqrt", argCount: 1 },
+  { name: "trunc", argCount: 1 },
+  { name: "round", argCount: 1 },
+  { name: "min", argCount: 2 },
+  { name: "max", argCount: 2 },
+];
+
 export function qualifiedMethodName(owner: string, name: string): string {
   return `${owner}.${name}`;
+}
+
+function buildNamespaceRegistry(): Map<string, BuiltinMethodIntrinsic> {
+  const registry = new Map<string, BuiltinMethodIntrinsic>();
+  for (const declaration of NAMESPACE_FUNCTION_DECLARATIONS) {
+    const qualifiedName = qualifiedMethodName(BUILTIN_NAMESPACE, declaration.name);
+    registry.set(qualifiedName, {
+      owner: BUILTIN_NAMESPACE,
+      name: declaration.name,
+      qualifiedName,
+      argCount: declaration.argCount,
+      getter: false,
+      signature: {
+        params: Array.from({ length: declaration.argCount }, () => "float"),
+        returns: "float",
+      },
+      pure: true,
+    });
+  }
+  return registry;
+}
+
+const NAMESPACE_REGISTRY = buildNamespaceRegistry();
+
+export function builtinNamespaceIntrinsic(
+  namespace: string,
+  name: string,
+  argCount: number,
+): BuiltinMethodIntrinsic | null {
+  if (namespace !== BUILTIN_NAMESPACE) return null;
+  const intrinsic = NAMESPACE_REGISTRY.get(qualifiedMethodName(namespace, name)) ?? null;
+  return intrinsic === null || intrinsic.argCount !== argCount ? null : intrinsic;
+}
+
+export function builtinNamespaceIntrinsicByName(
+  qualifiedName: string,
+): BuiltinMethodIntrinsic | null {
+  return NAMESPACE_REGISTRY.get(qualifiedName) ?? null;
 }
 
 function buildRegistry(): Map<string, BuiltinMethodIntrinsic> {
@@ -59,6 +115,12 @@ export function builtinMethodIntrinsicByName(
   return REGISTRY.get(qualifiedName) ?? null;
 }
 
+export function builtinIntrinsicByName(
+  qualifiedName: string,
+): BuiltinMethodIntrinsic | null {
+  return builtinMethodIntrinsicByName(qualifiedName) ?? builtinNamespaceIntrinsicByName(qualifiedName);
+}
+
 export function builtinMethodIntrinsicFor(
   receiver: LatticeType,
   name: string,
@@ -80,8 +142,7 @@ export function builtinMethodCallMetadata(
     },
   };
   if (intrinsic.pure) {
-    props.effectKind = ir.EFFECT_READ;
-    props.pure = true;
+    props.declaredEffects = ["immutable-read"];
     props.readonly = true;
   }
   return props;

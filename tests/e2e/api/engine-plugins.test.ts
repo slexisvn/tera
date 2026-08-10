@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Engine, nativeToTagged, taggedToNative } from "../../../src/index.js";
+import { effectsOf, type CFGInstruction } from "../../../src/optimizing/ir/index.js";
 
 describe("Engine plugins", () => {
   it("installs host builtins in the engine heap", () => {
@@ -287,15 +288,14 @@ describe("Engine plugins", () => {
           name: "inspect-runtime-intrinsic-ir",
           phase: "ir",
           run(target) {
-            for (const block of (target as { blocks?: Array<{ nodes: Array<{ type: string; props: Record<string, unknown>; effectKind: string }> }> }).blocks ?? []) {
+            for (const block of (target as { blocks?: Array<{ nodes: Array<CFGInstruction> }> }).blocks ?? []) {
               for (const node of block.nodes) {
                 if (node.type === "CallIntrinsic" && node.props.name === "__test_track") {
                   seen.push({
                     type: node.type,
-                    effectKind: node.effectKind,
+                    derivedEffects: effectsOf(node),
                     intrinsic: node.props.intrinsic,
-                    pure: node.props.pure,
-                    effects: node.props.intrinsicEffects,
+                    effects: node.props.declaredEffects,
                     guards: node.props.guards,
                     deopts: node.props.deopts,
                   });
@@ -321,9 +321,8 @@ describe("Engine plugins", () => {
 
     expect(seen).toContainEqual({
       type: "CallIntrinsic",
-      effectKind: "call",
+      derivedEffects: { reads: "any", writes: "any", allocates: true, deopt: "always" },
       intrinsic: true,
-      pure: undefined,
       effects: ["reactive-read"],
       guards: ["test-reactive-handle"],
       deopts: ["test-reactive-bailout"],

@@ -1,13 +1,12 @@
 import {
   type CFGFunction,
   type CFGInstruction,
-  EFFECT_GUARD,
+  canDeoptimize,
+  isEffectFree,
+  isGuard,
   IR_DEOPTIMIZE,
-  irRequiresFrameState,
 } from "../ir/index.js";
 import type { TargetModel } from "../target/model.js";
-
-const RECONSTRUCTION_ONLY = new Set(["call", "alloc", "read", "write"]);
 
 export class UnsupportedSpeculationError extends Error {
   constructor(target: string, nodeType: string) {
@@ -17,8 +16,8 @@ export class UnsupportedSpeculationError extends Error {
 }
 
 function deoptimizesOnItsOwn(node: CFGInstruction): boolean {
-  if (node.effectKind === EFFECT_GUARD || node.type === IR_DEOPTIMIZE) return true;
-  return irRequiresFrameState(node) && !RECONSTRUCTION_ONLY.has(node.effectKind);
+  if (isGuard(node) || node.type === IR_DEOPTIMIZE) return true;
+  return canDeoptimize(node) && isEffectFree(node);
 }
 
 export function capabilityCheck(graph: CFGFunction, target: TargetModel): void {

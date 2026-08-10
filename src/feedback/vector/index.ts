@@ -225,6 +225,23 @@ export class FeedbackSlot {
     this.protoDepths.push(protoDepth);
   }
 
+  recordPrimitiveReceiver(tag: string): void {
+    this.totalRecordCount++;
+    const key = `receiver:${tag}`;
+    this.typeCounts.set(key, (this.typeCounts.get(key) || 0) + 1);
+  }
+
+  dominantPrimitiveReceiver(): string | null {
+    let only: string | null = null;
+    for (const key of this.typeCounts.keys()) {
+      if (!key.startsWith("receiver:")) continue;
+      const tag = key.slice("receiver:".length);
+      if (only !== null && only !== tag) return null;
+      only = tag;
+    }
+    return only;
+  }
+
   recordUnaryOp(operandTag: string): void {
     this.totalRecordCount++;
     const prev = this.typeCounts.get(operandTag) || 0;

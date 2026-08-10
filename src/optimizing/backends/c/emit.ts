@@ -49,7 +49,7 @@ import {
 } from "../../analyses/type-inference.js";
 import { latticeFromDeclaredType } from "../../types/declared.js";
 import {
-  builtinMethodIntrinsicByName,
+  builtinIntrinsicByName,
   qualifiedMethodName,
 } from "../../metadata/builtin-methods.js";
 import { joinTypes, TypeKind, type LatticeType } from "../../types/lattice.js";
@@ -112,6 +112,80 @@ static inline int32_t tera_to_i32(double value) {
 }`;
 
 const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
+  [
+    qualifiedMethodName("Math", "abs"),
+    {
+      helper: "tera_math_abs",
+      definition: `static inline double tera_math_abs(double v) {
+  return v < 0.0 ? -v : v;
+}`,
+    },
+  ],
+  [
+    qualifiedMethodName("Math", "floor"),
+    {
+      helper: "tera_math_floor",
+      definition: `static inline double tera_math_floor(double v) {
+  return floor(v);
+}`,
+    },
+  ],
+  [
+    qualifiedMethodName("Math", "ceil"),
+    {
+      helper: "tera_math_ceil",
+      definition: `static inline double tera_math_ceil(double v) {
+  return ceil(v);
+}`,
+    },
+  ],
+  [
+    qualifiedMethodName("Math", "sqrt"),
+    {
+      helper: "tera_math_sqrt",
+      definition: `static inline double tera_math_sqrt(double v) {
+  return sqrt(v);
+}`,
+    },
+  ],
+  [
+    qualifiedMethodName("Math", "trunc"),
+    {
+      helper: "tera_math_trunc",
+      definition: `static inline double tera_math_trunc(double v) {
+  return trunc(v);
+}`,
+    },
+  ],
+  [
+    qualifiedMethodName("Math", "round"),
+    {
+      helper: "tera_math_round",
+      definition: `static inline double tera_math_round(double v) {
+  return floor(v + 0.5);
+}`,
+    },
+  ],
+  [
+    qualifiedMethodName("Math", "min"),
+    {
+      helper: "tera_math_min",
+      definition: `static inline double tera_math_min(double a, double b) {
+  if (a != a || b != b) return a - a + (b - b);
+  return a < b ? a : b;
+}`,
+    },
+  ],
+  [
+    qualifiedMethodName("Math", "max"),
+    {
+      helper: "tera_math_max",
+      definition: `static inline double tera_math_max(double a, double b) {
+  if (a != a || b != b) return a - a + (b - b);
+  return a > b ? a : b;
+}`,
+    },
+  ],
   [
     qualifiedMethodName("string", "char_code_at"),
     {
@@ -578,7 +652,7 @@ class CFunctionEmitter {
   private emitBuiltinCall(ctx: EmitContext): void {
     const name = String(ctx.node.props.name);
     const method = C_BUILTIN_METHODS.get(name);
-    const intrinsic = builtinMethodIntrinsicByName(name);
+    const intrinsic = builtinIntrinsicByName(name);
     if (method === undefined || intrinsic === null) {
       ctx.fail(`unsupported builtin ${name}`);
       return;

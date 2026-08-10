@@ -24,6 +24,7 @@ import {
   toNumber,
   toDisplayString,
   getPayload,
+  getTag,
   stringCharAt,
   type GeneratorValue,
   type RuntimeFunctionPayload,
@@ -212,6 +213,10 @@ export function handleLdaProp(
   const propName = constantPropertyName(compiledFn, propNameIdx);
 
   throwIfNullish(obj, propName);
+
+  if (!isObject(obj) && fbSlotIdx >= 0 && compiledFn.feedbackVector) {
+    compiledFn.feedbackVector.getSlot(fbSlotIdx)?.recordPrimitiveReceiver(getTag(obj));
+  }
 
   if (isJSProxyValue(obj)) {
     return runtimeGetProperty(obj, propName, interp);

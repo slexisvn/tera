@@ -1,118 +1,143 @@
 import * as ir from "../ir/index.js";
 import { analysisId, type AnalysisPass } from "../infra/analysis-manager.js";
-import { fieldOf, locationKey, type Field, type Partition } from "./heap-model.js";
-import { pointsToAnalysisId } from "./points-to.js";
+import {
+  basesMayAlias,
+  locationsMayAlias,
+  memoryLocationOf,
+  type MemoryLocation,
+} from "./heap-model.js";
+import { pointsToAnalysisId, type PointsToResult } from "./points-to.js";
+
+export interface RegionMemory {
+  readonly clobbersEverything: boolean;
+  readonly locations: readonly MemoryLocation[];
+  readonly keys: ReadonlySet<string>;
+}
 
 export interface ModRef {
+  locationOf(node: ir.CFGInstruction): MemoryLocation | null;
   gref(node: ir.CFGInstruction): ReadonlySet<string>;
   gmod(node: ir.CFGInstruction): ReadonlySet<string>;
   killsEverything(node: ir.CFGInstruction): boolean;
+  mayAlias(left: MemoryLocation, right: MemoryLocation): boolean;
+  basesMayAlias(
+    left: Pick<MemoryLocation, "base" | "baseKey">,
+    right: Pick<MemoryLocation, "base" | "baseKey">,
+  ): boolean;
+  writesOf(blocks: Iterable<ir.CFGBlock>): RegionMemory;
+  mayReadFrom(node: ir.CFGInstruction, region: RegionMemory): boolean;
 }
 
-type Location = {
-  readonly partition: Partition;
-  readonly field: Field;
-};
+const EMPTY: ReadonlySet<string> = new Set<string>();
 
-const EMPTY = new Set<string>();
-const FIELD_LOADS = new Set([ir.IR_LOAD_FIELD, ir.IR_LOAD_ELEMENT]);
-const FIELD_STORES = new Set([ir.IR_STORE_FIELD, ir.IR_STORE_ELEMENT]);
-const CALLS = new Set([
-  ir.IR_GENERIC_CALL,
-  ir.IR_MAKE_CLOSURE,
-  ir.IR_STORE_CONTEXT_SLOT,
-  ir.IR_CALL_BUILTIN,
-  ir.IR_CALL_INTRINSIC,
-  ir.IR_CALL_KNOWN_FUNCTION,
-]);
-const GENERIC_ACCESSES = new Set([
-  ir.IR_GENERIC_GET_PROP,
-  ir.IR_GENERIC_SET_PROP,
-  ir.IR_GENERIC_DELETE_PROP,
-  ir.IR_GENERIC_GET_INDEX,
-  ir.IR_GENERIC_SET_INDEX,
-  ir.IR_POLYMORPHIC_LOAD,
-  ir.IR_POLYMORPHIC_STORE,
-  ir.IR_MEGAMORPHIC_LOAD,
-  ir.IR_MEGAMORPHIC_STORE,
-]);
+export const EMPTY_REGION: RegionMemory = {
+  clobbersEverything: false,
+  locations: [],
+  keys: EMPTY,
+};
 
 export const modRefAnalysisId = analysisId<ModRef>("mod-ref");
 
 export const modRefAnalysis: AnalysisPass<ir.CFGFunction, ModRef> = {
   id: modRefAnalysisId,
   run(graph, analyses) {
-    const pointsTo = analyses.get(pointsToAnalysisId);
-    const refs = new Map<ir.CFGInstruction, ReadonlySet<string>>();
-    const mods = new Map<ir.CFGInstruction, ReadonlySet<string>>();
-    const kills = new Set<ir.CFGInstruction>();
-
-    for (const block of graph.blocks) {
-      for (const node of block.nodes) {
-        if (FIELD_LOADS.has(node.type)) {
-          refs.set(node, singletonLocation(fieldLocation(node)));
-          continue;
-        }
-        if (FIELD_STORES.has(node.type)) {
-          mods.set(node, singletonLocation(fieldLocation(node)));
-          continue;
-        }
-        if (node.type === ir.IR_LOAD_GLOBAL) {
-          refs.set(node, singletonLocation(globalLocation(node)));
-          continue;
-        }
-        if (node.type === ir.IR_STORE_GLOBAL) {
-          mods.set(node, singletonLocation(globalLocation(node)));
-          continue;
-        }
-        if (node.type === ir.IR_CALL_INTRINSIC) {
-          const reads = stringSet(node.props.intrinsicReads);
-          const writes = stringSet(node.props.intrinsicWrites);
-          if (reads.size > 0) refs.set(node, reads);
-          if (writes.size > 0) mods.set(node, writes);
-          if (node.effectKind === ir.EFFECT_CALL && node.props.pure !== true) kills.add(node);
-          if (node.effectKind === ir.EFFECT_WRITE && writes.size === 0) kills.add(node);
-          continue;
-        }
-        if (CALLS.has(node.type) && node.props.pure !== true) {
-          kills.add(node);
-          continue;
-        }
-        if (GENERIC_ACCESSES.has(node.type) && node.props.pure !== true) {
-          kills.add(node);
-        }
-      }
-    }
-
-    function fieldLocation(node: ir.CFGInstruction): Location | null {
-      const base = node.inputs[0];
-      const field = fieldOf(node);
-      if (!base || !field) return null;
-      return { partition: pointsTo.partitionOf(base), field };
-    }
-
-    return {
-      gref: (node) => refs.get(node) ?? EMPTY,
-      gmod: (node) => mods.get(node) ?? EMPTY,
-      killsEverything: (node) => kills.has(node),
-    };
+    return buildModRef(graph, analyses.get(pointsToAnalysisId));
   },
 };
 
-function singletonLocation(location: Location | null): ReadonlySet<string> {
-  return location ? new Set([locationKey(location.partition, location.field)]) : EMPTY;
+function locatesMemory(opcode: string): boolean {
+  const access = ir.memoryAccessOf(opcode);
+  return access === ir.ACCESS_SLOT || access === ir.ACCESS_ELEMENT || access === ir.ACCESS_GLOBAL;
 }
 
-function globalLocation(node: ir.CFGInstruction): Location | null {
-  return typeof node.props.name === "string"
-    ? {
-        partition: { kind: "global", name: node.props.name },
-        field: { kind: "anyIndex" },
+export function buildModRef(graph: ir.CFGFunction, pointsTo: PointsToResult): ModRef {
+  const locations = new Map<ir.CFGInstruction, MemoryLocation | null>();
+  const refs = new Map<ir.CFGInstruction, ReadonlySet<string>>();
+  const mods = new Map<ir.CFGInstruction, ReadonlySet<string>>();
+  const writeLocations = new Map<ir.CFGInstruction, MemoryLocation>();
+  const kills = new Set<ir.CFGInstruction>();
+
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      const effects = ir.effectsOf(node);
+      const location = locatesMemory(node.type) ? memoryLocationOf(node, pointsTo) : null;
+      locations.set(node, location);
+
+      if (location !== null) {
+        const keys = new Set([location.key]);
+        if (effects.writes !== ir.MEMORY_NONE) {
+          mods.set(node, keys);
+          writeLocations.set(node, location);
+        } else if (ir.readsMutableMemory(node)) {
+          refs.set(node, keys);
+        }
+        continue;
       }
-    : null;
+
+      const declaredReads = domainSet(node.props.intrinsicReads);
+      const declaredWrites = domainSet(node.props.intrinsicWrites);
+      if (declaredReads.size > 0) refs.set(node, declaredReads);
+      if (declaredWrites.size > 0) mods.set(node, declaredWrites);
+
+      if (ir.clobbersAllMemory(node) || ir.hasOpaqueMemoryEffect(node.type)) {
+        kills.add(node);
+        continue;
+      }
+      if (effects.writes !== ir.MEMORY_NONE && declaredWrites.size === 0) kills.add(node);
+    }
+  }
+
+  const mayAlias = (left: MemoryLocation, right: MemoryLocation): boolean =>
+    locationsMayAlias(left, right, pointsTo);
+
+  const locationFor = (node: ir.CFGInstruction): MemoryLocation | null => {
+    const known = locations.get(node);
+    return known === undefined ? memoryLocationOf(node, pointsTo) : known;
+  };
+
+  return {
+    locationOf: (node) => memoryLocationOf(node, pointsTo),
+    gref: (node) => refs.get(node) ?? EMPTY,
+    gmod: (node) => mods.get(node) ?? EMPTY,
+    killsEverything: (node) => kills.has(node),
+    mayAlias,
+    basesMayAlias: (left, right) => basesMayAlias(left, right, pointsTo),
+
+    writesOf(blocks) {
+      const regionLocations: MemoryLocation[] = [];
+      const keys = new Set<string>();
+      let clobbersEverything = false;
+      for (const block of blocks) {
+        for (const node of block.nodes) {
+          if (kills.has(node)) {
+            clobbersEverything = true;
+            continue;
+          }
+          const written = writeLocations.get(node);
+          if (written !== undefined) regionLocations.push(written);
+          else if (ir.writesMemory(node)) clobbersEverything = true;
+          for (const key of mods.get(node) ?? EMPTY) keys.add(key);
+        }
+      }
+      return { clobbersEverything, locations: regionLocations, keys };
+    },
+
+    mayReadFrom(node, region) {
+      if (!ir.readsMutableMemory(node)) return false;
+      if (region.clobbersEverything) return true;
+      if (region.locations.length === 0 && region.keys.size === 0) return false;
+      for (const domain of refs.get(node) ?? EMPTY) {
+        if (region.keys.has(domain)) return true;
+      }
+      const location = locationFor(node);
+      if (location === null) return true;
+      if (region.keys.has(location.key)) return true;
+      return region.locations.some((written) => mayAlias(written, location));
+    },
+  };
 }
 
-function stringSet(value: ir.IRMetadataValue | undefined): ReadonlySet<string> {
+function domainSet(value: ir.IRMetadataValue | undefined): ReadonlySet<string> {
   if (!Array.isArray(value)) return EMPTY;
   const out = new Set<string>();
   for (const item of value) {

@@ -24,8 +24,11 @@ import {
   irBranch,
   irNewObject,
   CFGInstruction,
-  EFFECT_CALL,
-  EFFECT_READ,
+  irInt32Or,
+  irInt32Xor,
+  irInt32Not,
+  irInt32Ushr,
+  irFloat64Pow,
   IR_BOX,
   IR_CALL_INTRINSIC,
   IR_UNBOX,
@@ -195,8 +198,7 @@ describe("representationSelection", () => {
       const read = new CFGInstruction(IR_CALL_INTRINSIC, {
         name: "__tera_reactive_read",
         argCount: 1,
-        intrinsicEffects: ["reactive-read"],
-        effectKind: EFFECT_CALL,
+        declaredEffects: ["reactive-read"],
       });
       read.addInput(handle);
       const check = irCheckNumber(read);
@@ -227,8 +229,7 @@ describe("representationSelection", () => {
       const peek = new CFGInstruction(IR_CALL_INTRINSIC, {
         name: "__tera_reactive_peek",
         argCount: 1,
-        intrinsicEffects: ["read"],
-        effectKind: EFFECT_READ,
+        declaredEffects: ["read"],
         returns: "T",
       });
       peek.addInput(handle);
@@ -347,5 +348,35 @@ describe("representationSelection", () => {
       expect(bodyBoxes).toHaveLength(0);
       expect(carried.inputs[1]).toBe(entryBoxes[0]);
     });
+  });
+});
+
+describe("representationSelection table-driven result classes", () => {
+  const repOf = (build: (a: CFGInstruction, b: CFGInstruction) => CFGInstruction) => {
+    const graph = new CFGFunction("classes");
+    const block = graph.addBlock();
+    const a = irConstant(1);
+    const b = irConstant(2);
+    block.addNode(a);
+    block.addNode(b);
+    const node = build(a, b);
+    block.addNode(node);
+    block.addNode(irReturn(node));
+    representationSelection(graph);
+    return node.props._rep;
+  };
+
+  it("unboxes bitwise or, xor and not to int32", () => {
+    expect(repOf((a, b) => irInt32Or(a, b))).toBe(REP_INT32);
+    expect(repOf((a, b) => irInt32Xor(a, b))).toBe(REP_INT32);
+    expect(repOf((a) => irInt32Not(a))).toBe(REP_INT32);
+  });
+
+  it("keeps unsigned shift as a tagged number because it can exceed int32", () => {
+    expect(repOf((a, b) => irInt32Ushr(a, b))).toBe(REP_TAGGED_NUMBER);
+  });
+
+  it("unboxes float power to float64", () => {
+    expect(repOf((a, b) => irFloat64Pow(a, b))).toBe(REP_FLOAT64);
   });
 });

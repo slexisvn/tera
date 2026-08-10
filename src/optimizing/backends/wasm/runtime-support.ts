@@ -1,5 +1,54 @@
 import * as ir from "../../ir/index.js";
 import {
+  IR_BOX,
+  IR_CALL_BUILTIN,
+  IR_CALL_INTRINSIC,
+  IR_CALL_KNOWN_FUNCTION,
+  IR_CHECK_CALL_TARGET,
+  IR_DISPATCH_MAP,
+  IR_FLOAT64_POW,
+  IR_GENERIC_ADD,
+  IR_GENERIC_BITAND,
+  IR_GENERIC_BITNOT,
+  IR_GENERIC_BITOR,
+  IR_GENERIC_BITXOR,
+  IR_GENERIC_CALL,
+  IR_GENERIC_COMPARE,
+  IR_GENERIC_DELETE_PROP,
+  IR_GENERIC_DIV,
+  IR_GENERIC_GET_INDEX,
+  IR_GENERIC_GET_PROP,
+  IR_GENERIC_IN,
+  IR_GENERIC_INSTANCEOF,
+  IR_GENERIC_MOD,
+  IR_GENERIC_MUL,
+  IR_GENERIC_POW,
+  IR_GENERIC_SET_INDEX,
+  IR_GENERIC_SET_PROP,
+  IR_GENERIC_SHL,
+  IR_GENERIC_SHR,
+  IR_GENERIC_SUB,
+  IR_GENERIC_USHR,
+  IR_LOAD_CONTEXT_SLOT,
+  IR_LOAD_FIELD,
+  IR_LOAD_GLOBAL,
+  IR_MAKE_CLOSURE,
+  IR_MEGAMORPHIC_LOAD,
+  IR_MEGAMORPHIC_STORE,
+  IR_NEG,
+  IR_NEW_ARRAY,
+  IR_NEW_OBJECT,
+  IR_NEW_REGEX,
+  IR_NOT,
+  IR_POLYMORPHIC_LOAD,
+  IR_POLYMORPHIC_STORE,
+  IR_STORE_CONTEXT_SLOT,
+  IR_STORE_FIELD,
+  IR_STORE_GLOBAL,
+  IR_TYPEOF,
+  IR_UNBOX,
+} from "../../ir/operations.js";
+import {
   isSmi,
   isDouble,
   isNumber,
@@ -102,7 +151,6 @@ type RuntimeInterpreterLike = {
     receiver: TaggedValue,
   ): TaggedValue;
   constructFunctionValue(callee: TaggedValue, args: TaggedValue[]): TaggedValue;
-  callBuiltin(name: string, args: TaggedValue[]): TaggedValue;
   callRuntimeIntrinsic(name: string, args: TaggedValue[]): TaggedValue;
   consumePendingLazyDeopt?(
     compiledFn: RegisterCompiledFunction,
@@ -585,11 +633,11 @@ function executeRuntimeCall(
 }
 
 const OVERLOAD_BY_NODE_TYPE: Record<string, BinaryOverload | undefined> = {
-  [ir.IR_GENERIC_ADD]: "add",
-  [ir.IR_GENERIC_SUB]: "sub",
-  [ir.IR_GENERIC_MUL]: "mul",
-  [ir.IR_GENERIC_DIV]: "div",
-  [ir.IR_GENERIC_POW]: "pow",
+  [IR_GENERIC_ADD]: "add",
+  [IR_GENERIC_SUB]: "sub",
+  [IR_GENERIC_MUL]: "mul",
+  [IR_GENERIC_DIV]: "div",
+  [IR_GENERIC_POW]: "pow",
 };
 
 export function executeRuntimeStub(
@@ -613,7 +661,7 @@ export function executeRuntimeStub(
   }
 
   switch (node.type) {
-    case ir.IR_GENERIC_ADD: {
+    case IR_GENERIC_ADD: {
       const lp = toPrimitiveOperand(args[0], runtime);
       const rp = toPrimitiveOperand(args[1], runtime);
       if (isString(lp) || isString(rp))
@@ -628,31 +676,31 @@ export function executeRuntimeStub(
         stub.outputRep,
       );
     }
-    case ir.IR_GENERIC_SUB:
+    case IR_GENERIC_SUB:
       return runtimeNumericResult(
         operandToNumber(args[0], runtime) - operandToNumber(args[1], runtime),
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_MUL:
+    case IR_GENERIC_MUL:
       return runtimeNumericResult(
         operandToNumber(args[0], runtime) * operandToNumber(args[1], runtime),
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_DIV:
+    case IR_GENERIC_DIV:
       return runtimeNumericResult(
         operandToNumber(args[0], runtime) / operandToNumber(args[1], runtime),
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_MOD:
+    case IR_GENERIC_MOD:
       return runtimeNumericResult(
         operandToNumber(args[0], runtime) % operandToNumber(args[1], runtime),
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_COMPARE: {
+    case IR_GENERIC_COMPARE: {
       const symbol = propNameFromMetadata(node.props.op);
       const relational = RELATIONAL_BY_SYMBOL[symbol];
       if (relational && hasRelationalOverload(relational, args[0], args[1], runtime.interpreter)) {
@@ -668,7 +716,7 @@ export function executeRuntimeStub(
       }
       return runtimeReturn(compareValues(symbol, args[0], args[1]), runtime, stub.outputRep);
     }
-    case ir.IR_LOAD_CONTEXT_SLOT: {
+    case IR_LOAD_CONTEXT_SLOT: {
       const val = readContextCell(
         runtime,
         numberFromMetadata(node.props.slot),
@@ -676,7 +724,7 @@ export function executeRuntimeStub(
       );
       return runtimeTaggedReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_STORE_CONTEXT_SLOT: {
+    case IR_STORE_CONTEXT_SLOT: {
       const val = writeContextCell(
         runtime,
         numberFromMetadata(node.props.slot),
@@ -685,7 +733,7 @@ export function executeRuntimeStub(
       );
       return runtimeTaggedReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_LOAD_GLOBAL: {
+    case IR_LOAD_GLOBAL: {
       const cell = runtime.interpreter.globalCells.get(propNameFromMetadata(node.props.name));
       const val = cell ? cell.read() : mkUndefined();
       const resolved = val !== undefined ? val : mkUndefined();
@@ -698,12 +746,12 @@ export function executeRuntimeStub(
       }
       return runtimeReturn(resolved, runtime, stub.outputRep);
     }
-    case ir.IR_STORE_GLOBAL: {
+    case IR_STORE_GLOBAL: {
       const val = args[0];
       runtime.interpreter.globalCells.write(propNameFromMetadata(node.props.name), val);
       return runtimeReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_MAKE_CLOSURE: {
+    case IR_MAKE_CLOSURE: {
       const target =
         compiledFunctionFromMetadata(node.props.compiled) ??
         compiledFunctionFromMetadata(
@@ -727,7 +775,7 @@ export function executeRuntimeStub(
         stub.outputRep,
       );
     }
-    case ir.IR_NEW_OBJECT: {
+    case IR_NEW_OBJECT: {
       const hcId = numberFromMetadata(node.props.targetHiddenClassId, -1);
       const hc = hcId != null ? getHiddenClassById(hcId) : null;
       const obj = createJSObject(hc || undefined);
@@ -737,7 +785,7 @@ export function executeRuntimeStub(
       }
       return runtimeReturn(mkObject(obj), runtime, stub.outputRep);
     }
-    case ir.IR_NEW_ARRAY: {
+    case IR_NEW_ARRAY: {
       const elements = args.slice(0, numberFromMetadata(node.props.elementCount));
       return runtimeReturn(
         mkArray(createJSArray(elements)),
@@ -745,7 +793,7 @@ export function executeRuntimeStub(
         stub.outputRep,
       );
     }
-    case ir.IR_NEW_REGEX: {
+    case IR_NEW_REGEX: {
       const constant =
         runtime.compiledFn.constants[numberFromMetadata(node.props.constIdx)];
       const regex = isRegexConstant(constant)
@@ -757,7 +805,7 @@ export function executeRuntimeStub(
         stub.outputRep,
       );
     }
-    case ir.IR_GENERIC_GET_PROP: {
+    case IR_GENERIC_GET_PROP: {
       const val = getRuntimeProperty(
         args[0],
         propNameFromMetadata(node.props.propName),
@@ -771,7 +819,7 @@ export function executeRuntimeStub(
         return taggedToNumber(val);
       return runtimeReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_LOAD_FIELD: {
+    case IR_LOAD_FIELD: {
       const obj = args[0];
       let val: TaggedValue = mkUndefined();
       const raw = objectPayloadByOffset(obj);
@@ -787,7 +835,7 @@ export function executeRuntimeStub(
       }
       return runtimeReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_STORE_FIELD: {
+    case IR_STORE_FIELD: {
       const obj = args[0];
       const val = args[1];
       const raw = objectPayloadByOffset(obj);
@@ -797,7 +845,7 @@ export function executeRuntimeStub(
       }
       return runtimeReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_POLYMORPHIC_LOAD: {
+    case IR_POLYMORPHIC_LOAD: {
       const obj = args[0];
       let val: TaggedValue = mkUndefined();
       const raw = objectPayloadByOffset(obj);
@@ -825,7 +873,7 @@ export function executeRuntimeStub(
       }
       return runtimeReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_POLYMORPHIC_STORE: {
+    case IR_POLYMORPHIC_STORE: {
       const obj = args[0];
       const val = args[1];
       const raw = objectPayloadByOffset(obj);
@@ -854,7 +902,7 @@ export function executeRuntimeStub(
       }
       return runtimeReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_GENERIC_SET_PROP: {
+    case IR_GENERIC_SET_PROP: {
       const val = setRuntimeProperty(
         args[0],
         propNameFromMetadata(node.props.propName),
@@ -864,7 +912,7 @@ export function executeRuntimeStub(
       runtime.syncTagged?.(rawArgs[0]);
       return runtimeReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_GENERIC_DELETE_PROP: {
+    case IR_GENERIC_DELETE_PROP: {
       const propName =
         node.inputs.length > 1
           ? toDisplayString(args[1])
@@ -877,7 +925,7 @@ export function executeRuntimeStub(
       runtime.syncTagged?.(rawArgs[0]);
       return runtimeReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_GENERIC_GET_INDEX: {
+    case IR_GENERIC_GET_INDEX: {
       const val = getRuntimeIndex(args[0], args[1], runtime.interpreter);
       if (stub.outputRep === REP_INT32) return taggedToNumber(val) | 0;
       if (
@@ -887,7 +935,7 @@ export function executeRuntimeStub(
         return taggedToNumber(val);
       return runtimeReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_GENERIC_SET_INDEX: {
+    case IR_GENERIC_SET_INDEX: {
       const val = setRuntimeIndex(
         args[0],
         args[1],
@@ -897,7 +945,7 @@ export function executeRuntimeStub(
       runtime.syncTagged?.(rawArgs[0]);
       return runtimeReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_GENERIC_CALL: {
+    case IR_GENERIC_CALL: {
       const callee = args[0];
       const argCount = numberFromMetadata(node.props.argCount);
       if (node.props.isNew) {
@@ -926,19 +974,19 @@ export function executeRuntimeStub(
       }
       return runtimeTaggedResult(result, runtime, stub.outputRep);
     }
-    case ir.IR_TYPEOF:
+    case IR_TYPEOF:
       return runtimeReturn(mkString(typeOf(args[0])), runtime, stub.outputRep);
-    case ir.IR_NOT:
+    case IR_NOT:
       return runtimeReturn(!isTruthy(args[0]), runtime, stub.outputRep);
-    case ir.IR_NEG:
+    case IR_NEG:
       return runtimeReturn(-taggedToNumber(args[0]), runtime, stub.outputRep);
-    case ir.IR_BOX:
+    case IR_BOX:
       return runtimeReturn(args[0], runtime, stub.outputRep);
-    case ir.IR_UNBOX:
+    case IR_UNBOX:
       if (node.props.toType === "bool")
         return runtimeReturn(isTruthy(args[0]), runtime, stub.outputRep);
       return runtimeReturn(taggedToNumber(args[0]), runtime, stub.outputRep);
-    case ir.IR_CALL_INTRINSIC: {
+    case IR_CALL_INTRINSIC: {
       const builtinName = propNameFromMetadata(node.props.name);
       const builtinArgs = args.slice(0, numberFromMetadata(node.props.argCount));
       if (runtime.interpreter?.callRuntimeIntrinsic) {
@@ -950,7 +998,7 @@ export function executeRuntimeStub(
       }
       return runtimeReturn(mkUndefined(), runtime, stub.outputRep);
     }
-    case ir.IR_CALL_BUILTIN: {
+    case IR_CALL_BUILTIN: {
       const builtinName = propNameFromMetadata(node.props.name);
       const builtinArgs = args.slice(0, numberFromMetadata(node.props.argCount));
       const method = builtinMethodIntrinsicByName(builtinName);
@@ -968,16 +1016,9 @@ export function executeRuntimeStub(
           stub.outputRep,
         );
       }
-      if (runtime.interpreter && runtime.interpreter.callBuiltin) {
-        return runtimeReturn(
-          runtime.interpreter.callBuiltin(builtinName, builtinArgs),
-          runtime,
-          stub.outputRep,
-        );
-      }
       return runtimeReturn(mkUndefined(), runtime, stub.outputRep);
     }
-    case ir.IR_CALL_KNOWN_FUNCTION: {
+    case IR_CALL_KNOWN_FUNCTION: {
       const target = node.props.target;
       const callArgs = args.slice(0, numberFromMetadata(node.props.argCount));
       const targetFn =
@@ -1008,7 +1049,7 @@ export function executeRuntimeStub(
         stub.outputRep,
       );
     }
-    case ir.IR_CHECK_CALL_TARGET: {
+    case IR_CHECK_CALL_TARGET: {
       const callee = args[0];
       const expectedTarget = node.props.expectedTarget;
       const match =
@@ -1030,56 +1071,56 @@ export function executeRuntimeStub(
         stub.outputRep,
       );
     }
-    case ir.IR_GENERIC_BITAND:
+    case IR_GENERIC_BITAND:
       return runtimeInt32Result(
         (taggedToNumber(args[0]) | 0) & (taggedToNumber(args[1]) | 0),
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_BITOR:
+    case IR_GENERIC_BITOR:
       return runtimeInt32Result(
         taggedToNumber(args[0]) | 0 | (taggedToNumber(args[1]) | 0),
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_BITXOR:
+    case IR_GENERIC_BITXOR:
       return runtimeInt32Result(
         (taggedToNumber(args[0]) | 0) ^ (taggedToNumber(args[1]) | 0),
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_SHL:
+    case IR_GENERIC_SHL:
       return runtimeInt32Result(
         (taggedToNumber(args[0]) | 0) << (taggedToNumber(args[1]) & 0x1f),
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_SHR:
+    case IR_GENERIC_SHR:
       return runtimeInt32Result(
         (taggedToNumber(args[0]) | 0) >> (taggedToNumber(args[1]) & 0x1f),
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_USHR:
+    case IR_GENERIC_USHR:
       return runtimeNumericResult(
         (taggedToNumber(args[0]) | 0) >>> (taggedToNumber(args[1]) & 0x1f),
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_POW:
-    case ir.IR_FLOAT64_POW:
+    case IR_GENERIC_POW:
+    case IR_FLOAT64_POW:
       return runtimeNumericResult(
         Math.pow(taggedToNumber(args[0]), taggedToNumber(args[1])),
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_BITNOT:
+    case IR_GENERIC_BITNOT:
       return runtimeInt32Result(
         ~(taggedToNumber(args[0]) | 0),
         runtime,
         stub.outputRep,
       );
-    case ir.IR_GENERIC_INSTANCEOF: {
+    case IR_GENERIC_INSTANCEOF: {
       const obj = args[0];
       const ctor = args[1];
       let result = false;
@@ -1098,7 +1139,7 @@ export function executeRuntimeStub(
       }
       return runtimeReturn(mkBool(result), runtime, stub.outputRep);
     }
-    case ir.IR_GENERIC_IN: {
+    case IR_GENERIC_IN: {
       const propName = toDisplayString(args[0]);
       const obj = args[1];
       if (isObject(obj) || isArray(obj)) {
@@ -1110,11 +1151,11 @@ export function executeRuntimeStub(
       }
       return runtimeReturn(mkBool(false), runtime, stub.outputRep);
     }
-    case ir.IR_DISPATCH_MAP:
-    case ir.IR_MEGAMORPHIC_LOAD: {
+    case IR_DISPATCH_MAP:
+    case IR_MEGAMORPHIC_LOAD: {
       const obj = args[0];
       const propName = node.props.propertyName || node.props.propName;
-      if (node.type === ir.IR_DISPATCH_MAP && node.props.isStore === true) {
+      if (node.type === IR_DISPATCH_MAP && node.props.isStore === true) {
         const val = setRuntimeProperty(
           obj,
           propNameFromMetadata(propName),
@@ -1127,7 +1168,7 @@ export function executeRuntimeStub(
       const val = getRuntimeProperty(obj, propNameFromMetadata(propName), runtime.interpreter);
       return runtimeReturn(val, runtime, stub.outputRep);
     }
-    case ir.IR_MEGAMORPHIC_STORE: {
+    case IR_MEGAMORPHIC_STORE: {
       const obj = args[0];
       const propName = node.props.propertyName || node.props.propName;
       const val = setRuntimeProperty(

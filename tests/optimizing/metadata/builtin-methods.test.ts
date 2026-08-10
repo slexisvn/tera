@@ -138,8 +138,7 @@ describe("builtinMethodCallMetadata", () => {
   it("marks a pure intrinsic as a readonly read", () => {
     const props = builtinMethodCallMetadata(builtinMethodIntrinsicByName(CHAR_CODE_AT)!);
 
-    expect(props.effectKind).toBe(EFFECT_READ);
-    expect(props.pure).toBe(true);
+    expect(props.declaredEffects).toEqual(["immutable-read"]);
     expect(props.readonly).toBe(true);
     expect(props.builtin).toBe(true);
   });

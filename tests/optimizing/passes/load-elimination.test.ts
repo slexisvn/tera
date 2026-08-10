@@ -272,7 +272,7 @@ describe("loadElimination", () => {
     const callee = irConstant("pureBuiltin");
     block.addNode(callee);
     const call = irGenericCall(callee, []);
-    call.props.pure = true;
+    call.props.declaredEffects = ["pure"];
     block.addNode(call);
     const load = irLoadField(obj, 0);
     block.addNode(load);

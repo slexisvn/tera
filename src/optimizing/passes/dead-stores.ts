@@ -2,6 +2,7 @@ import * as ir from "../ir/index.js";
 import { type ModRef } from "../analyses/mod-ref.js";
 import { type PointsToResult } from "../analyses/points-to.js";
 import {
+  basesMayAlias,
   fieldOf,
   fieldsOverlap,
   locationKey,
@@ -267,7 +268,7 @@ function aliasKeys(
       const other = universe.byKey.get(key);
       if (!other) continue;
       if (matchField && !fieldsOverlap(location.field, other.field)) continue;
-      if (!locationsMayAlias(location, other, pointsTo)) continue;
+      if (!basesMayAlias(location, other, pointsTo)) continue;
       out.push(key);
     }
   }
@@ -289,15 +290,6 @@ function candidateBaseKeys(
   }
   visibleBaseKeys.add(location.baseKey);
   return visibleBaseKeys;
-}
-
-function locationsMayAlias(
-  left: MemoryLocation,
-  right: MemoryLocation,
-  pointsTo: PointsToResult,
-): boolean {
-  if (left.base === null || right.base === null) return left.baseKey === right.baseKey;
-  return pointsTo.mayAlias(left.base, right.base);
 }
 
 function isExternallyVisible(
