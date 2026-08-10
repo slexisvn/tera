@@ -167,7 +167,7 @@ describe("validateOptimizedGraph", () => {
     expect(() => validateOptimizedGraph(graph)).toThrow(GraphValidationError);
   });
 
-  it("validates phi input count matches predecessor count", () => {
+  it("accepts a phi whose input count matches the predecessor count", () => {
     const graph = new CFGFunction("test");
     const b0 = graph.addBlock();
     const b1 = graph.addBlock();
@@ -175,9 +175,57 @@ describe("validateOptimizedGraph", () => {
     b0.addNode(c);
     b0.addNode(irJump(b1));
     link(b0, b1);
-    const param = addPhi(b1, [c]);
-    b1.addNode(irReturn(param));
+    const phi = addPhi(b1, [c]);
+    b1.addNode(irReturn(phi));
+
+    expect(phi.inputs).toHaveLength(b1.predecessors.length);
     expect(validateOptimizedGraph(graph)).toBe(true);
+  });
+
+  it("throws when a phi has fewer inputs than the block has predecessors", () => {
+    const graph = new CFGFunction("test");
+    const b0 = graph.addBlock();
+    const b1 = graph.addBlock();
+    const b2 = graph.addBlock();
+    const merge = graph.addBlock();
+    const cond = irConstant(1);
+    const value = irConstant(2);
+    b0.addNode(cond);
+    b0.addNode(value);
+    b0.addNode(irBranch(cond, b1, b2));
+    link(b0, b1);
+    link(b0, b2);
+    b1.addNode(irJump(merge));
+    link(b1, merge);
+    b2.addNode(irJump(merge));
+    link(b2, merge);
+
+    const phi = addPhi(merge, [value, value]);
+    merge.addNode(irReturn(phi));
+    expect(validateOptimizedGraph(graph)).toBe(true);
+
+    phi.inputs.pop();
+
+    expect(phi.inputs.length).toBeLessThan(merge.predecessors.length);
+    expect(() => validateOptimizedGraph(graph)).toThrow(/1 inputs for 2 predecessors/);
+  });
+
+  it("throws when a phi has more inputs than the block has predecessors", () => {
+    const graph = new CFGFunction("test");
+    const b0 = graph.addBlock();
+    const b1 = graph.addBlock();
+    const c = irConstant(1);
+    b0.addNode(c);
+    b0.addNode(irJump(b1));
+    link(b0, b1);
+    const phi = addPhi(b1, [c]);
+    b1.addNode(irReturn(phi));
+    expect(validateOptimizedGraph(graph)).toBe(true);
+
+    phi.addInput(c);
+
+    expect(phi.inputs.length).toBeGreaterThan(b1.predecessors.length);
+    expect(() => validateOptimizedGraph(graph)).toThrow(/2 inputs for 1 predecessors/);
   });
 });
 

@@ -57,6 +57,7 @@ describe("deadCodeElimination", () => {
     const ret = irReturn(add);
     block.addNode(ret);
     const count = deadCodeElimination(graph);
+    expect(count).toBe(0);
     expect(block.nodes).toContain(add);
   });
 
@@ -71,6 +72,7 @@ describe("deadCodeElimination", () => {
     const ret = irReturn(irConstant(0));
     block.addNode(ret);
     const count = deadCodeElimination(graph);
+    expect(count).toBe(0);
     expect(block.nodes).toContain(store);
   });
 

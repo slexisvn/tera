@@ -180,12 +180,23 @@ describe("AdaptiveTieringPolicy", () => {
       policy.recordExecution(fn, 5);
       policy.recordExecution(fn, 10);
       const stats = policy.getProfileStats(fn);
+      const profile = policy.getProfile(fn);
+
       expect(stats.totalCalls).toBe(2);
-      expect(stats).toHaveProperty("avgTimeMs");
-      expect(stats).toHaveProperty("emaTimeMs");
-      expect(stats).toHaveProperty("deoptCount");
-      expect(stats).toHaveProperty("isStable");
-      expect(stats).toHaveProperty("hotness");
+      expect(stats.avgTimeMs).toBe(7.5);
+      expect(stats.emaTimeMs).toBe(profile.emaTimeMs);
+      expect(stats.deoptCount).toBe(0);
+      expect(stats.isStable).toBe(false);
+      expect(stats.hotness).toBe(profile.hotness(0));
+    });
+
+    it("reflects a recorded deopt in the stats", () => {
+      const policy = new AdaptiveTieringPolicy();
+      const fn = { name: "test", optimizedCode: {} };
+      policy.recordExecution(fn, 5);
+      policy.recordDeopt(fn, "map-changed");
+
+      expect(policy.getProfileStats(fn).deoptCount).toBe(1);
     });
   });
 });

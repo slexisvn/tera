@@ -29,6 +29,7 @@ import {
   IR_CHECK_SMI,
   IR_CHECK_MAP,
   IR_LOAD_FIELD,
+  IR_STORE_FIELD,
   IR_LOAD_GLOBAL,
   IR_CALL_BUILTIN,
   IR_CONSTANT,
@@ -296,6 +297,6 @@ describe("hoistLoopInvariants speculation and memory dependence", () => {
       intoBody(body, irStoreField(graph.addParameter(0), 0, irConstant(1)));
     });
 
-    expect(body.nodes.some((n) => n.type === "StoreField")).toBe(true);
+    expect(body.nodes.some((n) => n.type === IR_STORE_FIELD)).toBe(true);
   });
 });

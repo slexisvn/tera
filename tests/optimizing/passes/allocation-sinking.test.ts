@@ -110,13 +110,18 @@ describe("allocationSinking", () => {
     block.addNode(setProp);
     const getProp = irGenericGetProp(alloc, "y");
     block.addNode(getProp);
+    const consumer = irReturn(getProp);
+    block.addNode(consumer);
     const deopt = irDeoptimize("bail");
     deopt.addInput(alloc);
     block.addNode(deopt);
 
-    allocationSinking(graph);
+    const result = allocationSinking(graph);
 
+    expect(result.sunkCount).toBe(1);
     expect(block.nodes.some(n => n.type === IR_NEW_OBJECT)).toBe(false);
+    expect(block.nodes).not.toContain(getProp);
+    expect(consumer.inputs[0]).toBe(val);
   });
 
   it("handles multiple deopt escape points for same allocation", () => {

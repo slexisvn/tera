@@ -369,7 +369,11 @@ describe("Parser", () => {
 
     it("default params", () => {
       const expr = parseExpr("(a, b = 1) => a + b");
-      expect(expr.params[1]).toHaveProperty("default");
+      expect(expr.params[0]).toBe("a");
+      expect(expr.params[1]).toMatchObject({
+        name: "b",
+        default: { type: NodeType.Literal, kind: "number", value: 1 },
+      });
     });
 
     it("rest params", () => {
@@ -464,8 +468,11 @@ describe("Parser", () => {
 
     it("array destructuring with rest and defaults", () => {
       const stmt = parseStmt("const [a = 1, ...rest] = arr");
-      expect(stmt.pattern.elements[0]).toMatchObject({ kind: "id", name: "a" });
-      expect(stmt.pattern.elements[0].default).toBeTruthy();
+      expect(stmt.pattern.elements[0]).toMatchObject({
+        kind: "id",
+        name: "a",
+        default: { type: NodeType.Literal, kind: "number", value: 1 },
+      });
       expect(stmt.pattern.rest).toMatchObject({ kind: "id", name: "rest" });
     });
 
@@ -506,7 +513,10 @@ describe("Parser", () => {
     it("default parameters", () => {
       const stmt = parseStmt("fn f(a, b = 1):\n  return a");
       expect(stmt.params[0]).toBe("a");
-      expect(stmt.params[1]).toHaveProperty("default");
+      expect(stmt.params[1]).toMatchObject({
+        name: "b",
+        default: { type: NodeType.Literal, kind: "number", value: 1 },
+      });
     });
 
     it("rest parameters", () => {

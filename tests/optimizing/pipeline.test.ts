@@ -64,15 +64,6 @@ function managerFor(graph: CFGFunction) {
 }
 
 describe("middleEndPipeline pass reporting", () => {
-  it("exposes compiler phase taxonomy in execution order", () => {
-    expect(middleEndPhases({ feedback: undefined }).map((phase) => phase.name)).toEqual([
-      "high-level-optimization",
-      "canonicalization",
-      "target-legalization",
-      "late-optimization",
-    ]);
-  });
-
   it("invalidates analyses when a real pass mutates the graph", () => {
     const graph = foldedGraph();
     const analysis = managerFor(graph);

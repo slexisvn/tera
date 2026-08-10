@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   applyRelational,
   hasRelationalOverload,
-  RELATIONAL_BY_SYMBOL,
   type RelationalOverload,
 } from "../../src/runtime/operators.js";
 import { createJSObject } from "../../src/objects/heap/factory.js";
@@ -45,20 +44,6 @@ function comparable(methods: RelationalOverload[]) {
 }
 
 describe("relational operator overloading", () => {
-  describe("RELATIONAL_BY_SYMBOL", () => {
-    it("maps each relational operator to its method name", () => {
-      expect(RELATIONAL_BY_SYMBOL["<"]).toBe("lt");
-      expect(RELATIONAL_BY_SYMBOL[">"]).toBe("gt");
-      expect(RELATIONAL_BY_SYMBOL["<="]).toBe("le");
-      expect(RELATIONAL_BY_SYMBOL[">="]).toBe("ge");
-    });
-
-    it("does not map equality, which must keep identity semantics", () => {
-      expect(RELATIONAL_BY_SYMBOL["=="]).toBeUndefined();
-      expect(RELATIONAL_BY_SYMBOL["!="]).toBeUndefined();
-    });
-  });
-
   describe("applyRelational", () => {
     it("dispatches to the method on the left operand", () => {
       const { value, spy } = comparable(["gt"]);

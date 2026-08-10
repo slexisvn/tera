@@ -112,8 +112,25 @@ describe("OldGeneration", () => {
       const old = new OldGeneration(16);
       for (let i = 0; i < 5; i++) old.allocate(makeOldObj(i));
       const markSet = new Set([old.storage[0], old.storage[2], old.storage[4]]);
+      const { swept } = old.markCompact(markSet);
+
+      expect(swept).toBe(2);
+      expect(old.freeList.totalFree).toBe(swept);
+      expect(old.liveCount).toBe(markSet.size);
+    });
+
+    it("hands a swept slot back out to the next allocation", () => {
+      const old = new OldGeneration(16);
+      for (let i = 0; i < 5; i++) old.allocate(makeOldObj(i));
+      const markSet = new Set([old.storage[0], old.storage[2], old.storage[4]]);
       old.markCompact(markSet);
-      expect(old.freeList.totalFree).toBeGreaterThan(0);
+
+      const reused = makeOldObj("reused");
+      old.allocate(reused);
+
+      expect(old.freeList.totalFree).toBe(1);
+      expect(old.storage[reused.gcHeader.oldGenIndex]).toBe(reused);
+      expect(markSet.has(old.storage[reused.gcHeader.oldGenIndex])).toBe(false);
     });
   });
 

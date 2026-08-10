@@ -116,7 +116,7 @@ describe("typeNarrowing", () => {
 
       narrowTypes(graph);
 
-      expect([IR_FLOAT64_ADD, IR_INT32_ADD]).toContain(add.type);
+      expect(add.type).toBe(IR_FLOAT64_ADD);
     });
   });
 
@@ -170,7 +170,7 @@ describe("typeNarrowing", () => {
 
       narrowTypes(graph);
 
-      expect([IR_FLOAT64_ADD, IR_INT32_ADD]).toContain(add.type);
+      expect(add.type).toBe(IR_FLOAT64_ADD);
     });
   });
 
@@ -248,7 +248,7 @@ describe("typeNarrowing", () => {
 
       narrowTypes(graph);
 
-      expect([IR_FLOAT64_ADD, IR_INT32_ADD]).toContain(add.type);
+      expect(add.type).toBe(IR_FLOAT64_ADD);
     });
 
     it("narrows true branch with === operator", () => {
@@ -281,7 +281,7 @@ describe("typeNarrowing", () => {
 
       narrowTypes(graph);
 
-      expect([IR_FLOAT64_ADD, IR_INT32_ADD]).toContain(add.type);
+      expect(add.type).toBe(IR_FLOAT64_ADD);
     });
 
     it("does not narrow false branch to the same type as true", () => {

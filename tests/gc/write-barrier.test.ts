@@ -63,8 +63,29 @@ describe("write-barrier", () => {
     });
 
     it("skips everything when gc is not bound", () => {
+      gc._incrementalActive = true;
       bindWriteBarrierGC(null);
-      storeBarrier(makeGCObj("old"), makeGCObj("young"));
+      const holder = makeGCObj("old");
+
+      storeBarrier(holder, makeGCObj("young"));
+
+      expect(gc.rememberedSet.has(holder)).toBe(false);
+      expect(gc.rememberedSet.size).toBe(0);
+      expect(gc._barriers).toHaveLength(0);
+    });
+
+    it("resumes recording once a gc is bound again", () => {
+      bindWriteBarrierGC(null);
+      const skipped = makeGCObj("old");
+      storeBarrier(skipped, makeGCObj("young"));
+
+      bindWriteBarrierGC(gc);
+      const recorded = makeGCObj("old");
+      storeBarrier(recorded, makeGCObj("young"));
+
+      expect(gc.rememberedSet.has(skipped)).toBe(false);
+      expect(gc.rememberedSet.has(recorded)).toBe(true);
+      expect(gc.rememberedSet.size).toBe(1);
     });
 
     it("handles null/missing gcHeader gracefully", () => {

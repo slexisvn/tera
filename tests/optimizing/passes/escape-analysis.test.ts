@@ -195,9 +195,14 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     bMerge.addNode(ret);
 
     runEscapeAnalysis(graph);
-    const falseHasLoad = bFalse.nodes.some(n => n.type === IR_LOAD_FIELD);
-    const falseHasUndefined = bFalse.nodes.some(n => n.type === IR_CONSTANT && n.props.value === undefined);
-    expect(falseHasLoad || falseHasUndefined).toBe(true);
+
+    expect(
+      bFalse.nodes.some(n => n.type === IR_CONSTANT && n.props.value === 42),
+    ).toBe(false);
+    expect(bFalse.nodes).not.toContain(store);
+    expect(
+      bFalse.nodes.some(n => n.type === IR_CONSTANT && n.props.value === undefined),
+    ).toBe(true);
   });
 
   it("does not scalar replace when a field load needs unsupported merge state", () => {

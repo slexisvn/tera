@@ -70,12 +70,14 @@ describe("visitFrameStateValues", () => {
 
   it("does not infinite-loop on circular callerFrameState", () => {
     const a = irConstant(1);
-    const fs = makeFrameState({ 0: a }, [], irConstant(0));
+    const thisVal = irConstant(0);
+    const fs = makeFrameState({ 0: a }, [], thisVal);
     fs.callerFrameState = fs;
 
     const visited = [];
     visitFrameStateValues(fs, (value) => visited.push(value));
-    expect(visited.length).toBeGreaterThan(0);
+
+    expect(visited).toEqual([a, thisVal]);
   });
 });
 

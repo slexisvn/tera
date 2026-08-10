@@ -17,6 +17,8 @@ import {
   isBool,
   isString,
   isFunction,
+  isObject,
+  isArray,
   toNumber,
 } from "../../../src/core/value/index.js";
 import { createJSObject, createJSArray } from "../../../src/objects/heap/factory.js";
@@ -250,10 +252,30 @@ describe("BaselineRuntime", () => {
       expect(rt.looseEq(mkNull(), mkUndefined(), -1)).toBe(rt.t);
     });
 
-    it("looseNeq: 1 != '1' depends on abstract equality algorithm", () => {
+    it("looseEq: 1 == '1' coerces the string to a number", () => {
       const rt = makeRuntime();
-      const result = rt.looseNeq(mkSmi(1), mkString("2"), -1);
-      expect(isBool(result)).toBe(true);
+      expect(rt.looseEq(mkSmi(1), mkString("1"), -1)).toBe(rt.t);
+      expect(rt.looseEq(mkSmi(1), mkString("2"), -1)).toBe(rt.f);
+    });
+
+    it("looseNeq: 1 != '1' is false because they are loosely equal", () => {
+      const rt = makeRuntime();
+      expect(rt.looseNeq(mkSmi(1), mkString("1"), -1)).toBe(rt.f);
+      expect(rt.looseNeq(mkSmi(1), mkString("2"), -1)).toBe(rt.t);
+    });
+
+    it("looseNeq is the exact negation of looseEq", () => {
+      const rt = makeRuntime();
+      const pairs = [
+        [mkSmi(1), mkString("1")],
+        [mkSmi(1), mkString("2")],
+        [mkNull(), mkUndefined()],
+        [mkNull(), mkSmi(0)],
+        [mkBool(true), mkSmi(1)],
+      ] as const;
+      for (const [a, b] of pairs) {
+        expect(rt.looseNeq(a, b, -1)).toBe(rt.looseEq(a, b, -1) === rt.t ? rt.f : rt.t);
+      }
     });
   });
 
@@ -282,15 +304,38 @@ describe("BaselineRuntime", () => {
       obj.setProperty("b", mkSmi(2));
       const keys = rt.getKeys(mkObject(obj));
       const arr = getPayload(keys);
+
       expect(arr.getLength()).toBe(2);
+      expect([getPayload(arr.getIndex(0)), getPayload(arr.getIndex(1))]).toEqual(["a", "b"]);
+    });
+
+    it("getKeys: skips non-enumerable properties", () => {
+      const rt = makeRuntime();
+      const obj = createJSObject();
+      obj.setProperty("shown", mkSmi(1));
+      obj.defineProperty("hidden", { value: mkSmi(2), enumerable: false });
+      const arr = getPayload(rt.getKeys(mkObject(obj)));
+
+      expect(arr.getLength()).toBe(1);
+      expect(getPayload(arr.getIndex(0))).toBe("shown");
     });
 
     it("newObj/newArr: create tagged object/array values", () => {
       const rt = makeRuntime();
       const obj = rt.newObj();
       const arr = rt.newArr([mkSmi(1), mkSmi(2)]);
-      expect(getPayload(obj)).toBeDefined();
+
+      expect(isObject(obj)).toBe(true);
+      expect(getPayload(obj).keys()).toEqual([]);
+      expect(isArray(arr)).toBe(true);
       expect(getPayload(arr).getLength()).toBe(2);
+      expect(getPayload(getPayload(arr).getIndex(0))).toBe(1);
+      expect(getPayload(getPayload(arr).getIndex(1))).toBe(2);
+    });
+
+    it("newObj: each call creates a distinct object", () => {
+      const rt = makeRuntime();
+      expect(getPayload(rt.newObj())).not.toBe(getPayload(rt.newObj()));
     });
 
     it("restArgs: extracts rest parameters from register array", () => {
@@ -428,9 +473,19 @@ describe("BaselineRuntime gp() prototype and property lookups", () => {
       const rt = makeEngineRuntime(["prototype"]);
       const fn = { name: "Ctor", properties: {} };
       const tagged = mkFunction(fn);
+
+      expect(fn.prototypeObj).toBeUndefined();
       const result = rt.gp(tagged, 0, 0);
-      expect(getPayload(result)).toBeDefined();
-      expect(fn.prototypeObj).toBeDefined();
+
+      expect(isObject(result)).toBe(true);
+      expect(getPayload(result)).toBe(fn.prototypeObj);
+    });
+
+    it("returns the same prototype object on every read", () => {
+      const rt = makeEngineRuntime(["prototype"]);
+      const tagged = mkFunction({ name: "Ctor", properties: {} });
+
+      expect(getPayload(rt.gp(tagged, 0, 0))).toBe(getPayload(rt.gp(tagged, 0, 0)));
     });
   });
 });

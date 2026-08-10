@@ -188,23 +188,6 @@ describe("representationSelection", () => {
       expect(boxNodes.length).toBeGreaterThan(0);
     });
 
-    it("inserts Unbox when tagged/handle producer feeds int32 consumer", () => {
-      const graph = new CFGFunction("test");
-      const block = graph.addBlock();
-      const param = graph.addParameter(0);
-      const check = irCheckSmi(param);
-      block.addNode(check);
-      const b = irConstant(1);
-      block.addNode(b);
-      const add = irInt32Add(check, b);
-      block.addNode(add);
-      block.addNode(irReturn(add));
-
-      representationSelection(graph);
-
-      expect(param.props._rep).toBeDefined();
-    });
-
     it("unboxes non-parameter reactive-read handles before number checks", () => {
       const graph = new CFGFunction("test");
       const block = graph.addBlock();

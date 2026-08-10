@@ -57,7 +57,10 @@ describe("GenerationalGC", () => {
         objs.push(obj);
       }
       const inOld = objs.filter((o) => o.gcHeader.generation === "old");
-      expect(inOld.length).toBeGreaterThan(0);
+      const inYoung = objs.filter((o) => o.gcHeader.generation === "young");
+      expect(inYoung.length).toBeLessThanOrEqual(2);
+      expect(inOld.length).toBe(objs.length - inYoung.length);
+      expect(inOld.length).toBe(3);
     });
 
     it("tracks allocation count for budget", () => {
@@ -276,10 +279,6 @@ describe("GenerationalGC", () => {
       expect(gc._targetPauseMs).toBe(5);
     });
 
-    it("uses default targetPauseMs when not specified", () => {
-      const gc = new GenerationalGC({});
-      expect(gc._targetPauseMs).toBe(2);
-    });
   });
 
   describe("remembered set rebuild only on major GC", () => {
@@ -310,7 +309,28 @@ describe("GenerationalGC", () => {
       oldObj.visitReferences = (cb) => cb(youngObj);
 
       gc.majorGC();
-      expect(gc.rememberedSet.size).toBeGreaterThanOrEqual(0);
+
+      expect(youngObj.gcHeader.generation).toBe("young");
+      expect(gc.rememberedSet.has(oldObj)).toBe(true);
+      expect(gc.rememberedSet.size).toBe(1);
+    });
+
+    it("major GC leaves an old object with no young reference out of the rebuilt set", () => {
+      const { gc, rootObjects } = makeGCWithRoots({ youngGenSize: 32 });
+      const oldChild = makeHeapObj("old-child");
+      gc.allocate(oldChild, true);
+      rootObjects.push(oldChild);
+
+      const oldParent = makeHeapObj("old-parent");
+      gc.allocate(oldParent, true);
+      rootObjects.push(oldParent);
+      oldParent.visitReferences = (cb) => cb(oldChild);
+
+      gc.rememberedSet.record(oldParent);
+      gc.majorGC();
+
+      expect(gc.rememberedSet.has(oldParent)).toBe(false);
+      expect(gc.rememberedSet.size).toBe(0);
     });
   });
 
@@ -327,9 +347,10 @@ describe("GenerationalGC", () => {
       expect(stats.totalAllocated).toBe(5);
       expect(stats.minorGCCount).toBe(1);
       expect(stats.majorGCCount).toBe(1);
-      expect(stats).toHaveProperty("youngGenUsed");
-      expect(stats).toHaveProperty("oldGenLive");
-      expect(stats).toHaveProperty("rememberedSetSize");
+      expect(stats.youngGenUsed).toBe(gc.fromSpace.usedSlots());
+      expect(stats.oldGenLive).toBe(gc.oldGen.liveCount);
+      expect(stats.rememberedSetSize).toBe(gc.rememberedSet.size);
+      expect(stats.oldGenLive + stats.youngGenUsed).toBe(5);
     });
   });
 

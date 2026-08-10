@@ -62,9 +62,14 @@ describe("runtimeGetProperty", () => {
   });
 
   it("reads function .prototype (auto-creates if missing)", () => {
-    const fn = mkFunction({ name: "Foo", compiled: null, call: null, closure: null });
+    const payload = { name: "Foo", compiled: null, call: null, closure: null };
+    const fn = mkFunction(payload);
+
+    expect(payload.prototypeObj).toBeUndefined();
     const proto = runtimeGetProperty(fn, "prototype");
-    expect(getPayload(proto)).toBeDefined();
+
+    expect(getPayload(proto)).toBe(payload.prototypeObj);
+    expect(getPayload(runtimeGetProperty(fn, "prototype"))).toBe(getPayload(proto));
   });
 });
 

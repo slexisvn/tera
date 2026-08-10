@@ -807,7 +807,9 @@ describe("RegisterBytecodeCompiler", () => {
       const innerFn = func.constants.find(
         (c) => c instanceof bytecode.RegisterCompiledFunction,
       );
-      expect(innerFn).toBeDefined();
+      expect(innerFn.isArrow).toBe(true);
+      expect(innerFn.paramCount).toBe(1);
+      expect(innerFn.instructions.map((i) => i.opcode)).toContain(bytecode.ROP_RETURN);
     });
   });
 

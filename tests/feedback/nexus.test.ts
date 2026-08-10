@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { FeedbackNexus, FEEDBACK_HINT_GENERIC, FEEDBACK_HINT_MONOMORPHIC, FEEDBACK_HINT_POLYMORPHIC, FEEDBACK_HINT_MEGAMORPHIC } from "../../src/feedback/nexus/index.js";
 import { FeedbackVector, FeedbackSlot, FEEDBACK_PROPERTY, FEEDBACK_BINARY_OP, FEEDBACK_UNARY_OP, FEEDBACK_CALL, FEEDBACK_BRANCH } from "../../src/feedback/vector/index.js";
+import { anyType, numberType, smiType, stringType, typeEquals } from "../../src/optimizing/types/lattice.js";
 
 function makeNexus(slotCount) {
   const vec = new FeedbackVector(slotCount);
@@ -21,8 +22,23 @@ describe("FeedbackNexus", () => {
       vec.initSlot(0, FEEDBACK_BINARY_OP);
       vec.getSlot(0).recordBinaryOp("smi", "smi");
       const info = nexus.binaryOp(0);
-      expect(info.inputType).toBeDefined();
+      expect(typeEquals(info.inputType, smiType())).toBe(true);
       expect(info.stable).toBe(true);
+    });
+
+    it("merges both operand types when the sides disagree", () => {
+      const { nexus, vec } = makeNexus(1);
+      vec.initSlot(0, FEEDBACK_BINARY_OP);
+      vec.getSlot(0).recordBinaryOp("smi", "double");
+      expect(typeEquals(nexus.binaryOp(0).inputType, numberType())).toBe(true);
+    });
+
+    it("widens to any when a non-numeric operand is observed", () => {
+      const { nexus, vec } = makeNexus(1);
+      vec.initSlot(0, FEEDBACK_BINARY_OP);
+      vec.getSlot(0).recordBinaryOp("smi", "string");
+      expect(typeEquals(nexus.binaryOp(0).inputType, smiType())).toBe(false);
+      expect(typeEquals(nexus.binaryOp(0).inputType, stringType())).toBe(false);
     });
 
     it("returns null slot info for missing slot", () => {
@@ -38,8 +54,16 @@ describe("FeedbackNexus", () => {
       vec.initSlot(0, FEEDBACK_UNARY_OP);
       vec.getSlot(0).recordUnaryOp("smi");
       const info = nexus.unaryOp(0);
-      expect(info.inputType).toBeDefined();
+      expect(typeEquals(info.inputType, smiType())).toBe(true);
       expect(info.state).toBe("monomorphic");
+    });
+
+    it("merges every observed operand type", () => {
+      const { nexus, vec } = makeNexus(1);
+      vec.initSlot(0, FEEDBACK_UNARY_OP);
+      vec.getSlot(0).recordUnaryOp("smi");
+      vec.getSlot(0).recordUnaryOp("double");
+      expect(typeEquals(nexus.unaryOp(0).inputType, numberType())).toBe(true);
     });
   });
 
@@ -177,8 +201,7 @@ describe("FeedbackNexus", () => {
       const { nexus, vec } = makeNexus(1);
       vec.initSlot(0, FEEDBACK_CALL);
       vec.getSlot(0).recordReturnType("smi");
-      const t = nexus.returnType(0);
-      expect(t).toBeDefined();
+      expect(typeEquals(nexus.returnType(0), smiType())).toBe(true);
     });
 
     it("returns number type for mixed smi/double", () => {
@@ -187,7 +210,21 @@ describe("FeedbackNexus", () => {
       vec.getSlot(0).recordReturnType("smi");
       vec.getSlot(0).recordReturnType("double");
       const t = nexus.returnType(0);
-      expect(t).toBeDefined();
+      expect(typeEquals(t, numberType())).toBe(true);
+      expect(typeEquals(t, smiType())).toBe(false);
+    });
+
+    it("falls back to any once a non-numeric return is observed", () => {
+      const { nexus, vec } = makeNexus(1);
+      vec.initSlot(0, FEEDBACK_CALL);
+      vec.getSlot(0).recordReturnType("smi");
+      vec.getSlot(0).recordReturnType("string");
+      expect(typeEquals(nexus.returnType(0), anyType())).toBe(true);
+    });
+
+    it("returns any for a slot that was never initialized", () => {
+      const { nexus } = makeNexus(1);
+      expect(typeEquals(nexus.returnType(0), anyType())).toBe(true);
     });
   });
 
