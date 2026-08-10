@@ -24,6 +24,7 @@ export type CliConfig = {
   stats: boolean;
   output: string | null;
   entry: string;
+  backend: string;
   cc: string | null;
   keepTemps: boolean;
 };
@@ -58,6 +59,7 @@ const VALUE_FLAGS: Record<string, (config: CliConfig, value: string) => void> = 
   filter: (c, v) => (c.filter = v),
   output: (c, v) => (c.output = v),
   entry: (c, v) => (c.entry = v),
+  backend: (c, v) => (c.backend = v),
   cc: (c, v) => (c.cc = v),
   typecheck: (c, v) => (c.typecheck = parseTypecheck(v)),
   "opt-threshold": (c, v) => (c.jitThreshold = parseCount("opt-threshold", v)),
@@ -89,6 +91,7 @@ function defaults(): CliConfig {
     stats: false,
     output: null,
     entry: "main",
+    backend: "c",
     cc: null,
     keepTemps: false,
   };

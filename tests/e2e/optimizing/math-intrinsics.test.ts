@@ -5,11 +5,13 @@ import { compileModule } from "../../../src/optimizing/drivers/aot.js";
 import { cBackend } from "../../../src/optimizing/backends/c/backend.js";
 import { moduleFromGraphs } from "../../../src/optimizing/compilation-unit.js";
 import { differential, src, type Tier } from "../../helpers/tiers.js";
-import { cSource } from "../../helpers/c-executor.js";
+import { cSource, itNative, runCFunction } from "../../helpers/c-executor.js";
 import {
   IR_CALL_BUILTIN,
   IR_GENERIC_CALL,
+  IR_GENERIC_GET_PROP,
   type CFGFunction,
+  type CFGInstruction,
 } from "../../../src/optimizing/ir/index.js";
 import type { RegisterCompiledFunction } from "../../../src/bytecode/register/ops/bytecode.js";
 
@@ -27,8 +29,23 @@ function graphOf(source: string, name: string): CFGFunction {
   return new Optimizer().compile(compiledFn!).graph;
 }
 
+function staticGraphOf(source: string, name: string): CFGFunction {
+  const engine = new Engine({ typecheck: "off" });
+  engine.run(source);
+  const compiledFn = engine
+    .collectFunctions()
+    .find((fn: RegisterCompiledFunction) => fn.name === name);
+  return new Optimizer().compileStatic(compiledFn!).graph;
+}
+
 function opcodesOf(graph: CFGFunction): string[] {
   return graph.blocks.flatMap((block) => block.nodes.map((node) => node.type));
+}
+
+function builtinCallNamed(graph: CFGFunction, name: string): CFGInstruction | undefined {
+  return graph.blocks
+    .flatMap((block) => block.nodes)
+    .find((node) => node.type === IR_CALL_BUILTIN && node.props.name === name);
 }
 
 const hotMath = (expression: string) =>
@@ -123,5 +140,47 @@ describe("Math intrinsics lower in the middle end", () => {
 
     expect(program.skipped).toEqual([]);
     expect(cSource(program)).toContain("tera_math_sqrt");
+  });
+});
+
+const nestedShape = src(
+  "fn shape(x: float) -> float:",
+  "  a = Math.abs(x)",
+  "  return Math.sqrt(a) + a",
+);
+
+describe("Math intrinsics nested inside a larger expression", () => {
+  it("lowers every call in a nested expression, leaving no generic property access", () => {
+    const opcodes = opcodesOf(staticGraphOf(`${nestedShape}\nshape(-16.0)`, "shape"));
+
+    expect(opcodes.filter((opcode) => opcode === IR_CALL_BUILTIN)).toHaveLength(2);
+    expect(opcodes).not.toContain(IR_GENERIC_CALL);
+    expect(opcodes).not.toContain(IR_GENERIC_GET_PROP);
+  });
+
+  it("feeds the inner lowered call into the outer one", () => {
+    const graph = staticGraphOf(`${nestedShape}\nshape(-16.0)`, "shape");
+    const abs = builtinCallNamed(graph, "Math.abs");
+    const sqrt = builtinCallNamed(graph, "Math.sqrt");
+
+    expect(abs).toBeDefined();
+    expect(sqrt?.inputs[0]).toBe(abs);
+  });
+
+  it("compiles ahead of time when the call is not the whole right-hand side", () => {
+    const program = new Engine({ typecheck: "off" }).compileAot(nestedShape, {
+      functionNames: ["shape"],
+    });
+
+    expect(program.skipped).toEqual([]);
+    expect(program.compiled.map((fn) => fn.emitted.symbol)).toEqual(["shape"]);
+  });
+
+  itNative("executes the ahead-of-time output with the nested call applied in order", () => {
+    const program = new Engine({ typecheck: "off" }).compileAot(nestedShape, {
+      functionNames: ["shape"],
+    });
+
+    expect(runCFunction(cSource(program), "shape", [-16.0])).toBe(20);
   });
 });

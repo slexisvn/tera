@@ -8,6 +8,7 @@ import { writeAotProgram } from "../optimizing/drivers/aot.js";
 import type { CliConfig } from "./args.js";
 
 const MODULE_NAME = "program";
+const TRANSLATED = /\.(c|s)$/;
 const MAIN_NAME = "main.c";
 
 class CompileError extends Error {}
@@ -64,13 +65,9 @@ function fileNamed(program: AotProgram, extension: string): string {
 function selectEntry(program: AotProgram, entry: string): { symbol: string } {
   const compiled = program.compiled.find((fn) => fn.name === entry);
   if (compiled) {
-    const artifact = compiled.emitted.artifact;
-    if (artifact.kind !== "c") {
-      throw new CompileError(`entry '${entry}' was not lowered to C`);
-    }
-    if (!/\(\s*void\s*\)/.test(artifact.prototype)) {
+    if (compiled.emitted.parameterCount > 0) {
       throw new CompileError(
-        `entry '${entry}' must take no parameters (got prototype: ${artifact.prototype.trim()})`,
+        `entry '${entry}' must take no parameters (it takes ${compiled.emitted.parameterCount})`,
       );
     }
     return { symbol: compiled.emitted.symbol };
@@ -116,6 +113,7 @@ export function runCompile(config: CliConfig, engine: Engine): number {
     program = engine.compileAot(source, {
       sourceName: resolvedInput,
       moduleName: MODULE_NAME,
+      backend: config.backend,
     });
     entrySymbol = selectEntry(program, config.entry).symbol;
     headerName = fileNamed(program, ".h");
@@ -134,8 +132,10 @@ export function runCompile(config: CliConfig, engine: Engine): number {
   const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), "tera-compile-"));
   try {
     const written = writeAotProgram(program, buildDir);
-    const sourcePaths = written.filter((file) => file.endsWith(".c"));
-    if (sourcePaths.length === 0) return fail("backend produced no C source to compile");
+    const sourcePaths = written.filter((file) => TRANSLATED.test(file));
+    if (sourcePaths.length === 0) {
+      return fail("backend produced no source the C toolchain can build");
+    }
     const mainPath = path.join(buildDir, MAIN_NAME);
     fs.writeFileSync(mainPath, mainSource(entrySymbol, headerName));
 

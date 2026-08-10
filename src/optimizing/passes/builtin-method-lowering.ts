@@ -93,41 +93,38 @@ function loweringFor(node: CFGInstruction, types: TypeInference): Lowering | nul
   return null;
 }
 
-export function lowerBuiltinMethods(graph: CFGFunction, types: TypeInference): number {
-  const lowerings: Lowering[] = [];
-  const lowered = new Set<CFGInstruction>();
-  for (const block of graph.blocks) {
-    for (const node of block.nodes) {
-      const lowering = loweringFor(node, types);
-      if (lowering === null) continue;
-      lowerings.push(lowering);
-      lowered.add(node);
-    }
+function applyLowering(editor: GraphEditor, lowering: Lowering): void {
+  const { node, callee, operands, intrinsic, guardPrimitive } = lowering;
+  const arguments_ = [...operands];
+  if (guardPrimitive !== null) {
+    const guard = irCheckPrimitive(arguments_[0], guardPrimitive);
+    guard.frameState = node.frameState;
+    editor.insertBefore(node, guard);
+    arguments_[0] = guard;
   }
-  if (lowerings.length === 0) return 0;
+  const replacement = irCallBuiltin(
+    intrinsic.qualifiedName,
+    arguments_,
+    builtinMethodCallMetadata(intrinsic),
+  );
+  if (irRequiresFrameState(replacement)) replacement.frameState = node.frameState;
+  editor.insertBefore(node, replacement);
+  editor.replaceAllUses(node, replacement);
+  editor.remove(node);
+  if (callee !== null && callee.uses.length === 0) editor.remove(callee);
+}
 
+export function lowerBuiltinMethods(graph: CFGFunction, types: TypeInference): number {
   const editor = new GraphEditor(graph);
   let count = 0;
-  for (const { node, callee, operands, intrinsic, guardPrimitive } of lowerings) {
-    if (callee !== null && lowered.has(callee)) continue;
-    const arguments_ = [...operands];
-    if (guardPrimitive !== null) {
-      const guard = irCheckPrimitive(arguments_[0], guardPrimitive);
-      guard.frameState = node.frameState;
-      editor.insertBefore(node, guard);
-      arguments_[0] = guard;
+  for (const block of graph.blocks) {
+    for (const node of [...block.nodes]) {
+      if (node.block !== block) continue;
+      const lowering = loweringFor(node, types);
+      if (lowering === null) continue;
+      applyLowering(editor, lowering);
+      count++;
     }
-    const replacement = irCallBuiltin(
-      intrinsic.qualifiedName,
-      arguments_,
-      builtinMethodCallMetadata(intrinsic),
-    );
-    if (irRequiresFrameState(replacement)) replacement.frameState = node.frameState;
-    editor.insertBefore(node, replacement);
-    editor.replaceAllUses(node, replacement);
-    editor.remove(node);
-    if (callee !== null && callee.uses.length === 0) editor.remove(callee);
-    count++;
   }
   if (count > 0) graph.rebuildUses();
   return count;

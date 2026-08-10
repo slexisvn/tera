@@ -1,5 +1,7 @@
 export * from "./capabilities.js";
 export * from "./artifact.js";
+export * from "./registers.js";
+export * from "./abi.js";
 export * from "./speculation.js";
 export * from "./model.js";
 export * from "./emitter.js";

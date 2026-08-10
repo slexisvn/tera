@@ -101,3 +101,57 @@ describe("tera compile", () => {
     });
   });
 });
+
+describe("tera compile --backend=x64", () => {
+  itNative("builds a native binary from tera-generated assembly", () => {
+    const source = src(
+      "fn main() -> int:",
+      "  total = 0",
+      "  i = 0",
+      "  while i < 10:",
+      "    total = total + i * i",
+      "    i = i + 1",
+      "  return total",
+    );
+
+    inWorkspace((dir) => {
+      const interpreted = new Engine({ typecheck: "off" }).runNative(`${source}\nmain()`);
+      const { status, output } = compile(dir, source, ["--backend=x64"]);
+
+      expect(status).toBe(0);
+      expect(Number(run(output))).toBe(interpreted);
+    });
+  });
+
+  itNative("keeps the assembly and header the x64 backend named", () => {
+    inWorkspace((dir) => {
+      const { status, errors } = compile(dir, src("fn main() -> int:", "  return 7"), [
+        "--backend=x64",
+        "--keep-temps",
+      ]);
+      const kept = errors.find((line) => line.includes("kept intermediates in"));
+
+      expect(status).toBe(0);
+      expect(kept).toBeDefined();
+      const buildDir = kept!.slice(kept!.indexOf("kept intermediates in ") + 22).trim();
+      expect(readFileSync(join(buildDir, "program.s"), "utf8")).toContain(".globl tera_main");
+      expect(readFileSync(join(buildDir, "program.h"), "utf8")).toContain(
+        "int32_t tera_main(void)",
+      );
+      rmSync(buildDir, { recursive: true, force: true });
+    });
+  });
+
+  itNative("reports an entry that takes parameters", () => {
+    inWorkspace((dir) => {
+      const { status, errors } = compile(
+        dir,
+        src("fn main(n: int) -> int:", "  return n"),
+        ["--backend=x64"],
+      );
+
+      expect(status).toBe(1);
+      expect(errors.join("\n")).toContain("must take no parameters");
+    });
+  });
+});

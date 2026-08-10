@@ -65,6 +65,7 @@ export const cBackend: AotBackend = {
         if (!result.ok) throw new CBackendEmitError(result.reason);
         return {
           symbol: result.symbol,
+          parameterCount: result.parameterCount,
           references: result.references,
           artifact: {
             kind: "c",

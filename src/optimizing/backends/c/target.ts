@@ -28,5 +28,6 @@ export const cTarget: TargetModel = {
   name: "native64",
   capabilities: capabilitySet(),
   speculation: proveOrGeneric,
+  abi: null,
   machineReprOf,
 };

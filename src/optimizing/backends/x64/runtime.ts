@@ -1,0 +1,144 @@
+import type { NativeRuntimeRoutine } from "../../target/artifact.js";
+import type { RuntimeAbi } from "../../target/abi.js";
+import { X64_GPR, x64RegisterName } from "./registers.js";
+
+export const X64_RUNTIME_SYMBOLS = {
+  toInt32: "tera_x64_to_i32",
+  divide: "tera_x64_i32_div",
+  modulo: "tera_x64_i32_mod",
+  minimum: "tera_x64_math_min",
+  maximum: "tera_x64_math_max",
+  charCodeAt: "tera_x64_char_code_at",
+} as const;
+
+export const SIGN_MASK_KEY = "x64:sign-mask";
+export const ABS_MASK_KEY = "x64:abs-mask";
+
+const MASKS = new Map<string, readonly string[]>([
+  [SIGN_MASK_KEY, ["\t.quad 0x8000000000000000", "\t.quad 0"]],
+  [ABS_MASK_KEY, ["\t.quad 0x7fffffffffffffff", "\t.quad 0"]],
+]);
+
+export function x64MaskDirectives(key: string): readonly string[] {
+  const directives = MASKS.get(key);
+  if (directives === undefined) throw new Error(`no x64 mask named ${key}`);
+  return directives;
+}
+
+function integerArguments(abi: RuntimeAbi): readonly string[][] {
+  const registers = abi.callingConvention.argumentRegisters.get(X64_GPR) ?? [];
+  return registers.map((register) => [
+    x64RegisterName(register, 8),
+    x64RegisterName(register, 4),
+  ]);
+}
+
+function divideRoutine(symbol: string, abi: RuntimeAbi, remainder: boolean): string {
+  const [first, second] = integerArguments(abi);
+  const result = remainder ? ["\tmovl %edx, %eax"] : [];
+  return [
+    `\tmovl %${first![1]}, %eax`,
+    `\tmovl %${second![1]}, %r8d`,
+    "\ttestl %r8d, %r8d",
+    `\tje .L${symbol}_zero`,
+    "\tcmpl $-1, %r8d",
+    `\tjne .L${symbol}_divide`,
+    "\tcmpl $-2147483648, %eax",
+    `\tje .L${symbol}_zero`,
+    `.L${symbol}_divide:`,
+    "\tcltd",
+    "\tidivl %r8d",
+    ...result,
+    "\tret",
+    `.L${symbol}_zero:`,
+    "\txorl %eax, %eax",
+    "\tret",
+  ].join("\n");
+}
+
+function extremumRoutine(symbol: string, keepFirst: string): string {
+  return [
+    "\tucomisd %xmm1, %xmm0",
+    `\tjp .L${symbol}_nan`,
+    `\t${keepFirst} .L${symbol}_done`,
+    "\tmovapd %xmm1, %xmm0",
+    `.L${symbol}_done:`,
+    "\tret",
+    `.L${symbol}_nan:`,
+    "\tsubsd %xmm0, %xmm0",
+    "\tsubsd %xmm1, %xmm1",
+    "\taddsd %xmm1, %xmm0",
+    "\tret",
+  ].join("\n");
+}
+
+function toInt32Routine(symbol: string): string {
+  return [
+    "\tcvttsd2si %xmm0, %rax",
+    "\tmovabsq $0x8000000000000000, %rdx",
+    "\tcmpq %rdx, %rax",
+    `\tjne .L${symbol}_done`,
+    "\tmovq %xmm0, %rdx",
+    "\tmovq %rdx, %rcx",
+    "\tshrq $52, %rcx",
+    "\tandl $2047, %ecx",
+    "\tsubl $1075, %ecx",
+    "\tcmpl $32, %ecx",
+    `\tjge .L${symbol}_zero`,
+    "\tmovabsq $0xfffffffffffff, %rax",
+    "\tandq %rdx, %rax",
+    "\tmovabsq $0x10000000000000, %r8",
+    "\torq %r8, %rax",
+    "\tshlq %cl, %rax",
+    "\ttestq %rdx, %rdx",
+    `\tjns .L${symbol}_done`,
+    "\tnegl %eax",
+    `.L${symbol}_done:`,
+    "\tret",
+    `.L${symbol}_zero:`,
+    "\txorl %eax, %eax",
+    "\tret",
+  ].join("\n");
+}
+
+function charCodeAtRoutine(symbol: string, abi: RuntimeAbi): string {
+  const [text, position] = integerArguments(abi);
+  return [
+    `\tmovl %${position![1]}, %eax`,
+    "\ttestl %eax, %eax",
+    `\tjs .L${symbol}_zero`,
+    "\tmovslq %eax, %rax",
+    `\tmovzbl (%${text![0]},%rax,1), %eax`,
+    "\tret",
+    `.L${symbol}_zero:`,
+    "\txorl %eax, %eax",
+    "\tret",
+  ].join("\n");
+}
+
+export function x64RuntimeRoutines(abi: RuntimeAbi): ReadonlyMap<string, NativeRuntimeRoutine> {
+  const routines: NativeRuntimeRoutine[] = [
+    { symbol: X64_RUNTIME_SYMBOLS.toInt32, text: toInt32Routine(X64_RUNTIME_SYMBOLS.toInt32) },
+    {
+      symbol: X64_RUNTIME_SYMBOLS.divide,
+      text: divideRoutine(X64_RUNTIME_SYMBOLS.divide, abi, false),
+    },
+    {
+      symbol: X64_RUNTIME_SYMBOLS.modulo,
+      text: divideRoutine(X64_RUNTIME_SYMBOLS.modulo, abi, true),
+    },
+    {
+      symbol: X64_RUNTIME_SYMBOLS.minimum,
+      text: extremumRoutine(X64_RUNTIME_SYMBOLS.minimum, "jb"),
+    },
+    {
+      symbol: X64_RUNTIME_SYMBOLS.maximum,
+      text: extremumRoutine(X64_RUNTIME_SYMBOLS.maximum, "ja"),
+    },
+    {
+      symbol: X64_RUNTIME_SYMBOLS.charCodeAt,
+      text: charCodeAtRoutine(X64_RUNTIME_SYMBOLS.charCodeAt, abi),
+    },
+  ];
+  return new Map(routines.map((routine) => [routine.symbol, routine]));
+}

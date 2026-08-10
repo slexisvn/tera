@@ -1,6 +1,12 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { CFGFunction } from "../ir/index.js";
+import {
+  IR_CALL_KNOWN_FUNCTION,
+  type CFGFunction,
+  type IRMetadataValue,
+} from "../ir/index.js";
+import type { DeclaredSignature } from "../types/signature.js";
+import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
 import type { AotBackend, LinkableFunction } from "../target/backend.js";
 import type { AotOutputFile } from "../target/artifact.js";
 import { isBackendLoweringError } from "../target/errors.js";
@@ -68,11 +74,49 @@ function dropUnresolvedCallers(
   return compiled.filter((fn) => !dropped.has(fn.emitted.symbol));
 }
 
+interface CallTarget {
+  readonly name?: unknown;
+  readonly declaredSignature?: DeclaredSignature | null;
+}
+
+function moduleSignatures(module: ModuleIR): Map<string, DeclaredSignature> {
+  const signatures = new Map<string, DeclaredSignature>();
+  for (const unit of module.units) {
+    const declared = unit.graph.declaredSignature;
+    if (declared !== null) signatures.set(unit.graph.name, declared);
+  }
+  return signatures;
+}
+
+function stampCalleeSignatures(
+  graph: CFGFunction,
+  signatures: ReadonlyMap<string, DeclaredSignature>,
+): number {
+  let resolved = 0;
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      if (node.type !== IR_CALL_KNOWN_FUNCTION) continue;
+      const target = node.props.target as CallTarget | undefined;
+      if (target === undefined || typeof target.name !== "string") continue;
+      if (target.declaredSignature !== undefined && target.declaredSignature !== null) {
+        continue;
+      }
+      const declared = signatures.get(target.name);
+      if (declared === undefined) continue;
+      const stamped: CallTarget = { ...target, declaredSignature: declared };
+      node.props.target = stamped as unknown as IRMetadataValue;
+      resolved++;
+    }
+  }
+  return resolved;
+}
+
 export function compileModule(
   module: ModuleIR,
   backend: AotBackend,
   options: AotDriverOptions = {},
 ): AotProgram {
+  const signatures = moduleSignatures(module);
   const moduleName = options.moduleName ?? DEFAULT_MODULE_NAME;
   const opts = options.compilerOptions ?? compilerOptions();
   const compiled: LinkableFunction[] = [];
@@ -89,6 +133,9 @@ export function compileModule(
         graph,
         backend.loweringPipeline(opts),
       );
+      if (stampCalleeSignatures(graph, signatures) > 0) {
+        analyses.invalidate(typeInferenceAnalysisId);
+      }
       emitted = backend.createEmitter(graph, analyses).emit();
     } catch (error) {
       if (!isBackendLoweringError(error)) throw error;

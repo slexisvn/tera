@@ -8,10 +8,23 @@ export type BackendArtifact =
       readonly sourcePreamble: string;
       readonly translationUnitPreamble: string;
     }
+  | {
+      readonly kind: "native";
+      readonly prototype: string;
+      readonly assembly: string;
+      readonly headerPreamble: string;
+      readonly runtimeSupport: readonly NativeRuntimeRoutine[];
+    }
   | { readonly kind: "llvm"; readonly module: string };
+
+export interface NativeRuntimeRoutine {
+  readonly symbol: string;
+  readonly text: string;
+}
 
 export interface EmittedFunction {
   readonly symbol: string;
+  readonly parameterCount: number;
   readonly references: readonly string[];
   readonly artifact: BackendArtifact;
 }

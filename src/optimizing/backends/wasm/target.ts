@@ -28,5 +28,6 @@ export const wasmTarget: TargetModel = {
   name: "wasm32",
   capabilities: capabilitySet("deopt", "osr", "tagged-values"),
   speculation: deoptToInterpreter,
+  abi: null,
   machineReprOf,
 };
