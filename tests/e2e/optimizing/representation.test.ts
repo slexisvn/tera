@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { differential, src, oracle as withoutJit, jit as withJit } from "./_tiers.js";
+import { differential, src, oracle as withoutJit, jit as withJit } from "../../helpers/tiers.js";
 
 const stepping = (body: string[], consume: string[], n: number) =>
   src(

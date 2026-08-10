@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { differential, src, tierUp } from "./_tiers.js";
+import { differential, src, tierUp } from "../../helpers/tiers.js";
 
 const driver = src(
   "fn driver(m):",

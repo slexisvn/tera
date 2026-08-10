@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { differential, src, jit as withJit, oracle as withoutJit } from "./_tiers.js";
+import { differential, src, jit as withJit, oracle as withoutJit } from "../../helpers/tiers.js";
 
 const called = (...body: string[]) =>
   src(

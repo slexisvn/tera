@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { cCompiler, itNative } from "../../../helpers/c-executor.js";
 import {
   CFGFunction,
   irConstant,
@@ -16,15 +17,6 @@ import { compileModule } from "../../../../src/optimizing/drivers/aot.js";
 import { cBackend } from "../../../../src/optimizing/backends/c/backend.js";
 
 beforeEach(() => resetIRNodeIds());
-
-function findCompiler(): string | null {
-  for (const candidate of ["cc", "gcc", "clang"]) {
-    if (!spawnSync(candidate, ["--version"], { stdio: "ignore" }).error) return candidate;
-  }
-  return null;
-}
-
-const compiler = findCompiler();
 
 function addOne(name: string): CFGFunction {
   const graph = new CFGFunction(name);
@@ -49,7 +41,7 @@ function callsAddOne(name: string, calleeName: string): CFGFunction {
   return graph;
 }
 
-function runNative(compilerPath: string, headerName: string, header: string, source: string, entry: string): number {
+function runNative(headerName: string, header: string, source: string, entry: string): number {
   const dir = mkdtempSync(join(tmpdir(), "tera-call-"));
   try {
     writeFileSync(join(dir, headerName), header);
@@ -59,7 +51,7 @@ function runNative(compilerPath: string, headerName: string, header: string, sou
       `#include <stdio.h>\n#include "${headerName}"\nint main(void){printf("%.17g\\n", ${entry}());return 0;}\n`,
     );
     const exe = join(dir, "prog.exe");
-    const build = spawnSync(compilerPath, [join(dir, "program.c"), join(dir, "main.c"), "-o", exe, "-lm"], {
+    const build = spawnSync(cCompiler!, [join(dir, "program.c"), join(dir, "main.c"), "-o", exe, "-lm"], {
       stdio: ["ignore", "pipe", "pipe"],
     });
     if (build.status !== 0) throw new Error(`compile failed: ${build.stderr}`);
@@ -96,11 +88,11 @@ describe("C backend function calls", () => {
     expect(program.skipped[0]!.reason).toContain("resolvable name");
   });
 
-  it.skipIf(!compiler)("links and runs the call natively", () => {
+  itNative("links and runs the call natively", () => {
     const program = compileModule(
       moduleFromGraphs([callsAddOne("use_add", "add_one"), addOne("add_one")], "calls"),
       cBackend,
     );
-    expect(runNative(compiler!, program.headerName, program.header, program.source, "use_add")).toBe(42);
+    expect(runNative(program.headerName, program.header, program.source, "use_add")).toBe(42);
   });
 });

@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Engine } from "../../../src/index.js";
-
-const src = (...lines: string[]) => lines.join("\n");
-
-const withJit = () => new Engine({ typecheck: "off" });
-const withoutJit = () =>
-  new Engine({
-    typecheck: "off",
-    osr: false,
-    tieringPolicy: { jitThreshold: 1e12, baselineThreshold: 1e12 },
-  });
+import type { Engine } from "../../../src/index.js";
+import { jit, oracle, production, src } from "../../helpers/tiers.js";
 
 type OsrEngine = Engine & {
   compileOsr(fn: { name?: string | null }, offset: number): unknown;
@@ -27,19 +18,13 @@ const tierUp = (body: string, name = "run") => {
     "  return t",
     "driver(300)",
   );
-  const engine = new Engine({
-    typecheck: "off",
-    osr: false,
-    tieringPolicy: { jitThreshold: 30, baselineThreshold: 3 },
-  });
-  const optimized = engine.runNative(source);
-  const interpreted = withoutJit().runNative(source);
-  expect(optimized).toEqual(interpreted);
+  const engine = jit();
+  expect(engine.runNative(source)).toEqual(oracle().runNative(source));
   return engine.collectFunctions().find((fn) => fn.name === name);
 };
 
 const differential = (source: string, name = "run") => {
-  const engine = withJit() as OsrEngine;
+  const engine = production() as OsrEngine;
   let osrCompiled = false;
   const original = engine.compileOsr.bind(engine);
   engine.compileOsr = (fn, offset) => {
@@ -48,8 +33,7 @@ const differential = (source: string, name = "run") => {
     return entry;
   };
   const optimized = engine.runNative(source);
-  const interpreted = withoutJit().runNative(source);
-  expect(optimized).toEqual(interpreted);
+  expect(optimized).toEqual(oracle().runNative(source));
   return { optimized, engine, osrCompiled };
 };
 

@@ -20,7 +20,7 @@ import {
 } from "../../../../src/optimizing/ir/index.js";
 import { link, connect, addPhi } from "../../../../src/optimizing/ir/cfg-edit.js";
 import { emitNumericFunction } from "../../../../src/optimizing/backends/c/emit.js";
-import { runCFunction } from "./c-executor.js";
+import { itNative, runCFunction } from "../../../helpers/c-executor.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -45,7 +45,7 @@ function returningConstant(name: string, value: number): CFGFunction {
 }
 
 describe("emitNumericFunction executable subset", () => {
-  it("executes float64 arithmetic over parameters", () => {
+  itNative("executes float64 arithmetic over parameters", () => {
     const graph = new CFGFunction("add_two");
     const p0 = graph.addParameter(0);
     const p1 = graph.addParameter(1);
@@ -57,7 +57,7 @@ describe("emitNumericFunction executable subset", () => {
     expect(run(graph, [3.25, 4.5])).toBe(7.75);
   });
 
-  it("executes constants and negation", () => {
+  itNative("executes constants and negation", () => {
     const graph = new CFGFunction("negate");
     const block = graph.addBlock();
     const value = irConstant(12.5);
@@ -94,7 +94,7 @@ describe("emitNumericFunction executable subset", () => {
     if (!numberResult.ok) expect(numberResult.reason).toContain("CheckNumber");
   });
 
-  it("uses defined int32 wraparound for integer arithmetic", () => {
+  itNative("uses defined int32 wraparound for integer arithmetic", () => {
     const add = new CFGFunction("wrap_add");
     const p0 = add.addParameter(0);
     const addBlock = add.addBlock();
@@ -120,7 +120,7 @@ describe("emitNumericFunction executable subset", () => {
 });
 
 describe("emitNumericFunction control flow", () => {
-  it("executes both arms of a branch", () => {
+  itNative("executes both arms of a branch", () => {
     const graph = new CFGFunction("pick_max");
     const p0 = graph.addParameter(0);
     const p1 = graph.addParameter(1);
@@ -139,7 +139,7 @@ describe("emitNumericFunction control flow", () => {
     expect(run(graph, [9, 3])).toBe(9);
   });
 
-  it("executes loop-carried block parameters through edge copies", () => {
+  itNative("executes loop-carried block parameters through edge copies", () => {
     const graph = new CFGFunction("countdown");
     const entry = graph.addBlock();
     const header = graph.addBlock();

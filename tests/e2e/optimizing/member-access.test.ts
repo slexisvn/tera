@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseline, differential, jit, oracle, osrEngine, src, type Tier } from "./_tiers.js";
+import { baseline, differential, jit, oracle, osrEngine, src, type Tier } from "../../helpers/tiers.js";
 
 const jitOsr: Tier[] = ["jit", "osr"];
 

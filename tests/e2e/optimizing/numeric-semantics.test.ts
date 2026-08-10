@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { differential, src, oracle as withoutJit, type Tier } from "./_tiers.js";
+import { differential, src, oracle as withoutJit, type Tier } from "../../helpers/tiers.js";
 
 const hotBody = (...body: string[]) =>
   src(

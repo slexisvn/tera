@@ -29,7 +29,8 @@
     "nb:build": "npm --prefix notebook run build",
     "nb:dev": "npm --prefix notebook run dev",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --project unit",
+    "test:e2e": "vitest run --project e2e",
     "postinstall": "patch-package"
   },
   "devDependencies": {

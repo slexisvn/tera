@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { differential, src, type Tier } from "./_tiers.js";
+import { differential, src, type Tier } from "../../helpers/tiers.js";
 
 describe("a promise returned by an async call survives a collection", () => {
   const gc = { allocationBudget: 8, youngGenSize: 16 };

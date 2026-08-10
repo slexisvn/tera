@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Engine } from "../../../src/index.js";
-
-const src = (...lines: string[]) => lines.join("\n");
-
-const withOsr = () => new Engine({ typecheck: "off" });
-const withoutOsr = () =>
-  new Engine({
-    typecheck: "off",
-    osr: false,
-    tieringPolicy: { jitThreshold: 1e12, baselineThreshold: 1e12 },
-  });
+import type { Engine } from "../../../src/index.js";
+import { differential, oracle, production, src } from "../../helpers/tiers.js";
 
 type CompiledLike = { name?: string | null; osrCache?: Map<number, unknown> };
 
@@ -21,17 +12,11 @@ function osrCompiled(engine: Engine, name: string): boolean {
   return false;
 }
 
-const differential = (source: string) => {
-  const optimized = withOsr().runNative(source);
-  const interpreted = withoutOsr().runNative(source);
-  expect(optimized).toEqual(interpreted);
-  return optimized;
-};
+const againstOracle = (source: string) => differential(source, { tiers: ["production"] });
 
 describe("on-stack replacement", () => {
   it("compiles and enters a hot loop on a single call", () => {
-    const engine = withOsr();
-    const value = engine.runNative(src(
+    const source = src(
       "fn hot(n):",
       "  acc = 0",
       "  i = 0",
@@ -40,23 +25,16 @@ describe("on-stack replacement", () => {
       "    i += 1",
       "  return acc",
       "hot(50000)",
-    ));
+    );
+    const engine = production();
+
+    expect(engine.runNative(source)).toEqual(oracle().runNative(source));
     expect(osrCompiled(engine, "hot")).toBe(true);
     expect(engine.getStats().tracerStats.jit_osr ?? 0).toBeGreaterThan(0);
-    expect(value).toEqual(withoutOsr().runNative(src(
-      "fn hot(n):",
-      "  acc = 0",
-      "  i = 0",
-      "  while i < n:",
-      "    acc = (acc + i * 3 + (i % 7)) % 1000000007",
-      "    i += 1",
-      "  return acc",
-      "hot(50000)",
-    )));
   });
 
   it("preserves semantics for float loops", () => {
-    differential(src(
+    againstOracle(src(
       "fn f(n):",
       "  x = 1.0",
       "  i = 0",
@@ -69,7 +47,7 @@ describe("on-stack replacement", () => {
   });
 
   it("preserves global side effects performed inside the loop", () => {
-    expect(differential(src(
+    expect(againstOracle(src(
       "total = 0",
       "fn run(n):",
       "  i = 0",
@@ -82,7 +60,7 @@ describe("on-stack replacement", () => {
   });
 
   it("runs post-loop code and returns through the optimized entry", () => {
-    differential(src(
+    againstOracle(src(
       "fn run(n):",
       "  acc = 0",
       "  i = 0",
@@ -95,7 +73,7 @@ describe("on-stack replacement", () => {
   });
 
   it("deoptimizes correctly when an int loop value overflows to double", () => {
-    differential(src(
+    againstOracle(src(
       "fn run(n):",
       "  s = 0",
       "  i = 0",
@@ -108,7 +86,7 @@ describe("on-stack replacement", () => {
   });
 
   it("handles branches, nested loops, calls, and early returns", () => {
-    differential(src(
+    againstOracle(src(
       "fn run(n):",
       "  s = 0",
       "  i = 0",
@@ -121,7 +99,7 @@ describe("on-stack replacement", () => {
       "  return s",
       "run(50000)",
     ));
-    differential(src(
+    againstOracle(src(
       "fn run(n):",
       "  s = 0",
       "  i = 0",
@@ -134,7 +112,7 @@ describe("on-stack replacement", () => {
       "  return s",
       "run(20000)",
     ));
-    differential(src(
+    againstOracle(src(
       "fn step(a, b):",
       "  return (a + b) % 1000003",
       "fn run(n):",
@@ -146,7 +124,7 @@ describe("on-stack replacement", () => {
       "  return acc",
       "run(50000)",
     ));
-    differential(src(
+    againstOracle(src(
       "fn run(n):",
       "  i = 0",
       "  while i < n:",
@@ -159,7 +137,7 @@ describe("on-stack replacement", () => {
   });
 
   it("does not disturb loops that never reach the OSR budget", () => {
-    const engine = withOsr();
+    const engine = production();
     const value = engine.runNative(src(
       "fn small(n):",
       "  acc = 0",

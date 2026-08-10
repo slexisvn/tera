@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "../../../src/index.js";
-import { differential, src } from "./_tiers.js";
-import { runCFunction } from "../../optimizing/backends/c/c-executor.js";
+import { differential, src } from "../../helpers/tiers.js";
+import { itNative, runCFunction } from "../../helpers/c-executor.js";
 
 const INT32_MIN = -2147483648;
 const INT32_MAX = 2147483647;
@@ -39,14 +39,14 @@ function everyTier(expression: string, a: number, b: number): unknown {
 }
 
 describe("declared int semantics across tiers", () => {
-  it("agrees on arithmetic that stays inside int32", () => {
+  itNative("agrees on arithmetic that stays inside int32", () => {
     expect(everyTier("a + b", 3, 4)).toBe(7);
     expect(everyTier("a - b", 3, 4)).toBe(-1);
     expect(everyTier("a * b", 100000, 20000)).toBe(2000000000);
     expect(everyTier("a % b", 17, 5)).toBe(2);
   });
 
-  it("agrees on bit operations at the 32-bit boundary", () => {
+  itNative("agrees on bit operations at the 32-bit boundary", () => {
     expect(everyTier("a << b", 1, 31)).toBe(INT32_MIN);
     expect(everyTier("a >> b", INT32_MIN, 31)).toBe(-1);
     expect(everyTier("a | b", INT32_MIN, 0)).toBe(INT32_MIN);
@@ -54,13 +54,13 @@ describe("declared int semantics across tiers", () => {
     expect(everyTier("a ^ b", INT32_MAX, INT32_MIN)).toBe(-1);
   });
 
-  it.fails("agrees on arithmetic that overflows int32", () => {
+  itNative.fails("agrees on arithmetic that overflows int32", () => {
     everyTier("a + b", 1073741824, 1073741824);
     everyTier("a - b", INT32_MIN, 1);
     everyTier("a * b", 65536, 65536);
   });
 
-  it("wraps overflowing declared int arithmetic in compiled code", () => {
+  itNative("wraps overflowing declared int arithmetic in compiled code", () => {
     expect(native("a + b", 1073741824, 1073741824)).toBe(INT32_MIN);
     expect(native("a - b", INT32_MIN, 1)).toBe(INT32_MAX);
     expect(native("a * b", 65536, 65536)).toBe(0);

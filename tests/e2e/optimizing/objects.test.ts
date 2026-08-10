@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { IR_GENERIC_DELETE_PROP } from "../../../src/optimizing/ir/index.js";
-import { differential, src, baseline as baselineEngine, oracle as withoutJit, jit as withJit } from "./_tiers.js";
+import { differential, src, baseline as baselineEngine, oracle as withoutJit, jit as withJit } from "../../helpers/tiers.js";
 
 const driver = src(
   "fn driver(m):",
