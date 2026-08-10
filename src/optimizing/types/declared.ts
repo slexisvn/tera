@@ -9,6 +9,7 @@ import {
   type TypeEnv,
 } from "../../frontend/checker/type-system.js";
 import { elementsKindFor } from "./elements.js";
+import type { DeclaredSignature } from "./signature.js";
 import {
   anyType,
   arrayType,
@@ -93,7 +94,7 @@ export function latticeFromDeclaredType(
   return result;
 }
 
-export type { DeclaredSignature } from "./signature.js";
+export type { DeclaredSignature };
 
 const CHECKER_NAME_BY_KIND = new Map<string, string>([
   [TypeKind.String, "string"],
@@ -107,6 +108,29 @@ const CHECKER_NAME_BY_KIND = new Map<string, string>([
 export interface BuiltinMemberType {
   readonly type: LatticeType;
   readonly getter: boolean;
+  readonly signature: DeclaredSignature;
+}
+
+export function builtinOwnerName(receiver: LatticeType): string | null {
+  return CHECKER_NAME_BY_KIND.get(receiver.kind) ?? null;
+}
+
+export function builtinOwnerMember(
+  owner: string,
+  name: string,
+  env: TypeEnv = builtinTypeEnv(),
+): BuiltinMemberType | null {
+  const member = builtinMethod(owner, name, env);
+  if (member === null) return null;
+  const { params, positional } = member.signature;
+  return {
+    type: latticeFromDeclaredType(member.returns, env),
+    getter: member.getter,
+    signature: {
+      params: positional.map((param) => params.get(param)?.type ?? null),
+      returns: member.returns,
+    },
+  };
 }
 
 export function builtinMemberType(
@@ -114,12 +138,6 @@ export function builtinMemberType(
   name: string,
   env: TypeEnv = builtinTypeEnv(),
 ): BuiltinMemberType | null {
-  const typeName = CHECKER_NAME_BY_KIND.get(receiver.kind);
-  if (typeName === undefined) return null;
-  const member = builtinMethod(typeName, name, env);
-  if (member === null) return null;
-  return {
-    type: latticeFromDeclaredType(member.returns, env),
-    getter: member.getter,
-  };
+  const owner = builtinOwnerName(receiver);
+  return owner === null ? null : builtinOwnerMember(owner, name, env);
 }

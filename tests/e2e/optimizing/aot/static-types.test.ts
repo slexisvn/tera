@@ -105,6 +105,60 @@ describe("AOT static typing", () => {
     expect(runCFunction(program.source, "first_code", ["Hi"])).toBe("H".charCodeAt(0) + 2);
   });
 
+  it("lowers a declared string method to a named runtime helper", () => {
+    const program = compile(`fn code_at(s: string, i: int) -> int:\n  return s.char_code_at(i)\n`);
+
+    expect(program.skipped).toEqual([]);
+    expect(program.source).toContain("tera_string_char_code_at(const char *value, int32_t index)");
+    expect(program.source).toContain("= tera_string_char_code_at(p0, p1);");
+  });
+
+  itNative("reads every code unit of a string in a loop", () => {
+    const program = compile(
+      `fn checksum(s: string) -> int:\n  acc = 0\n  i = 0\n  while i < s.length:\n    acc = acc + s.char_code_at(i)\n    i = i + 1\n  return acc\n`,
+    );
+
+    expect(program.skipped).toEqual([]);
+    expect(runCFunction(program.source, "checksum", ["tera"])).toBe(
+      [..."tera"].reduce((acc, ch) => acc + ch.charCodeAt(0), 0),
+    );
+  });
+
+  it("lowers a string length getter to a named runtime helper", () => {
+    const program = compile(`fn size(s: string) -> int:\n  return s.length\n`);
+
+    expect(program.skipped).toEqual([]);
+    expect(program.source).toContain("tera_string_length(const char *value)");
+    expect(program.source).toContain("= tera_string_length(p0);");
+  });
+
+  it("measures a loop-invariant length before the loop rather than inside it", () => {
+    const program = compile(
+      `fn checksum(s: string) -> int:\n  acc = 0\n  i = 0\n  while i < s.length:\n    acc = acc + s.char_code_at(i)\n    i = i + 1\n  return acc\n`,
+    );
+    const body = program.source.slice(program.source.indexOf("int32_t checksum"));
+
+    expect(program.skipped).toEqual([]);
+    expect(body.split("tera_string_length(p0)")).toHaveLength(2);
+    expect(body.indexOf("tera_string_length(p0)")).toBeLessThan(body.indexOf("L1:"));
+  });
+
+  itNative("returns zero for a negative index", () => {
+    const program = compile(`fn code_at(s: string, i: int) -> int:\n  return s.char_code_at(i)\n`);
+
+    expect(program.skipped).toEqual([]);
+    expect(runCFunction(program.source, "code_at", ["Hi", -1])).toBe(0);
+  });
+
+  it("declines a builtin method call on a receiver that is not declared", () => {
+    const program = compile(`fn code_at(s, i):\n  return s.char_code_at(i)\n`);
+
+    expect(program.compiled).toEqual([]);
+    expect(program.skipped.map((fn) => fn.reason)).toContain(
+      "C backend cannot emit: unsupported property char_code_at",
+    );
+  });
+
   itNative("uses float division for the int division operator", () => {
     const program = compile(`fn ratio(a: int, b: int) -> float:\n  return a / b\n`);
 

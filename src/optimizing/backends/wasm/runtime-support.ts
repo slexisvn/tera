@@ -58,6 +58,11 @@ import {
   runtimeHasProperty as proxyRuntimeHasProperty,
 } from "../../../objects/exotic/proxy-ops.js";
 import { getRegexProperty } from "../../../runtime/intrinsics/regex-methods.js";
+import { builtinMethodImplementation } from "../../../runtime/intrinsics/builtin-methods.js";
+import {
+  builtinMethodIntrinsicByName,
+  type BuiltinMethodIntrinsic,
+} from "../../metadata/builtin-methods.js";
 import { createJSObject, createJSArray } from "../../../objects/heap/factory.js";
 import { getHiddenClassById } from "../../../objects/maps/hidden-class.js";
 import {
@@ -255,6 +260,18 @@ function taggedInt32Result(value: number) {
 
 function taggedNumericResult(value: number) {
   return mkNumber(value);
+}
+
+function runtimeTaggedResult(
+  value: TaggedValue,
+  runtime: RuntimeLike,
+  outputRep: string,
+) {
+  const numeric =
+    outputRep === REP_INT32 ||
+    outputRep === REP_FLOAT64 ||
+    outputRep === REP_TAGGED_NUMBER;
+  return runtimeReturn(numeric ? taggedToNumber(value) : value, runtime, outputRep);
 }
 
 function runtimeInt32Result(value: number, runtime: RuntimeLike, outputRep: string) {
@@ -484,6 +501,31 @@ function setRuntimeIndex(
   const key = isString(index) ? getPayload(index) : toDisplayString(index);
   proxyRuntimeSetProperty(obj, key, value, interpreter);
   return value;
+}
+
+function callBuiltinMethod(
+  intrinsic: BuiltinMethodIntrinsic,
+  args: TaggedValue[],
+  runtime: RuntimeLike,
+  compiledFn: RegisterCompiledFunction,
+  frameStateId: number,
+  frameStates: FrameState[],
+): TaggedValue {
+  const receiver = args[0] ?? mkUndefined();
+  const member = () => getRuntimeProperty(receiver, intrinsic.name, runtime.interpreter);
+  if (intrinsic.getter) return member();
+  const callArgs = args.slice(1);
+  const method = builtinMethodImplementation(intrinsic.owner, intrinsic.name, receiver);
+  if (method?.call) return method.call(callArgs, receiver, runtime.interpreter);
+  return executeRuntimeCall(
+    member(),
+    callArgs,
+    receiver,
+    runtime,
+    compiledFn,
+    frameStateId,
+    frameStates,
+  );
 }
 
 function executeRuntimeCall(
@@ -882,18 +924,7 @@ export function executeRuntimeStub(
       for (let i = 1; i < node.inputs.length; i++) {
         runtime.syncTagged?.(rawArgs[i]);
       }
-      if (
-        stub.outputRep === REP_INT32 ||
-        stub.outputRep === REP_FLOAT64 ||
-        stub.outputRep === REP_TAGGED_NUMBER
-      ) {
-        return runtimeReturn(taggedToNumber(result), runtime, stub.outputRep);
-      }
-      return runtimeReturn(
-        result,
-        runtime,
-        stub.outputRep,
-      );
+      return runtimeTaggedResult(result, runtime, stub.outputRep);
     }
     case ir.IR_TYPEOF:
       return runtimeReturn(mkString(typeOf(args[0])), runtime, stub.outputRep);
@@ -922,6 +953,21 @@ export function executeRuntimeStub(
     case ir.IR_CALL_BUILTIN: {
       const builtinName = propNameFromMetadata(node.props.name);
       const builtinArgs = args.slice(0, numberFromMetadata(node.props.argCount));
+      const method = builtinMethodIntrinsicByName(builtinName);
+      if (method !== null) {
+        return runtimeTaggedResult(
+          callBuiltinMethod(
+            method,
+            builtinArgs,
+            runtime,
+            compiledFn,
+            frameStateId,
+            frameStates,
+          ),
+          runtime,
+          stub.outputRep,
+        );
+      }
       if (runtime.interpreter && runtime.interpreter.callBuiltin) {
         return runtimeReturn(
           runtime.interpreter.callBuiltin(builtinName, builtinArgs),

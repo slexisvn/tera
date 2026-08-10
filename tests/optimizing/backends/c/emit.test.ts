@@ -4,6 +4,7 @@ import {
   CFGInstruction,
   IR_NEW_OBJECT,
   irBranch,
+  irCallBuiltin,
   irConstant,
   irCheckNumber,
   irCheckSmi,
@@ -20,6 +21,11 @@ import {
 } from "../../../../src/optimizing/ir/index.js";
 import { link, connect, addPhi } from "../../../../src/optimizing/ir/cfg-edit.js";
 import { emitNumericFunction } from "../../../../src/optimizing/backends/c/emit.js";
+import {
+  builtinMethodCallMetadata,
+  builtinMethodIntrinsicByName,
+  qualifiedMethodName,
+} from "../../../../src/optimizing/metadata/builtin-methods.js";
 import { itNative, runCFunction } from "../../../helpers/c-executor.js";
 
 beforeEach(() => resetIRNodeIds());
@@ -230,5 +236,106 @@ describe("emitNumericFunction bail conditions", () => {
     graph.addBlock();
     graph.bailout = "prior failure";
     expect(expectBail(graph)).toContain("bailed");
+  });
+});
+
+describe("emitNumericFunction builtin methods", () => {
+  const charCodeAt = builtinMethodIntrinsicByName(
+    qualifiedMethodName("string", "char_code_at"),
+  )!;
+
+  function codeAtGraph(name: string, builtinName = charCodeAt.qualifiedName): CFGFunction {
+    const graph = new CFGFunction(name);
+    graph.declaredSignature = { params: ["string", "int"], returns: "int" };
+    const receiver = graph.addParameter(0);
+    const index = graph.addParameter(1);
+    const block = graph.addBlock();
+    const call = irCallBuiltin(
+      builtinName,
+      [receiver, index],
+      builtinMethodCallMetadata(charCodeAt),
+    );
+    block.addNode(call);
+    block.addNode(irReturn(call));
+    return graph;
+  }
+
+  it("calls a named helper instead of inlining the access", () => {
+    const result = compile(codeAtGraph("code_at"));
+
+    expect(result.source).toContain("= tera_string_char_code_at(p0, p1);");
+    expect(result.source).not.toContain("(unsigned char)p0[");
+  });
+
+  it("defines the helper in the translation unit preamble", () => {
+    const result = compile(codeAtGraph("code_at"));
+
+    expect(result.translationUnitPreamble).toContain(
+      "static inline int32_t tera_string_char_code_at(const char *value, int32_t index)",
+    );
+  });
+
+  it("takes the parameter types from the declared signature", () => {
+    const result = compile(codeAtGraph("code_at"));
+
+    expect(result.prototype).toContain("int32_t code_at(const char *p0, int32_t p1)");
+  });
+
+  it("bails on a builtin the backend has no helper for", () => {
+    const result = emitNumericFunction(codeAtGraph("unknown", "string.trim"));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("unsupported builtin string.trim");
+  });
+
+  it("bails on a builtin whose receiver is not a string", () => {
+    const graph = new CFGFunction("numeric_receiver");
+    graph.declaredSignature = { params: ["int", "int"], returns: "int" };
+    const receiver = graph.addParameter(0);
+    const index = graph.addParameter(1);
+    const block = graph.addBlock();
+    const call = irCallBuiltin(
+      charCodeAt.qualifiedName,
+      [receiver, index],
+      builtinMethodCallMetadata(charCodeAt),
+    );
+    block.addNode(call);
+    block.addNode(irReturn(call));
+
+    const result = emitNumericFunction(graph);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("unsupported argument type");
+  });
+
+  it("emits a getter as a one-argument helper call", () => {
+    const length = builtinMethodIntrinsicByName(qualifiedMethodName("string", "length"))!;
+    const graph = new CFGFunction("size");
+    graph.declaredSignature = { params: ["string"], returns: "int" };
+    const receiver = graph.addParameter(0);
+    const block = graph.addBlock();
+    const call = irCallBuiltin(
+      length.qualifiedName,
+      [receiver],
+      builtinMethodCallMetadata(length),
+    );
+    block.addNode(call);
+    block.addNode(irReturn(call));
+
+    const result = compile(graph);
+    expect(result.source).toContain("= tera_string_length(p0);");
+    expect(result.source).not.toContain("strlen(p0)");
+  });
+
+  itNative("reads the code unit at an index", () => {
+    const source = compile(codeAtGraph("code_at")).source;
+
+    expect(runCFunction(source, "code_at", ["Hi", 0])).toBe("H".charCodeAt(0));
+    expect(runCFunction(source, "code_at", ["Hi", 1])).toBe("i".charCodeAt(0));
+  });
+
+  itNative("returns zero for a negative index", () => {
+    const source = compile(codeAtGraph("code_at")).source;
+
+    expect(runCFunction(source, "code_at", ["Hi", -1])).toBe(0);
   });
 });

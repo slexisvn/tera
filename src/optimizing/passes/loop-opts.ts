@@ -6,6 +6,13 @@ import { visitFrameStateValues } from "../ir/frame-state-values.js";
 import { metadataNumber } from "../ir/metadata.js";
 import type { DominatorTree } from "../analyses/dominance.js";
 import type { LoopForest } from "../analyses/loops.js";
+import type { ModRef } from "../analyses/mod-ref.js";
+import type { PointsToResult } from "../analyses/points-to.js";
+import {
+  locationsMayAlias,
+  memoryLocationOf,
+  type MemoryLocation,
+} from "../analyses/heap-model.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
 
 type LoopNode = ir.CFGInstruction;
@@ -18,37 +25,85 @@ function nodeFromIr(value: ir.CFGInstruction): LoopNode {
   return value;
 }
 
-const GLOBAL_REASSIGN_HAZARDS = new Set<string>([
-  ir.IR_GENERIC_CALL,
-  ir.IR_MAKE_CLOSURE,
-  ir.IR_STORE_CONTEXT_SLOT,
-  ir.IR_CALL_KNOWN_FUNCTION,
-  ir.IR_CALL_BUILTIN,
-  ir.IR_CALL_INTRINSIC,
-  ir.IR_GENERIC_GET_PROP,
-  ir.IR_GENERIC_SET_PROP,
-  ir.IR_GENERIC_DELETE_PROP,
-  ir.IR_GENERIC_GET_INDEX,
-  ir.IR_GENERIC_SET_INDEX,
-  ir.IR_DISPATCH_MAP,
-  ir.IR_MEGAMORPHIC_LOAD,
-  ir.IR_MEGAMORPHIC_STORE,
+const SIDE_EFFECT_FREE = new Set<ir.EffectKind>([
+  ir.EFFECT_NONE,
+  ir.EFFECT_READ,
+  ir.EFFECT_GUARD,
 ]);
 
-const LICM_HOISTABLE_NODES = new Set([
-  ir.IR_CHECK_MAP,
-  ir.IR_CHECK_SMI,
-  ir.IR_CHECK_NUMBER,
-  ir.IR_LOAD_FIELD,
-  ir.IR_LOAD_GLOBAL,
-  ir.IR_CONSTANT,
+const MEMORY_READING = new Set<ir.EffectKind>([ir.EFFECT_READ, ir.EFFECT_GUARD]);
+
+const PINNED_TO_BLOCK = new Set<string>([
+  ir.IR_PHI,
+  ir.IR_PARAMETER,
+  ir.IR_LOAD_LOCAL,
 ]);
+
+type LoopMemory = {
+  readonly clobbersEverything: boolean;
+  readonly locations: readonly MemoryLocation[];
+  readonly keys: ReadonlySet<string>;
+};
+
+function loopMemoryEffects(
+  blocks: Iterable<LoopBlock>,
+  pointsTo: PointsToResult,
+  modRef: ModRef,
+): LoopMemory {
+  const locations: MemoryLocation[] = [];
+  const keys = new Set<string>();
+  let clobbersEverything = false;
+
+  for (const block of blocks) {
+    for (const node of block.nodes) {
+      if (modRef.killsEverything(node)) {
+        clobbersEverything = true;
+        continue;
+      }
+      if (node.effectKind === ir.EFFECT_WRITE) {
+        const location = memoryLocationOf(node, pointsTo);
+        if (location === null) clobbersEverything = true;
+        else locations.push(location);
+      }
+      for (const key of modRef.gmod(node)) keys.add(key);
+    }
+  }
+
+  return { clobbersEverything, locations, keys };
+}
+
+function isSideEffectFree(node: LoopNode): boolean {
+  return (
+    !PINNED_TO_BLOCK.has(node.type) &&
+    SIDE_EFFECT_FREE.has(node.effectKind) &&
+    node.frameState === null
+  );
+}
+
+function readsLoopWrites(
+  node: LoopNode,
+  memory: LoopMemory,
+  pointsTo: PointsToResult,
+): boolean {
+  if (node.props.pure === true) return false;
+  if (!MEMORY_READING.has(node.effectKind)) return false;
+  if (memory.clobbersEverything) return true;
+  if (memory.locations.length === 0 && memory.keys.size === 0) return false;
+  const location = memoryLocationOf(node, pointsTo);
+  if (location === null) return true;
+  if (memory.keys.has(location.key)) return true;
+  return memory.locations.some((written) =>
+    locationsMayAlias(written, location, pointsTo),
+  );
+}
 
 const MAX_PEEL_NODES = 80;
 
 export function hoistLoopInvariants(
   graph: LoopGraph,
   forest: LoopForest,
+  pointsTo: PointsToResult,
+  modRef: ModRef,
 ): number {
   const loops = [...forest.loops()].reverse();
   if (loops.length === 0) return 0;
@@ -60,40 +115,9 @@ export function hoistLoopInvariants(
     const header = loop.header;
     const bodyBlocks = loop.blocks;
 
-    const storeTargets = new Map<number, Set<ir.IRMetadataValue>>();
-    const storedGlobals = new Set<string>();
-    let loopHasGlobalHazard = false;
-    for (const b of bodyBlocks) {
-      for (const n of b.nodes) {
-        if (n.type === ir.IR_STORE_FIELD && n.inputs[0]) {
-          const objId = n.inputs[0].id;
-          const offset = n.props && n.props.offset;
-          if (!storeTargets.has(objId)) storeTargets.set(objId, new Set());
-          storeTargets.get(objId)!.add(offset);
-        }
-        if (n.type === ir.IR_STORE_GLOBAL) {
-          storedGlobals.add(String(n.props.name));
-        }
-        if (GLOBAL_REASSIGN_HAZARDS.has(n.type)) {
-          loopHasGlobalHazard = true;
-        }
-      }
-    }
-
-    const loadAliasesStore = (loadNode: LoopNode): boolean => {
-      const objId = loadNode.inputs[0] && loadNode.inputs[0].id;
-      const offset = loadNode.props && loadNode.props.offset;
-      if (objId === undefined) return true;
-      const stored = storeTargets.get(objId);
-      if (stored && stored.has(offset)) return true;
-      if (storeTargets.size > 0) {
-        for (const [storeObjId, offsets] of storeTargets) {
-          if (storeObjId === objId) continue;
-          if (offsets.has(offset)) return true;
-        }
-      }
-      return false;
-    };
+    const memory = loopMemoryEffects(bodyBlocks, pointsTo, modRef);
+    const isHoistable = (node: LoopNode): boolean =>
+      isSideEffectFree(node) && !readsLoopWrites(node, memory, pointsTo);
 
     const isDefinedOutsideLoop = (node: LoopNode): boolean => {
       if (node.type === ir.IR_PARAMETER || node.type === ir.IR_CONSTANT) return true;
@@ -108,14 +132,7 @@ export function hoistLoopInvariants(
 
     for (const block of bodyBlocks) {
       for (const node of block.nodes) {
-        if (!LICM_HOISTABLE_NODES.has(node.type)) continue;
-        if (node.frameState) continue;
-        if (node.type === ir.IR_LOAD_FIELD && loadAliasesStore(node)) continue;
-        if (node.type === ir.IR_LOAD_GLOBAL) {
-          if (loopHasGlobalHazard) continue;
-          if (storedGlobals.has(String(node.props.name))) continue;
-        }
-        candidates.push({ node, block });
+        if (isHoistable(node)) candidates.push({ node, block });
       }
     }
 
@@ -127,20 +144,15 @@ export function hoistLoopInvariants(
       const allInputsOutside = node.inputs.every(
         (inp) => isDefinedOutsideLoop(inp) || alreadyInvariant.has(inp.id),
       );
+      if (!allInputsOutside) continue;
 
-      if (allInputsOutside) {
-        invariantNodes.push({ node, block });
-        alreadyInvariant.add(node.id);
-        for (const use of node.uses) {
-          const useBlock = nodeToBlock.get(use.id);
-          if (!alreadyInvariant.has(use.id) && useBlock && forest.contains(loop, useBlock)) {
-            if (useBlock && LICM_HOISTABLE_NODES.has(use.type) && !use.frameState) {
-              if (use.type !== ir.IR_LOAD_FIELD || !loadAliasesStore(use)) {
-                worklist.push({ node: use, block: useBlock });
-              }
-            }
-          }
-        }
+      invariantNodes.push({ node, block });
+      alreadyInvariant.add(node.id);
+      for (const use of node.uses) {
+        if (alreadyInvariant.has(use.id)) continue;
+        const useBlock = nodeToBlock.get(use.id);
+        if (!useBlock || !forest.contains(loop, useBlock)) continue;
+        if (isHoistable(use)) worklist.push({ node: use, block: useBlock });
       }
     }
 

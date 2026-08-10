@@ -2,26 +2,15 @@ import * as ir from "../ir/index.js";
 import { type ModRef } from "../analyses/mod-ref.js";
 import { type PointsToResult } from "../analyses/points-to.js";
 import {
-  fieldOf,
-  fieldsOverlap,
-  locationKey,
-  partitionKey,
-  type Field,
-  type Partition,
+  locationsMayAlias,
+  memoryLocationOf,
+  type MemoryLocation,
 } from "../analyses/heap-model.js";
 import { runSnapshotDataflow } from "../infra/snapshot-dataflow.js";
 import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
 
 type LoadNode = ir.CFGInstruction;
 type LoadGraph = ir.CFGFunction;
-
-type MemoryLocation = {
-  readonly key: string;
-  readonly baseKey: string;
-  readonly base: LoadNode | null;
-  readonly partition: Partition;
-  readonly field: Field;
-};
 
 type MemoryEntry = MemoryLocation & {
   readonly value: LoadNode;
@@ -83,7 +72,7 @@ function rewriteBlock(
 
   for (const node of block.nodes) {
     if (LOADS.has(node.type)) {
-      const location = memoryLocation(node, pointsTo);
+      const location = memoryLocationOf(node, pointsTo);
       const existing = location ? state.byLocation.get(location.key) : undefined;
       if (existing && existing.value !== node) {
         replaceValueUses(graph, node, existing.value);
@@ -109,12 +98,12 @@ function transferNode(
   modRef: ModRef,
 ): void {
   if (LOADS.has(node.type)) {
-    const location = memoryLocation(node, pointsTo);
+    const location = memoryLocationOf(node, pointsTo);
     if (location && !state.byLocation.has(location.key)) addLocation(state, location, node, pointsTo);
     return;
   }
   if (STORES.has(node.type)) {
-    const location = memoryLocation(node, pointsTo);
+    const location = memoryLocationOf(node, pointsTo);
     const value = storeValue(node);
     if (location && value) {
       killAliases(state, location, pointsTo);
@@ -123,7 +112,7 @@ function transferNode(
     return;
   }
   if (GENERIC_BASE_ACCESSES.has(node.type)) {
-    const location = memoryLocation(node, pointsTo);
+    const location = memoryLocationOf(node, pointsTo);
     if (location) killAliases(state, location, pointsTo);
   }
   if (modRef.killsEverything(node)) {
@@ -133,36 +122,6 @@ function transferNode(
   for (const key of modRef.gmod(node)) removeLocation(state, key);
 }
 
-function memoryLocation(
-  node: LoadNode,
-  pointsTo: PointsToResult,
-): MemoryLocation | null {
-  if (node.type === ir.IR_LOAD_GLOBAL || node.type === ir.IR_STORE_GLOBAL) {
-    if (typeof node.props.name !== "string") return null;
-    const partition: Partition = { kind: "global", name: node.props.name };
-    const field: Field = { kind: "anyIndex" };
-    const baseKey = partitionKey(partition);
-    return {
-      key: locationKey(partition, field),
-      baseKey,
-      base: null,
-      partition,
-      field,
-    };
-  }
-  const base = node.inputs[0];
-  const field = fieldOf(node);
-  if (!base || !field) return null;
-  const partition = pointsTo.partitionOf(base);
-  const baseKey = partitionKey(partition);
-  return {
-    key: locationKey(partition, field),
-    baseKey,
-    base,
-    partition,
-    field,
-  };
-}
 
 function storeValue(node: LoadNode): LoadNode | null {
   if (node.type === ir.IR_STORE_FIELD) return node.inputs[1] ?? null;
@@ -183,7 +142,6 @@ function killAliases(
     for (const key of [...keys]) {
       const entry = state.byLocation.get(key);
       if (!entry) continue;
-      if (!fieldsOverlap(entry.field, location.field)) continue;
       if (!locationsMayAlias(entry, location, pointsTo)) continue;
       removeLocation(state, key);
     }
@@ -201,14 +159,6 @@ function candidateBaseKeys(
   return new Set([...state.visibleBaseKeys, location.baseKey]);
 }
 
-function locationsMayAlias(
-  left: MemoryLocation,
-  right: MemoryLocation,
-  pointsTo: PointsToResult,
-): boolean {
-  if (left.base === null || right.base === null) return left.baseKey === right.baseKey;
-  return pointsTo.mayAlias(left.base, right.base);
-}
 
 function addLocation(
   state: MemoryState,

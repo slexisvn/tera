@@ -37,6 +37,7 @@ import {
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
   IR_GENERIC_CALL,
+  IR_CALL_BUILTIN,
   IR_LOAD_GLOBAL,
 } from "../../ir/index.js";
 import { buildDispatch } from "../../infra/dispatch.js";
@@ -47,6 +48,10 @@ import {
   type TypeInference,
 } from "../../analyses/type-inference.js";
 import { latticeFromDeclaredType } from "../../types/declared.js";
+import {
+  builtinMethodIntrinsicByName,
+  qualifiedMethodName,
+} from "../../metadata/builtin-methods.js";
 import { joinTypes, TypeKind, type LatticeType } from "../../types/lattice.js";
 import {
   cElementType,
@@ -105,7 +110,33 @@ static inline int32_t tera_to_i32(double value) {
   if (wrapped >= 2147483648.0) wrapped -= 4294967296.0;
   return (int32_t)wrapped;
 }`;
-export const C_SOURCE_PREAMBLE = `${C_HEADER_PREAMBLE}\n\n${C_RUNTIME_SUPPORT}`;
+
+const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
+  [
+    qualifiedMethodName("string", "char_code_at"),
+    {
+      helper: "tera_string_char_code_at",
+      definition: `static inline int32_t tera_string_char_code_at(const char *value, int32_t index) {
+  return index < 0 ? 0 : (int32_t)(unsigned char)value[index];
+}`,
+    },
+  ],
+  [
+    qualifiedMethodName("string", "length"),
+    {
+      helper: "tera_string_length",
+      definition: `static inline int32_t tera_string_length(const char *value) {
+  return (int32_t)strlen(value);
+}`,
+    },
+  ],
+]);
+
+const C_BUILTIN_SUPPORT = [...C_BUILTIN_METHODS.values()]
+  .map((method) => method.definition)
+  .join("\n\n");
+
+export const C_SOURCE_PREAMBLE = `${C_HEADER_PREAMBLE}\n\n${C_RUNTIME_SUPPORT}\n\n${C_BUILTIN_SUPPORT}`;
 
 export type CEmitResult =
   | {
@@ -155,10 +186,6 @@ const COMPARE_OPERATORS = new Map<string, string>([
   [">=", ">="],
 ]);
 
-const STRING_INTRINSICS = new Map<string, (receiver: string, args: string[]) => string>([
-  ["char_code_at", (receiver, args) => `(int32_t)(unsigned char)${receiver}[${args[0]}]`],
-]);
-
 const ARRAY_OPS = new Set<string>([
   IR_LOAD_ELEMENT,
   IR_STORE_ELEMENT,
@@ -185,6 +212,7 @@ const RESERVED_C_IDENTIFIERS = new Set<string>([
   ...C_KEYWORDS,
   ...C_LIBRARY_NAMES,
   ...INT32_HELPERS.values(),
+  ...[...C_BUILTIN_METHODS.values()].map((method) => method.helper),
   "tera_i32_neg",
   "tera_to_i32",
 ]);
@@ -226,11 +254,9 @@ function calleeSymbol(node: CFGInstruction): string | null {
   return typeof target?.name === "string" ? cIdentifier(target.name) : null;
 }
 
-function stringIntrinsicOf(node: CFGInstruction): string | null {
-  const callee = node.inputs[0];
-  if (callee === undefined || callee.type !== IR_GENERIC_GET_PROP) return null;
-  const name = String(callee.props.propName);
-  return STRING_INTRINSICS.has(name) ? name : null;
+interface CBuiltinMethod {
+  readonly helper: string;
+  readonly definition: string;
 }
 
 interface EmitContext {
@@ -296,7 +322,7 @@ class CFunctionEmitter {
       source: this.render(signature),
       headerPreamble: C_HEADER_PREAMBLE,
       sourcePreamble: C_SOURCE_PREAMBLE,
-      translationUnitPreamble: C_RUNTIME_SUPPORT,
+      translationUnitPreamble: `${C_RUNTIME_SUPPORT}\n\n${C_BUILTIN_SUPPORT}`,
       references: [...this.references],
     };
   }
@@ -462,7 +488,8 @@ class CFunctionEmitter {
     const entries: Array<readonly [string, (ctx: EmitContext) => void]> = [];
 
     entries.push([IR_GENERIC_GET_PROP, (ctx) => this.emitMember(ctx)]);
-    entries.push([IR_GENERIC_CALL, (ctx) => this.emitStringCall(ctx)]);
+    entries.push([IR_GENERIC_CALL, (ctx) => ctx.fail("unsupported generic call")]);
+    entries.push([IR_CALL_BUILTIN, (ctx) => this.emitBuiltinCall(ctx)]);
     entries.push([IR_CALL_KNOWN_FUNCTION, (ctx) => this.emitKnownCall(ctx)]);
     entries.push([IR_NEW_ARRAY, (ctx) => this.emitNewArray(ctx)]);
     entries.push([IR_LOAD_ELEMENT, (ctx) => this.emitLoadElement(ctx)]);
@@ -545,33 +572,40 @@ class CFunctionEmitter {
   }
 
   private emitMember(ctx: EmitContext): void {
-    const receiver = ctx.node.inputs[0];
-    if (receiver === undefined) {
-      ctx.fail("property access without a receiver");
-      return;
-    }
-    const propName = String(ctx.node.props.propName);
-    if (STRING_INTRINSICS.has(propName)) return;
-    if (propName !== "length" || this.scalarOf(receiver) !== C_STRING) {
-      ctx.fail(`unsupported property ${propName}`);
-      return;
-    }
-    this.define(ctx, `(int32_t)strlen(${this.nameOf(receiver)})`);
+    ctx.fail(`unsupported property ${String(ctx.node.props.propName)}`);
   }
 
-  private emitStringCall(ctx: EmitContext): void {
-    const intrinsic = stringIntrinsicOf(ctx.node);
-    if (intrinsic === null) {
-      ctx.fail("unsupported generic call");
+  private emitBuiltinCall(ctx: EmitContext): void {
+    const name = String(ctx.node.props.name);
+    const method = C_BUILTIN_METHODS.get(name);
+    const intrinsic = builtinMethodIntrinsicByName(name);
+    if (method === undefined || intrinsic === null) {
+      ctx.fail(`unsupported builtin ${name}`);
       return;
     }
-    const receiver = ctx.node.inputs[1];
-    if (receiver === undefined || this.scalarOf(receiver) !== C_STRING) {
-      ctx.fail(`${intrinsic} on a non-string receiver`);
-      return;
+    const operands: string[] = [];
+    for (let index = 0; index < ctx.node.inputs.length; index++) {
+      const operand = this.builtinOperand(
+        ctx.node.inputs[index]!,
+        intrinsic.signature.params[index] ?? null,
+      );
+      if (operand === null) {
+        ctx.fail(`${name} has an unsupported argument type`);
+        return;
+      }
+      operands.push(operand);
     }
-    const args = ctx.node.inputs.slice(2).map((input) => this.asInt32(input));
-    this.define(ctx, STRING_INTRINSICS.get(intrinsic)!(this.nameOf(receiver), args));
+    this.define(ctx, `${method.helper}(${operands.join(", ")})`);
+  }
+
+  private builtinOperand(input: CFGInstruction, declared: string | null): string | null {
+    const expected = cScalarType(latticeFromDeclaredType(declared));
+    if (expected === C_INT32) return this.asInt32(input);
+    if (expected === C_DOUBLE) return this.asDouble(input);
+    if (expected === C_STRING && this.scalarOf(input) === C_STRING) {
+      return this.nameOf(input);
+    }
+    return null;
   }
 
   private emitKnownCall(ctx: EmitContext): void {

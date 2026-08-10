@@ -259,6 +259,7 @@ function inferEffectKind(opcode: string, metadata: IRMetadata = {}): EffectKind 
 
 export function irRequiresFrameState(node: IRValueLike) {
   if (!(node instanceof CFGInstruction)) return false;
+  if (node.props.pure === true) return false;
   if (DEOPT_CAPABLE.has(node.type)) return true;
   if (OVERFLOW_DEOPT_CAPABLE.has(node.type))
     return node.props.noOverflow !== true;
@@ -736,6 +737,22 @@ export function irCheckCallTarget(callee: IRValueLike, expectedTarget: IRValueLi
 export function irCallKnownFunction(target: IRValueLike, args: IRValueLike[]) {
   const node = new IRNode(IR_CALL_KNOWN_FUNCTION, {
     target,
+    argCount: args.length,
+  });
+  for (const arg of args) {
+    node.addInput(arg);
+  }
+  return node;
+}
+
+export function irCallBuiltin(
+  name: string,
+  args: IRValueLike[],
+  metadata: IRMetadata = {},
+) {
+  const node = new IRNode(IR_CALL_BUILTIN, {
+    ...metadata,
+    name,
     argCount: args.length,
   });
   for (const arg of args) {

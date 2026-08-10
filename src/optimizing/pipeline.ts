@@ -17,6 +17,7 @@ import {
 import { escapeAnalysisAndScalarReplacement } from "./passes/escape-analysis.js";
 import { allocationSinking } from "./passes/allocation-sinking.js";
 import { inlineCacheLowering } from "./passes/ic-lowering.js";
+import { lowerBuiltinMethods } from "./passes/builtin-method-lowering.js";
 import { globalValueNumbering } from "./passes/gvn.js";
 import { representationSelection } from "./passes/repr-selection.js";
 import {
@@ -118,11 +119,24 @@ export function middleEndPhases(
         (g) => specializeAllocationShapes(g),
       ),
       step("ic-lowering", preservesControlFlow, (g) => inlineCacheLowering(g)),
+      step("trivial-phi-elimination-early", preservesControlFlow, (g) => eliminateTrivialPhis(g)),
+      step(
+        "builtin-method-lowering",
+        preservesControlFlow,
+        (g, analyses) => lowerBuiltinMethods(g, analyses.get(typeInferenceAnalysisId)),
+        [typeInferenceId],
+      ),
       step(
         "licm",
         preservesControlFlow,
-        (g, analyses) => hoistLoopInvariants(g, analyses.get(loopForestAnalysisId)),
-        [loopId],
+        (g, analyses) =>
+          hoistLoopInvariants(
+            g,
+            analyses.get(loopForestAnalysisId),
+            analyses.get(pointsToAnalysisId),
+            analyses.get(modRefAnalysisId),
+          ),
+        [loopId, pointsToId, modRefId],
       ),
       step(
         "redundant-checks",

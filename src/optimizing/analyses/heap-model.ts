@@ -66,3 +66,54 @@ export function fieldsOverlap(left: Field, right: Field): boolean {
   if (left.kind === "anyIndex" || right.kind === "anyIndex") return true;
   return left.value === right.value;
 }
+
+export type MemoryLocation = {
+  readonly key: string;
+  readonly baseKey: string;
+  readonly base: ir.CFGInstruction | null;
+  readonly partition: Partition;
+  readonly field: Field;
+};
+
+type PartitionResolver = { partitionOf(value: ir.CFGInstruction): Partition };
+type AliasResolver = PartitionResolver & {
+  mayAlias(a: ir.CFGInstruction, b: ir.CFGInstruction): boolean;
+};
+
+function locationOf(
+  base: ir.CFGInstruction | null,
+  partition: Partition,
+  field: Field,
+): MemoryLocation {
+  return {
+    key: locationKey(partition, field),
+    baseKey: partitionKey(partition),
+    base,
+    partition,
+    field,
+  };
+}
+
+export function memoryLocationOf(
+  node: ir.CFGInstruction,
+  partitions: PartitionResolver,
+): MemoryLocation | null {
+  if (node.type === ir.IR_LOAD_GLOBAL || node.type === ir.IR_STORE_GLOBAL) {
+    if (typeof node.props.name !== "string") return null;
+    return locationOf(null, { kind: "global", name: node.props.name }, { kind: "anyIndex" });
+  }
+  const base = node.inputs[0];
+  const field = fieldOf(node);
+  if (!base || !field) return null;
+  return locationOf(base, partitions.partitionOf(base), field);
+}
+
+export function locationsMayAlias(
+  left: MemoryLocation,
+  right: MemoryLocation,
+  aliases: AliasResolver,
+): boolean {
+  if (!fieldsOverlap(left.field, right.field)) return false;
+  if (left.base === null || right.base === null) return left.baseKey === right.baseKey;
+  return aliases.mayAlias(left.base, right.base);
+}
