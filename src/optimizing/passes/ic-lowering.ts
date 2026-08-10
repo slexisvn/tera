@@ -124,7 +124,7 @@ export function inlineCacheLowering(
 
 function makeLoweredNode(
   oldNode: ICNode,
-  type: string,
+  type: ir.Opcode,
   props: ICNodeProps,
 ): ICNode {
   const node = new ir.IRNode(type, props);

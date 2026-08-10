@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { Engine } from "../../../../src/api/engine.js";
-import { itNative, runCFunction } from "../../../helpers/c-executor.js";
+import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
 
 function compile(source: string) {
   return new Engine().compileAot(source);
 }
 
 function bodyOf(program: { source: string }, symbol: string): string {
-  const start = program.source.indexOf(`${symbol}(`);
+  const start = cSource(program).indexOf(`${symbol}(`);
   expect(start).toBeGreaterThan(-1);
-  return program.source.slice(start, program.source.indexOf("\n}", start));
+  return cSource(program).slice(start, cSource(program).indexOf("\n}", start));
 }
 
 describe("AOT static typing", () => {
@@ -17,24 +17,24 @@ describe("AOT static typing", () => {
     const program = compile(`fn add_ints(a: int, b: int) -> int:\n  return a + b\n`);
 
     expect(program.skipped).toEqual([]);
-    expect(program.source).toContain("int32_t add_ints(int32_t p0, int32_t p1)");
-    expect(program.source).toContain("= tera_i32_add(");
-    expect(runCFunction(program.source, "add_ints", [2, 3])).toBe(5);
+    expect(cSource(program)).toContain("int32_t add_ints(int32_t p0, int32_t p1)");
+    expect(cSource(program)).toContain("= tera_i32_add(");
+    expect(runCFunction(cSource(program), "add_ints", [2, 3])).toBe(5);
   });
 
   itNative("wraps declared int arithmetic at 32 bits", () => {
     const program = compile(`fn add_ints(a: int, b: int) -> int:\n  return a + b\n`);
 
-    expect(runCFunction(program.source, "add_ints", [1073741824, 1073741824])).toBe(-2147483648);
+    expect(runCFunction(cSource(program), "add_ints", [1073741824, 1073741824])).toBe(-2147483648);
   });
 
   itNative("keeps declared float arithmetic in floating point", () => {
     const program = compile(`fn add_floats(a: float, b: float) -> float:\n  return a + b\n`);
 
     expect(program.skipped).toEqual([]);
-    expect(program.source).toContain("double add_floats(double p0, double p1)");
-    expect(program.source).not.toContain("= tera_i32_add(");
-    expect(runCFunction(program.source, "add_floats", [2.5, 7.25])).toBe(9.75);
+    expect(cSource(program)).toContain("double add_floats(double p0, double p1)");
+    expect(cSource(program)).not.toContain("= tera_i32_add(");
+    expect(runCFunction(cSource(program), "add_floats", [2.5, 7.25])).toBe(9.75);
   });
 
   itNative("widens mixed int and float operands to floating point", () => {
@@ -42,7 +42,7 @@ describe("AOT static typing", () => {
 
     expect(program.skipped).toEqual([]);
     expect(bodyOf(program, "mix")).not.toContain("tera_i32_mul");
-    expect(runCFunction(program.source, "mix", [3, 0.5])).toBe(1.5);
+    expect(runCFunction(cSource(program), "mix", [3, 0.5])).toBe(1.5);
   });
 
   itNative("propagates declared types through a loop carried variable", () => {
@@ -51,9 +51,9 @@ describe("AOT static typing", () => {
     );
 
     expect(program.skipped).toEqual([]);
-    expect(program.source).toContain("int32_t total(int32_t p0)");
-    expect(program.source).toContain("= tera_i32_add(");
-    expect(runCFunction(program.source, "total", [10])).toBe(45);
+    expect(cSource(program)).toContain("int32_t total(int32_t p0)");
+    expect(cSource(program)).toContain("= tera_i32_add(");
+    expect(runCFunction(cSource(program), "total", [10])).toBe(45);
   });
 
   itNative("widens a loop carried variable whose back edge is not an integer", () => {
@@ -62,7 +62,7 @@ describe("AOT static typing", () => {
     );
 
     expect(program.skipped).toEqual([]);
-    expect(runCFunction(program.source, "drift", [5])).toBe(2.5);
+    expect(runCFunction(cSource(program), "drift", [5])).toBe(2.5);
   });
 
   itNative("keeps a loop counter integral while its accumulator widens", () => {
@@ -72,7 +72,7 @@ describe("AOT static typing", () => {
 
     expect(program.skipped).toEqual([]);
     expect(bodyOf(program, "indexed")).toContain("tera_i32_add");
-    expect(runCFunction(program.source, "indexed", [5])).toBe(2.5);
+    expect(runCFunction(cSource(program), "indexed", [5])).toBe(2.5);
   });
 
   itNative("compiles calls between declared functions", () => {
@@ -82,7 +82,7 @@ describe("AOT static typing", () => {
 
     expect(program.skipped).toEqual([]);
     expect(program.compiled.map((fn) => fn.name).sort()).toEqual(["twice", "use_twice"]);
-    expect(runCFunction(program.source, "use_twice", [20])).toBe(41);
+    expect(runCFunction(cSource(program), "use_twice", [20])).toBe(41);
   });
 
   itNative("takes a callee result type from its declared return type", () => {
@@ -91,8 +91,8 @@ describe("AOT static typing", () => {
     );
 
     expect(program.skipped).toEqual([]);
-    expect(program.source).toContain("double half(int32_t p0)");
-    expect(runCFunction(program.source, "scaled", [7])).toBe(7);
+    expect(cSource(program)).toContain("double half(int32_t p0)");
+    expect(runCFunction(cSource(program), "scaled", [7])).toBe(7);
   });
 
   itNative("types string parameters and their builtin members", () => {
@@ -101,16 +101,16 @@ describe("AOT static typing", () => {
     );
 
     expect(program.skipped).toEqual([]);
-    expect(program.source).toContain("int32_t first_code(const char *p0)");
-    expect(runCFunction(program.source, "first_code", ["Hi"])).toBe("H".charCodeAt(0) + 2);
+    expect(cSource(program)).toContain("int32_t first_code(const char *p0)");
+    expect(runCFunction(cSource(program), "first_code", ["Hi"])).toBe("H".charCodeAt(0) + 2);
   });
 
   it("lowers a declared string method to a named runtime helper", () => {
     const program = compile(`fn code_at(s: string, i: int) -> int:\n  return s.char_code_at(i)\n`);
 
     expect(program.skipped).toEqual([]);
-    expect(program.source).toContain("tera_string_char_code_at(const char *value, int32_t index)");
-    expect(program.source).toContain("= tera_string_char_code_at(p0, p1);");
+    expect(cSource(program)).toContain("tera_string_char_code_at(const char *value, int32_t index)");
+    expect(cSource(program)).toContain("= tera_string_char_code_at(p0, p1);");
   });
 
   itNative("reads every code unit of a string in a loop", () => {
@@ -119,7 +119,7 @@ describe("AOT static typing", () => {
     );
 
     expect(program.skipped).toEqual([]);
-    expect(runCFunction(program.source, "checksum", ["tera"])).toBe(
+    expect(runCFunction(cSource(program), "checksum", ["tera"])).toBe(
       [..."tera"].reduce((acc, ch) => acc + ch.charCodeAt(0), 0),
     );
   });
@@ -128,15 +128,15 @@ describe("AOT static typing", () => {
     const program = compile(`fn size(s: string) -> int:\n  return s.length\n`);
 
     expect(program.skipped).toEqual([]);
-    expect(program.source).toContain("tera_string_length(const char *value)");
-    expect(program.source).toContain("= tera_string_length(p0);");
+    expect(cSource(program)).toContain("tera_string_length(const char *value)");
+    expect(cSource(program)).toContain("= tera_string_length(p0);");
   });
 
   it("measures a loop-invariant length before the loop rather than inside it", () => {
     const program = compile(
       `fn checksum(s: string) -> int:\n  acc = 0\n  i = 0\n  while i < s.length:\n    acc = acc + s.char_code_at(i)\n    i = i + 1\n  return acc\n`,
     );
-    const body = program.source.slice(program.source.indexOf("int32_t checksum"));
+    const body = cSource(program).slice(cSource(program).indexOf("int32_t checksum"));
 
     expect(program.skipped).toEqual([]);
     expect(body.split("tera_string_length(p0)")).toHaveLength(2);
@@ -147,7 +147,7 @@ describe("AOT static typing", () => {
     const program = compile(`fn code_at(s: string, i: int) -> int:\n  return s.char_code_at(i)\n`);
 
     expect(program.skipped).toEqual([]);
-    expect(runCFunction(program.source, "code_at", ["Hi", -1])).toBe(0);
+    expect(runCFunction(cSource(program), "code_at", ["Hi", -1])).toBe(0);
   });
 
   it("declines a builtin method call on a receiver that is not declared", () => {
@@ -163,7 +163,7 @@ describe("AOT static typing", () => {
     const program = compile(`fn ratio(a: int, b: int) -> float:\n  return a / b\n`);
 
     expect(program.skipped).toEqual([]);
-    expect(runCFunction(program.source, "ratio", [7, 2])).toBe(3.5);
+    expect(runCFunction(cSource(program), "ratio", [7, 2])).toBe(3.5);
   });
 
   itNative("keeps modulo integral with the sign of the dividend", () => {
@@ -171,8 +171,8 @@ describe("AOT static typing", () => {
 
     expect(program.skipped).toEqual([]);
     expect(bodyOf(program, "rem")).toContain("tera_i32_mod");
-    expect(runCFunction(program.source, "rem", [-7, 3])).toBe(-7 % 3);
-    expect(runCFunction(program.source, "rem", [7, -3])).toBe(7 % -3);
+    expect(runCFunction(cSource(program), "rem", [-7, 3])).toBe(-7 % 3);
+    expect(runCFunction(cSource(program), "rem", [7, -3])).toBe(7 % -3);
   });
 
   itNative("keeps bitwise and shift results integral", () => {
@@ -181,7 +181,7 @@ describe("AOT static typing", () => {
     );
 
     expect(program.skipped).toEqual([]);
-    expect(runCFunction(program.source, "bits", [12, 10])).toBe(
+    expect(runCFunction(cSource(program), "bits", [12, 10])).toBe(
       ((12 & 10) | (12 ^ 10)) + (12 << 2) + (12 >> 1),
     );
   });
@@ -190,8 +190,8 @@ describe("AOT static typing", () => {
     const program = compile(`fn loose(a):\n  return a + 1\n`);
 
     expect(program.skipped).toEqual([]);
-    expect(program.source).toContain("double loose(double p0)");
-    expect(runCFunction(program.source, "loose", [41.5])).toBe(42.5);
+    expect(cSource(program)).toContain("double loose(double p0)");
+    expect(runCFunction(cSource(program), "loose", [41.5])).toBe(42.5);
   });
 
   itNative("keeps constants outside the int32 range in floating point", () => {
@@ -199,7 +199,7 @@ describe("AOT static typing", () => {
 
     expect(program.skipped).toEqual([]);
     expect(bodyOf(program, "big")).not.toContain("tera_i32_add");
-    expect(runCFunction(program.source, "big", [])).toBe(3000000001);
+    expect(runCFunction(cSource(program), "big", [])).toBe(3000000001);
   });
 
   it("ignores type feedback collected by running the program", () => {
@@ -236,7 +236,7 @@ describe("AOT static typing", () => {
     const body = bodyOf(program, "f");
     expect(body).not.toContain("double");
     expect(body).not.toContain("0.0 / 0.0");
-    expect(runCFunction(program.source, "f", [9])).toBe(
+    expect(runCFunction(cSource(program), "f", [9])).toBe(
       Number(new Engine().runNative(`${source}\nf(9)\n`)),
     );
   });
@@ -247,6 +247,6 @@ describe("AOT static typing", () => {
     );
 
     expect(program.skipped).toEqual([]);
-    expect(runCFunction(program.source, "boom", [41])).toBe(42);
+    expect(runCFunction(cSource(program), "boom", [41])).toBe(42);
   });
 });

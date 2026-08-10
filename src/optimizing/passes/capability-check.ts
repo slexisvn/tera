@@ -7,8 +7,9 @@ import {
   IR_DEOPTIMIZE,
 } from "../ir/index.js";
 import type { TargetModel } from "../target/model.js";
+import { BackendLoweringError } from "../target/errors.js";
 
-export class UnsupportedSpeculationError extends Error {
+export class UnsupportedSpeculationError extends BackendLoweringError {
   constructor(target: string, nodeType: string) {
     super(`target ${target} cannot deoptimize but ${nodeType} requires a frame state`);
     this.name = "UnsupportedSpeculationError";

@@ -21,6 +21,7 @@ import { createBackendRegistry } from "../optimizing/backends/index.js";
 import { compileModule, type AotProgram, type AotSkippedFunction } from "../optimizing/drivers/aot.js";
 import { createModuleIR, type CompilationUnit } from "../optimizing/compilation-unit.js";
 import type { BackendRegistry } from "../optimizing/target/registry.js";
+import { BackendLoweringError, isBackendLoweringError } from "../optimizing/target/errors.js";
 import { isAotBackend, type AotBackend } from "../optimizing/target/backend.js";
 import { isJitBackend, type JitBackend } from "../optimizing/target/jit.js";
 import { BaselineCompiler } from "../optimizing/baseline/compiler.js";
@@ -110,13 +111,13 @@ export type AotCompileOptions = CompileOptions & {
   backend?: string;
   functionNames?: readonly string[];
   includeEntry?: boolean;
-  headerName?: string;
+  moduleName?: string;
   compilerOptions?: CompilerOptions;
 };
 
 export type AotFunctionCompileOptions = {
   backend?: string;
-  headerName?: string;
+  moduleName?: string;
   compilerOptions?: CompilerOptions;
 };
 
@@ -461,7 +462,7 @@ export class Engine {
       backend,
       functionNames,
       includeEntry = false,
-      headerName,
+      moduleName,
       compilerOptions,
       ...compileOptions
     } = options;
@@ -472,7 +473,7 @@ export class Engine {
     );
     return this.compileAotFunctionsInRuntime(functions, {
       backend,
-      headerName,
+      moduleName,
       compilerOptions,
     });
   }
@@ -489,12 +490,13 @@ export class Engine {
       try {
         units.push(this.compileAotUnit(compiledFn));
       } catch (error) {
-        skipped.push({ name: functionName(compiledFn), reason: errorReason(error) });
+        if (!isBackendLoweringError(error)) throw error;
+        skipped.push({ name: functionName(compiledFn), reason: error.message });
       }
     }
 
     const program = compileModule(createModuleIR(units), backend, {
-      headerName: options.headerName,
+      moduleName: options.moduleName,
       compilerOptions: options.compilerOptions,
     });
     return { ...program, skipped: [...skipped, ...program.skipped] };
@@ -542,7 +544,7 @@ export class Engine {
   private compileAotUnit(compiledFn: RegisterCompiledFunction): CompilationUnit {
     if (compiledFn.isLazy) this.compileLazy(compiledFn);
     if (compiledFn.isAsync || compiledFn.isGenerator) {
-      throw new Error("AOT does not support async or generator functions");
+      throw new BackendLoweringError("AOT does not support async or generator functions");
     }
     resetIRNodeIds();
     this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
@@ -842,6 +844,11 @@ export class Engine {
     const cached = compiledFn.osrCache.get(offset);
     if (cached !== undefined) return cached;
 
+    if (!this.jitBackend.target.capabilities.has("osr")) {
+      compiledFn.osrCache.set(offset, null);
+      return null;
+    }
+
     if (compiledFn.isAsync || compiledFn.isGenerator) {
       compiledFn.osrCache.set(offset, null);
       return null;
@@ -862,7 +869,15 @@ export class Engine {
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      tracer.jitCompile(functionName(compiledFn), `OSR failed: ${message}`);
+      if (!isBackendLoweringError(e)) {
+        compiledFn.disableOptimization = true;
+        tracer.jitCompile(
+          functionName(compiledFn),
+          `Optimization disabled — internal compiler error during OSR: ${message}`,
+        );
+      } else {
+        tracer.jitCompile(functionName(compiledFn), `OSR failed: ${message}`);
+      }
       entry = null;
     }
 
@@ -919,12 +934,17 @@ export class Engine {
       } else {
         compiledFn.compileFailureCount =
           (compiledFn.compileFailureCount || 0) + 1;
-        compiledFn.lastCompileFailureReason =
-          jitResult.rejection.compileRejection ||
-          jitResult.rejection.analysisFailure ||
-          "not-compilable";
-        compiledFn.optimizationCooldownUntil =
-          Date.now() + Math.min(5000, 250 * compiledFn.compileFailureCount);
+        const rejection = jitResult.rejection.compileRejection;
+        const malformedGraph = rejection?.kind === "malformed";
+        compiledFn.lastCompileFailureReason = malformedGraph
+          ? `internal compiler error: ${rejection.reason}`
+          : rejection?.reason || jitResult.rejection.analysisFailure || "not-compilable";
+        if (malformedGraph) {
+          compiledFn.disableOptimization = true;
+        } else {
+          compiledFn.optimizationCooldownUntil =
+            Date.now() + Math.min(5000, 250 * compiledFn.compileFailureCount);
+        }
         const policyHooks = policyWithCompileHooks(this.tieringPolicy);
         if (
           this.tieringPolicy &&
@@ -942,11 +962,18 @@ export class Engine {
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      const internal = !isBackendLoweringError(e);
       compiledFn.compileFailureCount =
         (compiledFn.compileFailureCount || 0) + 1;
-      compiledFn.lastCompileFailureReason = message;
-      compiledFn.optimizationCooldownUntil =
-        Date.now() + Math.min(5000, 250 * compiledFn.compileFailureCount);
+      compiledFn.lastCompileFailureReason = internal
+        ? `internal compiler error: ${message}`
+        : message;
+      if (internal) {
+        compiledFn.disableOptimization = true;
+      } else {
+        compiledFn.optimizationCooldownUntil =
+          Date.now() + Math.min(5000, 250 * compiledFn.compileFailureCount);
+      }
       const policyHooks = policyWithCompileHooks(this.tieringPolicy);
       if (
         this.tieringPolicy &&
@@ -957,7 +984,12 @@ export class Engine {
           compiledFn.lastCompileFailureReason,
         );
       }
-      tracer.jitCompile(functionName(compiledFn), `Compilation failed: ${message}`);
+      tracer.jitCompile(
+        functionName(compiledFn),
+        internal
+          ? `Optimization disabled — internal compiler error: ${message}`
+          : `Compilation failed: ${message}`,
+      );
     }
   }
 

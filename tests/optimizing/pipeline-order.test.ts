@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   CFGFunction,
+  IR_BOX,
   IR_CALL_BUILTIN,
+  IR_UNBOX,
   irBranch,
   irCallBuiltin,
+  irCheckSmi,
   irConstant,
   irJump,
   irInt32Add,
+  irLoadGlobal,
   irNewObject,
   irReturn,
   irStoreField,
@@ -24,6 +28,10 @@ import { hoistLoopInvariants } from "../../src/optimizing/passes/loop-opts.js";
 import { loopForestAnalysisId } from "../../src/optimizing/analyses/loops.js";
 import { pointsToAnalysisId } from "../../src/optimizing/analyses/points-to.js";
 import { modRefAnalysisId } from "../../src/optimizing/analyses/mod-ref.js";
+import { targetLegalizationPipeline } from "../../src/optimizing/target/legalization.js";
+import type { TargetModel } from "../../src/optimizing/target/model.js";
+import { wasmTarget } from "../../src/optimizing/backends/wasm/target.js";
+import { cTarget } from "../../src/optimizing/backends/c/target.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -69,6 +77,66 @@ function nodeDeltasByPass(graph: CFGFunction): Array<{ pass: string; delta: numb
     }
   }
   return deltas;
+}
+
+function graphBranchingOnATaggedGlobal(): CFGFunction {
+  const graph = new CFGFunction("branching");
+  const param = graph.addParameter(0);
+  const entry = graph.addBlock();
+  const taken = graph.addBlock();
+  const skipped = graph.addBlock();
+
+  const flag = irLoadGlobal("flag");
+  entry.addNode(flag);
+  entry.addNode(irBranch(flag, taken, skipped));
+  link(entry, taken);
+  link(entry, skipped);
+
+  const smi = irCheckSmi(param);
+  taken.addNode(smi);
+  taken.addNode(irReturn(smi));
+  skipped.addNode(irReturn(irConstant(0)));
+  graph.rebuildUses();
+  return graph;
+}
+
+function passNamesFor(target: TargetModel): string[] {
+  return targetLegalizationPipeline(target).map((pass) => pass.name);
+}
+
+function lower(graph: CFGFunction, target: TargetModel): void {
+  const options = compilerOptions();
+  runMiddleEnd(graph, options);
+  new PassManager(new AnalysisManager(graph, createAnalysisRegistry()), options).run(
+    graph,
+    targetLegalizationPipeline(target),
+  );
+}
+
+function loweringDeltasByPass(
+  graph: CFGFunction,
+  target: TargetModel,
+): Array<{ pass: string; delta: number }> {
+  const options = compilerOptions();
+  runMiddleEnd(graph, options);
+  const manager = new PassManager(
+    new AnalysisManager(graph, createAnalysisRegistry()),
+    options,
+  );
+  const deltas: Array<{ pass: string; delta: number }> = [];
+  for (const pass of targetLegalizationPipeline(target)) {
+    const before = cfgGraphProbe.nodeCount(graph);
+    manager.run(graph, [pass]);
+    deltas.push({ pass: pass.name, delta: cfgGraphProbe.nodeCount(graph) - before });
+  }
+  return deltas;
+}
+
+function boxingNodes(graph: CFGFunction): string[] {
+  return graph.blocks
+    .flatMap((block) => block.nodes)
+    .filter((node) => node.type === IR_BOX || node.type === IR_UNBOX)
+    .map((node) => `${node.type} v${node.id}`);
 }
 
 function loopCarryingAnInvariantThroughAPhi() {
@@ -137,19 +205,17 @@ describe("pipeline ordering invariants", () => {
 
 
   it("never grows the graph after representation selection", () => {
-    const deltas = nodeDeltasByPass(graphWithDeadStoreAndArithmetic());
-    const legalization = deltas.findIndex((entry) => entry.pass === "representation-selection");
+    const deltas = loweringDeltasByPass(graphWithDeadStoreAndArithmetic(), wasmTarget);
+    const selection = deltas.findIndex((entry) => entry.pass === "representation-selection");
 
-    expect(legalization).toBeGreaterThanOrEqual(0);
-    expect(deltas.length - legalization).toBeGreaterThan(1);
-    expect(
-      deltas.slice(legalization + 1).filter((entry) => entry.delta > 0),
-    ).toEqual([]);
+    expect(selection).toBeGreaterThanOrEqual(0);
+    expect(deltas.length - selection).toBeGreaterThan(1);
+    expect(deltas.slice(selection + 1).filter((entry) => entry.delta > 0)).toEqual([]);
   });
 
-  it("gives every surviving node a representation once the middle end finishes", () => {
+  it("gives every surviving node a representation once wasm lowering finishes", () => {
     const graph = graphWithDeadStoreAndArithmetic();
-    runMiddleEnd(graph, compilerOptions());
+    lower(graph, wasmTarget);
 
     const unstamped = graph.blocks
       .flatMap((block) => block.nodes)
@@ -157,5 +223,24 @@ describe("pipeline ordering invariants", () => {
       .map((node) => `${node.type} v${node.id}`);
 
     expect(unstamped).toEqual([]);
+  });
+
+  it("selects representations only for targets that have tagged values", () => {
+    expect(passNamesFor(wasmTarget)).toContain("representation-selection");
+    expect(passNamesFor(cTarget)).not.toContain("representation-selection");
+  });
+
+  it("leaves no boxing ceremony for an untagged target to strip", () => {
+    const tagged = graphBranchingOnATaggedGlobal();
+    lower(tagged, wasmTarget);
+    expect(boxingNodes(tagged).length).toBeGreaterThan(0);
+
+    const untagged = graphBranchingOnATaggedGlobal();
+    lower(untagged, cTarget);
+
+    expect(boxingNodes(untagged)).toEqual([]);
+    expect(
+      untagged.blocks.flatMap((block) => block.nodes).filter((node) => node.props._rep !== undefined),
+    ).toEqual([]);
   });
 });

@@ -4,8 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { it } from "vitest";
 import { cIdentifier } from "../../src/optimizing/backends/c/emit.js";
+import type { AotProgram } from "../../src/optimizing/drivers/aot.js";
 
 export type CArgument = number | string;
+
+export function cSource(program: AotProgram): string {
+  const file = program.files.find((candidate) => candidate.name.endsWith(".c"));
+  if (file === undefined) throw new Error("program has no C source file");
+  return String(file.contents);
+}
 
 const DEFINITION = /^(int32_t|double)\s+(\w+)\s*\(([^)]*)\)\s*\{/gm;
 const LOCAL_INCLUDE = /^#include\s+"[^"]*"\s*$/gm;

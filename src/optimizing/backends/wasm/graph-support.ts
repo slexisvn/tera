@@ -6,7 +6,11 @@ import {
   REP_TAGGED_NUMBER,
   REP_HANDLE,
   REP_BOOL,
-} from "../../passes/repr-selection.js";
+  REP_TAGGED,
+  type Representation,
+} from "../../types/representation.js";
+import { wasmTarget } from "./target.js";
+import type { CompileRejection } from "../../target/jit.js";
 import {
   TYPE_I32,
   TYPE_F64,
@@ -59,7 +63,16 @@ import {
 type AnyNode = ir.CFGInstruction;
 type AnyBlock = ir.CFGBlock;
 type AnyGraph = ir.CFGFunction;
-type WasmRep = string;
+type WasmRep = Representation;
+
+const REPRESENTATIONS = new Set<string>([
+  REP_INT32,
+  REP_FLOAT64,
+  REP_TAGGED_NUMBER,
+  REP_HANDLE,
+  REP_TAGGED,
+  REP_BOOL,
+]);
 
 export const RUNTIME_STUB_NODES = new Set([
   ir.IR_GENERIC_ADD,
@@ -286,18 +299,31 @@ export const FIXED_INPUT_COUNTS = new Map([
 
 export function repForNode(node: AnyNode | null | undefined): WasmRep {
   const rep = node?.props?._rep;
-  return typeof rep === "string" ? rep : REP_HANDLE;
+  return typeof rep === "string" && REPRESENTATIONS.has(rep)
+    ? (rep as Representation)
+    : REP_HANDLE;
 }
 
 export function wasmTypeForRep(rep: WasmRep): number {
-  if (rep === REP_FLOAT64 || rep === REP_TAGGED_NUMBER) return TYPE_F64;
-  return TYPE_I32;
+  return wasmTarget.machineReprOf(rep) === "float64" ? TYPE_F64 : TYPE_I32;
 }
 
 export function valueRepForRep(rep: WasmRep): WasmRep {
   if (rep === REP_HANDLE) return REP_HANDLE;
   if (rep === REP_BOOL) return REP_BOOL;
   return REP_TAGGED_NUMBER;
+}
+
+export function unsupported(reason: string): CompileRejection {
+  return { kind: "unsupported", reason };
+}
+
+export function speculation(reason: string): CompileRejection {
+  return { kind: "speculation", reason };
+}
+
+export function malformed(reason: string): CompileRejection {
+  return { kind: "malformed", reason };
 }
 
 function nodeLocation(node: AnyNode, fallbackBlock: AnyBlock) {
@@ -316,15 +342,18 @@ function isCompiledFunctionConstant(
   return Array.isArray(candidate.instructions) && typeof candidate.paramCount === "number";
 }
 
-export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
+export function compileRejectionForNode(
+  node: AnyNode,
+  block: AnyBlock,
+): CompileRejection | null {
   if (!SUPPORTED_GRAPH_NODES.has(node.type)) {
-    return `${nodeLocation(node, block)} is not supported by wasm backend`;
+    return unsupported(`${nodeLocation(node, block)} is not supported by wasm backend`);
   }
 
   if (node.type === ir.IR_DISPATCH_MAP) {
     const expectedInputs = node.props.isStore ? 2 : 1;
     if (node.inputs.length !== expectedInputs) {
-      return `${nodeLocation(node, block)} has ${node.inputs.length} inputs, expected ${expectedInputs}`;
+      return malformed(`${nodeLocation(node, block)} has ${node.inputs.length} inputs, expected ${expectedInputs}`);
     }
   }
 
@@ -333,7 +362,7 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
     node.inputs.length !== 1 &&
     node.inputs.length !== 2
   ) {
-    return `${nodeLocation(node, block)} has ${node.inputs.length} inputs, expected 1 or 2`;
+    return malformed(`${nodeLocation(node, block)} has ${node.inputs.length} inputs, expected 1 or 2`);
   }
 
   const fixedInputCount = FIXED_INPUT_COUNTS.get(node.type);
@@ -342,12 +371,12 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
     fixedInputCount !== undefined &&
     node.inputs.length !== fixedInputCount
   ) {
-    return `${nodeLocation(node, block)} has ${node.inputs.length} inputs, expected ${fixedInputCount}`;
+    return malformed(`${nodeLocation(node, block)} has ${node.inputs.length} inputs, expected ${fixedInputCount}`);
   }
 
   for (let i = 0; i < node.inputs.length; i++) {
     if (!node.inputs[i]) {
-      return `${nodeLocation(node, block)} input ${i} is empty`;
+      return malformed(`${nodeLocation(node, block)} input ${i} is empty`);
     }
   }
 
@@ -356,7 +385,7 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
       ? node.props.value
       : null;
     if (constantFn?.upvalues && constantFn.upvalues.length > 0) {
-      return `${nodeLocation(node, block)} is closure constant with upvalues`;
+      return unsupported(`${nodeLocation(node, block)} is closure constant with upvalues`);
     }
   }
 
@@ -366,25 +395,25 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
       node.type === ir.IR_GENERIC_COMPARE) &&
     !COMPARE_OPS[metadataString(node.props.op) ?? ""]
   ) {
-    return `${nodeLocation(node, block)} has unsupported compare operator ${String(node.props.op)}`;
+    return unsupported(`${nodeLocation(node, block)} has unsupported compare operator ${String(node.props.op)}`);
   }
 
   if (node.type === ir.IR_LOAD_FIELD || node.type === ir.IR_STORE_FIELD) {
     const offset = metadataNumber(node.props.offset);
     if (!Number.isInteger(offset) || offset === null || offset < 0) {
-      return `${nodeLocation(node, block)} has invalid field offset`;
+      return malformed(`${nodeLocation(node, block)} has invalid field offset`);
     }
   }
 
   if (node.type === ir.IR_CHECK_MAP) {
     if (!Number.isInteger(metadataNumber(node.props.expectedMapId))) {
-      return `${nodeLocation(node, block)} has invalid expected map`;
+      return malformed(`${nodeLocation(node, block)} has invalid expected map`);
     }
   }
 
   if (node.type === ir.IR_CHECK_ELEMENTS_KIND) {
     if (!elementsKindName(node.props.elementsKind)) {
-      return `${nodeLocation(node, block)} has invalid elements kind`;
+      return malformed(`${nodeLocation(node, block)} has invalid elements kind`);
     }
   }
 
@@ -400,7 +429,7 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
       maps.length === 0 ||
       maps.length !== offsets.length
     ) {
-      return `${nodeLocation(node, block)} has invalid polymorphic map table`;
+      return malformed(`${nodeLocation(node, block)} has invalid polymorphic map table`);
     }
     for (let i = 0; i < maps.length; i++) {
       if (
@@ -408,7 +437,7 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
         !Number.isInteger(offsets[i]) ||
         offsets[i] < 0
       ) {
-        return `${nodeLocation(node, block)} has invalid polymorphic entry ${i}`;
+        return malformed(`${nodeLocation(node, block)} has invalid polymorphic entry ${i}`);
       }
     }
   }
@@ -418,10 +447,10 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
       metadataString(node.props.propertyName) ?? metadataString(node.props.propName);
     const handlers = dispatchHandlers(node.props.handlers);
     if (typeof propName !== "string" || propName.length === 0) {
-      return `${nodeLocation(node, block)} has invalid dispatch property`;
+      return malformed(`${nodeLocation(node, block)} has invalid dispatch property`);
     }
     if (handlers === null || handlers.length < 2) {
-      return `${nodeLocation(node, block)} has invalid dispatch handler table`;
+      return malformed(`${nodeLocation(node, block)} has invalid dispatch handler table`);
     }
     for (let i = 0; i < handlers.length; i++) {
       const handler = handlers[i];
@@ -430,7 +459,7 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
         !Number.isInteger(handler.offset) ||
         handler.offset < 0
       ) {
-        return `${nodeLocation(node, block)} has invalid dispatch handler ${i}`;
+        return malformed(`${nodeLocation(node, block)} has invalid dispatch handler ${i}`);
       }
     }
   }
@@ -442,7 +471,7 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
     const propName =
       metadataString(node.props.propertyName) ?? metadataString(node.props.propName);
     if (typeof propName !== "string" || propName.length === 0) {
-      return `${nodeLocation(node, block)} has invalid megamorphic property`;
+      return malformed(`${nodeLocation(node, block)} has invalid megamorphic property`);
     }
   }
 
@@ -455,7 +484,7 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
       argCount < 0 ||
       node.inputs.length !== expectedInputs
     ) {
-      return `${nodeLocation(node, block)} has invalid call arity`;
+      return malformed(`${nodeLocation(node, block)} has invalid call arity`);
     }
   }
 
@@ -467,7 +496,7 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
       argCount < 0 ||
       node.inputs.length !== argCount
     ) {
-      return `${nodeLocation(node, block)} has invalid call arity`;
+      return malformed(`${nodeLocation(node, block)} has invalid call arity`);
     }
   }
 
@@ -479,7 +508,7 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
       argCount < 0 ||
       node.inputs.length !== argCount
     ) {
-      return `${nodeLocation(node, block)} has invalid ${node.type === ir.IR_CALL_INTRINSIC ? "intrinsic" : "builtin"} arity`;
+      return malformed(`${nodeLocation(node, block)} has invalid ${node.type === ir.IR_CALL_INTRINSIC ? "intrinsic" : "builtin"} arity`);
     }
   }
 
@@ -491,7 +520,7 @@ export function compileRejectionForNode(node: AnyNode, block: AnyBlock) {
       elementCount < 0 ||
       node.inputs.length !== elementCount
     ) {
-      return `${nodeLocation(node, block)} has invalid variadic arity`;
+      return malformed(`${nodeLocation(node, block)} has invalid variadic arity`);
     }
   }
 

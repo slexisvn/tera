@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { Engine } from "../../../../src/index.js";
 import {
   CFGFunction,
@@ -21,7 +21,7 @@ import { compileModule, writeAotProgram } from "../../../../src/optimizing/drive
 import { compilerOptions } from "../../../../src/optimizing/options.js";
 import type { AotBackend } from "../../../../src/optimizing/target/backend.js";
 import type { TransformPass } from "../../../../src/optimizing/infra/pass-manager.js";
-import { itNative, runCFunction } from "../../../helpers/c-executor.js";
+import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -110,8 +110,8 @@ describe("Engine AOT", () => {
     );
 
     expect(program.skipped).toEqual([]);
-    expect(program.compiled.map((fn) => fn.symbol)).toEqual(["answer"]);
-    expect(runCFunction(program.source, "answer", [])).toBe(42);
+    expect(program.compiled.map((fn) => fn.emitted.symbol)).toEqual(["answer"]);
+    expect(runCFunction(cSource(program), "answer", [])).toBe(42);
   });
 
   itNative("compiles a warmed numeric loop function into executable C output", () => {
@@ -136,8 +136,8 @@ describe("Engine AOT", () => {
     const program = engine.compileAotFunctions([sum!]);
 
     expect(program.skipped).toEqual([]);
-    expect(program.compiled.map((fn) => fn.symbol)).toEqual(["sum"]);
-    expect(runCFunction(program.source, "sum", [10])).toBe(45);
+    expect(program.compiled.map((fn) => fn.emitted.symbol)).toEqual(["sum"]);
+    expect(runCFunction(cSource(program), "sum", [10])).toBe(45);
   });
 
   itNative("de-speculates overflowing int32 arithmetic into sound float64", () => {
@@ -157,7 +157,7 @@ describe("Engine AOT", () => {
     const program = engine.compileAotFunctions([add!]);
 
     expect(program.skipped).toEqual([]);
-    expect(runCFunction(program.source, "add", [1073741824, 1073741824])).toBe(2147483648);
+    expect(runCFunction(cSource(program), "add", [1073741824, 1073741824])).toBe(2147483648);
   });
 
   itNative("renames functions that collide with C reserved identifiers", () => {
@@ -174,9 +174,9 @@ describe("Engine AOT", () => {
     );
 
     expect(program.skipped).toEqual([]);
-    expect(program.compiled.map((fn) => fn.symbol)).toEqual(["tera_main", "tag"]);
-    expect(runCFunction(program.source, "main", [])).toBe(7);
-    expect(runCFunction(program.source, "tag", [])).toBe(4);
+    expect(program.compiled.map((fn) => fn.emitted.symbol)).toEqual(["tera_main", "tag"]);
+    expect(runCFunction(cSource(program), "main", [])).toBe(7);
+    expect(runCFunction(cSource(program), "tag", [])).toBe(4);
   });
 
   itNative("skips callers of functions the backend could not lower", () => {
@@ -200,7 +200,7 @@ describe("Engine AOT", () => {
     expect(program.skipped.find((fn) => fn.name === "caller")!.reason).toContain(
       "calls unavailable function helper",
     );
-    expect(runCFunction(program.source, "unrelated", [21])).toBe(42);
+    expect(runCFunction(cSource(program), "unrelated", [21])).toBe(42);
   });
 });
 
@@ -211,9 +211,9 @@ describe("compileModule", () => {
     const program = compileModule(moduleOf([addTwo("sum"), returnsConstant("answer", 42)]), cBackend);
 
     expect(program.skipped).toEqual([]);
-    expect(program.compiled.map((fn) => fn.symbol)).toEqual(["sum", "answer"]);
-    expect(runCFunction(program.source, "sum", [2.5, 7.5])).toBe(10);
-    expect(runCFunction(program.source, "answer", [])).toBe(42);
+    expect(program.compiled.map((fn) => fn.emitted.symbol)).toEqual(["sum", "answer"]);
+    expect(runCFunction(cSource(program), "sum", [2.5, 7.5])).toBe(10);
+    expect(runCFunction(cSource(program), "answer", [])).toBe(42);
   });
 
   itNative("runs the backend lowering pipeline before emission", () => {
@@ -231,7 +231,7 @@ describe("compileModule", () => {
 
     expect(receivedOptLevel).toBe("max");
     expect(program.skipped).toEqual([]);
-    expect(runCFunction(program.source, "lowered", [6, 4])).toBe(10);
+    expect(runCFunction(cSource(program), "lowered", [6, 4])).toBe(10);
   });
 
   it("records functions the backend cannot lower as skipped", () => {
@@ -249,7 +249,7 @@ describe("compileModule", () => {
       cBackend,
     );
 
-    expect(program.compiled.map((fn) => fn.symbol)).toEqual(["dup_name"]);
+    expect(program.compiled.map((fn) => fn.emitted.symbol)).toEqual(["dup_name"]);
     expect(program.skipped).toHaveLength(1);
     expect(program.skipped[0]!.reason).toContain("duplicate symbol dup_name");
   });
@@ -260,10 +260,11 @@ describe("writeAotProgram", () => {
     const dir = mkdtempSync(join(tmpdir(), "tera-aot-"));
     try {
       const program = compileModule(moduleOf([addTwo("sum")]), cBackend);
-      const { sourcePath } = writeAotProgram(program, dir);
-      const source = readFileSync(sourcePath, "utf8");
+      const written = writeAotProgram(program, dir);
+      const sourcePath = written.find((path) => path.endsWith(".c"))!;
 
-      expect(runCFunction(source, "sum", [1, 2])).toBe(3);
+      expect(written.map((path) => basename(path))).toEqual(["program.h", "program.c"]);
+      expect(runCFunction(readFileSync(sourcePath, "utf8"), "sum", [1, 2])).toBe(3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

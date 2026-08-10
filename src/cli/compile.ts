@@ -7,8 +7,7 @@ import type { AotProgram } from "../optimizing/drivers/aot.js";
 import { writeAotProgram } from "../optimizing/drivers/aot.js";
 import type { CliConfig } from "./args.js";
 
-const HEADER_NAME = "program.h";
-const SOURCE_NAME = "program.c";
+const MODULE_NAME = "program";
 const MAIN_NAME = "main.c";
 
 class CompileError extends Error {}
@@ -31,13 +30,13 @@ function resolveCompiler(preferred: string | null): string {
   );
 }
 
-function mainSource(entrySymbol: string): string {
+function mainSource(entrySymbol: string, headerName: string): string {
   return [
     "#include <stdio.h>",
-    `#include "${HEADER_NAME}"`,
+    `#include "${headerName}"`,
     "",
     "int main(void) {",
-    `  printf("%.17g\\n", ${entrySymbol}());`,
+    `  printf("%.17g\\n", (double)${entrySymbol}());`,
     "  return 0;",
     "}",
     "",
@@ -54,15 +53,27 @@ function withExeSuffix(output: string): string {
   return path.extname(output) ? output : `${output}.exe`;
 }
 
+function fileNamed(program: AotProgram, extension: string): string {
+  const file = program.files.find((candidate) => candidate.name.endsWith(extension));
+  if (file === undefined) {
+    throw new CompileError(`backend produced no ${extension} output`);
+  }
+  return file.name;
+}
+
 function selectEntry(program: AotProgram, entry: string): { symbol: string } {
   const compiled = program.compiled.find((fn) => fn.name === entry);
   if (compiled) {
-    if (!/\(\s*void\s*\)/.test(compiled.prototype)) {
+    const artifact = compiled.emitted.artifact;
+    if (artifact.kind !== "c") {
+      throw new CompileError(`entry '${entry}' was not lowered to C`);
+    }
+    if (!/\(\s*void\s*\)/.test(artifact.prototype)) {
       throw new CompileError(
-        `entry '${entry}' must take no parameters (got prototype: ${compiled.prototype.trim()})`,
+        `entry '${entry}' must take no parameters (got prototype: ${artifact.prototype.trim()})`,
       );
     }
-    return { symbol: compiled.symbol };
+    return { symbol: compiled.emitted.symbol };
   }
 
   const skipped = program.skipped.find((fn) => fn.name === entry);
@@ -99,13 +110,15 @@ export function runCompile(config: CliConfig, engine: Engine): number {
 
   let program: AotProgram;
   let entrySymbol: string;
+  let headerName: string;
   let compiler: string;
   try {
     program = engine.compileAot(source, {
       sourceName: resolvedInput,
-      headerName: HEADER_NAME,
+      moduleName: MODULE_NAME,
     });
     entrySymbol = selectEntry(program, config.entry).symbol;
+    headerName = fileNamed(program, ".h");
     compiler = resolveCompiler(config.cc);
   } catch (error) {
     if (error instanceof CompileError) return fail(error.message);
@@ -120,14 +133,15 @@ export function runCompile(config: CliConfig, engine: Engine): number {
   const output = withExeSuffix(config.output ?? defaultOutput(resolvedInput));
   const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), "tera-compile-"));
   try {
-    writeAotProgram(program, buildDir, SOURCE_NAME);
+    const written = writeAotProgram(program, buildDir);
+    const sourcePaths = written.filter((file) => file.endsWith(".c"));
+    if (sourcePaths.length === 0) return fail("backend produced no C source to compile");
     const mainPath = path.join(buildDir, MAIN_NAME);
-    fs.writeFileSync(mainPath, mainSource(entrySymbol));
+    fs.writeFileSync(mainPath, mainSource(entrySymbol, headerName));
 
-    const sourcePath = path.join(buildDir, SOURCE_NAME);
     const result = spawnSync(
       compiler,
-      [sourcePath, mainPath, "-o", path.resolve(output), "-lm"],
+      [...sourcePaths, mainPath, "-o", path.resolve(output), "-lm"],
       { stdio: ["ignore", "inherit", "inherit"] },
     );
     if (result.error) {

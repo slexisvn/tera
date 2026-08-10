@@ -1,5 +1,5 @@
-import type { BackendArtifact } from "./artifact.js";
+import type { EmittedFunction } from "./artifact.js";
 
 export interface Emitter {
-  emit(): BackendArtifact;
+  emit(): EmittedFunction;
 }

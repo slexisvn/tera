@@ -21,6 +21,8 @@ export interface TransformPass<G> {
 
 const NOTHING_INVALIDATED: readonly AnalysisId<unknown>[] = [];
 
+export type GraphMaintenance<G> = (graph: G) => void;
+
 export class PassManager<G> {
   private ordinal = 0;
 
@@ -28,6 +30,7 @@ export class PassManager<G> {
     private readonly analyses: AnalysisManager<G>,
     private readonly options: CompilerOptions,
     private readonly tracer: PassTracer<G> | null = null,
+    private readonly maintain: GraphMaintenance<G> | null = null,
   ) {}
 
   run(graph: G, pipeline: Iterable<TransformPass<G>>): boolean {
@@ -37,6 +40,7 @@ export class PassManager<G> {
       for (const id of pass.requires ?? []) this.analyses.get(id);
       const nodesBefore = tracer === null ? 0 : tracer.probe.nodeCount(graph);
       const outcome = pass.run(graph, this.analyses, this.options);
+      if (outcome.changed && this.maintain !== null) this.maintain(graph);
       const invalidated = outcome.changed
         ? this.applyInvalidation(pass.preserves)
         : NOTHING_INVALIDATED;

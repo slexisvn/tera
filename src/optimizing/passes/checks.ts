@@ -5,7 +5,7 @@ import { DominatorTree } from "../analyses/dominance.js";
 import type { LoopForest } from "../analyses/loops.js";
 import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
 import { detachInputs } from "../ir/graph-edit.js";
-import { disconnect } from "../ir/cfg-edit.js";
+import { rewriteBranchAsJump } from "../ir/cfg-edit.js";
 
 type IRNodeLike = ir.CFGInstruction;
 type IRBlockLike = ir.CFGBlock;
@@ -63,22 +63,6 @@ function removeNodes(graph: IRGraphLike, nodes: IRNodeLike[]): void {
     }
     block.nodes = kept;
   }
-}
-
-function rewriteBranchAsJump(
-  block: IRBlockLike,
-  term: IRNodeLike,
-  targetBlockId: number,
-  deadBlockId: number,
-  blockById: Map<number, IRBlockLike>,
-): void {
-  detachInputs(term);
-  term.type = ir.IR_JUMP;
-  term.opcode = ir.IR_JUMP;
-  term.props = { targetBlock: targetBlockId };
-  term.metadata = term.props;
-  const deadBlock = blockById.get(deadBlockId);
-  if (deadBlock) disconnect(block, deadBlock);
 }
 
 export function eliminateRedundantChecks(
@@ -516,7 +500,10 @@ export function rangeAnalysisAndBoundsCheckElimination(
       const deadBlockId = alwaysTrue
         ? (term.props.falseBlock as number)
         : (term.props.trueBlock as number);
-      rewriteBranchAsJump(block, term, targetBlockId, deadBlockId, blockById);
+      const taken = blockById.get(targetBlockId);
+      const dead = blockById.get(deadBlockId);
+      if (taken === undefined || dead === undefined) continue;
+      rewriteBranchAsJump(block, taken, dead);
       branchElimCount++;
       tracer.jitCompile(
         "",

@@ -164,4 +164,46 @@ describe("PassManager", () => {
 
     expect(kept.runs()).toBe(2);
   });
+
+  it("maintains the graph only after a pass that changed it", () => {
+    const maintained: number[] = [];
+    const graph = { value: 1 };
+    const manager = new AnalysisManager<Graph>(graph, new AnalysisRegistry<Graph>());
+    const passes = new PassManager<Graph>(manager, compilerOptions(), null, (g) =>
+      maintained.push(g.value),
+    );
+
+    passes.run(graph, [
+      { name: "noop", preserves: { kind: "all" }, run: () => ({ changed: false }) },
+      {
+        name: "mutate",
+        preserves: { kind: "all" },
+        run: (g) => {
+          g.value = 2;
+          return { changed: true };
+        },
+      },
+      { name: "noop-again", preserves: { kind: "all" }, run: () => ({ changed: false }) },
+    ]);
+
+    expect(maintained).toEqual([2]);
+  });
+
+  it("runs no maintenance at all when nothing changes", () => {
+    let maintenanceRuns = 0;
+    const graph = { value: 1 };
+    const manager = new AnalysisManager<Graph>(graph, new AnalysisRegistry<Graph>());
+    const passes = new PassManager<Graph>(manager, compilerOptions(), null, () => {
+      maintenanceRuns++;
+    });
+
+    const inert: TransformPass<Graph> = {
+      name: "inert",
+      preserves: { kind: "all" },
+      run: () => ({ changed: false }),
+    };
+    passes.run(graph, [inert, inert, inert]);
+
+    expect(maintenanceRuns).toBe(0);
+  });
 });

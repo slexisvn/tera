@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "../../../src/index.js";
 import { differential, src } from "../../helpers/tiers.js";
-import { itNative, runCFunction } from "../../helpers/c-executor.js";
+import { cSource, itNative, runCFunction } from "../../helpers/c-executor.js";
 
 const INT32_MIN = -2147483648;
 const INT32_MAX = 2147483647;
@@ -29,7 +29,7 @@ function native(expression: string, a: number, b: number): number {
     functionNames: ["f"],
   });
   expect(program.skipped).toEqual([]);
-  return runCFunction(program.source, "f", [a, b]);
+  return runCFunction(cSource(program), "f", [a, b]);
 }
 
 function everyTier(expression: string, a: number, b: number): unknown {

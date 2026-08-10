@@ -83,9 +83,7 @@ export function irRequiresFrameState(node: IRValueLike) {
 
 export class CFGInstruction {
   id: number;
-  opcode: string;
-  type: string;
-  metadata: IRMetadata;
+  type: ops.Opcode;
   props: IRMetadata;
   inputs: CFGInstruction[];
   uses: CFGInstruction[];
@@ -97,15 +95,13 @@ export class CFGInstruction {
   _constPtrIndex?: number;
   _inlineNumericStore?: boolean;
 
-  constructor(opcode: string, metadata: IRMetadata = {}) {
+  constructor(opcode: ops.Opcode, props: IRMetadata = {}) {
     this.id = activeIRNodeIdAllocator.next();
-    this.opcode = opcode;
     this.type = opcode;
-    this.metadata = metadata;
-    this.props = metadata;
+    this.props = props;
     this.inputs = [];
     this.uses = [];
-    this.rep = metadata._rep || null;
+    this.rep = props._rep || null;
     this.frameState = null;
     this.block = null;
   }
@@ -136,7 +132,7 @@ export class CFGInstruction {
     const fs = this.frameState ? ` {fs}` : "";
     const rep = this.props._rep ? ` :${String(this.props._rep)}` : "";
     const effectTag = isTerminator(this.type) ? " <terminator>" : "";
-    return `v${this.id} = ${this.opcode}(${inputIds})${rep}${propsStr ? " [" + propsStr + "]" : ""}${effectTag}${fs}`;
+    return `v${this.id} = ${this.type}(${inputIds})${rep}${propsStr ? " [" + propsStr + "]" : ""}${effectTag}${fs}`;
   }
 }
 

@@ -11,17 +11,13 @@ import {
   eliminateRedundantChecks,
   rangeAnalysisAndBoundsCheckElimination,
 } from "./passes/checks.js";
-import {
-  constantFolding,
-  constantPropagation,
-  strengthReduction,
-} from "./passes/simplify.js";
+import { algebraicSimplification, strengthReduction } from "./passes/simplify.js";
+import { sparseConditionalConstantPropagation } from "./passes/sccp.js";
 import { escapeAnalysisAndScalarReplacement } from "./passes/escape-analysis.js";
 import { allocationSinking } from "./passes/allocation-sinking.js";
 import { inlineCacheLowering } from "./passes/ic-lowering.js";
 import { lowerBuiltinMethods } from "./passes/builtin-method-lowering.js";
 import { globalValueNumbering } from "./passes/gvn.js";
-import { representationSelection } from "./passes/repr-selection.js";
 import {
   deadCodeElimination,
   eliminateDeadPhis,
@@ -44,9 +40,7 @@ import { createAnalysisRegistry } from "./analyses/index.js";
 export type CompilerPipelinePhase =
   | "high-level-optimization"
   | "canonicalization"
-  | "target-legalization"
-  | "late-optimization"
-  | "emission";
+  | "late-optimization";
 
 export interface OptimizationPhase<G> {
   readonly name: CompilerPipelinePhase;
@@ -65,16 +59,10 @@ const controlFlowAnalyses: readonly AnalysisId<unknown>[] = [dominanceId, loopId
 const preservesControlFlow: Preservation = { kind: "only", preserved: controlFlowAnalyses };
 const invalidatesAnalyses: Preservation = { kind: "none" };
 
-const maintenance: TransformPass<CFGFunction> = {
-  name: "maintenance",
-  preserves: { kind: "all" },
-  run: (graph) => {
-    homeFloatingValues(graph);
-    graph.rebuildUses();
-    buildFrameStateIndex(graph);
-    return { changed: false };
-  },
-};
+export function maintainGraph(graph: CFGFunction): void {
+  homeFloatingValues(graph);
+  buildFrameStateIndex(graph);
+}
 
 function changed(result: PassResult): boolean {
   if (typeof result === "number") return result > 0;
@@ -96,17 +84,11 @@ function step(
   };
 }
 
-function interleave(passes: readonly TransformPass<CFGFunction>[]): TransformPass<CFGFunction>[] {
-  const result: TransformPass<CFGFunction>[] = [];
-  for (const pass of passes) result.push(pass, maintenance);
-  return result;
-}
-
 function phase(
   name: CompilerPipelinePhase,
   passes: readonly TransformPass<CFGFunction>[],
 ): OptimizationPhase<CFGFunction> {
-  return { name, passes: interleave(passes) };
+  return { name, passes };
 }
 
 export function middleEndPhases(
@@ -165,9 +147,8 @@ export function middleEndPhases(
       ),
     ]),
     phase("canonicalization", [
-      step("const-fold-early", preservesControlFlow, (g) => constantFolding(g)),
-      step("const-prop-early", preservesControlFlow, (g) => constantPropagation(g)),
-      step("const-fold-after-prop", preservesControlFlow, (g) => constantFolding(g)),
+      step("sccp", invalidatesAnalyses, (g) => sparseConditionalConstantPropagation(g)),
+      step("algebraic-simplification", preservesControlFlow, (g) => algebraicSimplification(g)),
       step(
         "load-elimination",
         preservesControlFlow,
@@ -193,8 +174,8 @@ export function middleEndPhases(
         ),
         step("allocation-sinking", preservesControlFlow, (g) => allocationSinking(g)),
       ]),
-      step("const-fold-after-escape", preservesControlFlow, (g) => constantFolding(g)),
-      step("const-prop-after-escape", preservesControlFlow, (g) => constantPropagation(g)),
+      step("sccp-after-escape", invalidatesAnalyses, (g) => sparseConditionalConstantPropagation(g)),
+      step("algebraic-simplification-after-escape", preservesControlFlow, (g) => algebraicSimplification(g)),
       step("intrinsic-cse", preservesControlFlow, (g) => commonSubexpressionIntrinsicReads(g)),
       step(
         "gvn",
@@ -243,9 +224,6 @@ export function middleEndPhases(
       step("dead-phi-elimination-after-late-escape", preservesControlFlow, (g) => eliminateDeadPhis(g)),
       step("dead-code-elimination-after-late-escape", preservesControlFlow, (g) => deadCodeElimination(g)),
     ]),
-    phase("target-legalization", [
-      step("representation-selection", preservesControlFlow, (g) => representationSelection(g)),
-    ]),
     phase("late-optimization", [
       step(
         "dead-store-elimination",
@@ -280,7 +258,12 @@ export function runMiddleEnd(
   options: CompilerOptions = compilerOptions(),
 ): AnalysisManager<CFGFunction> {
   const analyses = new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
-  const passManager = new PassManager<CFGFunction>(analyses, options, cfgPassTracer(options));
+  const passManager = new PassManager<CFGFunction>(
+    analyses,
+    options,
+    cfgPassTracer(options),
+    maintainGraph,
+  );
   for (const pipelinePhase of middleEndPhases(options)) {
     passManager.run(graph, pipelinePhase.passes);
   }

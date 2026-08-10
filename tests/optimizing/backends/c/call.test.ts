@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { cCompiler, itNative } from "../../../helpers/c-executor.js";
+import { cCompiler, cSource, itNative } from "../../../helpers/c-executor.js";
 import {
   CFGFunction,
   irConstant,
@@ -13,7 +13,7 @@ import {
   resetIRNodeIds,
 } from "../../../../src/optimizing/ir/index.js";
 import { moduleFromGraphs } from "../../../../src/optimizing/compilation-unit.js";
-import { compileModule } from "../../../../src/optimizing/drivers/aot.js";
+import { compileModule, writeAotProgram, type AotProgram } from "../../../../src/optimizing/drivers/aot.js";
 import { cBackend } from "../../../../src/optimizing/backends/c/backend.js";
 
 beforeEach(() => resetIRNodeIds());
@@ -41,14 +41,13 @@ function callsAddOne(name: string, calleeName: string): CFGFunction {
   return graph;
 }
 
-function runNative(headerName: string, header: string, source: string, entry: string): number {
+function runNative(program: AotProgram, entry: string): number {
   const dir = mkdtempSync(join(tmpdir(), "tera-call-"));
   try {
-    writeFileSync(join(dir, headerName), header);
-    writeFileSync(join(dir, "program.c"), source);
+    writeAotProgram(program, dir);
     writeFileSync(
       join(dir, "main.c"),
-      `#include <stdio.h>\n#include "${headerName}"\nint main(void){printf("%.17g\\n", ${entry}());return 0;}\n`,
+      `#include <stdio.h>\n#include "program.h"\nint main(void){printf("%.17g\\n", ${entry}());return 0;}\n`,
     );
     const exe = join(dir, "prog.exe");
     const build = spawnSync(cCompiler!, [join(dir, "program.c"), join(dir, "main.c"), "-o", exe, "-lm"], {
@@ -70,8 +69,8 @@ describe("C backend function calls", () => {
     );
 
     expect(program.skipped).toEqual([]);
-    expect(program.compiled.map((fn) => fn.symbol)).toEqual(["use_add", "add_one"]);
-    expect(program.compiled[0]!.definition).toContain("add_one(");
+    expect(program.compiled.map((fn) => fn.emitted.symbol)).toEqual(["use_add", "add_one"]);
+    expect(cSource(program)).toContain("add_one(");
   });
 
   it("skips a call whose target has no resolvable name", () => {
@@ -93,6 +92,6 @@ describe("C backend function calls", () => {
       moduleFromGraphs([callsAddOne("use_add", "add_one"), addOne("add_one")], "calls"),
       cBackend,
     );
-    expect(runNative(program.headerName, program.header, program.source, "use_add")).toBe(42);
+    expect(runNative(program, "use_add")).toBe(42);
   });
 });

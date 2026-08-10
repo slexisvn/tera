@@ -1,12 +1,4 @@
-export type Capability =
-  | "native-pointer"
-  | "linear-memory"
-  | "host-gc"
-  | "own-gc"
-  | "deopt"
-  | "osr"
-  | "tail-call"
-  | "int64";
+export type Capability = "deopt" | "osr" | "tagged-values";
 
 export type CapabilitySet = ReadonlySet<Capability>;
 

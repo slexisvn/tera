@@ -75,7 +75,7 @@ describe("middleEndPipeline pass reporting", () => {
     const passes = new PassManager(analysis.manager, compilerOptions());
 
     expect(analysis.manager.get(analysis.id)).toBe(4);
-    expect(passes.run(graph, [passNamed("const-fold-early")])).toBe(true);
+    expect(passes.run(graph, [passNamed("sccp")])).toBe(true);
     expect(analysis.manager.get(analysis.id)).toBe(4);
     expect(analysis.runs()).toBe(2);
   });
@@ -86,7 +86,7 @@ describe("middleEndPipeline pass reporting", () => {
     const passes = new PassManager(analysis.manager, compilerOptions());
 
     expect(analysis.manager.get(analysis.id)).toBe(1);
-    expect(passes.run(graph, [passNamed("const-fold-early")])).toBe(false);
+    expect(passes.run(graph, [passNamed("sccp")])).toBe(false);
     expect(analysis.manager.get(analysis.id)).toBe(1);
     expect(analysis.runs()).toBe(1);
   });
@@ -127,8 +127,8 @@ describe("printAfterAll pass tracing", () => {
     const headerOf = (name: string) =>
       sections.find((section) => section.includes(` ${name} [`))?.split("\n")[0];
 
-    expect(headerOf("const-fold-early")).toContain(
-      "const-fold-early [changed, nodes 4 -> 4 (+0), invalidated type-inference points-to mod-ref] ***",
+    expect(headerOf("sccp")).toContain(
+      "sccp [changed, nodes 4 -> 4 (+0), invalidated type-inference dominance loops points-to mod-ref] ***",
     );
     expect(headerOf("dead-code-elimination-after-late-escape")).toContain(
       "dead-code-elimination-after-late-escape [changed, nodes 4 -> 2 (-2), invalidated points-to mod-ref] ***",
@@ -139,7 +139,7 @@ describe("printAfterAll pass tracing", () => {
   it("dumps the graph body under every section header", () => {
     const options = compilerOptions("speed", { printAfterAll: true });
     const sections = captureConsole(() => runMiddleEnd(foldedGraph(), options));
-    const folded = sections.find((section) => section.includes(" const-fold-early ["));
+    const folded = sections.find((section) => section.includes(" sccp ["));
 
     expect(folded).toContain("=== CFG Function: folded ===");
     expect(folded).toContain("Constant() [value=42]");

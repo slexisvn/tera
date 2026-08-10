@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { representationSelection } from "../../../src/optimizing/passes/repr-selection.js";
 import {
-  representationSelection,
   REP_INT32,
   REP_FLOAT64,
   REP_BOOL,
   REP_HANDLE,
   REP_TAGGED_NUMBER,
-} from "../../../src/optimizing/passes/repr-selection.js";
+} from "../../../src/optimizing/types/representation.js";
 import {
   CFGFunction,
   irConstant,

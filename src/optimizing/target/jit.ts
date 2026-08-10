@@ -4,12 +4,19 @@ import type {
 import type { CompilationUnit } from "../compilation-unit.js";
 import type { CodeBackend } from "./backend.js";
 
+export type RejectionKind = "unsupported" | "speculation" | "malformed";
+
+export interface CompileRejection {
+  readonly kind: RejectionKind;
+  readonly reason: string;
+}
+
 export interface JitCompileRequest {
   readonly unit: CompilationUnit;
 }
 
 export interface JitRejection {
-  readonly compileRejection: string | null;
+  readonly compileRejection: CompileRejection | null;
   readonly analysisFailure: string | null;
 }
 

@@ -575,6 +575,93 @@ function pinned(arity: Arity, result: ResultClass, transfer: Transfer): Operatio
   return { ...pureValue(arity, result, transfer), pinned: true };
 }
 
+export type Opcode =
+  | typeof IR_PARAMETER
+  | typeof IR_CONSTANT
+  | typeof IR_CHECK_MAP
+  | typeof IR_CHECK_SMI
+  | typeof IR_CHECK_NUMBER
+  | typeof IR_CHECK_CALL_TARGET
+  | typeof IR_CALL_KNOWN_FUNCTION
+  | typeof IR_INT32_ADD
+  | typeof IR_INT32_SUB
+  | typeof IR_INT32_MUL
+  | typeof IR_INT32_DIV
+  | typeof IR_INT32_MOD
+  | typeof IR_FLOAT64_ADD
+  | typeof IR_FLOAT64_SUB
+  | typeof IR_FLOAT64_MUL
+  | typeof IR_FLOAT64_DIV
+  | typeof IR_INT32_COMPARE
+  | typeof IR_FLOAT64_COMPARE
+  | typeof IR_LOAD_FIELD
+  | typeof IR_STORE_FIELD
+  | typeof IR_GENERIC_ADD
+  | typeof IR_GENERIC_SUB
+  | typeof IR_GENERIC_MUL
+  | typeof IR_GENERIC_DIV
+  | typeof IR_GENERIC_MOD
+  | typeof IR_GENERIC_COMPARE
+  | typeof IR_CHECK_ARRAY
+  | typeof IR_CHECK_ELEMENTS_KIND
+  | typeof IR_CHECK_BOUNDS
+  | typeof IR_LOAD_ARRAY_LENGTH
+  | typeof IR_LOAD_ELEMENT
+  | typeof IR_STORE_ELEMENT
+  | typeof IR_POLYMORPHIC_LOAD
+  | typeof IR_POLYMORPHIC_STORE
+  | typeof IR_GENERIC_GET_PROP
+  | typeof IR_GENERIC_SET_PROP
+  | typeof IR_GENERIC_DELETE_PROP
+  | typeof IR_GENERIC_CALL
+  | typeof IR_LOAD_LOCAL
+  | typeof IR_STORE_LOCAL
+  | typeof IR_LOAD_CONTEXT_SLOT
+  | typeof IR_STORE_CONTEXT_SLOT
+  | typeof IR_LOAD_GLOBAL
+  | typeof IR_STORE_GLOBAL
+  | typeof IR_BRANCH
+  | typeof IR_JUMP
+  | typeof IR_RETURN
+  | typeof IR_DEOPTIMIZE
+  | typeof IR_PHI
+  | typeof IR_BOX
+  | typeof IR_UNBOX
+  | typeof IR_LOAD_CONST
+  | typeof IR_CALL_BUILTIN
+  | typeof IR_CALL_INTRINSIC
+  | typeof IR_NEW_OBJECT
+  | typeof IR_NEW_ARRAY
+  | typeof IR_MAKE_CLOSURE
+  | typeof IR_TYPEOF
+  | typeof IR_NOT
+  | typeof IR_NEG
+  | typeof IR_GENERIC_GET_INDEX
+  | typeof IR_GENERIC_SET_INDEX
+  | typeof IR_INT32_SHL
+  | typeof IR_INT32_SHR
+  | typeof IR_INT32_USHR
+  | typeof IR_INT32_AND
+  | typeof IR_INT32_OR
+  | typeof IR_INT32_XOR
+  | typeof IR_INT32_NOT
+  | typeof IR_FLOAT64_POW
+  | typeof IR_GENERIC_BITAND
+  | typeof IR_GENERIC_BITOR
+  | typeof IR_GENERIC_BITXOR
+  | typeof IR_GENERIC_SHL
+  | typeof IR_GENERIC_SHR
+  | typeof IR_GENERIC_USHR
+  | typeof IR_GENERIC_POW
+  | typeof IR_GENERIC_BITNOT
+  | typeof IR_GENERIC_INSTANCEOF
+  | typeof IR_GENERIC_IN
+  | typeof IR_DISPATCH_MAP
+  | typeof IR_MEGAMORPHIC_LOAD
+  | typeof IR_MEGAMORPHIC_STORE
+  | typeof IR_NEW_REGEX
+  | typeof IR_CHECK_PRIMITIVE;
+
 export const OPERATIONS = {
   [IR_PARAMETER]: pinned(NO_INPUTS, RESULT_HANDLE, ANY),
   [IR_PHI]: pinned(variadic(0), RESULT_CONTEXTUAL, phiTransfer),
@@ -721,9 +808,8 @@ export const OPERATIONS = {
   [IR_JUMP]: terminator(NO_INPUTS),
   [IR_RETURN]: terminator(ONE_INPUT),
   [IR_DEOPTIMIZE]: { ...terminator(NO_INPUTS), effects: CONTROL_GUARD },
-} as const satisfies Record<string, OperationSpec>;
+} as const satisfies Record<Opcode, OperationSpec>;
 
-export type Opcode = keyof typeof OPERATIONS;
 
 export const ALL_OPCODES = Object.keys(OPERATIONS) as readonly Opcode[];
 

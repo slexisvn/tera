@@ -1,4 +1,5 @@
-import { CFGInstruction, IR_PHI, type CFGBlock } from "./index.js";
+import { CFGInstruction, IR_BRANCH, IR_JUMP, IR_PHI, type CFGBlock } from "./index.js";
+import { detachInputs } from "./graph-edit.js";
 
 export function link(pred: CFGBlock, succ: CFGBlock): void {
   if (!pred.successors.includes(succ)) pred.successors.push(succ);
@@ -55,6 +56,20 @@ export function disconnectAt(succ: CFGBlock, index: number): void {
 export function disconnect(pred: CFGBlock, succ: CFGBlock): void {
   const index = succ.predecessors.indexOf(pred);
   if (index >= 0) disconnectAt(succ, index);
+}
+
+export function rewriteBranchAsJump(
+  block: CFGBlock,
+  taken: CFGBlock,
+  dead: CFGBlock,
+): boolean {
+  const terminator = block.getTerminator();
+  if (!terminator || terminator.type !== IR_BRANCH) return false;
+  detachInputs(terminator);
+  terminator.type = IR_JUMP;
+  terminator.props = { targetBlock: taken.id };
+  if (dead !== taken) disconnect(block, dead);
+  return true;
 }
 
 export function removePhi(block: CFGBlock, phi: CFGInstruction): void {

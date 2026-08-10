@@ -13,7 +13,7 @@ import {
   type LatticeType,
 } from "../types/lattice.js";
 
-const GENERIC_TO_INT32 = new Map<string, string>([
+const GENERIC_TO_INT32 = new Map<string, ir.Opcode>([
   [ir.IR_GENERIC_ADD, ir.IR_INT32_ADD],
   [ir.IR_GENERIC_SUB, ir.IR_INT32_SUB],
   [ir.IR_GENERIC_MUL, ir.IR_INT32_MUL],
@@ -21,7 +21,7 @@ const GENERIC_TO_INT32 = new Map<string, string>([
   [ir.IR_GENERIC_COMPARE, ir.IR_INT32_COMPARE],
 ]);
 
-const GENERIC_TO_FLOAT64 = new Map<string, string>([
+const GENERIC_TO_FLOAT64 = new Map<string, ir.Opcode>([
   [ir.IR_GENERIC_ADD, ir.IR_FLOAT64_ADD],
   [ir.IR_GENERIC_SUB, ir.IR_FLOAT64_SUB],
   [ir.IR_GENERIC_MUL, ir.IR_FLOAT64_MUL],

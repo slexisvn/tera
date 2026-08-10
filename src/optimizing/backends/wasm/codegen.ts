@@ -71,7 +71,13 @@ import {
   REP_HANDLE,
   REP_TAGGED,
   REP_BOOL,
-} from "../../passes/repr-selection.js";
+} from "../../types/representation.js";
+import type { CompileRejection } from "../../target/jit.js";
+import {
+  buildMergeResolver,
+  findLabelDepth,
+  type StructuredLabel,
+} from "./structured-control-flow.js";
 import { validateOptimizedGraph } from "../../validation/graph-validator.js";
 import { loopForestAnalysisId, type LoopForest } from "../../analyses/loops.js";
 import {
@@ -103,6 +109,9 @@ import {
   wasmTypeForRep,
   valueRepForRep,
   compileRejectionForNode,
+  malformed,
+  speculation,
+  unsupported,
   computeBlockOrder,
   CONDITIONALLY_NATIVE,
   GENERIC_BITWISE_OPCODES,
@@ -198,9 +207,6 @@ type SyntheticConstantNode = ir.CFGInstruction;
 type MathIntrinsicInfo = {
   intrinsic: MathIntrinsic;
   argInputs: AnyNode[];
-};
-type MergeResolver = {
-  find(trueBlockId: number, falseBlockId: number): number | null;
 };
 type GlobalCandidateEntry = {
   loads: AnyNode[];
@@ -377,7 +383,7 @@ export function isInsideWasmExecution(): boolean {
 
 export class WasmCodegen {
   lastAnalysisFailure: string | null = null;
-  lastCompileRejection: string | null = null;
+  lastCompileRejection: CompileRejection | null = null;
   lastEmitFailure: string | null = null;
   _typeofConstants: Map<string, SyntheticConstantNode> | null = null;
   _nonPrimitiveConstants: SyntheticConstantNode[] | null = null;
@@ -391,10 +397,10 @@ export class WasmCodegen {
     return null;
   }
 
-  compileRejection(graph: AnyGraph, forest: LoopForest): string | null {
+  compileRejection(graph: AnyGraph, forest: LoopForest): CompileRejection | null {
     if (!graph || !Array.isArray(graph.blocks))
-      return "graph is missing blocks";
-    if (graph.blocks.length === 0) return "graph has no blocks";
+      return malformed("graph is missing blocks");
+    if (graph.blocks.length === 0) return malformed("graph has no blocks");
     const observedFrameStateValues = frameStateValueIds(graph);
     const receiverShape = new Map<number, { mono: Set<ir.IRMetadataValue>; poly: Set<ir.IRMetadataValue> }>();
     const recordShape = (
@@ -432,7 +438,7 @@ export class WasmCodegen {
       if (entry.mono.size === 0 || entry.poly.size === 0) continue;
       for (const m of entry.poly) {
         if (!entry.mono.has(m)) {
-          return "inconsistent mono/poly shape speculation on receiver";
+          return speculation("inconsistent mono/poly shape speculation on receiver");
         }
       }
     }
@@ -448,7 +454,7 @@ export class WasmCodegen {
           node.inputs[0].type !== ir.IR_PARAMETER &&
           repForNode(node.inputs[0]) === REP_HANDLE
         ) {
-          return "number guard on non-parameter handle value";
+          return speculation("number guard on non-parameter handle value");
         }
         if (
           (node.type === ir.IR_GENERIC_GET_PROP ||
@@ -464,7 +470,7 @@ export class WasmCodegen {
           node.inputs[0].props &&
           node.inputs[0].props.isThis
         ) {
-          return "property access on this receiver";
+          return unsupported("property access on this receiver");
         }
         if (node.type === ir.IR_RETURN) hasReturn = true;
         if (
@@ -474,7 +480,9 @@ export class WasmCodegen {
           const paramRep = valueRepForRep(repForNode(node));
           for (const incoming of node.inputs) {
             if (valueRepForRep(repForNode(incoming)) === paramRep) continue;
-            return `block parameter is ${paramRep} but an incoming value is ${valueRepForRep(repForNode(incoming))}`;
+            return unsupported(
+              `block parameter is ${paramRep} but an incoming value is ${valueRepForRep(repForNode(incoming))}`,
+            );
           }
         }
       }
@@ -483,14 +491,14 @@ export class WasmCodegen {
         for (const pred of preds) {
           const last = pred.nodes[pred.nodes.length - 1];
           if (last && last.type === ir.IR_BRANCH) {
-            return "short-circuit edge into multi-way merge";
+            return unsupported("short-circuit edge into multi-way merge");
           }
         }
       }
     }
-    if (!hasReturn) return "graph has no return";
+    if (!hasReturn) return malformed("graph has no return");
     if (forest.irreducible) {
-      return "irreducible control flow";
+      return unsupported("irreducible control flow");
     }
     return null;
   }
@@ -1591,7 +1599,7 @@ export class WasmCodegen {
     for (let i = 0; i < order.length; i++) {
       orderIndex.set(order[i].id, i);
     }
-    const mergeResolver = this.buildMergeResolver(order, orderIndex);
+    const mergeResolver = buildMergeResolver(order, orderIndex);
 
     const loopInfoMap = new Map<number, { loopBlocks: Set<number>; exitBlockIds: number[] }>();
     for (const loop of forest.loops()) {
@@ -1602,7 +1610,7 @@ export class WasmCodegen {
       loopInfoMap.set(loop.header.id, { loopBlocks, exitBlockIds });
     }
 
-    const labelStack: Array<{ type: string; targetId: number | null }> = [];
+    const labelStack: StructuredLabel[] = [];
     const emitted = new Set<number>();
 
     const emitPhiUpdates = (targetBlockId: number, predecessor: AnyBlock | null = null) => {
@@ -1681,7 +1689,7 @@ export class WasmCodegen {
             return;
           }
           if (loopHeaders.has(targetId)) {
-            const loopLabelIdx = this.findLabelDepth(
+            const loopLabelIdx = findLabelDepth(
               labelStack,
               "loop",
               targetId,
@@ -1695,7 +1703,7 @@ export class WasmCodegen {
               return;
             }
           }
-          const blockLabelIdx = this.findLabelDepth(
+          const blockLabelIdx = findLabelDepth(
             labelStack,
             "block",
             targetId,
@@ -1729,13 +1737,13 @@ export class WasmCodegen {
 
           const trueIsBackEdge =
             loopHeaders.has(trueBlockId) &&
-            this.findLabelDepth(labelStack, "loop", trueBlockId) >= 0;
+            findLabelDepth(labelStack, "loop", trueBlockId) >= 0;
           const falseIsBackEdge =
             loopHeaders.has(falseBlockId) &&
-            this.findLabelDepth(labelStack, "loop", falseBlockId) >= 0;
+            findLabelDepth(labelStack, "loop", falseBlockId) >= 0;
 
           if (trueIsBackEdge) {
-            const loopDepth = this.findLabelDepth(
+            const loopDepth = findLabelDepth(
               labelStack,
               "loop",
               trueBlockId,
@@ -1750,7 +1758,7 @@ export class WasmCodegen {
               const nextBlock = blockMap.get(falseBlockId);
               if (nextBlock) emitRegion(nextBlock);
             } else {
-              const exitDepth = this.findLabelDepth(
+              const exitDepth = findLabelDepth(
                 labelStack,
                 "block",
                 falseBlockId,
@@ -1768,7 +1776,7 @@ export class WasmCodegen {
           }
 
           if (falseIsBackEdge) {
-            const loopDepth = this.findLabelDepth(
+            const loopDepth = findLabelDepth(
               labelStack,
               "loop",
               falseBlockId,
@@ -1784,7 +1792,7 @@ export class WasmCodegen {
               const nextBlock = blockMap.get(trueBlockId);
               if (nextBlock) emitRegion(nextBlock);
             } else {
-              const exitDepth = this.findLabelDepth(
+              const exitDepth = findLabelDepth(
                 labelStack,
                 "block",
                 trueBlockId,
@@ -1801,12 +1809,12 @@ export class WasmCodegen {
             return;
           }
 
-          const trueExitLabel = this.findLabelDepth(
+          const trueExitLabel = findLabelDepth(
             labelStack,
             "block",
             trueBlockId,
           );
-          const falseExitLabel = this.findLabelDepth(
+          const falseExitLabel = findLabelDepth(
             labelStack,
             "block",
             falseBlockId,
@@ -1842,7 +1850,7 @@ export class WasmCodegen {
             if (exitIsTrue) bytes.push(wasmFormat.OP_I32_EQZ);
             bytes.push(wasmFormat.OP_BR_IF, ...wasmFormat.encodeU32(0));
             emitPhiUpdates(exitBlockId, block);
-            const exitDepth = this.findLabelDepth(
+            const exitDepth = findLabelDepth(
               labelStack,
               "block",
               exitBlockId,
@@ -1912,7 +1920,7 @@ export class WasmCodegen {
             emitSuccessor(trueBlockId, block);
           } else if (mergeBlockId !== null) {
             const mergeAlreadyOpen =
-              this.findLabelDepth(labelStack, "block", mergeBlockId) >= 0;
+              findLabelDepth(labelStack, "block", mergeBlockId) >= 0;
             if (!mergeAlreadyOpen) {
               labelStack.push({ type: "block", targetId: mergeBlockId });
               bytes.push(wasmFormat.OP_BLOCK, wasmFormat.TYPE_VOID);
@@ -1928,7 +1936,7 @@ export class WasmCodegen {
             bytes.push(wasmFormat.OP_BR_IF, ...wasmFormat.encodeU32(0));
 
             emitSuccessor(falseBlockId, block);
-            const mergeBrDepth = this.findLabelDepth(
+            const mergeBrDepth = findLabelDepth(
               labelStack,
               "block",
               mergeBlockId,
@@ -1990,7 +1998,7 @@ export class WasmCodegen {
         emitRegion(region);
         return;
       }
-      const labelIdx = this.findLabelDepth(labelStack, "block", targetId);
+      const labelIdx = findLabelDepth(labelStack, "block", targetId);
       if (labelIdx >= 0) {
         emitPhiUpdates(targetId, from);
         bytes.push(wasmFormat.OP_BR, ...wasmFormat.encodeU32(labelIdx));
@@ -2092,178 +2100,6 @@ export class WasmCodegen {
     return bytes;
   }
 
-  findLabelDepth(
-    labelStack: Array<{ type: string; targetId: number | null }>,
-    type: string,
-    targetId: number | null,
-  ): number {
-    for (let i = labelStack.length - 1; i >= 0; i--) {
-      if (labelStack[i].type === type && labelStack[i].targetId === targetId) {
-        return labelStack.length - 1 - i;
-      }
-    }
-    return -1;
-  }
-
-  buildMergeResolver(
-    order: AnyBlock[],
-    orderIndex: Map<number, number>,
-  ): MergeResolver {
-    const blockCount = order.length;
-    const syntheticExit = blockCount;
-    const blockIdToNode = new Map<number, number>();
-    const nodeToBlockId = new Map<number, number>();
-    for (let i = 0; i < blockCount; i++) {
-      blockIdToNode.set(order[i].id, i);
-      nodeToBlockId.set(i, order[i].id);
-    }
-
-    const graph: number[][] = Array.from({ length: blockCount + 1 }, () => []);
-    for (let i = 0; i < blockCount; i++) {
-      const block = order[i];
-      if (block.successors.length === 0) {
-        graph[syntheticExit].push(i);
-      }
-      for (const pred of block.predecessors) {
-        const predNode = blockIdToNode.get(pred.id);
-        if (predNode !== undefined) graph[i].push(predNode);
-      }
-    }
-
-    const state = this.computeDominators(graph, syntheticExit);
-    const depth = new Int32Array(blockCount + 1).fill(-1);
-    depth[syntheticExit] = 0;
-
-    const depthOf = (node: number): number => {
-      const known = depth[node];
-      if (known >= 0) return known;
-      const parent = state.idom[node];
-      if (parent < 0 || parent === node) return -1;
-      const parentDepth = depthOf(parent);
-      if (parentDepth < 0) return -1;
-      depth[node] = parentDepth + 1;
-      return depth[node];
-    };
-
-    for (let i = 0; i <= blockCount; i++) depthOf(i);
-
-    const lca = (left: number, right: number): number => {
-      let a = left;
-      let b = right;
-      let da = depthOf(a);
-      let db = depthOf(b);
-      while (a >= 0 && da > db) {
-        a = state.idom[a];
-        da--;
-      }
-      while (b >= 0 && db > da) {
-        b = state.idom[b];
-        db--;
-      }
-      while (a !== b && a >= 0 && b >= 0) {
-        a = state.idom[a];
-        b = state.idom[b];
-      }
-      return a === b ? a : -1;
-    };
-
-    return {
-      find(trueBlockId, falseBlockId) {
-        const trueNode = blockIdToNode.get(trueBlockId);
-        const falseNode = blockIdToNode.get(falseBlockId);
-        if (trueNode === undefined || falseNode === undefined) return null;
-        const mergeNode = lca(trueNode, falseNode);
-        if (mergeNode < 0 || mergeNode === syntheticExit) return null;
-        const mergeBlockId = nodeToBlockId.get(mergeNode);
-        if (mergeBlockId === undefined) return null;
-        const minMergeIndex = Math.max(
-          orderIndex.get(trueBlockId) ?? -1,
-          orderIndex.get(falseBlockId) ?? -1,
-        );
-        const mergeIndex = orderIndex.get(mergeBlockId) ?? -1;
-        if (
-          mergeBlockId === trueBlockId ||
-          mergeBlockId === falseBlockId ||
-          mergeIndex <= minMergeIndex
-        ) {
-          return null;
-        }
-        return mergeBlockId;
-      },
-    };
-  }
-
-  computeDominators(
-    graph: readonly number[][],
-    start: number,
-  ): { idom: Int32Array } {
-    const size = graph.length;
-    const semi = new Int32Array(size).fill(-1);
-    const vertex: number[] = [-1];
-    const parent = new Int32Array(size).fill(-1);
-    const ancestor = new Int32Array(size).fill(-1);
-    const label = new Int32Array(size);
-    const idom = new Int32Array(size).fill(-1);
-    const bucket: number[][] = Array.from({ length: size }, () => []);
-    const preds: number[][] = Array.from({ length: size }, () => []);
-
-    const dfs = (node: number): void => {
-      semi[node] = vertex.length;
-      vertex.push(node);
-      label[node] = node;
-      for (const succ of graph[node]) {
-        if (semi[succ] < 0) {
-          parent[succ] = node;
-          dfs(succ);
-        }
-        preds[succ].push(node);
-      }
-    };
-
-    const compress = (node: number): void => {
-      const anc = ancestor[node];
-      if (anc < 0 || ancestor[anc] < 0) return;
-      compress(anc);
-      if (semi[label[anc]] < semi[label[node]]) label[node] = label[anc];
-      ancestor[node] = ancestor[anc];
-    };
-
-    const evalNode = (node: number): number => {
-      if (ancestor[node] < 0) return label[node];
-      compress(node);
-      return label[node];
-    };
-
-    const linkNode = (parentNode: number, childNode: number): void => {
-      ancestor[childNode] = parentNode;
-    };
-
-    dfs(start);
-
-    for (let i = vertex.length - 1; i >= 2; i--) {
-      const node = vertex[i];
-      for (const pred of preds[node]) {
-        const candidate = evalNode(pred);
-        if (semi[candidate] < semi[node]) semi[node] = semi[candidate];
-      }
-      bucket[vertex[semi[node]]].push(node);
-      linkNode(parent[node], node);
-      const parentBucket = bucket[parent[node]];
-      for (const bucketNode of parentBucket) {
-        const candidate = evalNode(bucketNode);
-        idom[bucketNode] =
-          semi[candidate] < semi[bucketNode] ? candidate : parent[node];
-      }
-      parentBucket.length = 0;
-    }
-
-    for (let i = 2; i < vertex.length; i++) {
-      const node = vertex[i];
-      if (idom[node] !== vertex[semi[node]]) idom[node] = idom[idom[node]];
-    }
-    idom[start] = -1;
-    return { idom };
-  }
 
   emitDeoptSnapshot(fs: FrameState | null, analysis: AnyAnalysis, bytes: number[]): void {
     if (!fs || !analysis.needsMemory) return;
@@ -4050,7 +3886,7 @@ export class WasmCodegen {
   compile(unit: CompilationUnit): OptimizedCode | null {
     const compiledFn = unit.compiledFunction;
     if (compiledFn === null) {
-      this.lastCompileRejection = "missing compiled function for JIT unit";
+      this.lastCompileRejection = malformed("missing compiled function for JIT unit");
       return null;
     }
     const graph = unit.graph;
@@ -4065,16 +3901,17 @@ export class WasmCodegen {
       validateOptimizedGraph(graph, frameStates || []);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      this.lastCompileRejection = malformed(`graph validation failed: ${message}`);
       tracer.jitCompile(
         compiledFn.name ?? "<anonymous>",
-        `Wasm: graph validation failed: ${message}`,
+        `Wasm: ${this.lastCompileRejection.reason}`,
       );
       return null;
     }
 
     const analyses = unit.analyses;
     if (!analyses) {
-      this.lastCompileRejection = "missing analysis manager for JIT unit";
+      this.lastCompileRejection = malformed("missing analysis manager for JIT unit");
       return null;
     }
     const forest = analyses.get(loopForestAnalysisId);
@@ -4082,7 +3919,7 @@ export class WasmCodegen {
     if (!this.canCompile(graph, forest)) {
       tracer.jitCompile(
         compiledFn.name ?? "<anonymous>",
-        `Wasm: graph not compilable: ${this.lastCompileRejection}`,
+        `Wasm: graph not compilable: ${this.lastCompileRejection?.reason ?? "unknown"}`,
       );
       return null;
     }

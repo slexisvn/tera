@@ -122,7 +122,7 @@ import {
   REP_HANDLE,
   REP_TAGGED,
   REP_BOOL,
-} from "../../passes/repr-selection.js";
+} from "../../types/representation.js";
 import { TYPE_I32, TYPE_F64 } from "./wasm-format.js";
 import { elementsKindId } from "./object-layout.js";
 import {

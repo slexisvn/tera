@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Engine } from "../../../../src/api/engine.js";
-import { itNative, runCFunction } from "../../../helpers/c-executor.js";
+import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
 
 function compile(lines: readonly string[]) {
   const program = new Engine().compileAot(`${lines.join("\n")}\n`);
@@ -13,9 +13,9 @@ function interpret(lines: readonly string[], call: string): unknown {
 }
 
 function bodyOf(program: { source: string }, symbol: string): string {
-  const start = program.source.indexOf(`${symbol}(`);
+  const start = cSource(program).indexOf(`${symbol}(`);
   expect(start).toBeGreaterThan(-1);
-  return program.source.slice(start, program.source.indexOf("\n}", start));
+  return cSource(program).slice(start, cSource(program).indexOf("\n}", start));
 }
 
 function expectMatchesInterpreter(
@@ -25,7 +25,7 @@ function expectMatchesInterpreter(
 ): void {
   const program = compile(lines);
   const interpreted = interpret(lines, `${entry}(${args.join(", ")})`);
-  expect(runCFunction(program.source, entry, args)).toBe(interpreted);
+  expect(runCFunction(cSource(program), entry, args)).toBe(interpreted);
 }
 
 describe("AOT arrays mutated across loop back-edges", () => {
@@ -40,7 +40,7 @@ describe("AOT arrays mutated across loop back-edges", () => {
       "  return a[0]",
     ]);
 
-    expect(runCFunction(program.source, "f", [])).toBe(3);
+    expect(runCFunction(cSource(program), "f", [])).toBe(3);
   });
 
   itNative("keeps a dynamically indexed array concrete", () => {
@@ -147,7 +147,7 @@ describe("AOT arrays mutated across loop back-edges", () => {
     ];
     const program = compile(lines);
 
-    expect(runCFunction(program.source, "f", [3])).toBe(41);
+    expect(runCFunction(cSource(program), "f", [3])).toBe(41);
     expectMatchesInterpreter(lines, "f", [4]);
   });
 
@@ -163,7 +163,7 @@ describe("AOT arrays mutated across loop back-edges", () => {
     ];
     const program = compile(lines);
 
-    expect(runCFunction(program.source, "f", [5])).toBe(2.5);
+    expect(runCFunction(cSource(program), "f", [5])).toBe(2.5);
     expect(interpret(lines, "f(5)")).toBe(2.5);
   });
 
@@ -198,6 +198,6 @@ describe("AOT arrays mutated across loop back-edges", () => {
 
     expect(bodyOf(program, "f")).toContain("int32_t v");
     expect(bodyOf(program, "f")).toContain("] = {");
-    expect(runCFunction(program.source, "f", [3])).toBe(21);
+    expect(runCFunction(cSource(program), "f", [3])).toBe(21);
   });
 });

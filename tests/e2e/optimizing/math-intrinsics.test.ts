@@ -5,6 +5,7 @@ import { compileModule } from "../../../src/optimizing/drivers/aot.js";
 import { cBackend } from "../../../src/optimizing/backends/c/backend.js";
 import { moduleFromGraphs } from "../../../src/optimizing/compilation-unit.js";
 import { differential, src, type Tier } from "../../helpers/tiers.js";
+import { cSource } from "../../helpers/c-executor.js";
 import {
   IR_CALL_BUILTIN,
   IR_GENERIC_CALL,
@@ -121,6 +122,6 @@ describe("Math intrinsics lower in the middle end", () => {
     const program = compileModule(moduleFromGraphs([graph]), cBackend);
 
     expect(program.skipped).toEqual([]);
-    expect(program.source).toContain("tera_math_sqrt");
+    expect(cSource(program)).toContain("tera_math_sqrt");
   });
 });

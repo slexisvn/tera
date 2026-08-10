@@ -1,7 +1,7 @@
 export { Engine } from "./api/engine.js";
 export type { AotCompileOptions, AotFunctionCompileOptions, EngineOptions, CompileOptions, EngineValue, EngineUnhandledRejection } from "./api/engine.js";
 export { compileModule, writeAotProgram } from "./optimizing/drivers/aot.js";
-export type { AotCompiledFunction, AotDriverOptions, AotProgram, AotSkippedFunction } from "./optimizing/drivers/aot.js";
+export type { AotDriverOptions, AotProgram, AotSkippedFunction } from "./optimizing/drivers/aot.js";
 export { createCompilationUnit, createModuleIR, moduleFromGraphs } from "./optimizing/compilation-unit.js";
 export type { CompilationUnit, ModuleIR } from "./optimizing/compilation-unit.js";
 export type { AotBackend } from "./optimizing/target/backend.js";
