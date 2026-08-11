@@ -190,6 +190,7 @@ type JitEngineLike = {
   tieringPolicy?: TieringPolicyLike | null;
   osrEnabled?: boolean;
   output?: (text: string) => void;
+  input?: (prompt: string) => string | null;
   compileLazy?: (compiledFn: bytecode.RegisterCompiledFunction) => void;
   baselineCompile?: (compiledFn: bytecode.RegisterCompiledFunction) => void;
   optimizeFunction?: (compiledFn: bytecode.RegisterCompiledFunction) => void;

@@ -38,6 +38,7 @@ import {
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
   IR_GENERIC_CALL,
+  IR_GENERIC_ADD,
   IR_LOAD_GLOBAL,
 } from "../ir/index.js";
 import { analysisId, type AnalysisPass } from "../infra/analysis-manager.js";
@@ -46,6 +47,7 @@ import {
   aotElementScalarOf,
   aotScalarOf,
   SCALAR_FLOAT64,
+  SCALAR_INT32,
   SCALAR_STRING,
   type AotScalar,
 } from "../types/scalar.js";
@@ -91,6 +93,14 @@ export const AOT_OPCODES: ReadonlySet<string> = new Set<string>([
   IR_BRANCH,
 ]);
 
+export const AOT_CHAR_AT = qualifiedMethodName("string", "char_at");
+export const AOT_INT_TO_STRING = qualifiedMethodName("int", "to_string");
+
+export const AOT_STRING_BUILTINS: ReadonlySet<string> = new Set<string>([
+  AOT_CHAR_AT,
+  AOT_INT_TO_STRING,
+]);
+
 export const AOT_BUILTINS: ReadonlySet<string> = new Set<string>([
   qualifiedMethodName("Math", "abs"),
   qualifiedMethodName("Math", "floor"),
@@ -102,6 +112,7 @@ export const AOT_BUILTINS: ReadonlySet<string> = new Set<string>([
   qualifiedMethodName("Math", "max"),
   qualifiedMethodName("string", "char_code_at"),
   qualifiedMethodName("string", "length"),
+  ...AOT_STRING_BUILTINS,
 ]);
 
 const ARRAY_OPS: ReadonlySet<string> = new Set<string>([
@@ -125,10 +136,17 @@ const REJECTIONS = new Map<string, (node: CFGInstruction) => string>([
 
 const ASCII_LIMIT = 0x7f;
 
+export const AOT_STRING_BUFFER_CAPACITY = 1024;
+
 export interface AotArray {
   readonly allocation: CFGInstruction;
   readonly length: number;
   readonly element: AotScalar;
+}
+
+export interface AotStringBuffer {
+  readonly producer: CFGInstruction;
+  readonly capacity: number;
 }
 
 export interface AotLegality {
@@ -137,8 +155,10 @@ export interface AotLegality {
   readonly parameterScalars: readonly AotScalar[];
   readonly constants: readonly CFGInstruction[];
   readonly arrays: readonly AotArray[];
+  readonly stringBuffers: readonly AotStringBuffer[];
   scalarOf(value: CFGInstruction): AotScalar;
   arrayOf(value: CFGInstruction): AotArray | null;
+  stringBufferOf(value: CFGInstruction): AotStringBuffer | null;
 }
 
 export type AotLegalityResult =
@@ -164,9 +184,11 @@ export function builtinOperandScalar(declared: string | null): AotScalar | null 
 class LegalityAnalyzer implements AotLegality {
   private readonly scalars = new Map<CFGInstruction, AotScalar>();
   private readonly arrayByValue = new Map<CFGInstruction, AotArray>();
+  private readonly bufferByValue = new Map<CFGInstruction, AotStringBuffer>();
   private readonly seenConstants = new Set<CFGInstruction>();
   readonly constants: CFGInstruction[] = [];
   readonly arrays: AotArray[] = [];
+  readonly stringBuffers: AotStringBuffer[] = [];
   returnScalar: AotScalar = SCALAR_FLOAT64;
   declaredReturn = false;
   parameterScalars: AotScalar[] = [];
@@ -189,6 +211,8 @@ class LegalityAnalyzer implements AotLegality {
 
     this.collectArrays();
     if (this.failure !== null) return this.bail(this.failure);
+    this.collectStringBuffers();
+    if (this.failure !== null) return this.bail(this.failure);
     this.collectConstants();
     if (this.failure !== null) return this.bail(this.failure);
     this.checkBlocks();
@@ -209,6 +233,10 @@ class LegalityAnalyzer implements AotLegality {
 
   arrayOf(value: CFGInstruction): AotArray | null {
     return this.arrayByValue.get(value) ?? null;
+  }
+
+  stringBufferOf(value: CFGInstruction): AotStringBuffer | null {
+    return this.bufferByValue.get(value) ?? null;
   }
 
   private fail(reason: string): void {
@@ -236,7 +264,8 @@ class LegalityAnalyzer implements AotLegality {
       for (const node of block.nodes) {
         if (node.type !== IR_NEW_ARRAY) continue;
         const element = aotElementScalarOf(this.types.typeOf(node));
-        if (element === null || element === SCALAR_STRING) {
+        const holdsString = node.inputs.some((input) => this.isStringValue(input));
+        if (element === null || element === SCALAR_STRING || holdsString) {
           this.fail("array has an unsupported element type");
           return;
         }
@@ -278,6 +307,87 @@ class LegalityAnalyzer implements AotLegality {
 
     for (const value of aliases) this.arrayByValue.set(value, model);
     return true;
+  }
+
+  private isStringValue(value: CFGInstruction): boolean {
+    return aotScalarOf(this.types.typeOf(value)) === SCALAR_STRING;
+  }
+
+  private buildsString(node: CFGInstruction): boolean {
+    if (node.type === IR_GENERIC_ADD) {
+      return this.isStringValue(node) && node.inputs.every((input) => this.isStringValue(input));
+    }
+    return node.type === IR_CALL_BUILTIN && AOT_STRING_BUILTINS.has(String(node.props.name));
+  }
+
+  private collectStringBuffers(): void {
+    const producers: CFGInstruction[] = [];
+    for (const block of this.graph.blocks) {
+      for (const node of block.nodes) {
+        if (this.buildsString(node)) producers.push(node);
+      }
+    }
+    if (producers.length === 0) return;
+
+    for (const block of this.graph.blocks) {
+      for (const node of block.nodes) {
+        if (node.type !== IR_CALL_KNOWN_FUNCTION) continue;
+        this.fail(
+          `string building cannot cross a call to ${calleeSymbolName(node) ?? "an unknown function"}`,
+        );
+        return;
+      }
+    }
+
+    for (const producer of producers) {
+      const model: AotStringBuffer = { producer, capacity: AOT_STRING_BUFFER_CAPACITY };
+      if (!this.bindStringBufferAliases(model)) return;
+      this.stringBuffers.push(model);
+    }
+
+    for (const buffer of this.stringBuffers) {
+      for (const input of buffer.producer.inputs.slice(1)) {
+        if (this.bufferByValue.get(input) === buffer) {
+          this.fail("string buffer is used as a trailing operand of its own producer");
+          return;
+        }
+      }
+    }
+  }
+
+  private bindStringBufferAliases(model: AotStringBuffer): boolean {
+    const aliases = new Set<CFGInstruction>([model.producer]);
+    const pending: CFGInstruction[] = [model.producer];
+    let phis = 0;
+    while (pending.length > 0) {
+      for (const use of pending.pop()!.uses) {
+        if (use.type !== IR_PHI || aliases.has(use)) continue;
+        aliases.add(use);
+        pending.push(use);
+        phis++;
+      }
+    }
+    if (phis > 1) {
+      this.fail("string buffer has more than one loop-carried alias");
+      return false;
+    }
+
+    for (const value of aliases) {
+      for (const use of value.uses) {
+        if (use.type === IR_PHI || use.type === IR_RETURN) continue;
+        if (!this.buildsString(use) && !this.readsString(use)) {
+          this.fail(`string buffer escapes to ${use.type}`);
+          return false;
+        }
+      }
+    }
+
+    for (const value of aliases) this.bufferByValue.set(value, model);
+    return true;
+  }
+
+  private readsString(node: CFGInstruction): boolean {
+    return node.type === IR_CALL_BUILTIN && AOT_BUILTINS.has(String(node.props.name));
   }
 
   private collectConstants(): void {
@@ -344,7 +454,7 @@ class LegalityAnalyzer implements AotLegality {
       this.fail(rejection(node));
       return;
     }
-    if (!AOT_OPCODES.has(node.type)) {
+    if (!AOT_OPCODES.has(node.type) && this.bufferByValue.get(node)?.producer !== node) {
       this.fail(`unsupported opcode ${node.type}`);
       return;
     }
@@ -364,13 +474,21 @@ class LegalityAnalyzer implements AotLegality {
       this.fail("return without a value");
       return;
     }
-    if (ARRAY_OPS.has(node.type) && this.arrayOf(node.inputs[0]!) === null) {
-      this.fail(
-        node.type === IR_LOAD_ARRAY_LENGTH
-          ? "array length of an unsupported array"
-          : `${node.type} on a value that is not a local array`,
-      );
-      return;
+    if (ARRAY_OPS.has(node.type)) {
+      const array = this.arrayOf(node.inputs[0]!);
+      if (array === null) {
+        this.fail(
+          node.type === IR_LOAD_ARRAY_LENGTH
+            ? "array length of an unsupported array"
+            : `${node.type} on a value that is not a local array`,
+        );
+        return;
+      }
+      const stored = node.inputs[2];
+      if (stored !== undefined && this.isStringValue(stored) && array.element !== SCALAR_STRING) {
+        this.fail("array has an unsupported element type");
+        return;
+      }
     }
     for (const input of node.inputs) {
       if (this.arrayByValue.has(input)) continue;
@@ -388,11 +506,17 @@ class LegalityAnalyzer implements AotLegality {
       this.fail(`unsupported builtin ${name}`);
       return;
     }
+    if (node.inputs.length !== intrinsic.requiredArgCount) {
+      this.fail(`${name} has an unsupported argument count`);
+      return;
+    }
     for (let index = 0; index < node.inputs.length; index++) {
       const expected = builtinOperandScalar(intrinsic.signature.params[index] ?? null);
       const actual = this.require(node.inputs[index]!, node.type);
       if (actual === null) return;
-      if (expected === null || (expected === SCALAR_STRING && actual !== SCALAR_STRING)) {
+      const stringMismatch =
+        (expected === SCALAR_STRING || actual === SCALAR_STRING) && expected !== actual;
+      if (expected === null || stringMismatch) {
         this.fail(`${name} has an unsupported argument type`);
         return;
       }
@@ -405,6 +529,10 @@ class LegalityAnalyzer implements AotLegality {
       this.fail("function has an unsupported return type");
       return;
     }
+    if (returnScalar !== SCALAR_STRING && this.returnsAString()) {
+      this.fail("function returns a string but its return type is not a string");
+      return;
+    }
     this.returnScalar = returnScalar;
     for (const param of this.graph.parameters) {
       const scalar = aotScalarOf(this.types.typeOf(param));
@@ -415,6 +543,17 @@ class LegalityAnalyzer implements AotLegality {
       this.scalars.set(param, scalar);
       this.parameterScalars.push(scalar);
     }
+  }
+
+  private returnsAString(): boolean {
+    for (const block of this.graph.blocks) {
+      for (const node of block.nodes) {
+        if (node.type !== IR_RETURN) continue;
+        const returned = node.inputs[0];
+        if (returned !== undefined && this.isStringValue(returned)) return true;
+      }
+    }
+    return false;
   }
 
   private inferReturnScalar(): AotScalar | null {

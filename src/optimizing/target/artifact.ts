@@ -1,3 +1,5 @@
+import type { AotScalar } from "../types/scalar.js";
+
 export type BackendArtifact =
   | { readonly kind: "wasm"; readonly bytes: Uint8Array }
   | {
@@ -25,6 +27,8 @@ export interface NativeRuntimeRoutine {
 export interface EmittedFunction {
   readonly symbol: string;
   readonly parameterCount: number;
+  readonly parameterScalars: readonly AotScalar[];
+  readonly returnScalar: AotScalar;
   readonly references: readonly string[];
   readonly artifact: BackendArtifact;
 }

@@ -1,6 +1,7 @@
 import { STRING_METHODS } from "./string-methods.js";
+import { NUMBER_METHODS } from "./number-methods.js";
 import { snakeToCamel } from "../../utils/naming.js";
-import { isString } from "../../core/value/index.js";
+import { isNumber, isSmi, isString } from "../../core/value/index.js";
 import type { RuntimeFunctionPayload, TaggedValue } from "../../core/value/index.js";
 
 type BuiltinMethodOwner = {
@@ -10,6 +11,8 @@ type BuiltinMethodOwner = {
 
 const OWNERS = new Map<string, BuiltinMethodOwner>([
   ["string", { methods: STRING_METHODS, accepts: isString }],
+  ["int", { methods: NUMBER_METHODS, accepts: isSmi }],
+  ["float", { methods: NUMBER_METHODS, accepts: isNumber }],
 ]);
 
 export function builtinMethodImplementation(

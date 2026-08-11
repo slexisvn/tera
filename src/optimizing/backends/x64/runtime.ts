@@ -1,6 +1,7 @@
 import type { NativeRuntimeRoutine } from "../../target/artifact.js";
 import type { RuntimeAbi } from "../../target/abi.js";
 import { X64_GPR, x64RegisterName } from "./registers.js";
+import { INT32_DECIMAL_BYTES } from "../../machine/data.js";
 
 export const X64_RUNTIME_SYMBOLS = {
   toInt32: "tera_x64_to_i32",
@@ -9,6 +10,10 @@ export const X64_RUNTIME_SYMBOLS = {
   minimum: "tera_x64_math_min",
   maximum: "tera_x64_math_max",
   charCodeAt: "tera_x64_char_code_at",
+  stringSet: "tera_x64_str_set",
+  stringAppend: "tera_x64_str_append",
+  charAt: "tera_x64_char_at",
+  int32ToString: "tera_x64_i32_to_str",
 } as const;
 
 export const SIGN_MASK_KEY = "x64:sign-mask";
@@ -116,6 +121,136 @@ function charCodeAtRoutine(symbol: string, abi: RuntimeAbi): string {
   ].join("\n");
 }
 
+function copyRoutine(symbol: string, abi: RuntimeAbi, append: boolean): string {
+  const [destination, capacity, source] = integerArguments(abi);
+  const seek = append
+    ? [
+        `.L${symbol}_seek:`,
+        "\ttestl %r11d, %r11d",
+        `\tjle .L${symbol}_terminate`,
+        "\tcmpb $0, (%r9)",
+        `\tje .L${symbol}_copy`,
+        "\tincq %r9",
+        "\tdecl %r11d",
+        `\tjmp .L${symbol}_seek`,
+      ]
+    : [];
+  return [
+    `\tmovq %${destination![0]}, %r10`,
+    `\tmovl %${capacity![1]}, %r11d`,
+    `\tmovq %${source![0]}, %rax`,
+    "\tmovq %r10, %r9",
+    "\ttestl %r11d, %r11d",
+    `\tjle .L${symbol}_done`,
+    "\tdecl %r11d",
+    ...seek,
+    `.L${symbol}_copy:`,
+    "\ttestl %r11d, %r11d",
+    `\tjle .L${symbol}_terminate`,
+    "\tmovzbl (%rax), %ecx",
+    "\ttestb %cl, %cl",
+    `\tje .L${symbol}_terminate`,
+    "\tmovb %cl, (%r9)",
+    "\tincq %r9",
+    "\tincq %rax",
+    "\tdecl %r11d",
+    `\tjmp .L${symbol}_copy`,
+    `.L${symbol}_terminate:`,
+    "\tmovb $0, (%r9)",
+    `.L${symbol}_done:`,
+    "\tmovq %r10, %rax",
+    "\tret",
+  ].join("\n");
+}
+
+function charAtRoutine(symbol: string, abi: RuntimeAbi): string {
+  const [destination, capacity, source, position] = integerArguments(abi);
+  return [
+    `\tmovq %${destination![0]}, %r10`,
+    `\tmovl %${capacity![1]}, %r11d`,
+    `\tmovq %${source![0]}, %rax`,
+    `\tmovl %${position![1]}, %ecx`,
+    "\tcmpl $2, %r11d",
+    `\tjl .L${symbol}_empty`,
+    "\ttestl %ecx, %ecx",
+    `\tjs .L${symbol}_empty`,
+    "\tmovslq %ecx, %rcx",
+    `.L${symbol}_walk:`,
+    "\ttestq %rcx, %rcx",
+    `\tjz .L${symbol}_at`,
+    "\tcmpb $0, (%rax)",
+    `\tje .L${symbol}_empty`,
+    "\tincq %rax",
+    "\tdecq %rcx",
+    `\tjmp .L${symbol}_walk`,
+    `.L${symbol}_at:`,
+    "\tmovzbl (%rax), %ecx",
+    "\ttestb %cl, %cl",
+    `\tje .L${symbol}_empty`,
+    "\tmovb %cl, (%r10)",
+    "\tmovb $0, 1(%r10)",
+    `\tjmp .L${symbol}_done`,
+    `.L${symbol}_empty:`,
+    "\ttestl %r11d, %r11d",
+    `\tjle .L${symbol}_done`,
+    "\tmovb $0, (%r10)",
+    `.L${symbol}_done:`,
+    "\tmovq %r10, %rax",
+    "\tret",
+  ].join("\n");
+}
+
+function int32ToStringRoutine(symbol: string, abi: RuntimeAbi): string {
+  const [destination, capacity, value] = integerArguments(abi);
+  return [
+    `\tmovq %${destination![0]}, %r10`,
+    `\tmovl %${capacity![1]}, %r11d`,
+    `\tmovl %${value![1]}, %eax`,
+    `\tcmpl $${INT32_DECIMAL_BYTES}, %r11d`,
+    `\tjl .L${symbol}_empty`,
+    "\tmovq %r10, %r9",
+    "\ttestl %eax, %eax",
+    `\tjns .L${symbol}_magnitude`,
+    "\tmovb $45, (%r9)",
+    "\tincq %r9",
+    "\tmovslq %eax, %rax",
+    "\tnegq %rax",
+    `\tjmp .L${symbol}_digits`,
+    `.L${symbol}_magnitude:`,
+    "\tmovslq %eax, %rax",
+    `.L${symbol}_digits:`,
+    "\tmovq %r9, %r8",
+    "\tmovl $10, %ecx",
+    `.L${symbol}_divide:`,
+    "\txorl %edx, %edx",
+    "\tdivq %rcx",
+    "\taddl $48, %edx",
+    "\tmovb %dl, (%r9)",
+    "\tincq %r9",
+    "\ttestq %rax, %rax",
+    `\tjnz .L${symbol}_divide`,
+    "\tmovb $0, (%r9)",
+    "\tleaq -1(%r9), %rcx",
+    `.L${symbol}_reverse:`,
+    "\tcmpq %r8, %rcx",
+    `\tjbe .L${symbol}_done`,
+    "\tmovzbl (%r8), %eax",
+    "\tmovzbl (%rcx), %edx",
+    "\tmovb %dl, (%r8)",
+    "\tmovb %al, (%rcx)",
+    "\tincq %r8",
+    "\tdecq %rcx",
+    `\tjmp .L${symbol}_reverse`,
+    `.L${symbol}_empty:`,
+    "\ttestl %r11d, %r11d",
+    `\tjle .L${symbol}_done`,
+    "\tmovb $0, (%r10)",
+    `.L${symbol}_done:`,
+    "\tmovq %r10, %rax",
+    "\tret",
+  ].join("\n");
+}
+
 export function x64RuntimeRoutines(abi: RuntimeAbi): ReadonlyMap<string, NativeRuntimeRoutine> {
   const routines: NativeRuntimeRoutine[] = [
     { symbol: X64_RUNTIME_SYMBOLS.toInt32, text: toInt32Routine(X64_RUNTIME_SYMBOLS.toInt32) },
@@ -138,6 +273,22 @@ export function x64RuntimeRoutines(abi: RuntimeAbi): ReadonlyMap<string, NativeR
     {
       symbol: X64_RUNTIME_SYMBOLS.charCodeAt,
       text: charCodeAtRoutine(X64_RUNTIME_SYMBOLS.charCodeAt, abi),
+    },
+    {
+      symbol: X64_RUNTIME_SYMBOLS.stringSet,
+      text: copyRoutine(X64_RUNTIME_SYMBOLS.stringSet, abi, false),
+    },
+    {
+      symbol: X64_RUNTIME_SYMBOLS.stringAppend,
+      text: copyRoutine(X64_RUNTIME_SYMBOLS.stringAppend, abi, true),
+    },
+    {
+      symbol: X64_RUNTIME_SYMBOLS.charAt,
+      text: charAtRoutine(X64_RUNTIME_SYMBOLS.charAt, abi),
+    },
+    {
+      symbol: X64_RUNTIME_SYMBOLS.int32ToString,
+      text: int32ToStringRoutine(X64_RUNTIME_SYMBOLS.int32ToString, abi),
     },
   ];
   return new Map(routines.map((routine) => [routine.symbol, routine]));

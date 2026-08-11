@@ -8,6 +8,7 @@ export interface BuiltinMethodIntrinsic {
   readonly name: string;
   readonly qualifiedName: string;
   readonly argCount: number;
+  readonly requiredArgCount: number;
   readonly getter: boolean;
   readonly signature: DeclaredSignature;
   readonly pure: boolean;
@@ -21,7 +22,10 @@ type BuiltinMethodDeclaration = {
 
 export const BUILTIN_METHOD_DECLARATIONS: readonly BuiltinMethodDeclaration[] = [
   { owner: "string", name: "char_code_at", pure: true },
+  { owner: "string", name: "char_at", pure: true },
   { owner: "string", name: "length", pure: true },
+  { owner: "int", name: "to_string", pure: true },
+  { owner: "float", name: "to_string", pure: true },
 ];
 
 export const BUILTIN_NAMESPACE = "Math";
@@ -55,6 +59,7 @@ function buildNamespaceRegistry(): Map<string, BuiltinMethodIntrinsic> {
       name: declaration.name,
       qualifiedName,
       argCount: declaration.argCount,
+      requiredArgCount: declaration.argCount,
       getter: false,
       signature: {
         params: Array.from({ length: declaration.argCount }, () => "float"),
@@ -96,6 +101,7 @@ function buildRegistry(): Map<string, BuiltinMethodIntrinsic> {
       name: declaration.name,
       qualifiedName,
       argCount: params.length + 1,
+      requiredArgCount: (member.getter ? 0 : member.requiredCount) + 1,
       getter: member.getter,
       signature: {
         params: [declaration.owner, ...params],

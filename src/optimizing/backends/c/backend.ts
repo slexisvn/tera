@@ -66,6 +66,8 @@ export const cBackend: AotBackend = {
         return {
           symbol: result.symbol,
           parameterCount: result.parameterCount,
+          parameterScalars: result.parameterScalars,
+          returnScalar: result.returnScalar,
           references: result.references,
           artifact: {
             kind: "c",

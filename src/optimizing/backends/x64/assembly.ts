@@ -1,5 +1,6 @@
 import type { MachineDatum, MachineFunction, MachineInstruction, MachineOperand } from "../../machine/ir.js";
 import { slotOffsetOf } from "../../machine/ir.js";
+import { machineDataText } from "../../machine/data.js";
 import type { FrameLayout } from "../../machine/frame.js";
 import { X64_FPR } from "./registers.js";
 import { x64RegisterName } from "./registers.js";
@@ -7,10 +8,6 @@ import type { ObjectFormat } from "./format.js";
 import type { X64TargetModel } from "./target.js";
 
 const ADDRESS_WIDTH = 8;
-
-function log2(value: number): number {
-  return Math.max(0, Math.round(Math.log2(value)));
-}
 
 export class X64AssemblyWriter {
   private frame: FrameLayout = { outgoingBytes: 0, localBytes: 0, frameSize: 0, saved: [] };
@@ -107,14 +104,10 @@ export class X64AssemblyWriter {
   }
 
   dataText(items: readonly MachineDatum[]): string {
-    if (items.length === 0) return "";
-    const lines: string[] = [this.format.rodataDirective];
-    for (const item of items) {
-      lines.push(`\t.p2align ${log2(item.alignment)}`);
-      lines.push(`${item.label}:`);
-      lines.push(...item.directives);
-    }
-    return `${lines.join("\n")}\n`;
+    return machineDataText(items, {
+      readOnly: this.format.rodataDirective,
+      writable: this.format.dataDirective,
+    });
   }
 
   runtimeText(symbol: string, body: string): string {

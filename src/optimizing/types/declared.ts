@@ -108,6 +108,7 @@ const CHECKER_NAME_BY_KIND = new Map<string, string>([
 export interface BuiltinMemberType {
   readonly type: LatticeType;
   readonly getter: boolean;
+  readonly requiredCount: number;
   readonly signature: DeclaredSignature;
 }
 
@@ -122,10 +123,11 @@ export function builtinOwnerMember(
 ): BuiltinMemberType | null {
   const member = builtinMethod(owner, name, env);
   if (member === null) return null;
-  const { params, positional } = member.signature;
+  const { params, positional, required } = member.signature;
   return {
     type: latticeFromDeclaredType(member.returns, env),
     getter: member.getter,
+    requiredCount: positional.filter((param) => required.has(param)).length,
     signature: {
       params: positional.map((param) => params.get(param)?.type ?? null),
       returns: member.returns,

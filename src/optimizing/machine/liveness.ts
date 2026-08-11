@@ -2,6 +2,7 @@ import type { PhysicalRegister } from "../target/registers.js";
 import {
   definedOperandsOf,
   usedOperandsOf,
+  type MachineBlock,
   type MachineFunction,
   type MachineRegister,
   type StackSlot,
@@ -101,6 +102,21 @@ export function assignPositions(fn: MachineFunction): void {
   }
 }
 
+function naturalLoopEnd(header: MachineBlock, latch: MachineBlock): number {
+  const body = new Set<MachineBlock>([header, latch]);
+  const pending: MachineBlock[] = [latch];
+  while (pending.length > 0) {
+    for (const predecessor of pending.pop()!.predecessors) {
+      if (body.has(predecessor)) continue;
+      body.add(predecessor);
+      pending.push(predecessor);
+    }
+  }
+  let end = 0;
+  for (const block of body) end = Math.max(end, block.to);
+  return end;
+}
+
 function loopEndsOf(fn: MachineFunction): Map<number, number> {
   const order = new Map<number, number>();
   fn.blocks.forEach((block, index) => order.set(block.id, index));
@@ -109,8 +125,9 @@ function loopEndsOf(fn: MachineFunction): Map<number, number> {
     const index = order.get(block.id)!;
     for (const successor of block.successors) {
       if (order.get(successor.id)! > index) continue;
+      const end = naturalLoopEnd(successor, block);
       const previous = ends.get(successor.id) ?? 0;
-      if (block.to > previous) ends.set(successor.id, block.to);
+      if (end > previous) ends.set(successor.id, end);
     }
   }
   return ends;

@@ -10,6 +10,7 @@ import { createSessionState } from "./session-state.js";
 import { runSession } from "./session.js";
 import { joinSource } from "./text.js";
 import { defaultTheme } from "./theme.js";
+import { createStdinInput } from "../stdin.js";
 import type { Printer } from "./display.js";
 import type { ReplEngine, Terminal } from "./types.js";
 
@@ -26,6 +27,10 @@ function printBanner(printer: Printer): void {
 
 export async function startREPL(engine: ReplEngine): Promise<void> {
   const term = terminalKit.terminal as unknown as Terminal;
+  engine.input = createStdinInput({
+    suspend: () => term.grabInput(false),
+    resume: () => term.grabInput(true),
+  });
   const theme = defaultTheme;
   const language = createLanguage();
   const analyzer = createAnalyzer();

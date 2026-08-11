@@ -33,6 +33,7 @@ import {
   IR_LOAD_ELEMENT,
   IR_STORE_ELEMENT,
   IR_LOAD_ARRAY_LENGTH,
+  IR_GENERIC_ADD,
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
   IR_CALL_BUILTIN,
@@ -49,16 +50,21 @@ import {
   analyzeAotLegality,
   builtinOperandScalar,
   calleeSymbolName,
+  AOT_CHAR_AT,
+  AOT_INT_TO_STRING,
   type AotLegality,
+  type AotStringBuffer,
 } from "../../analyses/aot-legality.js";
 import {
   builtinIntrinsicByName,
   qualifiedMethodName,
 } from "../../metadata/builtin-methods.js";
-import { SCALAR_INT32, SCALAR_STRING } from "../../types/scalar.js";
+import { SCALAR_INT32, SCALAR_STRING, type AotScalar } from "../../types/scalar.js";
+import { INT32_DECIMAL_BYTES } from "../../machine/data.js";
 import {
   cTypeOf,
   declarationOf,
+  immutableDeclarationOf,
   prototypeOf,
   C_STRING,
   type CScalarType,
@@ -71,6 +77,10 @@ import {
 
 export const C_HEADER_PREAMBLE =
   "#include <stdint.h>\n#include <string.h>\n#include <math.h>";
+const C_STRING_SET = "tera_str_set";
+const C_STRING_APPEND = "tera_str_append";
+const C_STRING_BUFFER_PREFIX = "sb";
+
 export const C_RUNTIME_SUPPORT = `static inline int32_t tera_i32_add(int32_t a, int32_t b) {
   return (int32_t)((uint32_t)a + (uint32_t)b);
 }
@@ -115,6 +125,26 @@ static inline int32_t tera_to_i32(double value) {
   if (wrapped < 0.0) wrapped += 4294967296.0;
   if (wrapped >= 2147483648.0) wrapped -= 4294967296.0;
   return (int32_t)wrapped;
+}
+
+static inline char *tera_str_copy(char *dst, int32_t cap, const char *src, size_t at) {
+  if (cap <= 0) return dst;
+  size_t limit = (size_t)cap - 1u;
+  while (at < limit && *src != '\\0') dst[at++] = *src++;
+  dst[at] = '\\0';
+  return dst;
+}
+
+static inline char *${C_STRING_SET}(char *dst, int32_t cap, const char *src) {
+  return tera_str_copy(dst, cap, src, 0);
+}
+
+static inline char *${C_STRING_APPEND}(char *dst, int32_t cap, const char *src) {
+  if (cap <= 0) return dst;
+  size_t at = 0;
+  size_t limit = (size_t)cap - 1u;
+  while (at < limit && dst[at] != '\\0') at++;
+  return tera_str_copy(dst, cap, src, at);
 }`;
 
 const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
@@ -210,6 +240,56 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
 }`,
     },
   ],
+  [
+    AOT_CHAR_AT,
+    {
+      helper: "tera_string_char_at",
+      definition: `static inline char *tera_string_char_at(char *dst, int32_t cap, const char *src, int32_t index) {
+  if (cap <= 0) return dst;
+  if (cap < 2 || index < 0) {
+    dst[0] = '\\0';
+    return dst;
+  }
+  for (int32_t seen = 0; seen < index; seen++) {
+    if (src[seen] == '\\0') {
+      dst[0] = '\\0';
+      return dst;
+    }
+  }
+  dst[0] = src[index];
+  dst[dst[0] == '\\0' ? 0 : 1] = '\\0';
+  return dst;
+}`,
+    },
+  ],
+  [
+    AOT_INT_TO_STRING,
+    {
+      helper: "tera_i32_to_str",
+      definition: `static inline char *tera_i32_to_str(char *dst, int32_t cap, int32_t value) {
+  if (cap <= 0) return dst;
+  if (cap < ${INT32_DECIMAL_BYTES}) {
+    dst[0] = '\\0';
+    return dst;
+  }
+  uint32_t magnitude = value < 0 ? 0u - (uint32_t)value : (uint32_t)value;
+  size_t at = 0;
+  if (value < 0) dst[at++] = '-';
+  size_t start = at;
+  do {
+    dst[at++] = (char)('0' + (magnitude % 10u));
+    magnitude /= 10u;
+  } while (magnitude != 0u);
+  dst[at] = '\\0';
+  for (size_t last = at - 1; start < last; start++, last--) {
+    char swap = dst[start];
+    dst[start] = dst[last];
+    dst[last] = swap;
+  }
+  return dst;
+}`,
+    },
+  ],
 ]);
 
 const C_BUILTIN_SUPPORT = [...C_BUILTIN_METHODS.values()]
@@ -223,6 +303,8 @@ export type CEmitResult =
       readonly ok: true;
       readonly symbol: string;
       readonly parameterCount: number;
+      readonly parameterScalars: readonly AotScalar[];
+      readonly returnScalar: AotScalar;
       readonly prototype: string;
       readonly source: string;
       readonly headerPreamble: string;
@@ -316,6 +398,7 @@ interface EmitContext {
 
 class CFunctionEmitter {
   private readonly names = new Map<CFGInstruction, string>();
+  private readonly bufferNames = new Map<AotStringBuffer, string>();
   private readonly blockPhis: CFGInstruction[] = [];
   private readonly constantDeclarations: string[] = [];
   private readonly references = new Set<string>();
@@ -330,6 +413,7 @@ class CFunctionEmitter {
 
   emit(): CEmitResult {
     this.assignNames();
+    this.declareStringBuffers();
     this.declareConstants();
     for (const block of this.graph.blocks) this.emitBlock(block);
 
@@ -339,6 +423,8 @@ class CFunctionEmitter {
       ok: true,
       symbol,
       parameterCount: this.graph.parameters.length,
+      parameterScalars: this.legality.parameterScalars,
+      returnScalar: this.legality.returnScalar,
       prototype: `${signature};`,
       source: this.render(signature),
       headerPreamble: C_HEADER_PREAMBLE,
@@ -377,6 +463,37 @@ class CFunctionEmitter {
     }
   }
 
+  private declareStringBuffers(): void {
+    let sequence = 0;
+    for (const buffer of this.legality.stringBuffers) {
+      const name = `${C_STRING_BUFFER_PREFIX}${sequence++}`;
+      this.bufferNames.set(buffer, name);
+      this.constantDeclarations.push(`static char ${name}[${buffer.capacity}];`);
+    }
+  }
+
+  private bufferNameOf(node: CFGInstruction): string {
+    const buffer = this.legality.stringBufferOf(node);
+    const name = buffer === null ? undefined : this.bufferNames.get(buffer);
+    if (name === undefined) throw new Error(`no string buffer for v${node.id}`);
+    return name;
+  }
+
+  private bufferCapacityOf(node: CFGInstruction): number {
+    return this.legality.stringBufferOf(node)!.capacity;
+  }
+
+  private emitStringConcat(ctx: EmitContext): void {
+    const name = this.bufferNameOf(ctx.node);
+    const capacity = this.bufferCapacityOf(ctx.node);
+    const left = this.nameOf(ctx.node.inputs[0]!);
+    const right = this.nameOf(ctx.node.inputs[1]!);
+    this.define(
+      ctx,
+      `${C_STRING_APPEND}(${C_STRING_SET}(${name}, ${capacity}, ${left}), ${capacity}, ${right})`,
+    );
+  }
+
   private declareConstants(): void {
     for (const constant of this.legality.constants) {
       const value = constant.props.value;
@@ -413,7 +530,7 @@ class CFunctionEmitter {
 
   private define(ctx: EmitContext, expression: string): void {
     ctx.emit(
-      `const ${declarationOf(this.typeNameOf(ctx.node), ctx.nameOf(ctx.node))} = ${expression};`,
+      `${immutableDeclarationOf(this.typeNameOf(ctx.node), ctx.nameOf(ctx.node))} = ${expression};`,
     );
   }
 
@@ -429,6 +546,7 @@ class CFunctionEmitter {
     const entries: Array<readonly [string, (ctx: EmitContext) => void]> = [];
 
     entries.push([IR_CALL_BUILTIN, (ctx) => this.emitBuiltinCall(ctx)]);
+    entries.push([IR_GENERIC_ADD, (ctx) => this.emitStringConcat(ctx)]);
     entries.push([IR_CALL_KNOWN_FUNCTION, (ctx) => this.emitKnownCall(ctx)]);
     entries.push([IR_NEW_ARRAY, (ctx) => this.emitNewArray(ctx)]);
     entries.push([IR_LOAD_ELEMENT, (ctx) => this.emitLoadElement(ctx)]);
@@ -493,6 +611,9 @@ class CFunctionEmitter {
       if (expected === SCALAR_STRING) return this.nameOf(input);
       return this.asDouble(input);
     });
+    if (this.legality.stringBufferOf(ctx.node)?.producer === ctx.node) {
+      operands.unshift(this.bufferNameOf(ctx.node), String(this.bufferCapacityOf(ctx.node)));
+    }
     this.define(ctx, `${method.helper}(${operands.join(", ")})`);
   }
 
@@ -605,7 +726,7 @@ class CFunctionEmitter {
       const temp = `t${this.tempSeq++}`;
       temps.push(temp);
       this.body.push(
-        `const ${declarationOf(this.typeNameOf(phi), temp)} = ${this.nameOf(phi.inputs[predIndex]!)};`,
+        `${immutableDeclarationOf(this.typeNameOf(phi), temp)} = ${this.nameOf(phi.inputs[predIndex]!)};`,
       );
     }
     for (let i = 0; i < phis.length; i++) {

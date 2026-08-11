@@ -69,6 +69,7 @@ import { mergeCompilerExtensions, mergeExtensionRecords, mergeNamedExtensionItem
 export type EngineOptions = {
   typecheck?: "off" | "warn" | "strict";
   output?: (text: string) => void;
+  input?: (prompt: string) => string | null;
   osr?: boolean;
   tieringPolicy?: TieringPolicyOptions;
   microtaskPolicy?: MicrotaskPolicyValue;
@@ -258,6 +259,7 @@ export class Engine {
   totalExecTimeMs: number;
   typecheckMode: "off" | "warn" | "strict";
   output?: (text: string) => void;
+  input?: (prompt: string) => string | null;
   diagnostics: Diagnostic[];
   osrEnabled: boolean;
   valueHeap: ValueHeap;
@@ -296,6 +298,7 @@ export class Engine {
     this.runtimeBuiltinRegistry = mergeExtensionRecords("runtime builtin", extensions.runtimeBuiltins, options.runtimeBuiltins);
     this.typecheckMode = options.typecheck || "warn";
     this.output = options.output;
+    this.input = options.input;
     this.diagnostics = [];
     this.osrEnabled = options.osr !== false;
     this.onCompile = options.onCompile;

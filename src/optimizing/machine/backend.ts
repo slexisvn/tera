@@ -94,6 +94,8 @@ export function createNativeBackend(options: NativeBackendOptions): AotBackend {
           return {
             symbol,
             parameterCount: legality.parameterScalars.length,
+            parameterScalars: legality.parameterScalars,
+            returnScalar: returns,
             references: [...compiled.fn.references],
             artifact: {
               kind: "native",

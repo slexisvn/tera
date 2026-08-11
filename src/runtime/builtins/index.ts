@@ -69,6 +69,7 @@ type BuiltinThis = {
 type BuiltinInterpreter = {
   jitEngine?: {
     output?: (text: string) => void;
+    input?: (prompt: string) => string | null;
   } | null;
   builtinPrototypes?: Record<string, import("../../objects/heap/js-object.js").JSObject>;
   callFunctionValue(fn: TaggedValue, args: TaggedValue[], thisValue: TaggedValue): TaggedValue;
@@ -245,6 +246,17 @@ export const builtins = {
       if (target) target(output);
       else console.log(output);
       return mkUndefined();
+    },
+  },
+
+  input: {
+    name: "input",
+    call(args: BuiltinArg[], _this: TaggedValue, interpreter: BuiltinInterpreter) {
+      const prompt = args.length > 0 ? toDisplayString(args[0]) : "";
+      const source = interpreter?.jitEngine?.input;
+      if (!source) throw new Error("input() requires the 'input' engine option to be configured");
+      const line = source(prompt);
+      return line === null ? mkNull() : mkString(line);
     },
   },
 

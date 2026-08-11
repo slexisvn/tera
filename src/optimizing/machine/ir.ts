@@ -100,22 +100,26 @@ export interface MachineDatum {
   readonly label: string;
   readonly alignment: number;
   readonly directives: readonly string[];
+  readonly writable: boolean;
 }
 
 export class MachineDataPool {
   private readonly byKey = new Map<string, MachineDatum>();
   private sequence = 0;
 
+  constructor(private readonly namespace = "") {}
+
   intern(
     key: string,
     alignment: number,
     directives: (label: string) => readonly string[],
     prefix = ".LC",
+    writable = false,
   ): MachineDatum {
     const existing = this.byKey.get(key);
     if (existing !== undefined) return existing;
-    const label = `${prefix}${this.sequence++}`;
-    const datum: MachineDatum = { label, alignment, directives: directives(label) };
+    const label = `${prefix}${this.sequence++}${this.namespace}`;
+    const datum: MachineDatum = { label, alignment, directives: directives(label), writable };
     this.byKey.set(key, datum);
     return datum;
   }
@@ -128,7 +132,7 @@ export class MachineDataPool {
 export class MachineFunction {
   readonly blocks: MachineBlock[] = [];
   readonly slots: StackSlot[] = [];
-  readonly data = new MachineDataPool();
+  readonly data: MachineDataPool;
   readonly references = new Set<string>();
   readonly externals = new Set<string>();
   entry: MachineBlock | null = null;
@@ -141,7 +145,9 @@ export class MachineFunction {
   constructor(
     readonly name: string,
     readonly symbol: string,
-  ) {}
+  ) {
+    this.data = new MachineDataPool(`_${symbol}`);
+  }
 
   createBlock(label: string): MachineBlock {
     const block = new MachineBlock(this.nextBlockId++, label);

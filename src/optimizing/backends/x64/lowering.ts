@@ -8,6 +8,7 @@ import {
   IR_FLOAT64_DIV,
   IR_FLOAT64_MUL,
   IR_FLOAT64_SUB,
+  IR_GENERIC_ADD,
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
   IR_INT32_ADD,
@@ -33,7 +34,13 @@ import {
   IR_RETURN,
   IR_STORE_ELEMENT,
 } from "../../ir/index.js";
-import { calleeSymbolName } from "../../analyses/aot-legality.js";
+import {
+  AOT_CHAR_AT,
+  AOT_INT_TO_STRING,
+  calleeSymbolName,
+  type AotStringBuffer,
+} from "../../analyses/aot-legality.js";
+import { zeroFilledBuffer } from "../../machine/data.js";
 import { latticeFromDeclaredType } from "../../types/declared.js";
 import type { DeclaredSignature } from "../../types/signature.js";
 import {
@@ -143,6 +150,11 @@ const RUNTIME_BUILTINS = new Map<string, string>([
   [qualifiedMethodName("string", "char_code_at"), X64_RUNTIME_SYMBOLS.charCodeAt],
 ]);
 
+const STRING_BUFFER_BUILTINS = new Map<string, string>([
+  [AOT_CHAR_AT, X64_RUNTIME_SYMBOLS.charAt],
+  [AOT_INT_TO_STRING, X64_RUNTIME_SYMBOLS.int32ToString],
+]);
+
 const INT32_MIN = -2147483648;
 const INT32_MAX = 2147483647;
 const SHIFT_MASK = 31;
@@ -203,6 +215,7 @@ export class X64Lowering implements MachineLowering {
       [IR_LOAD_ARRAY_LENGTH, (ctx) => this.selectArrayLength(ctx)],
       [IR_CALL_KNOWN_FUNCTION, (ctx) => this.selectKnownCall(ctx)],
       [IR_CALL_BUILTIN, (ctx) => this.selectBuiltin(ctx)],
+      [IR_GENERIC_ADD, (ctx) => this.selectStringConcat(ctx)],
     ];
     for (const [opcode, mnemonic] of FLOAT_BINARY) {
       entries.push([opcode, (ctx) => this.selectFloatBinary(ctx, mnemonic)]);
@@ -728,8 +741,77 @@ export class X64Lowering implements MachineLowering {
     ctx.emitCall(symbol, args, used ? ctx.resultRegister() : null);
   }
 
+  private bufferAddress(ctx: SelectionContext, buffer: AotStringBuffer): VirtualRegister {
+    const datum = ctx.data.intern(
+      `string-buffer:${buffer.producer.id}`,
+      1,
+      () => zeroFilledBuffer(buffer.capacity),
+      ".LB",
+      true,
+    );
+    const address = ctx.tempIn(X64_GPR, 8);
+    ctx.emit(instruction("leaq", [writeOf(address), mem(8, { symbol: datum.label })]));
+    return address;
+  }
+
+  private emitBufferCall(
+    ctx: SelectionContext,
+    symbol: string,
+    buffer: AotStringBuffer,
+    destination: VirtualRegister,
+    operands: readonly VirtualRegister[],
+  ): VirtualRegister {
+    const capacity = this.loadNumber(ctx, buffer.capacity, SCALAR_INT32);
+    const result = ctx.tempIn(X64_GPR, 8);
+    ctx.external(symbol);
+    ctx.emitCall(symbol, [destination, capacity, ...operands], result);
+    return result;
+  }
+
+  private selectStringConcat(ctx: SelectionContext): void {
+    const buffer = ctx.legality.stringBufferOf(ctx.node)!;
+    const left = ctx.registerOf(ctx.node.inputs[0]!);
+    const right = ctx.registerOf(ctx.node.inputs[1]!);
+    const initialized = this.emitBufferCall(
+      ctx,
+      X64_RUNTIME_SYMBOLS.stringSet,
+      buffer,
+      this.bufferAddress(ctx, buffer),
+      [left],
+    );
+    const appended = this.emitBufferCall(
+      ctx,
+      X64_RUNTIME_SYMBOLS.stringAppend,
+      buffer,
+      initialized,
+      [right],
+    );
+    this.produce(ctx, appended, SCALAR_STRING);
+  }
+
+  private selectStringBuffered(ctx: SelectionContext, symbol: string): void {
+    const buffer = ctx.legality.stringBufferOf(ctx.node)!;
+    const intrinsic = builtinIntrinsicByName(String(ctx.node.props.name))!;
+    const operands = ctx.node.inputs.map((input, index) =>
+      this.coerce(ctx, input, nativeArgumentScalar(intrinsic.signature.params[index] ?? null)),
+    );
+    const result = this.emitBufferCall(
+      ctx,
+      symbol,
+      buffer,
+      this.bufferAddress(ctx, buffer),
+      operands,
+    );
+    this.produce(ctx, result, SCALAR_STRING);
+  }
+
   private selectBuiltin(ctx: SelectionContext): void {
     const name = String(ctx.node.props.name);
+    const buffered = STRING_BUFFER_BUILTINS.get(name);
+    if (buffered !== undefined) {
+      this.selectStringBuffered(ctx, buffered);
+      return;
+    }
     const intrinsic = builtinIntrinsicByName(name)!;
     const args = ctx.node.inputs.map((input, index) => {
       const declared = intrinsic.signature.params[index] ?? null;

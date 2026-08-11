@@ -68,7 +68,10 @@ function callLowering(node: CFGInstruction, types: TypeInference): Lowering | nu
   if (callee.type !== IR_GENERIC_GET_PROP || callee.inputs[0] !== receiver) return null;
   const resolved = resolve(receiver, callee, callee.props.propName, types);
   if (resolved === null || resolved.intrinsic.getter) return null;
-  if (node.inputs.length - 1 !== resolved.intrinsic.argCount) return null;
+  const arity = node.inputs.length - 1;
+  if (arity < resolved.intrinsic.requiredArgCount || arity > resolved.intrinsic.argCount) {
+    return null;
+  }
   return { node, callee, operands: node.inputs.slice(1), ...resolved };
 }
 

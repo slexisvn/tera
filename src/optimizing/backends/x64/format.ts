@@ -5,6 +5,7 @@ export interface ObjectFormat {
   readonly symbolPrefix: string;
   readonly textDirective: string;
   readonly rodataDirective: string;
+  readonly dataDirective: string;
   functionAttributes(symbol: string): readonly string[];
 }
 
@@ -14,6 +15,7 @@ const FORMATS: Record<ObjectFormatName, ObjectFormat> = {
     symbolPrefix: "",
     textDirective: "\t.text",
     rodataDirective: "\t.section .rodata",
+    dataDirective: "\t.data",
     functionAttributes: (symbol) => [`\t.type ${symbol}, @function`],
   },
   coff: {
@@ -21,6 +23,7 @@ const FORMATS: Record<ObjectFormatName, ObjectFormat> = {
     symbolPrefix: "",
     textDirective: "\t.text",
     rodataDirective: '\t.section .rdata,"dr"',
+    dataDirective: "\t.data",
     functionAttributes: (symbol) => [
       `\t.def ${symbol}; .scl 2; .type 32; .endef`,
     ],
@@ -30,6 +33,7 @@ const FORMATS: Record<ObjectFormatName, ObjectFormat> = {
     symbolPrefix: "_",
     textDirective: "\t.section __TEXT,__text,regular,pure_instructions",
     rodataDirective: "\t.section __TEXT,__const",
+    dataDirective: "\t.section __DATA,__data",
     functionAttributes: () => [],
   },
 };

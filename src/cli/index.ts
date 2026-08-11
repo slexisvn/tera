@@ -15,6 +15,7 @@ import { parseArgs, CliUsageError } from "./args.js";
 import type { CliConfig } from "./args.js";
 import { printAst } from "./ast-printer.js";
 import { nativesExtension, exposeGcExtension } from "./natives.js";
+import { createStdinInput } from "./stdin.js";
 
 type Source = { name: string; code: string };
 
@@ -128,7 +129,7 @@ function buildEngineOptions(config: CliConfig): EngineOptions {
   if (config.allowNatives) extensions.push(nativesExtension());
   if (config.exposeGc) extensions.push(exposeGcExtension());
 
-  const options: EngineOptions = { ...base, extensions };
+  const options: EngineOptions = { ...base, extensions, input: createStdinInput() };
 
   if (config.typecheck) options.typecheck = config.typecheck;
   if (!config.osr) options.osr = false;
@@ -195,18 +196,6 @@ async function runSources(config: CliConfig, engine: Engine, sources: Source[]):
 
 function currentFrame(event: DebugPauseEvent): DebugFrameSnapshot {
   return event.snapshot.frames[event.snapshot.frames.length - 1]!;
-}
-
-function debugReadLine(): string {
-  const input: string[] = [];
-  const buffer = Buffer.alloc(1);
-  while (true) {
-    const read = fs.readSync(process.stdin.fd, buffer, 0, 1, null);
-    if (read === 0) return input.join("");
-    const ch = buffer.toString("utf8", 0, read);
-    if (ch === "\n") return input.join("");
-    if (ch !== "\r") input.push(ch);
-  }
 }
 
 function printPause(event: DebugPauseEvent, lines: string[]): void {
@@ -318,11 +307,12 @@ function promptDebugCommand(
   event: DebugPauseEvent,
   controller: DebugController,
   lines: string[],
+  readLine: () => string,
 ): DebugCommand {
   printPause(event, lines);
   while (true) {
     fs.writeSync(1, DEBUG_PROMPT);
-    const parsed = parseDebugCommand(debugReadLine(), event, controller);
+    const parsed = parseDebugCommand(readLine(), event, controller);
     if (parsed) return parsed;
   }
 }
@@ -340,9 +330,10 @@ async function runDebug(config: CliConfig, options: EngineOptions): Promise<numb
   }
   const source = fs.readFileSync(resolved, "utf8");
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
+  const readLine = () => options.input?.("") ?? "";
   const controller = new DebugController({
     pauseOnEntry: true,
-    onPause: (event, activeController) => promptDebugCommand(event, activeController, lines),
+    onPause: (event, activeController) => promptDebugCommand(event, activeController, lines, readLine),
   });
   const engine = new Engine({ ...options, debugger: controller });
   try {

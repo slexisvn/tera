@@ -6,6 +6,14 @@ import { Engine } from "../api/engine.js";
 import type { AotProgram } from "../optimizing/drivers/aot.js";
 import { writeAotProgram } from "../optimizing/drivers/aot.js";
 import type { CliConfig } from "./args.js";
+import { SCALAR_STRING, type AotScalar } from "../optimizing/types/scalar.js";
+import { AOT_STRING_BUFFER_CAPACITY } from "../optimizing/analyses/aot-legality.js";
+
+type EntryPoint = {
+  readonly symbol: string;
+  readonly returnScalar: AotScalar;
+  readonly readsLine: boolean;
+};
 
 const MODULE_NAME = "program";
 const TRANSLATED = /\.(c|s)$/;
@@ -31,13 +39,34 @@ function resolveCompiler(preferred: string | null): string {
   );
 }
 
-function mainSource(entrySymbol: string, headerName: string): string {
+const STDIN_LINE = "line";
+
+function readLineLines(): readonly string[] {
+  return [
+    `  char ${STDIN_LINE}[${AOT_STRING_BUFFER_CAPACITY}];`,
+    `  if (fgets(${STDIN_LINE}, sizeof ${STDIN_LINE}, stdin) == NULL) return 1;`,
+    `  size_t used = strlen(${STDIN_LINE});`,
+    `  while (used > 0 && (${STDIN_LINE}[used - 1] == '\\n' || ${STDIN_LINE}[used - 1] == '\\r')) {`,
+    `    ${STDIN_LINE}[--used] = '\\0';`,
+    "  }",
+  ];
+}
+
+function mainSource(entry: EntryPoint, headerName: string): string {
+  const reads = entry.readsLine;
+  const call = `${entry.symbol}(${reads ? STDIN_LINE : ""})`;
+  const print =
+    entry.returnScalar === SCALAR_STRING
+      ? `printf("%s\\n", ${call});`
+      : `printf("%.17g\\n", (double)${call});`;
   return [
     "#include <stdio.h>",
+    ...(reads ? ["#include <string.h>"] : []),
     `#include "${headerName}"`,
     "",
     "int main(void) {",
-    `  printf("%.17g\\n", (double)${entrySymbol}());`,
+    ...(reads ? readLineLines() : []),
+    `  ${print}`,
     "  return 0;",
     "}",
     "",
@@ -62,15 +91,22 @@ function fileNamed(program: AotProgram, extension: string): string {
   return file.name;
 }
 
-function selectEntry(program: AotProgram, entry: string): { symbol: string } {
+function selectEntry(program: AotProgram, entry: string): EntryPoint {
   const compiled = program.compiled.find((fn) => fn.name === entry);
   if (compiled) {
-    if (compiled.emitted.parameterCount > 0) {
+    const parameters = compiled.emitted.parameterScalars;
+    const readsLine = parameters.length === 1 && parameters[0] === SCALAR_STRING;
+    if (parameters.length > 0 && !readsLine) {
       throw new CompileError(
-        `entry '${entry}' must take no parameters (it takes ${compiled.emitted.parameterCount})`,
+        `entry '${entry}' must take no parameters or one string parameter ` +
+          `(it takes ${parameters.length}: ${parameters.join(", ")})`,
       );
     }
-    return { symbol: compiled.emitted.symbol };
+    return {
+      symbol: compiled.emitted.symbol,
+      returnScalar: compiled.emitted.returnScalar,
+      readsLine,
+    };
   }
 
   const skipped = program.skipped.find((fn) => fn.name === entry);
@@ -106,7 +142,7 @@ export function runCompile(config: CliConfig, engine: Engine): number {
   }
 
   let program: AotProgram;
-  let entrySymbol: string;
+  let entry: EntryPoint;
   let headerName: string;
   let compiler: string;
   try {
@@ -115,7 +151,7 @@ export function runCompile(config: CliConfig, engine: Engine): number {
       moduleName: MODULE_NAME,
       backend: config.backend,
     });
-    entrySymbol = selectEntry(program, config.entry).symbol;
+    entry = selectEntry(program, config.entry);
     headerName = fileNamed(program, ".h");
     compiler = resolveCompiler(config.cc);
   } catch (error) {
@@ -137,7 +173,7 @@ export function runCompile(config: CliConfig, engine: Engine): number {
       return fail("backend produced no source the C toolchain can build");
     }
     const mainPath = path.join(buildDir, MAIN_NAME);
-    fs.writeFileSync(mainPath, mainSource(entrySymbol, headerName));
+    fs.writeFileSync(mainPath, mainSource(entry, headerName));
 
     const result = spawnSync(
       compiler,

@@ -50,7 +50,7 @@ describe("x64 assembly", () => {
 
     expect(assembly).toContain('.section .rdata,"dr"');
     expect(assembly).toMatch(/\.quad 0x3fe0000000000000/);
-    expect(assembly).toMatch(/movsd\s+\.LC0\(%rip\), %xmm\d+/);
+    expect(assembly).toMatch(/movsd\s+\.LC0\w*\(%rip\), %xmm\d+/);
   });
 
   it("fuses an integer comparison into a conditional jump", () => {

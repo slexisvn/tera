@@ -17,11 +17,15 @@ import {
 import { EFFECT_READ } from "../../../src/optimizing/ir/index.js";
 import { builtinMethod } from "../../../src/frontend/checker/type-system.js";
 import { builtinMethodImplementation } from "../../../src/runtime/intrinsics/builtin-methods.js";
-import { mkString, type TaggedValue } from "../../../src/core/value/index.js";
+import { mkDouble, mkSmi, mkString, type TaggedValue } from "../../../src/core/value/index.js";
 
 const CHAR_CODE_AT = qualifiedMethodName("string", "char_code_at");
 
-const RECEIVER_SAMPLES: Record<string, TaggedValue> = { string: mkString("sample") };
+const RECEIVER_SAMPLES: Record<string, TaggedValue> = {
+  string: mkString("sample"),
+  int: mkSmi(7),
+  float: mkDouble(7.5),
+};
 
 describe("qualifiedMethodName", () => {
   it("joins the owner and the method name", () => {

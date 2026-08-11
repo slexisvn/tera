@@ -73,6 +73,51 @@ describe("tera compile", () => {
     });
   });
 
+  itNative("prints a string entry result as text", () => {
+    inWorkspace((dir) => {
+      const { status, output } = compile(
+        dir,
+        src("fn main() -> string:", '  return "H2O balanced"'),
+      );
+
+      expect(status).toBe(0);
+      expect(run(output)).toBe("H2O balanced");
+    });
+  });
+
+  itNative("prints a string an entry built at runtime", () => {
+    const source = src(
+      "fn main() -> string:",
+      '  out = ""',
+      "  i = 1",
+      "  while i <= 3:",
+      '    out = out + i.to_string() + "H2O "',
+      "    i = i + 1",
+      "  return out",
+    );
+
+    inWorkspace((dir) => {
+      const interpreted = new Engine({ typecheck: "off" }).runNative(`${source}\nmain()`);
+      const { status, output } = compile(dir, source);
+
+      expect(status).toBe(0);
+      expect(run(output)).toBe(String(interpreted).trim());
+    });
+  });
+
+  itNative("builds a string entry with the native backend too", () => {
+    inWorkspace((dir) => {
+      const { status, output } = compile(
+        dir,
+        src("fn main() -> string:", '  return "Fe" + "2O3"'),
+        ["--backend=x64"],
+      );
+
+      expect(status).toBe(0);
+      expect(run(output)).toBe("Fe2O3");
+    });
+  });
+
   itNative("reports an entry the backend could not lower instead of writing a binary", () => {
     inWorkspace((dir) => {
       const { status, errors } = compile(

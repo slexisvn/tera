@@ -1269,6 +1269,12 @@ export const TERA_BUILTINS = {
       }
     ]
   },
+  "input": {
+    "description": "Read one line from the runtime input source, writing the optional prompt first. Returns the line without its terminator, or null once the input is exhausted.",
+    "kind": "global",
+    "returns": "string | null",
+    "params": [optionalParam("prompt", "string")]
+  },
   "queue_microtask": {
     "description": "Schedule a callback to run on the microtask queue after the current synchronous work finishes and before the next task.",
     "kind": "global",
@@ -7011,6 +7017,21 @@ export const TERA_PSEUDO_TYPES = {
         "returns": "boolean",
         "isGetter": false,
         "description": "True when the string ends with `suffix`."
+      },
+      {
+        "name": "char_at",
+        "params": [
+          {
+            "name": "index",
+            "type": "int",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "returns": "string",
+        "isGetter": false,
+        "description": "Return the character at `index` as a string, or the empty string when `index` is out of range."
       },
       {
         "name": "char_code_at",

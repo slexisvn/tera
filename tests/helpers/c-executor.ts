@@ -14,7 +14,7 @@ export function cSource(program: AotProgram): string {
   return String(file.contents);
 }
 
-const DEFINITION = /^(int32_t|double)\s+(\w+)\s*\(([^)]*)\)\s*\{/gm;
+const DEFINITION = /^(int32_t|double|const char \*)\s*(\w+)\s*\(([^)]*)\)\s*\{/gm;
 const LOCAL_INCLUDE = /^#include\s+"[^"]*"\s*$/gm;
 const SYSTEM_HEADERS = ["stdint.h", "string.h", "stdio.h", "stdlib.h", "math.h"];
 const CANDIDATES = ["cc", "gcc", "clang"];
@@ -99,23 +99,23 @@ function buildProgram(source: string, symbol: string, args: readonly CArgument[]
     (definition) => `${definition.returns} ${definition.name}(${definition.params});`,
   );
   const call = `${entry}(${types.map((type, index) => literal(type, args[index]!)).join(", ")})`;
+  const print =
+    target.returns === "const char *"
+      ? `printf("%s", ${call});`
+      : `printf("%.17g\\n", (double)${call});`;
   return [
     ...INCLUDES,
     ...prototypes,
     body,
     "int main(void) {",
-    `  printf("%.17g\\n", (double)${call});`,
+    `  ${print}`,
     "  return 0;",
     "}",
     "",
   ].join("\n");
 }
 
-export function runCFunction(
-  source: string,
-  symbol: string,
-  args: readonly CArgument[],
-): number {
+function cStdout(source: string, symbol: string, args: readonly CArgument[]): string {
   if (cCompiler === null) throw new Error("no C compiler available");
   const program = buildProgram(source, symbol, args);
   return inBuildDirectory((sourcePath, binaryPath) => {
@@ -130,10 +130,27 @@ export function runCFunction(
     if (run.status !== 0) {
       throw new Error(`execution failed for ${symbol}: ${run.stderr || run.status}`);
     }
-    const value = Number(run.stdout.trim());
-    if (Number.isNaN(value) && run.stdout.trim() !== "nan") {
-      throw new Error(`unexpected output for ${symbol}: ${run.stdout}`);
-    }
-    return value;
+    return run.stdout;
   });
+}
+
+export function runCStringFunction(
+  source: string,
+  symbol: string,
+  args: readonly CArgument[],
+): string {
+  return cStdout(source, symbol, args);
+}
+
+export function runCFunction(
+  source: string,
+  symbol: string,
+  args: readonly CArgument[],
+): number {
+  const stdout = cStdout(source, symbol, args);
+  const value = Number(stdout.trim());
+  if (Number.isNaN(value) && stdout.trim() !== "nan") {
+    throw new Error(`unexpected output for ${symbol}: ${stdout}`);
+  }
+  return value;
 }

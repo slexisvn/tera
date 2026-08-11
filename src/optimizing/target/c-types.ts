@@ -27,6 +27,11 @@ export function declarationOf(type: CScalarType, name: string): string {
   return type === C_STRING ? `${type}${name}` : `${type} ${name}`;
 }
 
+export function immutableDeclarationOf(type: CScalarType, name: string): string {
+  const declaration = declarationOf(type, name);
+  return type === C_STRING ? declaration : `const ${declaration}`;
+}
+
 export function prototypeOf(
   symbol: string,
   returns: AotScalar,

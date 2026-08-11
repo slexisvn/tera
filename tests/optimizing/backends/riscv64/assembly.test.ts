@@ -106,7 +106,7 @@ describe("riscv64 assembly", () => {
 
     expect(assembly).toContain("\t.section .rodata");
     expect(assembly).toMatch(/\.quad 0x400c000000000000/);
-    expect(assembly).toMatch(/lla\s+\w+, \.LC0/);
+    expect(assembly).toMatch(/lla\s+\w+, \.LC0\w*/);
   });
 
   it("emits a C header the same shape as the other AOT backends", () => {

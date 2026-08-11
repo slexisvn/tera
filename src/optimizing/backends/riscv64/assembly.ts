@@ -6,6 +6,7 @@ import {
   type MachineOperand,
 } from "../../machine/ir.js";
 import type { FrameLayout } from "../../machine/frame.js";
+import { machineDataText } from "../../machine/data.js";
 import { BackendLoweringError } from "../../target/errors.js";
 import { RISCV_FPR } from "./registers.js";
 
@@ -16,10 +17,6 @@ const EMPTY_FRAME: FrameLayout = {
   frameSize: 0,
   saved: [],
 };
-
-function log2(value: number): number {
-  return Math.max(0, Math.round(Math.log2(value)));
-}
 
 export class RiscvAssemblyWriter {
   private frame: FrameLayout = EMPTY_FRAME;
@@ -106,14 +103,7 @@ export class RiscvAssemblyWriter {
   }
 
   dataText(items: readonly MachineDatum[]): string {
-    if (items.length === 0) return "";
-    const lines: string[] = ["\t.section .rodata"];
-    for (const item of items) {
-      lines.push(`\t.p2align ${log2(item.alignment)}`);
-      lines.push(`${item.label}:`);
-      lines.push(...item.directives);
-    }
-    return `${lines.join("\n")}\n`;
+    return machineDataText(items, { readOnly: "\t.section .rodata", writable: "\t.data" });
   }
 
   runtimeText(symbol: string, body: string): string {

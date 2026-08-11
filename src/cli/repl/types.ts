@@ -8,6 +8,7 @@ export type { IntrospectedMember } from "../../runtime/introspect.js";
 
 export type ReplEngine = {
   interpreter: { globalCells?: { cells?: Iterable<[string, GlobalCell]> } };
+  input?: ((prompt: string) => string | null) | undefined;
   run(source: string): TaggedValue;
   runWithDisassembly(source: string): TaggedValue;
   reset(): void;
