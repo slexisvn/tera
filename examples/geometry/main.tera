@@ -1,0 +1,20 @@
+import shapes
+from mathx import abs_int, max_int
+from shapes.area import border_area as border
+
+fn floor_area() -> int:
+  return shapes.square_area(4) + shapes.rect_area(3, 5) + border(6, 4)
+
+fn tank_volume() -> int:
+  return shapes.cube_volume(3) + shapes.box_volume(2, 3, 4)
+
+fn headroom(ceiling: int, stack: int) -> int:
+  return abs_int(ceiling - stack)
+
+fn report() -> int:
+  return max_int(floor_area(), tank_volume()) + headroom(9, 14)
+
+print("floor area:", floor_area())
+print("tank volume:", tank_volume())
+print("headroom:", headroom(9, 14))
+print("report:", report())

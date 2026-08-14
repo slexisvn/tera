@@ -1,0 +1,3 @@
+from slexis.http import fetch
+
+print(fetch("/status"))

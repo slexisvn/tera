@@ -1,0 +1,96 @@
+import { machineDataBytes } from "../machine/data.js";
+import type { MachineDatum, MachineFunction, MachineInstruction } from "../machine/ir.js";
+import {
+  alignFragment,
+  bytesFragment,
+  instructionFragment,
+  type McFragment,
+} from "./fragment.js";
+import type { McModule } from "./module.js";
+import type { McSection, SectionKind } from "./section.js";
+import type { SymbolBinding } from "./symbol.js";
+import type { McTarget } from "./target.js";
+
+export const TEXT_SECTION = ".text";
+export const RODATA_SECTION = ".rodata";
+export const DATA_SECTION = ".data";
+export const BSS_SECTION = ".bss";
+
+export interface AssembledFunction {
+  readonly section: McSection;
+  readonly entry: McFragment;
+  readonly instructions: number;
+}
+
+function anchor(section: McSection): McFragment {
+  return section.add(bytesFragment([]));
+}
+
+function place(
+  module: McModule,
+  target: McTarget,
+  section: McSection,
+  node: MachineInstruction,
+): void {
+  const encoding = target.encode(node, 0);
+  for (const entry of encoding.fixups) module.symbols.reference(entry.symbol);
+  section.add(instructionFragment(node, encoding));
+}
+
+export function assembleFunction(
+  module: McModule,
+  target: McTarget,
+  fn: MachineFunction,
+  binding: SymbolBinding = "global",
+): AssembledFunction {
+  const section = module.section(TEXT_SECTION, "text", target.functionAlignment);
+  section.padding = target.padding;
+  section.add(alignFragment(target.functionAlignment));
+  const entry = anchor(section);
+  module.symbols.define(fn.symbol, entry, binding, "function");
+
+  let instructions = 0;
+  for (const block of fn.blocks) {
+    module.symbols.define(block.label, anchor(section), "local", "none");
+    for (const node of block.instructions) {
+      place(module, target, section, node);
+      instructions++;
+    }
+  }
+  return { section, entry, instructions };
+}
+
+function isUninitialized(datum: MachineDatum): boolean {
+  return datum.writable && datum.items.every((item) => item.kind === "zero");
+}
+
+function sectionFor(datum: MachineDatum): readonly [string, SectionKind] {
+  if (isUninitialized(datum)) return [BSS_SECTION, "bss"];
+  return datum.writable ? [DATA_SECTION, "data"] : [RODATA_SECTION, "rodata"];
+}
+
+export function assembleData(module: McModule, items: readonly MachineDatum[]): void {
+  for (const datum of items) {
+    const [name, kind] = sectionFor(datum);
+    const section = module.section(name, kind, datum.alignment);
+    section.add(alignFragment(datum.alignment));
+    const anchor = section.add(bytesFragment(machineDataBytes(datum.items)));
+    module.symbols.define(datum.label, anchor, "local", "object");
+  }
+}
+
+export function assembleRoutine(
+  module: McModule,
+  target: McTarget,
+  symbol: string,
+  body: readonly MachineInstruction[],
+  binding: SymbolBinding = "local",
+): AssembledFunction {
+  const section = module.section(TEXT_SECTION, "text", target.functionAlignment);
+  section.padding = target.padding;
+  section.add(alignFragment(target.functionAlignment));
+  const entry = anchor(section);
+  module.symbols.define(symbol, entry, binding, "function");
+  for (const node of body) place(module, target, section, node);
+  return { section, entry, instructions: body.length };
+}

@@ -1,0 +1,49 @@
+
+async fn fetch_user(id: int):
+  return { id: id, name: `user-${id}` }
+
+async fn greet(id: int) -> string:
+  user = await fetch_user(id)
+  return "hello " + user.name
+
+async fn main() -> void:
+  msg: string = await greet(7)
+  print(msg)
+
+  a = await fetch_user(1)
+  b = await fetch_user(2)
+  print("fetched:", a.name, "and", b.name)
+
+main()
+
+p = Promise.resolve(42)
+p.then(v => print("resolved with", v))
+
+Promise.resolve(10).then(v => v * 2).then(v => v + 1).then(v => print("chained ->", v))
+
+async fn safe_divide(a: float, b: float) -> float:
+  if b == 0:
+    throw "division by zero"
+  return a / b
+
+async fn run_division() -> void:
+  try:
+    r: float = await safe_divide(10.0, 2.0)
+    print("10 / 2 =", r)
+    bad: float = await safe_divide(1.0, 0.0)
+    print("unreachable", bad)
+  catch e:
+    print("caught:", e)
+
+run_division()
+
+async fn double(x: int) -> int:
+  return x * 2
+
+async fn sum_doubles() -> void:
+  total: int = 0
+  for n of [1, 2, 3, 4]:
+    total += await double(n)
+  print("sum of doubles =", total)
+
+sum_doubles()

@@ -1,0 +1,10 @@
+from ..mathx import square
+
+fn square_area(side: int) -> int:
+  return square(side)
+
+fn rect_area(width: int, height: int) -> int:
+  return width * height
+
+fn border_area(outer: int, inner: int) -> int:
+  return square(outer) - square(inner)

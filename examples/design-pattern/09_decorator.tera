@@ -1,0 +1,22 @@
+interface Notifier:
+  send(message: string) -> string
+
+class PlainNotifier implements Notifier:
+  public send(message: string) -> string:
+    return message
+
+class EmailDecorator implements Notifier:
+  public constructor(next: Notifier):
+    this.next = next
+  public send(message: string) -> string:
+    return "email(" + this.next.send(message) + ")"
+
+class SmsDecorator implements Notifier:
+  public constructor(next: Notifier):
+    this.next = next
+  public send(message: string) -> string:
+    return "sms(" + this.next.send(message) + ")"
+
+notifier = SmsDecorator(EmailDecorator(PlainNotifier()))
+
+print("decorator:", notifier.send("build passed"))

@@ -1,0 +1,2 @@
+fn request(path: string) -> string:
+  return "GET " + path

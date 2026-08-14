@@ -1,0 +1,94 @@
+class ValidationError extends Error:
+  public constructor(field: string):
+    super(`invalid field: ${field}`)
+    this.name = "ValidationError"
+    this.field = field
+
+fn validate_order(order):
+  if order.qty <= 0:
+    throw ValidationError("qty")
+  if order.price < 0.0:
+    throw "price cannot be negative"
+  return true
+
+async fn fetch_stock(sku: string) -> int:
+  table = { "A1": 5, "B2": 0, "C3": 12 }
+  if not (sku in table):
+    throw `unknown sku: ${sku}`
+  return table[sku]
+
+async fn charge(amount: float) -> string:
+  if amount > 1000.0:
+    throw "card declined"
+  return `charged $${amount}`
+
+async fn place_order(order) -> string:
+  validate_order(order)
+  stock = await fetch_stock(order.sku)
+  if stock < order.qty:
+    throw `out of stock: have ${stock}, need ${order.qty}`
+  receipt = await charge(order.price * order.qty)
+  return `OK ${order.sku} x${order.qty} -> ${receipt}`
+
+async fn safe_place(order) -> string:
+  audit = "start"
+  try:
+    result = await place_order(order)
+    audit = "committed"
+    return result
+  catch e:
+    audit = "rolled-back"
+    return `FAILED(${order.sku}): ${e}`
+  finally:
+    print(`  [audit ${order.sku}] ${audit}`)
+
+async fn run() -> void:
+  print("== sequential orders ==")
+  orders = [
+    { sku: "A1", qty: 2, price: 10.0 },
+    { sku: "A1", qty: 99, price: 10.0 },
+    { sku: "B2", qty: 1, price: 10.0 },
+    { sku: "Z9", qty: 1, price: 10.0 },
+    { sku: "C3", qty: 1, price: 5000.0 },
+    { sku: "C3", qty: 0, price: 5.0 },
+  ]
+  for o of orders:
+    line = await safe_place(o)
+    print(line)
+
+  print("== parallel fetch (Promise.all) ==")
+  try:
+    stocks = await Promise.all([fetch_stock("A1"), fetch_stock("C3")])
+    print("stocks:", stocks[0], stocks[1])
+  catch e:
+    print("parallel failed:", e)
+
+  print("== Promise.all with a rejection ==")
+  try:
+    mixed = await Promise.all([fetch_stock("A1"), fetch_stock("nope")])
+    print("unreachable", mixed)
+  catch e:
+    print("all rejected ->", e)
+
+  print("== promise chaining + catch ==")
+  Promise.resolve(100)
+    .then(v => v / 2)
+    .then(v => `chain result: ${v}`)
+    .then(v => print(v))
+
+  Promise.reject("boom in chain")
+    .then(v => print("unreachable", v))
+    .catch(e => print("chain caught:", e))
+
+  print("== nested try / rethrow ==")
+  try:
+    try:
+      throw ValidationError("email")
+    catch inner:
+      print("  inner caught:", inner.message, "on", inner.field)
+      throw "wrapped: " + inner.message
+  catch outer:
+    print("  outer caught:", outer)
+
+run()
+print("== synchronous line runs before async microtasks ==")

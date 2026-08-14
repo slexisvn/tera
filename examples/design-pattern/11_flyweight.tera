@@ -1,0 +1,18 @@
+interface DrawableGlyph:
+  draw(x: int, y: int) -> string
+
+class Glyph implements DrawableGlyph:
+  private static cache = Map()
+  private constructor(char):
+    this.char = char
+  public static of(char: string) -> DrawableGlyph:
+    if !Glyph.cache.has(char):
+      Glyph.cache.set(char, Glyph(char))
+    return Glyph.cache.get(char)
+  public draw(x: int, y: int) -> string:
+    return this.char + "@" + x + "," + y
+
+a: DrawableGlyph = Glyph.of("A")
+b: DrawableGlyph = Glyph.of("A")
+
+print("flyweight:", a.draw(1, 2), a === b)

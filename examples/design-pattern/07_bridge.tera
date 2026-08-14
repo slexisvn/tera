@@ -1,0 +1,18 @@
+interface Renderer:
+  renderTitle(text: string) -> string
+
+class HtmlRenderer implements Renderer:
+  public renderTitle(text: string) -> string:
+    return "<h1>" + text + "</h1>"
+
+class MarkdownRenderer implements Renderer:
+  public renderTitle(text: string) -> string:
+    return "# " + text
+
+class Page:
+  public constructor(renderer: Renderer):
+    this.renderer = renderer
+  public title(text: string) -> string:
+    return this.renderer.renderTitle(text)
+
+print("bridge:", Page(HtmlRenderer()).title("Docs"), "|", Page(MarkdownRenderer()).title("Docs"))

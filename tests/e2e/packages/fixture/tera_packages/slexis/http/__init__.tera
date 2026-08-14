@@ -1,0 +1,5 @@
+from slexis.json import encode
+from .client import request
+
+fn fetch(path: string) -> string:
+  return encode(request(path))

@@ -1,0 +1,23 @@
+interface Memento:
+  content: string
+
+class Snapshot implements Memento:
+  public constructor(content: string):
+    this.content = content
+
+class TextEditor:
+  public constructor():
+    this.content = "hello"
+  public type(value: string):
+    this.content += value
+  public save() -> Memento:
+    return Snapshot(this.content)
+  public restore(snapshot: Memento):
+    this.content = snapshot.content
+
+editor = TextEditor()
+snapshot = editor.save()
+editor.type(" world")
+editor.restore(snapshot)
+
+print("memento:", editor.content)

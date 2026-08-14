@@ -1,0 +1,18 @@
+fn _negate(n: int) -> int:
+  return 0 - n
+
+fn abs_int(n: int) -> int:
+  if n < 0:
+    return _negate(n)
+  return n
+
+fn square(n: int) -> int:
+  return n * n
+
+fn cube(n: int) -> int:
+  return n * square(n)
+
+fn max_int(a: int, b: int) -> int:
+  if a < b:
+    return b
+  return a

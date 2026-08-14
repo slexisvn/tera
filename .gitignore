@@ -1,0 +1,8 @@
+node_modules
+coverage
+dist/
+lightning_logs/
+*.vsix
+tera_packages/
+!tests/e2e/packages/**/tera_packages/
+# *.ckpt

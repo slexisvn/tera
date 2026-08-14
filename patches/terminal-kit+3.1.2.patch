@@ -1,0 +1,140 @@
+diff --git a/node_modules/terminal-kit/lib/inputField.js b/node_modules/terminal-kit/lib/inputField.js
+index ace59eb..89524a6 100644
+--- a/node_modules/terminal-kit/lib/inputField.js
++++ b/node_modules/terminal-kit/lib/inputField.js
+@@ -494,12 +494,16 @@ module.exports = function inputField( options , callback ) {
+ 
+ 
+ 	var autoCompleteHint = () => {
+-		// The cursor should be at the end ATM
+-		if ( ! dynamic.autoComplete || ! dynamic.autoCompleteHint || offset < inputs[ inputIndex ].length ) {
++		if ( ! dynamic.autoComplete || ! dynamic.autoCompleteHint ) {
+ 			return ;
+ 		}
+ 
+-		var autoCompleted , inputText = inputs[ inputIndex ].join( '' ) ;
++		var atEnd = offset >= inputs[ inputIndex ].length ;
++		var inputText = atEnd
++			? inputs[ inputIndex ].join( '' )
++			: inputs[ inputIndex ].slice( 0 , offset ).join( '' ) ;
++
++		var autoCompleted ;
+ 
+ 		var finishCompletion = () => {
+ 			if ( Array.isArray( autoCompleted ) ) { return ; }
+@@ -508,8 +512,18 @@ module.exports = function inputField( options , callback ) {
+ 				.slice( 0 , options.maxLength - inputs[ inputIndex ].length ) ;
+ 
+ 			computeAllCoordinate() ;
+-			this.moveTo( end.x , end.y ) ;	// computeAllCoordinate() can add some newline
+-			dynamic.hintStyle.noFormat( hint.join( '' ) ) ;
++			if ( atEnd ) {
++				this.moveTo( end.x , end.y ) ;
++				dynamic.hintStyle.noFormat( hint.join( '' ) ) ;
++			}
++			else {
++				this.moveTo( cursor.x , cursor.y ) ;
++				this.saveCursor() ;
++				dynamic.style.noFormat.eraseLineAfter( '' ) ;
++				dynamic.hintStyle.noFormat( hint.join( '' ) ) ;
++				var rightPart = inputs[ inputIndex ].slice( offset ).join( '' ) ;
++				dynamic.style.noFormat( rightPart ) ;
++			}
+ 			this.moveTo( cursor.x , cursor.y ) ;
+ 		} ;
+ 
+@@ -568,6 +582,32 @@ module.exports = function inputField( options , callback ) {
+ 
+ 			if ( inputs[ inputIndex ].length >= options.maxLength ) { return ; }
+ 
++			if ( options.autoClosePairs ) {
++				var closePair = options.autoClosePairs[ key ] ;
++				var closingPairs = Object.values( options.autoClosePairs ) ;
++
++				if ( closingPairs.includes( key ) && inputs[ inputIndex ][ offset ] === key ) {
++					offset ++ ;
++					if ( echo ) {
++						computeAllCoordinate() ;
++						redraw() ;
++						if ( dynamic.autoCompleteHint ) { autoCompleteHint() ; }
++					}
++					return ;
++				}
++
++				if ( closePair ) {
++					inputs[ inputIndex ].splice( offset , 0 , key , closePair ) ;
++					offset ++ ;
++					if ( echo ) {
++						computeAllCoordinate() ;
++						redraw() ;
++						if ( dynamic.autoCompleteHint ) { autoCompleteHint() ; }
++					}
++					return ;
++				}
++			}
++
+ 			// Insert version
+ 			//inputs[ inputIndex ] = inputs[ inputIndex ].slice( 0 , offset ) + key + inputs[ inputIndex ].slice( offset ) ;
+ 			inputs[ inputIndex ].splice( offset , 0 , key ) ;
+@@ -609,6 +649,9 @@ module.exports = function inputField( options , callback ) {
+ 				case 'backDelete' :
+ 					if ( inputs[ inputIndex ].length && offset > 0 ) {
+ 						charToDelete = inputs[ inputIndex ][ offset - 1 ] ;
++						if ( options.autoClosePairs && options.autoClosePairs[ charToDelete ] === inputs[ inputIndex ][ offset ] ) {
++							inputs[ inputIndex ].splice( offset , 1 ) ;
++						}
+ 						inputs[ inputIndex ].splice( offset - 1 , 1 ) ;
+ 						offset -- ;
+ 
+@@ -633,6 +676,7 @@ module.exports = function inputField( options , callback ) {
+ 									this.left( 1 ) ;
+ 									this.delete( 1 ) ;
+ 								}
++								if ( dynamic.autoCompleteHint ) { autoCompleteHint() ; }
+ 							}
+ 						}
+ 					}
+@@ -688,31 +732,29 @@ module.exports = function inputField( options , callback ) {
+ 
+ 				case 'backward' :
+ 					if ( inputs[ inputIndex ].length && offset > 0 ) {
+-						if ( dynamic.autoCompleteHint && offset === inputs[ inputIndex ].length ) {
+-							clearHint() ;
+-						}
+-
++						clearHint() ;
+ 						offset -- ;
+ 
+ 						if ( echo ) {
+ 							computeAllCoordinate() ;
+-							this.moveTo( cursor.x , cursor.y ) ;
++							redraw() ;
+ 						}
++
++						if ( dynamic.autoCompleteHint ) { autoCompleteHint() ; }
+ 					}
+ 					break ;
+ 
+ 				case 'forward' :
+ 					if ( inputs[ inputIndex ].length && offset < inputs[ inputIndex ].length ) {
++						clearHint() ;
+ 						offset ++ ;
+ 
+ 						if ( echo ) {
+ 							computeAllCoordinate() ;
+-							this.moveTo( cursor.x , cursor.y ) ;
++							redraw() ;
+ 						}
+ 
+-						if ( dynamic.autoCompleteHint && offset === inputs[ inputIndex ].length ) {
+-							autoCompleteHint() ;
+-						}
++						if ( dynamic.autoCompleteHint ) { autoCompleteHint() ; }
+ 					}
+ 
+ 					break ;
+@@ -1066,4 +1108,3 @@ module.exports = function inputField( options , callback ) {
+ 
+ 	return controller ;
+ } ;
+-

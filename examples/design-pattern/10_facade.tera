@@ -1,0 +1,23 @@
+interface ScriptRunner:
+  execute(source: string) -> string
+
+class Compiler:
+  public parse(source: string) -> string:
+    return "ast(" + source + ")"
+  public emit(ast: string) -> string:
+    return "bytecode(" + ast + ")"
+
+class Runtime:
+  public run(code: string) -> string:
+    return "result(" + code + ")"
+
+class ScriptFacade implements ScriptRunner:
+  public constructor():
+    this.compiler = Compiler()
+    this.runtime = Runtime()
+  public execute(source: string) -> string:
+    ast = this.compiler.parse(source)
+    code = this.compiler.emit(ast)
+    return this.runtime.run(code)
+
+print("facade:", ScriptFacade().execute("x + 1"))

@@ -1,0 +1,15 @@
+{
+  "stateVersion": 1,
+  "packages": {
+    "slexis.http": {
+      "version": "1.0.0",
+      "source": "petahub",
+      "files": 2
+    },
+    "slexis.json": {
+      "version": "0.4.1",
+      "source": "petahub",
+      "files": 1
+    }
+  }
+}

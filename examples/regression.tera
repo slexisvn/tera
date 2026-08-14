@@ -1,0 +1,48 @@
+
+n = 256
+x = randn([n, 2])
+w_true = tensor([[2.0], [3.0]])
+y = x @ w_true + 1.0 + randn([n, 1]) * 0.1
+
+x_train, x_val = train_test_split(x, test_size=0.2)
+y_train, y_val = train_test_split(y, test_size=0.2)
+
+train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=32, shuffle=true)
+val_loader = DataLoader(TensorDataset(x_val, y_val), batch_size=32)
+
+model Regressor():
+  net = Sequential(Linear(2, 32), ReLU(), Linear(32, 1))
+  loss_fn = MSELoss()
+
+  forward (x: Tensor) -> Tensor:
+    return net(x)
+
+  train (batch: Tensor[]):
+    x, y = batch
+    loss = loss_fn(Regressor(x), y)
+    log("train_loss", loss, prog_bar=true)
+    return loss
+
+  validate (batch: Tensor[]):
+    x, y = batch
+    log("val_loss", loss_fn(Regressor(x), y), prog_bar=true)
+
+  optimizer:
+    opt = SGD(Regressor.parameters(), lr=0.01, momentum=0.9)
+    sched = StepLR(opt, step_size=15, gamma=0.5)
+    return optim_config(opt, lr_scheduler=sched)
+
+net = Regressor()
+trainer = Trainer(
+  max_epochs=40,
+  logger=ConsoleLogger(),
+  enable_checkpointing=false,
+  enable_progress=false
+)
+trainer.fit(net, train_loader, val_loader)
+
+net.eval()
+pred = net(x_val)
+mae = (pred - y_val).abs().mean()
+print("=== Regression: y = 2*x1 + 3*x2 + 1 ===")
+print("Validation MAE:", mae)

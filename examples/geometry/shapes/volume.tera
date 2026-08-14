@@ -1,0 +1,11 @@
+from ..mathx import cube
+from .area import rect_area
+
+fn cube_volume(side: int) -> int:
+  return cube(side)
+
+fn box_volume(width: int, height: int, depth: int) -> int:
+  return rect_area(width, height) * depth
+
+fn prism_volume(base_area: int, height: int) -> int:
+  return base_area * height

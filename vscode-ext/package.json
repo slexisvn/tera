@@ -1,0 +1,220 @@
+{
+  "name": "tera-language",
+  "displayName": "Tera Language",
+  "description": "Syntax highlighting, diagnostics and IntelliSense for Tera (.tera) — tensor algebra & neural network DSL.",
+  "version": "0.1.4",
+  "icon": "icons/icon.png",
+  "publisher": "slexisvn",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/slexisvn/mlfw.git",
+    "directory": "vscode-ext"
+  },
+  "homepage": "https://github.com/slexisvn/mlfw#readme",
+  "bugs": {
+    "url": "https://github.com/slexisvn/mlfw/issues"
+  },
+  "engines": {
+    "vscode": "^1.94.0"
+  },
+  "type": "module",
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./dist/extension.cjs",
+  "activationEvents": [
+    "onLanguage:tera",
+    "onNotebook:tera-notebook",
+    "onDebugInitialConfigurations:tera",
+    "onDebugResolve:tera"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "tera",
+        "aliases": [
+          "Tera",
+          "tera"
+        ],
+        "extensions": [
+          ".tera"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/file-icon.png",
+          "dark": "./icons/file-icon.png"
+        }
+      },
+      {
+        "id": "tera-notebook-file",
+        "aliases": [
+          "Tera Notebook"
+        ],
+        "extensions": [
+          ".tenb"
+        ],
+        "icon": {
+          "light": "./icons/file-icon-tenb.png",
+          "dark": "./icons/file-icon-tenb.png"
+        }
+      }
+    ],
+    "notebooks": [
+      {
+        "type": "tera-notebook",
+        "displayName": "Tera Notebook",
+        "selector": [
+          {
+            "filenamePattern": "*.tenb"
+          }
+        ]
+      }
+    ],
+    "notebookRenderer": [
+      {
+        "id": "tera-chart-renderer",
+        "displayName": "Tera Chart",
+        "entrypoint": "./dist/chart-renderer.mjs",
+        "mimeTypes": [
+          "application/x-tera-chart+json"
+        ]
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "tera"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "tera",
+        "label": "Tera",
+        "languages": [
+          "tera"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "default": "${file}",
+                "description": "The Tera source file to debug."
+              },
+              "cwd": {
+                "type": "string",
+                "default": "${workspaceFolder}",
+                "description": "The working directory used by the Tera debugger."
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "default": false,
+                "description": "Pause before executing the first Tera instruction."
+              },
+              "typecheck": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "warn",
+                  "strict"
+                ],
+                "default": "off",
+                "description": "Typecheck mode used before launching the debugger."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "tera",
+            "request": "launch",
+            "name": "Debug Tera File",
+            "program": "${file}",
+            "typecheck": "off"
+          }
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tera",
+        "scopeName": "source.tera",
+        "path": "./syntaxes/tera.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "tera",
+        "path": "./snippets/tera.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Tera",
+      "properties": {
+        "tera.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace LSP communication between VSCode and the Tera language server."
+        },
+        "tera.nativeModules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Native module names the host registers with the Tera engine. Imports of these names resolve without a matching .tera file."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[tera]": {
+        "editor.quickSuggestions": {
+          "other": "on",
+          "comments": "off",
+          "strings": "off"
+        },
+        "editor.suggestOnTriggerCharacters": true,
+        "editor.wordBasedSuggestions": "off",
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true
+      }
+    }
+  },
+  "scripts": {
+    "generate": "node scripts/generate.ts",
+    "build": "node scripts/build.ts",
+    "watch": "node scripts/build.ts --watch",
+    "build:icon": "node scripts/build-icon.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "koffi": "^3.0.2"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@slexisvn/reactive": "^0.1.1",
+    "@slexisvn/tera": "file:..",
+    "@types/node": "^26.1.1",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10",
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
+  }
+}

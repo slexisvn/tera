@@ -1,0 +1,73 @@
+
+class Shape:
+  public constructor(name: string):
+    this.name = name
+  public area() -> float:
+    return 0.0
+  public describe() -> string:
+    return `${this.name} with area ${this.area()}`
+
+class Circle extends Shape:
+  public constructor(r: float):
+    super(name="circle")
+    this.r = r
+  public area() -> float:
+    return 3.14159 * this.r * this.r
+
+class Rectangle extends Shape:
+  public constructor(w: float, h: float):
+    super(name="rectangle")
+    this.w = w
+    this.h = h
+  public area() -> float:
+    return this.w * this.h
+
+shapes = [Circle(2.0), Rectangle(3.0, 4.0), Circle(1.0)]
+for s of shapes:
+  print(s.describe())
+
+class Account:
+  public constructor(owner: string, balance: float = 0.0):
+    this.owner = owner
+    this.balance = balance
+  public deposit(amount: float):
+    this.balance += amount
+    return this
+  public withdraw(amount: float):
+    if amount > this.balance:
+      throw "insufficient funds"
+    this.balance -= amount
+    return this
+  public get summary():
+    return `${this.owner}: ${this.balance}`
+
+acc = Account("alice")
+acc.deposit(100.0).withdraw(30.0).deposit(5.5)
+print(acc.summary)
+
+class Counter:
+  public constructor():
+    this.n = 0
+  public inc():
+    this.n += 1
+    return this.n
+
+c = Counter()
+d = Counter()
+c.inc()
+c.inc()
+d.inc()
+print("independent instances:", c.n, d.n)
+
+class Temperature:
+  public constructor(celsius: float):
+    this.c = celsius
+  public get fahrenheit():
+    return this.c * 9.0 / 5.0 + 32.0
+  public set fahrenheit(f):
+    this.c = (f - 32.0) * 5.0 / 9.0
+
+t = Temperature(25.0)
+print("25C in F =", t.fahrenheit)
+t.fahrenheit = 212.0
+print("212F in C =", t.c)

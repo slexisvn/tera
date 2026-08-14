@@ -1,0 +1,76 @@
+
+data = load_csv("examples/iris.csv")
+print("columns:", data.columns(), "| rows:", data.count())
+
+x = StandardScaler().fit_transform(data.drop("species").to_tensor())
+y, classes = data.select("species").encode("species")
+print("classes:", classes)
+
+train_loader = DataLoader(TensorDataset(x, y), batch_size=16, shuffle=true)
+val_loader = DataLoader(TensorDataset(x, y), batch_size=16)
+
+model IrisNet(num_classes: int):
+  net = Sequential(
+    Linear(4, 32),
+    BatchNorm1d(32),
+    ReLU(),
+    Dropout(p=0.1),
+    Linear(32, 16),
+    ReLU(),
+    Linear(16, num_classes)
+  )
+  loss_fn = CrossEntropyLoss()
+  acc = Accuracy(task="multiclass", num_classes=num_classes)
+  f1 = F1Score(task="multiclass", num_classes=num_classes)
+
+  forward (x: Tensor) -> Tensor:
+    return net(x)
+
+  train (batch: Tensor[]):
+    x, y = batch
+    loss = loss_fn(IrisNet(x), y)
+    log("train_loss", loss, prog_bar=true)
+    return loss
+
+  validate (batch: Tensor[]):
+    x, y = batch
+    logits = IrisNet(x)
+    log("val_loss", loss_fn(logits, y), prog_bar=true)
+    acc(logits, y)
+    f1(logits, y)
+    log("val_acc", acc, prog_bar=true)
+    log("val_f1", f1)
+
+  optimizer:
+    opt = AdamW(IrisNet.parameters(), lr=0.001, weight_decay=0.0001)
+    sched = CosineAnnealingLR(opt, t_max=500)
+    return optim_config(opt, lr_scheduler=sched)
+
+net = IrisNet(3)
+trainer = Trainer(
+  max_epochs=500,
+  logger=false,
+  enable_progress=false,
+  callbacks=[
+    EarlyStopping(monitor="val_loss", patience=60),
+    ModelCheckpoint(monitor="val_loss"),
+    LearningRateMonitor(),
+    Timer()
+  ]
+)
+trainer.fit(net, train_loader, val_loader)
+
+net.eval()
+logits = net(x)
+preds = logits.argmax(axis=1)
+
+final_acc = Accuracy(task="multiclass", num_classes=3)
+final_acc(logits, y)
+confusion = ConfusionMatrix(num_classes=3)
+confusion(logits, y)
+
+print("=== Iris results ===")
+print("accuracy:", final_acc.compute())
+print("confusion matrix:", confusion.compute())
+print("classes:", classes)
+print("predictions:", preds)

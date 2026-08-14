@@ -1,0 +1,30 @@
+interface FileSystemNode:
+  size() -> int
+
+class FileItem implements FileSystemNode:
+  public name: string
+  public sizeValue: int
+  public constructor(name: string, size: int):
+    this.name = name
+    this.sizeValue = size
+  public size() -> int:
+    return this.sizeValue
+
+class Folder implements FileSystemNode:
+  public name: string
+  public children: FileSystemNode[] = []
+  public constructor(name: string):
+    this.name = name
+    this.children = []
+  public add(child: FileSystemNode) -> Folder:
+    this.children.push(child)
+    return this
+  public size() -> int:
+    total = 0
+    for child of this.children:
+      total += child.size()
+    return total
+
+root = Folder("root").add(FileItem("a.txt", 3)).add(Folder("src").add(FileItem("main.tera", 7)))
+
+print("composite:", root.size())

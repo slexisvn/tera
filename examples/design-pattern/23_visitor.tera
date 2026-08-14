@@ -1,0 +1,32 @@
+interface Shape:
+  accept(visitor: ShapeVisitor) -> float
+
+interface ShapeVisitor:
+  visitCircle(circle: Circle) -> float
+  visitSquare(square: Square) -> float
+
+class Circle implements Shape:
+  public constructor(radius):
+    this.radius = radius
+  public accept(visitor: ShapeVisitor) -> float:
+    return visitor.visitCircle(this)
+
+class Square implements Shape:
+  public constructor(size):
+    this.size = size
+  public accept(visitor: ShapeVisitor) -> float:
+    return visitor.visitSquare(this)
+
+class AreaVisitor implements ShapeVisitor:
+  public visitCircle(circle: Circle) -> float:
+    return 3.14 * circle.radius * circle.radius
+  public visitSquare(square: Square) -> float:
+    return square.size * square.size
+
+visitor = AreaVisitor()
+shapes = [Circle(2.0), Square(3.0)]
+areas = []
+for shape of shapes:
+  areas.push(shape.accept(visitor))
+
+print("visitor:", areas.join(","))

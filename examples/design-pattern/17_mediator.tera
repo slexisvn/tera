@@ -1,0 +1,39 @@
+interface Participant:
+  receive(from: string, text: string) -> string
+
+class ChatRoom:
+  private users: User[] = []
+  public constructor():
+    this.users = []
+  public join(user: User) -> void:
+    this.users.push(user)
+    user.setRoom(this)
+  public send(from: User, text: string) -> string:
+    messages = []
+    for user of this.users:
+      if user.name != from.name:
+        messages.push(user.receive(from.name, text))
+    return messages.join(" | ")
+
+class User implements Participant:
+  public name: string
+  private room: ChatRoom | null = null
+  public constructor(name: string):
+    this.name = name
+  public setRoom(room: ChatRoom) -> void:
+    this.room = room
+  public say(text: string) -> string:
+    room = this.room
+    if room != null:
+      return room.send(this, text)
+    return "offline"
+  public receive(from: string, text: string) -> string:
+    return this.name + "<-" + from + ":" + text
+
+room = ChatRoom()
+alice = User("alice")
+bob = User("bob")
+room.join(alice)
+room.join(bob)
+
+print("mediator:", alice.say("hi"))

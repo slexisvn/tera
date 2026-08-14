@@ -1,0 +1,674 @@
+{
+  "tensor": {
+    "prefix": "tensor",
+    "body": [
+      "tensor(${1:data})$0"
+    ],
+    "description": "factory: tensor"
+  },
+  "zeros": {
+    "prefix": "zeros",
+    "body": [
+      "zeros(${1:shape})$0"
+    ],
+    "description": "factory: zeros"
+  },
+  "ones": {
+    "prefix": "ones",
+    "body": [
+      "ones(${1:shape})$0"
+    ],
+    "description": "factory: ones"
+  },
+  "empty": {
+    "prefix": "empty",
+    "body": [
+      "empty(${1:shape})$0"
+    ],
+    "description": "factory: empty"
+  },
+  "full": {
+    "prefix": "full",
+    "body": [
+      "full(${1:shape}, ${2:value})$0"
+    ],
+    "description": "factory: full"
+  },
+  "randn": {
+    "prefix": "randn",
+    "body": [
+      "randn(${1:shape})$0"
+    ],
+    "description": "factory: randn"
+  },
+  "arange": {
+    "prefix": "arange",
+    "body": [
+      "arange(${1:start})$0"
+    ],
+    "description": "factory: arange"
+  },
+  "eye": {
+    "prefix": "eye",
+    "body": [
+      "eye(${1:n})$0"
+    ],
+    "description": "factory: eye"
+  },
+  "linspace": {
+    "prefix": "linspace",
+    "body": [
+      "linspace(${1:start}, ${2:end}, ${3:steps})$0"
+    ],
+    "description": "factory: linspace"
+  },
+  "randperm": {
+    "prefix": "randperm",
+    "body": [
+      "randperm(${1:n})$0"
+    ],
+    "description": "factory: randperm"
+  },
+  "scalar": {
+    "prefix": "scalar",
+    "body": [
+      "scalar(${1:value})$0"
+    ],
+    "description": "factory: scalar"
+  },
+  "zeros_like": {
+    "prefix": "zeros_like",
+    "body": [
+      "zeros_like(${1:tensor})$0"
+    ],
+    "description": "factory: zeros_like"
+  },
+  "ones_like": {
+    "prefix": "ones_like",
+    "body": [
+      "ones_like(${1:tensor})$0"
+    ],
+    "description": "factory: ones_like"
+  },
+  "empty_like": {
+    "prefix": "empty_like",
+    "body": [
+      "empty_like(${1:tensor})$0"
+    ],
+    "description": "factory: empty_like"
+  },
+  "full_like": {
+    "prefix": "full_like",
+    "body": [
+      "full_like(${1:tensor}, ${2:value})$0"
+    ],
+    "description": "factory: full_like"
+  },
+  "randn_like": {
+    "prefix": "randn_like",
+    "body": [
+      "randn_like(${1:tensor})$0"
+    ],
+    "description": "factory: randn_like"
+  },
+  "Sequential": {
+    "prefix": "Sequential",
+    "body": [
+      "Sequential($0)"
+    ],
+    "description": "sequential: Sequential"
+  },
+  "Linear": {
+    "prefix": "Linear",
+    "body": [
+      "Linear(${1:in}, ${2:out})$0"
+    ],
+    "description": "module: Linear"
+  },
+  "ReLU": {
+    "prefix": "ReLU",
+    "body": [
+      "ReLU()"
+    ],
+    "description": "module: ReLU"
+  },
+  "GELU": {
+    "prefix": "GELU",
+    "body": [
+      "GELU()"
+    ],
+    "description": "module: GELU"
+  },
+  "SiLU": {
+    "prefix": "SiLU",
+    "body": [
+      "SiLU()"
+    ],
+    "description": "module: SiLU"
+  },
+  "Sigmoid": {
+    "prefix": "Sigmoid",
+    "body": [
+      "Sigmoid()"
+    ],
+    "description": "module: Sigmoid"
+  },
+  "Tanh": {
+    "prefix": "Tanh",
+    "body": [
+      "Tanh()"
+    ],
+    "description": "module: Tanh"
+  },
+  "LeakyReLU": {
+    "prefix": "LeakyReLU",
+    "body": [
+      "LeakyReLU($0)"
+    ],
+    "description": "module: LeakyReLU"
+  },
+  "ELU": {
+    "prefix": "ELU",
+    "body": [
+      "ELU($0)"
+    ],
+    "description": "module: ELU"
+  },
+  "Softmax": {
+    "prefix": "Softmax",
+    "body": [
+      "Softmax($0)"
+    ],
+    "description": "module: Softmax"
+  },
+  "LogSoftmax": {
+    "prefix": "LogSoftmax",
+    "body": [
+      "LogSoftmax($0)"
+    ],
+    "description": "module: LogSoftmax"
+  },
+  "Flatten": {
+    "prefix": "Flatten",
+    "body": [
+      "Flatten($0)"
+    ],
+    "description": "module: Flatten"
+  },
+  "Dropout": {
+    "prefix": "Dropout",
+    "body": [
+      "Dropout($0)"
+    ],
+    "description": "module: Dropout"
+  },
+  "LayerNorm": {
+    "prefix": "LayerNorm",
+    "body": [
+      "LayerNorm(${1:shape})$0"
+    ],
+    "description": "module: LayerNorm"
+  },
+  "BatchNorm1d": {
+    "prefix": "BatchNorm1d",
+    "body": [
+      "BatchNorm1d(${1:features})$0"
+    ],
+    "description": "module: BatchNorm1d"
+  },
+  "BatchNorm2d": {
+    "prefix": "BatchNorm2d",
+    "body": [
+      "BatchNorm2d(${1:features})$0"
+    ],
+    "description": "module: BatchNorm2d"
+  },
+  "Conv1d": {
+    "prefix": "Conv1d",
+    "body": [
+      "Conv1d(${1:in}, ${2:out}, ${3:kernel})$0"
+    ],
+    "description": "module: Conv1d"
+  },
+  "Conv2d": {
+    "prefix": "Conv2d",
+    "body": [
+      "Conv2d(${1:in}, ${2:out}, ${3:kernel})$0"
+    ],
+    "description": "module: Conv2d"
+  },
+  "MaxPool2d": {
+    "prefix": "MaxPool2d",
+    "body": [
+      "MaxPool2d(${1:kernel})$0"
+    ],
+    "description": "module: MaxPool2d"
+  },
+  "AvgPool2d": {
+    "prefix": "AvgPool2d",
+    "body": [
+      "AvgPool2d(${1:kernel})$0"
+    ],
+    "description": "module: AvgPool2d"
+  },
+  "AdaptiveAvgPool2d": {
+    "prefix": "AdaptiveAvgPool2d",
+    "body": [
+      "AdaptiveAvgPool2d(${1:output_size})$0"
+    ],
+    "description": "module: AdaptiveAvgPool2d"
+  },
+  "Embedding": {
+    "prefix": "Embedding",
+    "body": [
+      "Embedding(${1:num}, ${2:dim})$0"
+    ],
+    "description": "module: Embedding"
+  },
+  "GRU": {
+    "prefix": "GRU",
+    "body": [
+      "GRU(${1:input}, ${2:hidden})$0"
+    ],
+    "description": "module: GRU"
+  },
+  "GRUCell": {
+    "prefix": "GRUCell",
+    "body": [
+      "GRUCell(${1:input}, ${2:hidden})$0"
+    ],
+    "description": "module: GRUCell"
+  },
+  "LSTM": {
+    "prefix": "LSTM",
+    "body": [
+      "LSTM(${1:input}, ${2:hidden})$0"
+    ],
+    "description": "module: LSTM"
+  },
+  "LSTMCell": {
+    "prefix": "LSTMCell",
+    "body": [
+      "LSTMCell(${1:input}, ${2:hidden})$0"
+    ],
+    "description": "module: LSTMCell"
+  },
+  "CrossEntropyLoss": {
+    "prefix": "CrossEntropyLoss",
+    "body": [
+      "CrossEntropyLoss($0)"
+    ],
+    "description": "module: CrossEntropyLoss"
+  },
+  "MSELoss": {
+    "prefix": "MSELoss",
+    "body": [
+      "MSELoss($0)"
+    ],
+    "description": "module: MSELoss"
+  },
+  "NLLLoss": {
+    "prefix": "NLLLoss",
+    "body": [
+      "NLLLoss($0)"
+    ],
+    "description": "module: NLLLoss"
+  },
+  "BCELoss": {
+    "prefix": "BCELoss",
+    "body": [
+      "BCELoss($0)"
+    ],
+    "description": "module: BCELoss"
+  },
+  "SGD": {
+    "prefix": "SGD",
+    "body": [
+      "SGD(${1:params})$0"
+    ],
+    "description": "optimizer: SGD"
+  },
+  "Adam": {
+    "prefix": "Adam",
+    "body": [
+      "Adam(${1:params})$0"
+    ],
+    "description": "optimizer: Adam"
+  },
+  "AdamW": {
+    "prefix": "AdamW",
+    "body": [
+      "AdamW(${1:params})$0"
+    ],
+    "description": "optimizer: AdamW"
+  },
+  "StepLR": {
+    "prefix": "StepLR",
+    "body": [
+      "StepLR(${1:optimizer}, ${2:step_size})$0"
+    ],
+    "description": "scheduler: StepLR"
+  },
+  "CosineAnnealingLR": {
+    "prefix": "CosineAnnealingLR",
+    "body": [
+      "CosineAnnealingLR(${1:optimizer}, ${2:t_max})$0"
+    ],
+    "description": "scheduler: CosineAnnealingLR"
+  },
+  "ReduceLROnPlateau": {
+    "prefix": "ReduceLROnPlateau",
+    "body": [
+      "ReduceLROnPlateau(${1:optimizer})$0"
+    ],
+    "description": "scheduler: ReduceLROnPlateau"
+  },
+  "Trainer": {
+    "prefix": "Trainer",
+    "body": [
+      "Trainer($0)"
+    ],
+    "description": "trainer: Trainer"
+  },
+  "TensorDataset": {
+    "prefix": "TensorDataset",
+    "body": [
+      "TensorDataset($0)"
+    ],
+    "description": "data: TensorDataset"
+  },
+  "DataLoader": {
+    "prefix": "DataLoader",
+    "body": [
+      "DataLoader(${1:dataset})$0"
+    ],
+    "description": "data: DataLoader"
+  },
+  "load_csv": {
+    "prefix": "load_csv",
+    "body": [
+      "load_csv(${1:path})$0"
+    ],
+    "description": "data: load_csv"
+  },
+  "read_text": {
+    "prefix": "read_text",
+    "body": [
+      "read_text(${1:path})$0"
+    ],
+    "description": "data: read_text"
+  },
+  "load_json": {
+    "prefix": "load_json",
+    "body": [
+      "load_json(${1:path})$0"
+    ],
+    "description": "data: load_json"
+  },
+  "load_model": {
+    "prefix": "load_model",
+    "body": [
+      "load_model(${1:model}, ${2:path})$0"
+    ],
+    "description": "data: load_model"
+  },
+  "load_tokenizer": {
+    "prefix": "load_tokenizer",
+    "body": [
+      "load_tokenizer(${1:path})$0"
+    ],
+    "description": "data: load_tokenizer"
+  },
+  "Tokenizer": {
+    "prefix": "Tokenizer",
+    "body": [
+      "Tokenizer($0)"
+    ],
+    "description": "data: Tokenizer"
+  },
+  "DataFrame": {
+    "prefix": "DataFrame",
+    "body": [
+      "DataFrame($0)"
+    ],
+    "description": "data: DataFrame"
+  },
+  "register_columns_table": {
+    "prefix": "register_columns_table",
+    "body": [
+      "register_columns_table($0)"
+    ],
+    "description": "data: register_columns_table"
+  },
+  "EarlyStopping": {
+    "prefix": "EarlyStopping",
+    "body": [
+      "EarlyStopping($0)"
+    ],
+    "description": "callback: EarlyStopping"
+  },
+  "ModelCheckpoint": {
+    "prefix": "ModelCheckpoint",
+    "body": [
+      "ModelCheckpoint($0)"
+    ],
+    "description": "callback: ModelCheckpoint"
+  },
+  "ProgressCallback": {
+    "prefix": "ProgressCallback",
+    "body": [
+      "ProgressCallback($0)"
+    ],
+    "description": "callback: ProgressCallback"
+  },
+  "LearningRateMonitor": {
+    "prefix": "LearningRateMonitor",
+    "body": [
+      "LearningRateMonitor($0)"
+    ],
+    "description": "callback: LearningRateMonitor"
+  },
+  "Timer": {
+    "prefix": "Timer",
+    "body": [
+      "Timer()"
+    ],
+    "description": "callback: Timer"
+  },
+  "GradientAccumulationScheduler": {
+    "prefix": "GradientAccumulationScheduler",
+    "body": [
+      "GradientAccumulationScheduler(${1:scheduling})$0"
+    ],
+    "description": "callback: GradientAccumulationScheduler"
+  },
+  "ConsoleLogger": {
+    "prefix": "ConsoleLogger",
+    "body": [
+      "ConsoleLogger($0)"
+    ],
+    "description": "logger: ConsoleLogger"
+  },
+  "CSVLogger": {
+    "prefix": "CSVLogger",
+    "body": [
+      "CSVLogger($0)"
+    ],
+    "description": "logger: CSVLogger"
+  },
+  "Accuracy": {
+    "prefix": "Accuracy",
+    "body": [
+      "Accuracy($0)"
+    ],
+    "description": "metric: Accuracy"
+  },
+  "Precision": {
+    "prefix": "Precision",
+    "body": [
+      "Precision($0)"
+    ],
+    "description": "metric: Precision"
+  },
+  "Recall": {
+    "prefix": "Recall",
+    "body": [
+      "Recall($0)"
+    ],
+    "description": "metric: Recall"
+  },
+  "F1Score": {
+    "prefix": "F1Score",
+    "body": [
+      "F1Score($0)"
+    ],
+    "description": "metric: F1Score"
+  },
+  "ConfusionMatrix": {
+    "prefix": "ConfusionMatrix",
+    "body": [
+      "ConfusionMatrix(${1:num_classes})$0"
+    ],
+    "description": "metric: ConfusionMatrix"
+  },
+  "LinearRegression": {
+    "prefix": "LinearRegression",
+    "body": [
+      "LinearRegression($0)"
+    ],
+    "description": "ml_model: LinearRegression"
+  },
+  "Ridge": {
+    "prefix": "Ridge",
+    "body": [
+      "Ridge($0)"
+    ],
+    "description": "ml_model: Ridge"
+  },
+  "Lasso": {
+    "prefix": "Lasso",
+    "body": [
+      "Lasso($0)"
+    ],
+    "description": "ml_model: Lasso"
+  },
+  "ElasticNet": {
+    "prefix": "ElasticNet",
+    "body": [
+      "ElasticNet($0)"
+    ],
+    "description": "ml_model: ElasticNet"
+  },
+  "LogisticRegression": {
+    "prefix": "LogisticRegression",
+    "body": [
+      "LogisticRegression($0)"
+    ],
+    "description": "ml_model: LogisticRegression"
+  },
+  "KNeighborsClassifier": {
+    "prefix": "KNeighborsClassifier",
+    "body": [
+      "KNeighborsClassifier($0)"
+    ],
+    "description": "ml_model: KNeighborsClassifier"
+  },
+  "KNeighborsRegressor": {
+    "prefix": "KNeighborsRegressor",
+    "body": [
+      "KNeighborsRegressor($0)"
+    ],
+    "description": "ml_model: KNeighborsRegressor"
+  },
+  "GaussianNB": {
+    "prefix": "GaussianNB",
+    "body": [
+      "GaussianNB()"
+    ],
+    "description": "ml_model: GaussianNB"
+  },
+  "DecisionTreeClassifier": {
+    "prefix": "DecisionTreeClassifier",
+    "body": [
+      "DecisionTreeClassifier($0)"
+    ],
+    "description": "ml_model: DecisionTreeClassifier"
+  },
+  "DecisionTreeRegressor": {
+    "prefix": "DecisionTreeRegressor",
+    "body": [
+      "DecisionTreeRegressor($0)"
+    ],
+    "description": "ml_model: DecisionTreeRegressor"
+  },
+  "RandomForestClassifier": {
+    "prefix": "RandomForestClassifier",
+    "body": [
+      "RandomForestClassifier($0)"
+    ],
+    "description": "ml_model: RandomForestClassifier"
+  },
+  "RandomForestRegressor": {
+    "prefix": "RandomForestRegressor",
+    "body": [
+      "RandomForestRegressor($0)"
+    ],
+    "description": "ml_model: RandomForestRegressor"
+  },
+  "GradientBoostingClassifier": {
+    "prefix": "GradientBoostingClassifier",
+    "body": [
+      "GradientBoostingClassifier($0)"
+    ],
+    "description": "ml_model: GradientBoostingClassifier"
+  },
+  "GradientBoostingRegressor": {
+    "prefix": "GradientBoostingRegressor",
+    "body": [
+      "GradientBoostingRegressor($0)"
+    ],
+    "description": "ml_model: GradientBoostingRegressor"
+  },
+  "StandardScaler": {
+    "prefix": "StandardScaler",
+    "body": [
+      "StandardScaler($0)"
+    ],
+    "description": "ml_transform: StandardScaler"
+  },
+  "MinMaxScaler": {
+    "prefix": "MinMaxScaler",
+    "body": [
+      "MinMaxScaler($0)"
+    ],
+    "description": "ml_transform: MinMaxScaler"
+  },
+  "PCA": {
+    "prefix": "PCA",
+    "body": [
+      "PCA($0)"
+    ],
+    "description": "ml_transform: PCA"
+  },
+  "KMeans": {
+    "prefix": "KMeans",
+    "body": [
+      "KMeans($0)"
+    ],
+    "description": "ml_cluster: KMeans"
+  },
+  "KFold": {
+    "prefix": "KFold",
+    "body": [
+      "KFold($0)"
+    ],
+    "description": "ml_split: KFold"
+  },
+  "TimeSeriesSplit": {
+    "prefix": "TimeSeriesSplit",
+    "body": [
+      "TimeSeriesSplit($0)"
+    ],
+    "description": "ml_split: TimeSeriesSplit"
+  }
+}

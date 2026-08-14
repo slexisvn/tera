@@ -1,0 +1,117 @@
+embed_dim = 128
+hidden = 320
+num_layers = 4
+max_epochs = 10
+batch_size = 64
+
+interface ChatRow:
+  question: string
+  answer: string
+
+train_rows = load_csv("examples/chat_train.csv").to_array<ChatRow>()
+
+train_q_text = [r.question for r of train_rows]
+train_a_text = [r.answer for r of train_rows]
+
+tok = Tokenizer(mode="bpe", lowercase=true, num_merges=800)
+tok.fit(train_q_text.concat(train_a_text))
+
+tok.save("examples/chatbot.tok")
+
+questions = tok.encode_batch(train_q_text)
+
+ans_ids = [tok.encode(a) for a of train_a_text]
+ans_len = 0
+for ids of ans_ids:
+  if ids.length + 1 > ans_len:
+    ans_len = ids.length + 1
+
+din_rows: int[][] = []
+dout_rows: int[][] = []
+for ids of ans_ids:
+  din = [tok.bos_id].concat(ids)
+  dout = ids.slice()
+  dout.push(tok.eos_id)
+  while din.length < ans_len:
+    din.push(tok.pad_id)
+  while dout.length < ans_len:
+    dout.push(tok.pad_id)
+  din_rows.push(din)
+  dout_rows.push(dout)
+
+decoder_in = tensor(din_rows, dtype="i32")
+decoder_out = tensor(dout_rows, dtype="i32")
+
+loader = DataLoader(TensorDataset(questions, decoder_in, decoder_out), batch_size=batch_size, shuffle=true)
+
+model ChatBotLarge(vocab_size: int, embed_size: int, hidden_size: int, layers: int, pad_id: int):
+  embed = Embedding(vocab_size, embed_size)
+  encoder = GRU(embed_size, hidden_size, layers, true)
+  decoder = GRU(embed_size, hidden_size, layers, true)
+  head = Linear(2 * hidden_size, vocab_size)
+  loss_fn = CrossEntropyLoss("sum", pad_id)
+
+  forward (q: Tensor) -> Tensor:
+    enc, state = encoder(embed(q))
+    return enc
+
+  train (batch: Tensor[]):
+    q, din, dout = batch
+    enc, enc_state = encoder(embed(q))
+    dec, dec_state = decoder(embed(din), enc_state)
+    scores = dec @ enc.transpose(1, 2)
+    weights = scores.softmax(2)
+    context = weights @ enc
+    combined = cat([dec, context], 2)
+    bsz = q.shape[0]
+    out_len = din.shape[1]
+    h2 = combined.shape[2]
+    flat = combined.reshape([bsz * out_len, h2])
+    logits = head(flat)
+    vocab = logits.shape[1]
+    logits3d = logits.reshape([bsz, out_len, vocab])
+    total = tensor(0.0)
+    for t of range(out_len):
+      step_logits = logits3d.select(1, t)
+      step_loss = loss_fn(step_logits, dout.select(1, t))
+      total = total + step_loss
+    loss = total / bsz
+    log("train_loss", loss, prog_bar=true)
+    return loss
+
+  optimizer:
+    return optim_config(Adam(ChatBotLarge.parameters(), lr=0.003))
+
+net = ChatBotLarge(tok.vocab_size, embed_dim, hidden, num_layers, tok.pad_id)
+
+# trainer = Trainer(max_epochs=max_epochs, accelerator="gpu", gradient_clip_val=1.0, logger=false, enable_progress=true)
+# trainer.fit(net, loader)
+# net.save("examples/chatbot.ckpt")
+# print("saved -> examples/chatbot.ckpt (trained on GPU)")
+
+fn reply(m: ChatBotLarge, tok: Tokenizer, prompt: string, max_len: int) -> string:
+  ids = tok.encode(prompt)
+  query = tensor([ids], dtype="i32")
+  enc, state = m.encoder(m.embed(query))
+  last = tok.bos_id
+  out_ids: int[] = []
+  for step of range(max_len):
+    emb = m.embed(tensor([last], dtype="i32"))
+    emb_t = emb.reshape([1, 1, emb.shape[1]])
+    dec, state = m.decoder(emb_t, state)
+    scores = dec @ enc.transpose(1, 2)
+    weights = scores.softmax(2)
+    context = weights @ enc
+    combined = cat([dec, context], 2)
+    logits = m.head(combined).reshape([tok.vocab_size])
+    last = logits.argmax().item()
+    if last == tok.eos_id:
+      return tok.decode(out_ids)
+    out_ids.push(last)
+  return tok.decode(out_ids)
+
+load_model(net, "examples/chatbot.ckpt")
+net.to("cpu")
+net.eval()
+
+print("reply:", reply(net, tok, "how are you", 20))

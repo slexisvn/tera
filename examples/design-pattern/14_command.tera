@@ -1,0 +1,34 @@
+interface Command:
+  execute() -> void
+
+class Editor:
+  public parts: string[] = []
+  public constructor():
+    this.parts = []
+  public append(value: string) -> void:
+    this.parts.push(value)
+  public clear() -> void:
+    this.parts = []
+  public text() -> string:
+    return this.parts.join("")
+
+class AppendCommand implements Command:
+  private editor: Editor
+  private value: string
+  public constructor(editor: Editor, value: string):
+    this.editor = editor
+    this.value = value
+  public execute() -> void:
+    this.editor.append(this.value)
+
+class Button:
+  private command: Command
+  public constructor(command: Command):
+    this.command = command
+  public click() -> void:
+    this.command.execute()
+
+editor = Editor()
+Button(AppendCommand(editor, "save")).click()
+
+print("command:", editor.text())

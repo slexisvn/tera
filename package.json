@@ -1,0 +1,61 @@
+{
+  "name": "@slexisvn/tera",
+  "version": "0.1.3",
+  "type": "module",
+  "bin": {
+    "tera": "./dist/cli.js"
+  },
+  "main": "./dist/index.node.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./dist/index.browser.d.ts",
+        "default": "./dist/index.browser.js"
+      },
+      "default": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.node.js"
+      }
+    },
+    "./frontend": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.frontend.js"
+    },
+    "./package.json": "./package.json",
+    "./frontend/node": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/frontend-node.js"
+    }
+  },
+  "files": [
+    "dist",
+    "patches"
+  ],
+  "scripts": {
+    "start": "node dist/cli.js",
+    "build": "tsup",
+    "nb:build": "npm --prefix notebook run build",
+    "nb:dev": "npm --prefix notebook run dev",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --project unit",
+    "test:e2e": "vitest run --project e2e",
+    "postinstall": "patch-package"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^4.1.8",
+    "puppeteer-core": "^25.1.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.8"
+  },
+  "dependencies": {
+    "@slexisvn/mlfw": "^0.1.6",
+    "@slexisvn/quantc": "^0.1.2",
+    "@slexisvn/query-engine": "^0.1.4",
+    "@slexisvn/reactive": "^0.1.1",
+    "patch-package": "^8.0.1",
+    "terminal-kit": "^3.1.2"
+  }
+}

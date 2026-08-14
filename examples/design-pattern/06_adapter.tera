@@ -1,0 +1,18 @@
+interface Printer:
+  print(message: string) -> string
+
+class LegacyPrinter:
+  public printText(text: string) -> string:
+    return "legacy:" + text
+
+class PrinterAdapter implements Printer:
+  private legacy: LegacyPrinter = LegacyPrinter()
+  public constructor(legacy):
+    this.legacy = legacy
+  public print(message: string) -> string:
+    return this.legacy.printText(message)
+
+fn render(printer: Printer) -> string:
+  return printer.print("invoice")
+
+print("adapter:", render(PrinterAdapter(LegacyPrinter())))

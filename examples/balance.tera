@@ -1,0 +1,346 @@
+fn balance(equation: string) -> string:
+  cols = 10
+  maxElem = 10
+  maxSpecies = 10
+  maxAtoms = 48
+  maxDepth = 6
+
+  mat = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  ]
+  elemCode = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  pivotCol = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  coef = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  atomElem = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  ]
+  atomQty = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  ]
+  atomSpec = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  ]
+  groupAt = [0, 0, 0, 0, 0, 0]
+
+  n = equation.length
+  species = 0
+  side = 1
+  atoms = 0
+  depth = 0
+  fault = 0
+  i = 0
+
+  while i < n:
+    c = equation.char_code_at(i)
+    taken = 0
+
+    if c == 32:
+      i = i + 1
+      taken = 1
+
+    if taken == 0 and c == 43:
+      species = species + 1
+      i = i + 1
+      taken = 1
+
+    if taken == 0 and (c == 61 or c == 45):
+      side = 0 - 1
+      species = species + 1
+      i = i + 1
+      if i < n and equation.char_code_at(i) == 62:
+        i = i + 1
+      taken = 1
+
+    if taken == 0 and c == 40:
+      if depth < maxDepth:
+        groupAt[depth] = atoms
+        depth = depth + 1
+      else:
+        fault = 1
+      i = i + 1
+      taken = 1
+
+    if taken == 0 and c == 41:
+      i = i + 1
+      mul = 0
+      while i < n and equation.char_code_at(i) >= 48 and equation.char_code_at(i) <= 57:
+        mul = mul * 10 + (equation.char_code_at(i) - 48)
+        i = i + 1
+      if mul == 0:
+        mul = 1
+      if depth > 0:
+        depth = depth - 1
+        k = groupAt[depth] | 0
+        while k < atoms:
+          atomQty[k] = (atomQty[k] | 0) * mul
+          k = k + 1
+      else:
+        fault = 1
+      taken = 1
+
+    if taken == 0 and c >= 65 and c <= 90:
+      code = c
+      i = i + 1
+      while i < n and equation.char_code_at(i) >= 97 and equation.char_code_at(i) <= 122:
+        code = code * 256 + equation.char_code_at(i)
+        i = i + 1
+      qty = 0
+      while i < n and equation.char_code_at(i) >= 48 and equation.char_code_at(i) <= 57:
+        qty = qty * 10 + (equation.char_code_at(i) - 48)
+        i = i + 1
+      if qty == 0:
+        qty = 1
+      if atoms < maxAtoms and species < maxSpecies:
+        atomElem[atoms] = code
+        atomQty[atoms] = side * qty
+        atomSpec[atoms] = species
+        atoms = atoms + 1
+      else:
+        fault = 1
+      taken = 1
+
+    if taken == 0 and c >= 48 and c <= 57:
+      i = i + 1
+      taken = 1
+
+    if taken == 0:
+      fault = 1
+      i = i + 1
+
+  nSpecies = species + 1
+  if fault == 1:
+    return "cannot read: " + equation
+  if nSpecies < 2 or side == 1:
+    return "need reactants and products separated by -> : " + equation
+
+  nElem = 0
+  k = 0
+  while k < atoms:
+    code = atomElem[k] | 0
+    row = 0 - 1
+    j = 0
+    while j < nElem:
+      seen = elemCode[j] | 0
+      if seen == code:
+        row = j
+      j = j + 1
+    if row < 0:
+      if nElem < maxElem:
+        row = nElem
+        elemCode[nElem] = code
+        nElem = nElem + 1
+      else:
+        fault = 1
+        row = 0
+    slot = row * cols + (atomSpec[k] | 0)
+    mat[slot] = (mat[slot] | 0) + (atomQty[k] | 0)
+    k = k + 1
+
+  if fault == 1:
+    return "too many distinct elements: " + equation
+
+  free = nSpecies - 1
+  rank = 0
+  pos = 0
+  while pos < free and rank < nElem:
+    choice = 0 - 1
+    r = rank
+    while r < nElem:
+      if choice < 0 and (mat[r * cols + pos] | 0) != 0:
+        choice = r
+      r = r + 1
+    if choice >= 0:
+      k = 0
+      while k < nSpecies:
+        tmp = mat[rank * cols + k] | 0
+        mat[rank * cols + k] = mat[choice * cols + k] | 0
+        mat[choice * cols + k] = tmp
+        k = k + 1
+      r = 0
+      while r < nElem:
+        lead = mat[r * cols + pos] | 0
+        if r != rank and lead != 0:
+          pivot = mat[rank * cols + pos] | 0
+          x = pivot
+          if x < 0:
+            x = 0 - x
+          y = lead
+          if y < 0:
+            y = 0 - y
+          while y != 0:
+            t = x % y
+            x = y
+            y = t
+          mult = (pivot - pivot % x) / x
+          factor = (lead - lead % x) / x
+          k = 0
+          while k < nSpecies:
+            mat[r * cols + k] = (mat[r * cols + k] | 0) * mult - (mat[rank * cols + k] | 0) * factor
+            k = k + 1
+        r = r + 1
+      pivotCol[rank] = pos
+      rank = rank + 1
+    pos = pos + 1
+
+  scale = 1
+  p = 0
+  while p < rank:
+    pivot = mat[p * cols + (pivotCol[p] | 0)] | 0
+    y = pivot
+    if y < 0:
+      y = 0 - y
+    x = scale
+    keep = y
+    while y != 0:
+      t = x % y
+      x = y
+      y = t
+    scale = (((scale - scale % x) / x) * keep) | 0
+    p = p + 1
+
+  j = 0
+  while j < nSpecies:
+    coef[j] = 0
+    j = j + 1
+  coef[free] = scale
+
+  p = 0
+  while p < rank:
+    pc = pivotCol[p] | 0
+    pivot = mat[p * cols + pc] | 0
+    num = 0 - (mat[p * cols + free] | 0) * scale
+    coef[pc] = ((num - num % pivot) / pivot) | 0
+    p = p + 1
+
+  dir = 1
+  lead0 = coef[0] | 0
+  if lead0 < 0:
+    dir = 0 - 1
+
+  divisor = 0
+  j = 0
+  while j < nSpecies:
+    y = (coef[j] | 0) * dir
+    if y < 0:
+      y = 0 - y
+    x = divisor
+    while y != 0:
+      t = x % y
+      x = y
+      y = t
+    divisor = x
+    j = j + 1
+  if divisor == 0:
+    divisor = 1
+
+  j = 0
+  while j < nSpecies:
+    v = (coef[j] | 0) * dir
+    reduced = ((v - v % divisor) / divisor) | 0
+    coef[j] = reduced
+    if reduced <= 0:
+      fault = 1
+    if reduced > 999:
+      fault = 1
+    j = j + 1
+
+  r = 0
+  while r < nElem:
+    total = 0
+    k = 0
+    while k < atoms:
+      code = atomElem[k] | 0
+      want = elemCode[r] | 0
+      if code == want:
+        total = total + (atomQty[k] | 0) * (coef[atomSpec[k] | 0] | 0)
+      k = k + 1
+    if total != 0:
+      fault = 1
+    r = r + 1
+
+  if fault == 1:
+    return "cannot balance: " + equation
+
+  digits = "0123456789"
+  gap = " "
+  out = ""
+  sp = 0
+  needCoef = 1
+  i = 0
+  while i < n:
+    c = equation.char_code_at(i)
+    keep = i
+    padLeft = 0 - 1
+    padRight = 0 - 1
+    hundreds = 0 - 1
+    tens = 0 - 1
+    units = 0 - 1
+
+    if c == 32:
+      keep = 0 - 1
+
+    if c == 43:
+      padLeft = 0
+      padRight = 0
+      sp = sp + 1
+      needCoef = 1
+
+    if c == 45:
+      padLeft = 0
+      sp = sp + 1
+      needCoef = 1
+
+    if c == 61:
+      padLeft = 0
+      padRight = 0
+      sp = sp + 1
+      needCoef = 1
+
+    if c == 62:
+      padRight = 0
+
+    opens = 0
+    if c >= 65 and c <= 90:
+      opens = 1
+    if c == 40:
+      opens = 1
+
+    if needCoef == 1 and c >= 48 and c <= 57:
+      keep = 0 - 1
+
+    if needCoef == 1 and opens == 1:
+      cf = 1
+      if sp < nSpecies:
+        cf = coef[sp] | 0
+      if cf > 99:
+        hundreds = (cf - cf % 100) / 100 | 0
+      if cf > 9:
+        rest = cf % 100
+        tens = (rest - rest % 10) / 10 | 0
+      if cf > 1:
+        units = cf % 10
+      needCoef = 0
+
+    out = out + gap.char_at(padLeft) + digits.char_at(hundreds) + digits.char_at(tens) + digits.char_at(units) + equation.char_at(keep) + gap.char_at(padRight)
+    i = i + 1
+  return out
+
+print(balance(input("Enter equation: ")))

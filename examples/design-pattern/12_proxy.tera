@@ -1,0 +1,24 @@
+interface Image:
+  display() -> string
+
+class RealImage implements Image:
+  public constructor(path: string):
+    this.path = path
+  public display() -> string:
+    return "display " + this.path
+
+class ImageProxy implements Image:
+  private real: Image | null = null
+  public constructor(path: string):
+    this.path = path
+  public display() -> string:
+    real = this.real
+    if real != null:
+      return real.display()
+    real: Image = RealImage(this.path)
+    this.real = real
+    return real.display()
+
+image = ImageProxy("chart.png")
+
+print("proxy:", image.display())

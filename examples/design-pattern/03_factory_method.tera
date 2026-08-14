@@ -1,0 +1,25 @@
+interface Logger:
+  log(message: string) -> string
+
+class JsonLogger implements Logger:
+  public log(message: string) -> string:
+    return "{\"message\":\"" + message + "\"}"
+
+class TextLogger implements Logger:
+  public log(message: string) -> string:
+    return "log: " + message
+
+abstract class LoggerApp:
+  public abstract createLogger() -> Logger
+  public run(message: string) -> string:
+    return this.createLogger().log(message)
+
+class TextLoggerApp extends LoggerApp:
+  public createLogger() -> Logger:
+    return TextLogger()
+
+class JsonLoggerApp extends LoggerApp:
+  public createLogger() -> Logger:
+    return JsonLogger()
+
+print("factory method:", TextLoggerApp().run("ready"), "|", JsonLoggerApp().run("ready"))
