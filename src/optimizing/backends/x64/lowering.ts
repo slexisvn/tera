@@ -26,13 +26,12 @@ import {
   IR_INT32_USHR,
   IR_INT32_XOR,
   IR_JUMP,
-  IR_LOAD_ARRAY_LENGTH,
+  heapElementScalarOf,
   IR_LOAD_ELEMENT,
   IR_LOAD_GLOBAL,
   IR_NEG,
   IR_LOAD_FIELD,
   IR_NEW_OBJECT,
-  IR_NEW_ARRAY,
   IR_RUNTIME_BASE,
   IR_STORE_FIELD,
   IR_NOT,
@@ -88,6 +87,7 @@ import {
   type MachineBlock,
   type MachineInstruction,
   type MachineOperand,
+  type MemoryOperand,
   type RegisterOperand,
   type StackSlot,
   type VirtualRegister,
@@ -247,7 +247,6 @@ export class X64Lowering implements MachineLowering {
       [IR_FLOAT64_COMPARE, (ctx) => this.selectCompare(ctx, true)],
       [IR_NEG, (ctx) => this.selectNegate(ctx)],
       [IR_NOT, (ctx) => this.selectLogicalNot(ctx)],
-      [IR_NEW_ARRAY, (ctx) => this.selectNewArray(ctx)],
       [IR_NEW_OBJECT, (ctx) => this.selectNewObject(ctx)],
       [IR_RUNTIME_BASE, (ctx) => this.selectRuntimeBase(ctx)],
       [IR_LOAD_FIELD, (ctx) => this.selectLoadField(ctx)],
@@ -258,7 +257,6 @@ export class X64Lowering implements MachineLowering {
       [IR_GENERIC_GET_INDEX, (ctx) => this.selectLoadElement(ctx)],
       [IR_STORE_ELEMENT, (ctx) => this.selectStoreElement(ctx)],
       [IR_GENERIC_SET_INDEX, (ctx) => this.selectStoreElement(ctx)],
-      [IR_LOAD_ARRAY_LENGTH, (ctx) => this.selectArrayLength(ctx)],
       [IR_CALL_KNOWN_FUNCTION, (ctx) => this.selectKnownCall(ctx)],
       [IR_CALL_BUILTIN, (ctx) => this.selectBuiltin(ctx)],
       [IR_GENERIC_ADD, (ctx) => this.selectStringConcat(ctx)],
@@ -932,65 +930,38 @@ export class X64Lowering implements MachineLowering {
     ctx.emitCall(X64_RUNTIME_SYMBOLS.stringSet, [destination, capacity, value], null);
   }
 
-  private selectNewArray(ctx: SelectionContext): void {
-    const array = ctx.arrayOf(ctx.node)!;
-    const slot = ctx.slotOf(array);
-    const width = ctx.widthOf(array.element);
-    if (ctx.node.inputs.length === 0) {
-      const zero = this.loadNumber(ctx, 0, array.element);
-      ctx.emit(
-        instruction(this.moveFor(readOf(zero)), [
-          this.elementAddress(ctx, slot, width, null, 0),
-          use(zero, width),
-        ]),
-      );
-      return;
-    }
-    for (let index = 0; index < ctx.node.inputs.length; index++) {
-      const value = this.coerce(ctx, ctx.node.inputs[index]!, array.element);
-      ctx.emit(
-        instruction(this.moveFor(readOf(value)), [
-          this.elementAddress(ctx, slot, width, null, index),
-          use(value, width),
-        ]),
-      );
-    }
+  private elementPlace(ctx: SelectionContext): { element: AotScalar; address: MemoryOperand } {
+    const element = heapElementScalarOf(ctx.node)!;
+    const width = ctx.widthOf(element);
+    const receiver = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_POINTER);
+    const index = this.index(ctx, ctx.node.inputs[1]!);
+    return {
+      element,
+      address: mem(width, {
+        base: use(receiver, POINTER_WIDTH),
+        index: index === null ? null : use(index, POINTER_WIDTH),
+        scale: width,
+        displacement: fieldOffsetOf(ctx.node),
+      }),
+    };
   }
 
   private selectLoadElement(ctx: SelectionContext): void {
-    const array = ctx.arrayOf(ctx.node.inputs[0]!)!;
-    const slot = ctx.slotOf(array);
-    const width = ctx.widthOf(array.element);
-    const index = this.index(ctx, ctx.node.inputs[1]!);
-    const loaded = this.destination(ctx, array.element);
+    const { element, address } = this.elementPlace(ctx);
+    const loaded = this.destination(ctx, element);
     ctx.emit(
-      instruction(this.moveFor(writeOf(loaded)), [
-        def(loaded, width),
-        this.elementAddress(ctx, slot, width, index, 0),
-      ]),
+      instruction(this.moveFor(writeOf(loaded)), [def(loaded, ctx.widthOf(element)), address]),
     );
-    this.produce(ctx, loaded, array.element);
+    this.produce(ctx, loaded, element);
   }
 
   private selectStoreElement(ctx: SelectionContext): void {
-    const array = ctx.arrayOf(ctx.node.inputs[0]!)!;
-    const slot = ctx.slotOf(array);
-    const width = ctx.widthOf(array.element);
-    const index = this.index(ctx, ctx.node.inputs[1]!);
-    const value = this.coerce(ctx, ctx.node.inputs[2]!, array.element);
+    const { element, address } = this.elementPlace(ctx);
+    const value = this.coerce(ctx, ctx.node.inputs[2]!, element);
     ctx.emit(
-      instruction(this.moveFor(readOf(value)), [
-        this.elementAddress(ctx, slot, width, index, 0),
-        use(value, width),
-      ]),
+      instruction(this.moveFor(readOf(value)), [address, use(value, ctx.widthOf(element))]),
     );
-    if (ctx.node.uses.length > 0) this.produce(ctx, value, array.element);
-  }
-
-  private selectArrayLength(ctx: SelectionContext): void {
-    const array = ctx.arrayOf(ctx.node.inputs[0]!)!;
-    const scalar = ctx.scalarOf(ctx.node);
-    this.loadNumber(ctx, array.length, scalar, ctx.resultRegister());
+    if (ctx.node.uses.length > 0) this.produce(ctx, value, element);
   }
 
   private selectKnownCall(ctx: SelectionContext): void {

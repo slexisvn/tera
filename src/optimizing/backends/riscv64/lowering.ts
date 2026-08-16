@@ -26,12 +26,11 @@ import {
   IR_INT32_USHR,
   IR_INT32_XOR,
   IR_JUMP,
-  IR_LOAD_ARRAY_LENGTH,
+  heapElementScalarOf,
   IR_LOAD_ELEMENT,
   IR_LOAD_GLOBAL,
   IR_NEG,
   IR_LOAD_FIELD,
-  IR_NEW_ARRAY,
   IR_NEW_OBJECT,
   IR_RUNTIME_BASE,
   IR_STORE_FIELD,
@@ -60,6 +59,7 @@ import type { DeclaredSignature } from "../../types/signature.js";
 import {
   SCALAR_FLOAT64,
   SCALAR_INT32,
+  SCALAR_POINTER,
   SCALAR_STRING,
   SCALAR_VOID,
   type AotScalar,
@@ -82,6 +82,7 @@ import {
   mem,
   sym,
   use,
+  type MachineAddress,
   type MachineBlock,
   type MachineInstruction,
   type MachineOperand,
@@ -104,7 +105,7 @@ import {
   ROOT_FRAME_REGISTER,
   ROOT_SLOT_SHIFT,
 } from "./heap.js";
-import { TERA_CONTEXT } from "../../target/runtime-layout.js";
+import { TERA_CONTEXT, TERA_POINTER_BYTES } from "../../target/runtime-layout.js";
 import type { PhysicalRegister } from "../../target/registers.js";
 import type { RiscvTargetModel } from "./target.js";
 
@@ -234,7 +235,6 @@ export class RiscvLowering implements MachineLowering {
       [IR_FLOAT64_COMPARE, (ctx) => this.selectFloatCompare(ctx)],
       [IR_NEG, (ctx) => this.selectNegate(ctx)],
       [IR_NOT, (ctx) => this.selectLogicalNot(ctx)],
-      [IR_NEW_ARRAY, (ctx) => this.selectNewArray(ctx)],
       [IR_NEW_OBJECT, (ctx) => this.selectNewObject(ctx)],
       [IR_RUNTIME_BASE, (ctx) => this.selectRuntimeBase(ctx)],
       [IR_LOAD_FIELD, (ctx) => this.selectLoadField(ctx)],
@@ -245,7 +245,6 @@ export class RiscvLowering implements MachineLowering {
       [IR_GENERIC_GET_INDEX, (ctx) => this.selectLoadElement(ctx)],
       [IR_STORE_ELEMENT, (ctx) => this.selectStoreElement(ctx)],
       [IR_GENERIC_SET_INDEX, (ctx) => this.selectStoreElement(ctx)],
-      [IR_LOAD_ARRAY_LENGTH, (ctx) => this.selectArrayLength(ctx)],
       [IR_CALL_KNOWN_FUNCTION, (ctx) => this.selectKnownCall(ctx)],
       [IR_CALL_BUILTIN, (ctx) => this.selectBuiltin(ctx)],
       [IR_GENERIC_ADD, (ctx) => this.selectStringConcat(ctx)],
@@ -833,65 +832,45 @@ export class RiscvLowering implements MachineLowering {
     ctx.emitCall(RISCV_RUNTIME_SYMBOLS.stringSet, [destination, capacity, value], null);
   }
 
-  private selectNewArray(ctx: SelectionContext): void {
-    const array = ctx.arrayOf(ctx.node)!;
-    const slot = ctx.slotOf(array);
-    const width = ctx.widthOf(array.element);
-    const base = this.elementAddress(ctx, width, null);
-    if (ctx.node.inputs.length === 0) {
-      const zero = this.loadNumber(ctx, 0, array.element);
-      ctx.emit(
-        instruction(this.storeFor(readOf(zero)), [
-          readOf(zero),
-          mem(width, { base: readOf(base), slot }),
-        ]),
-      );
-      return;
-    }
-    for (let index = 0; index < ctx.node.inputs.length; index++) {
-      const value = this.coerce(ctx, ctx.node.inputs[index]!, array.element);
-      ctx.emit(
-        instruction(this.storeFor(readOf(value)), [
-          readOf(value),
-          mem(width, { base: readOf(base), slot, displacement: index * width }),
-        ]),
-      );
-    }
+  private elementPlace(ctx: SelectionContext): {
+    element: AotScalar;
+    base: VirtualRegister;
+    address: Partial<MachineAddress>;
+  } {
+    const element = heapElementScalarOf(ctx.node)!;
+    const width = ctx.widthOf(element);
+    const receiver = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_POINTER);
+    const scaled = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_INT32);
+    const base = ctx.tempIn(RISCV_GPR, TERA_POINTER_BYTES);
+    ctx.emit(instruction("slli", [writeOf(base), readOf(scaled), imm(log2(width))]));
+    ctx.emit(instruction("add", [writeOf(base), readOf(base), readOf(receiver)]));
+    return { element, base, address: { displacement: fieldOffsetOf(ctx.node) } };
   }
 
   private selectLoadElement(ctx: SelectionContext): void {
-    const array = ctx.arrayOf(ctx.node.inputs[0]!)!;
-    const slot = ctx.slotOf(array);
-    const width = ctx.widthOf(array.element);
-    const base = this.elementAddress(ctx, width, ctx.node.inputs[1]!);
-    const loaded = this.destination(ctx, array.element);
+    const { element, base, address } = this.elementPlace(ctx);
+    const width = ctx.widthOf(element);
+    const loaded = this.destination(ctx, element);
     ctx.emit(
       instruction(this.loadFor(writeOf(loaded)), [
         writeOf(loaded),
-        mem(width, { base: readOf(base), slot }),
+        mem(width, { base: readOf(base), ...address }),
       ]),
     );
-    this.produce(ctx, loaded, array.element);
+    this.produce(ctx, loaded, element);
   }
 
   private selectStoreElement(ctx: SelectionContext): void {
-    const array = ctx.arrayOf(ctx.node.inputs[0]!)!;
-    const slot = ctx.slotOf(array);
-    const width = ctx.widthOf(array.element);
-    const base = this.elementAddress(ctx, width, ctx.node.inputs[1]!);
-    const value = this.coerce(ctx, ctx.node.inputs[2]!, array.element);
+    const { element, base, address } = this.elementPlace(ctx);
+    const width = ctx.widthOf(element);
+    const value = this.coerce(ctx, ctx.node.inputs[2]!, element);
     ctx.emit(
       instruction(this.storeFor(readOf(value)), [
         readOf(value),
-        mem(width, { base: readOf(base), slot }),
+        mem(width, { base: readOf(base), ...address }),
       ]),
     );
-    if (ctx.node.uses.length > 0) this.produce(ctx, value, array.element);
-  }
-
-  private selectArrayLength(ctx: SelectionContext): void {
-    const array = ctx.arrayOf(ctx.node.inputs[0]!)!;
-    this.loadNumber(ctx, array.length, ctx.scalarOf(ctx.node), ctx.resultRegister());
+    if (ctx.node.uses.length > 0) this.produce(ctx, value, element);
   }
 
   private selectKnownCall(ctx: SelectionContext): void {

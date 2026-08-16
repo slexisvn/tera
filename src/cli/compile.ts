@@ -26,9 +26,10 @@ import {
   emitsOf,
   hostArchitecture,
 } from "./targets.js";
-import { createBackendRegistry, HOST_PLATFORM } from "../optimizing/backends/index.js";
+import { HOST_PLATFORM } from "../optimizing/backends/index.js";
 import { nodeModuleFileSystem } from "../frontend/modules/node-file-system.js";
 import { searchPathsForEntry } from "../frontend/packages.js";
+import { hostEngineOptions } from "./host.js";
 
 const HEADER_SUFFIX = ".h";
 const TRANSLATED = /\.(c|s)$/;
@@ -296,8 +297,7 @@ function compile(config: CompileConfig): number {
   if (!fs.existsSync(resolved)) throw new CompileError(`file not found: ${input}`);
   const moduleName = path.basename(resolved, path.extname(resolved));
   const engine = new Engine({
-    backends: createBackendRegistry(),
-    moduleFileSystem: nodeModuleFileSystem,
+    ...hostEngineOptions(),
     ...(config.typecheck === null ? {} : { typecheck: config.typecheck }),
   });
   const backend = resolveBackend(engine, config);

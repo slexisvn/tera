@@ -7,7 +7,7 @@ import {
 } from "../ir/index.js";
 import { CLASS_DATA_MEMBER } from "../../core/class-member.js";
 import type { ClassMemberSurface, ClassSurface } from "../../frontend/modules/interface.js";
-import type { ClassTable } from "../metadata/class-table.js";
+import { declaredTypeOf, type ClassTable } from "../metadata/class-table.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 import { CLASS_ID_PROP, INSTANCE_SIZE_PROP, VALUE_CLASS_PROP } from "./class-member-lowering.js";
@@ -15,24 +15,9 @@ import { CLASS_ID_PROP, INSTANCE_SIZE_PROP, VALUE_CLASS_PROP } from "./class-mem
 const LITERAL_SHAPE_PREFIX = "tera_literal";
 const ANY_TYPE = "any";
 
-const DECLARED_BY_KIND = new Map<string, string>([
-  [TypeKind.Smi, "int"],
-  [TypeKind.Boolean, "bool"],
-  [TypeKind.Double, "float"],
-  [TypeKind.Number, "float"],
-  [TypeKind.String, "string"],
-]);
-
 interface LiteralField {
   readonly name: string;
   readonly declaredType: string;
-}
-
-function declaredTypeOf(type: LatticeType, classes: ClassTable): string | null {
-  if (type.kind === TypeKind.Object) {
-    return typeof type.map === "number" ? classes.shapeById(type.map)?.name ?? null : null;
-  }
-  return DECLARED_BY_KIND.get(type.kind) ?? null;
 }
 
 function member(owner: string, field: LiteralField): ClassMemberSurface {

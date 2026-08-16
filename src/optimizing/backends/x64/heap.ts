@@ -391,6 +391,17 @@ function bump(builder: MachineRoutineBuilder, size: string, label: string): void
     .at(`${label}.done`);
 }
 
+function reserveOnce(builder: MachineRoutineBuilder): void {
+  const r = reader(builder);
+  const w = writer(builder);
+  builder
+    .emit("movq", w("rax", POINTER_BYTES), contextField("arenaBase"))
+    .emit("testq", r("rax"), r("rax"))
+    .to("jne", "reserved")
+    .callSymbol(X64_RUNTIME_SYMBOLS.reserve)
+    .at("reserved");
+}
+
 function allocate(abi: RuntimeAbi, io: PlatformIo) {
   const [size, shape] = x64IntegerArgumentNames(abi);
   const frame = alignUp(abi.callingConvention.shadowSpaceBytes + POINTER_BYTES, 16);
@@ -403,6 +414,7 @@ function allocate(abi: RuntimeAbi, io: PlatformIo) {
       .emit("subq", w(abi.stackPointer.name, POINTER_BYTES), imm(frame))
       .emit("movq", w("rbx", POINTER_BYTES), r(size!))
       .emit("movl", w("r12"), r(shape!, COUNT_BYTES));
+    reserveOnce(builder);
     bump(builder, "rbx", "first");
     builder
       .emit("testq", r("rax"), r("rax"))
@@ -565,9 +577,9 @@ function enterRoots(io: PlatformIo) {
       .emit("movq", contextField("rootCount"), r(ROOT_SCRATCH))
       .emit("movq", w(ROOT_SCRATCH, POINTER_BYTES), r(ROOT_FRAME_REGISTER))
       .emit(
-        "movq",
+        "leaq",
         w(ROOT_FRAME_REGISTER, POINTER_BYTES),
-        contextField("rootsBase"),
+        global(TERA_ROOTS.symbol, POINTER_BYTES),
       )
       .emit(
         "leaq",

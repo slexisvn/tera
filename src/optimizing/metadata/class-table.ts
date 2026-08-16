@@ -5,13 +5,19 @@ import {
 } from "../../core/class-member.js";
 import type { ClassMemberSurface, ClassSurface } from "../../frontend/modules/interface.js";
 import { TERA_STATICS_BYTES } from "../target/runtime-layout.js";
-import { builtinTypeEnv, latticeFromDeclaredType, type NominalTypes } from "../types/declared.js";
-import { TypeKind } from "../types/lattice.js";
+import {
+  builtinTypeEnv,
+  declaredNameOf,
+  latticeFromDeclaredType,
+  type NominalTypes,
+} from "../types/declared.js";
+import { TypeKind, type LatticeType } from "../types/lattice.js";
 import {
   aotScalarOf,
   isStorableScalar,
   scalarAlignment,
   scalarWidth,
+  SCALAR_INT32,
   SCALAR_POINTER,
   SCALAR_STRING,
   SCALAR_TEXT,
@@ -29,6 +35,90 @@ export const CLASS_SHAPE_ID_OFFSET = 0;
 export const CLASS_FLAGS_OFFSET = 4;
 export const CLASS_HEADER_BYTES = 8;
 export const CLASS_ALIGNMENT_BYTES = 8;
+
+const ARRAY_COUNT_FIELDS = 2;
+const ARRAY_SHAPE_PREFIX = "tera_array";
+const ARRAY_LENGTH_FIELD = "length";
+const ARRAY_CAPACITY_FIELD = "capacity";
+export const ARRAY_LENGTH_OFFSET = CLASS_HEADER_BYTES;
+export const ARRAY_ELEMENTS_OFFSET =
+  CLASS_HEADER_BYTES + ARRAY_COUNT_FIELDS * scalarWidth(SCALAR_INT32);
+
+export function arrayElementOffset(element: AotScalar, index: number): number {
+  return ARRAY_ELEMENTS_OFFSET + index * scalarWidth(element);
+}
+
+function arrayShapeName(element: AotScalar, length: number): string {
+  return `${ARRAY_SHAPE_PREFIX}$${element}$${length}`;
+}
+
+export interface ArrayLayout {
+  readonly element: AotScalar;
+  readonly declaredType: string;
+  readonly length: number;
+}
+
+export function declaredTypeOf(type: LatticeType, classes: ClassTable): string | null {
+  if (type.kind === TypeKind.Object) {
+    return typeof type.map === "number" ? classes.shapeById(type.map)?.name ?? null : null;
+  }
+  return declaredNameOf(type);
+}
+
+export function arrayLayoutOf(shape: ClassShape): ArrayLayout | null {
+  if (!shape.name.startsWith(`${ARRAY_SHAPE_PREFIX}$`)) return null;
+  const length = shape.fields.size - ARRAY_COUNT_FIELDS;
+  const first = shape.fields.get(String(0));
+  if (length === 0) return { element: SCALAR_INT32, declaredType: COUNT_TYPE, length };
+  if (first === undefined) return null;
+  return { element: first.scalar, declaredType: first.declaredType, length };
+}
+
+const COUNT_TYPE = "int";
+
+function arrayCount(name: string, owner: string, offset: number): ClassField {
+  return { name, declaredType: COUNT_TYPE, offset, scalar: SCALAR_INT32, owner };
+}
+
+function arrayShape(
+  id: number,
+  name: string,
+  declaredType: string,
+  element: AotScalar,
+  length: number,
+): ClassShape {
+  const fields = new Map<string, ClassField>([
+    [ARRAY_LENGTH_FIELD, arrayCount(ARRAY_LENGTH_FIELD, name, ARRAY_LENGTH_OFFSET)],
+    [
+      ARRAY_CAPACITY_FIELD,
+      arrayCount(ARRAY_CAPACITY_FIELD, name, ARRAY_LENGTH_OFFSET + scalarWidth(SCALAR_INT32)),
+    ],
+  ]);
+  for (let index = 0; index < length; index++) {
+    fields.set(String(index), {
+      name: String(index),
+      declaredType,
+      offset: arrayElementOffset(element, index),
+      scalar: element,
+      owner: name,
+    });
+  }
+  return {
+    id,
+    name,
+    parent: null,
+    abstract: false,
+    fields,
+    callables: inheritCallables(null),
+    staticCallables: inheritCallables(null),
+    staticFields: new Map(),
+    size: alignUp(arrayElementOffset(element, length), CLASS_ALIGNMENT_BYTES),
+    constructorSymbol: name,
+    constructorSignature: { params: [name], returns: name },
+    constructorParamNames: [],
+    unsupported: [],
+  };
+}
 
 export interface ClassField {
   readonly name: string;
@@ -78,7 +168,8 @@ export interface ClassTable extends NominalTypes {
   shapeOf(name: string): ClassShape | null;
   shapeById(id: number): ClassShape | null;
   shapes(): readonly ClassShape[];
-  subclassesOf(name: string): readonly ClassShape[];
+  defineArray(element: LatticeType, length: number): ClassShape | null;
+  dispatchConeOf(name: string): readonly ClassShape[];
   implementationsOf(
     name: string,
     member: string,
@@ -203,7 +294,8 @@ class Table implements ClassTable {
   private readonly byName = new Map<string, ClassShape>();
   private readonly byId = new Map<number, ClassShape>();
   private readonly ids = new Map<string, number>();
-  private readonly cones = new Map<string, ClassShape[]>();
+  private readonly cones = new Map<string, readonly ClassShape[]>();
+  private readonly byMember = new Map<string, ClassShape[]>();
   private readonly staticOffsets = new Map<string, number>();
   private staticsSize = 0;
 
@@ -211,7 +303,6 @@ class Table implements ClassTable {
     let nextId = FIRST_CLASS_ID;
     for (const surface of surfaces) this.ids.set(surface.name, nextId++);
     for (const surface of orderedByInheritance(surfaces)) this.define(surface);
-    this.buildCones(surfaces);
   }
 
   defineSynthetic(surface: ClassSurface): ClassShape {
@@ -219,14 +310,22 @@ class Table implements ClassTable {
     if (existing !== undefined) return existing;
     this.ids.set(surface.name, FIRST_CLASS_ID + this.byId.size);
     this.define(surface);
-    const shape = this.byName.get(surface.name)!;
-    this.cones.set(surface.name, [shape]);
-    for (let parent = shape.parent; parent !== null; ) {
-      const cone = this.cones.get(parent);
-      if (cone !== undefined) cone.push(shape);
-      parent = this.byName.get(parent)?.parent ?? null;
-    }
-    return shape;
+    this.cones.clear();
+    return this.byName.get(surface.name)!;
+  }
+
+  defineArray(element: LatticeType, length: number): ClassShape | null {
+    const declared = declaredTypeOf(element, this);
+    const scalar = isStorableScalar(aotScalarOf(element));
+    if (declared === null || scalar === null) return null;
+    const name = arrayShapeName(scalar, length);
+    const existing = this.byName.get(name);
+    if (existing !== undefined) return existing;
+    const id = FIRST_CLASS_ID + this.byId.size;
+    this.ids.set(name, id);
+    this.adopt(arrayShape(id, name, declared, scalar, length));
+    this.cones.clear();
+    return this.byName.get(name)!;
   }
 
   shapeIdOf(name: string): number | null {
@@ -245,8 +344,14 @@ class Table implements ClassTable {
     return [...this.byId.values()].sort((left, right) => left.id - right.id);
   }
 
-  subclassesOf(name: string): readonly ClassShape[] {
-    return this.cones.get(name) ?? [];
+  dispatchConeOf(name: string): readonly ClassShape[] {
+    const cached = this.cones.get(name);
+    if (cached !== undefined) return cached;
+    const shape = this.byName.get(name);
+    if (shape === undefined) return [];
+    const cone = this.conformingShapes(shape);
+    this.cones.set(name, cone);
+    return cone;
   }
 
   implementationsOf(
@@ -256,7 +361,7 @@ class Table implements ClassTable {
   ): readonly ClassMethod[] {
     const seen = new Set<string>();
     const targets: ClassMethod[] = [];
-    for (const shape of this.subclassesOf(name)) {
+    for (const shape of this.dispatchConeOf(name)) {
       if (shape.abstract) continue;
       const target = callableOf(shape.callables, kind, member);
       if (target === null || target.abstract || seen.has(target.symbol)) continue;
@@ -348,34 +453,61 @@ class Table implements ClassTable {
       constructorParamNames: surface.constructorParamNames,
       unsupported,
     };
+    this.adopt(shape);
+  }
+
+  private adopt(shape: ClassShape): void {
     this.byName.set(shape.name, shape);
     this.byId.set(shape.id, shape);
+    this.index(shape);
   }
 
-  private buildCones(surfaces: readonly ClassSurface[]): void {
-    const children = new Map<string, string[]>();
-    for (const surface of surfaces) {
-      if (surface.parent === null) continue;
-      const siblings = children.get(surface.parent);
-      if (siblings === undefined) children.set(surface.parent, [surface.name]);
-      else siblings.push(surface.name);
-    }
-
-    for (const surface of surfaces) {
-      const cone: ClassShape[] = [];
-      const pending = [surface.name];
-      const seen = new Set<string>();
-      while (pending.length > 0) {
-        const name = pending.pop()!;
-        if (seen.has(name)) continue;
-        seen.add(name);
-        const shape = this.byName.get(name);
-        if (shape !== undefined) cone.push(shape);
-        pending.push(...(children.get(name) ?? []));
-      }
-      this.cones.set(surface.name, cone);
+  private index(shape: ClassShape): void {
+    if (shape.abstract) return;
+    for (const member of memberNamesOf(shape)) {
+      const carriers = this.byMember.get(member);
+      if (carriers === undefined) this.byMember.set(member, [shape]);
+      else carriers.push(shape);
     }
   }
+
+  private conformingShapes(shape: ClassShape): readonly ClassShape[] {
+    const required = memberNamesOf(shape);
+    let candidates: readonly ClassShape[] | null = null;
+    for (const member of required) {
+      const carriers = this.byMember.get(member) ?? [];
+      if (candidates === null || carriers.length < candidates.length) candidates = carriers;
+    }
+    if (candidates === null) return shape.abstract ? [] : [shape];
+    return candidates.filter((candidate) => conformsTo(candidate, shape));
+  }
+}
+
+function memberNamesOf(shape: ClassShape): readonly string[] {
+  const names = new Set<string>(shape.fields.keys());
+  for (const kind of CLASS_CALLABLE_KINDS) {
+    for (const name of shape.callables.get(kind)?.keys() ?? []) names.add(name);
+  }
+  return [...names];
+}
+
+function conformsTo(candidate: ClassShape, required: ClassShape): boolean {
+  for (const field of required.fields.values()) {
+    const carried = candidate.fields.get(field.name);
+    if (carried === undefined) return false;
+    if (carried.offset !== field.offset || carried.scalar !== field.scalar) return false;
+  }
+  for (const kind of CLASS_CALLABLE_KINDS) {
+    const members = required.callables.get(kind);
+    if (members === undefined) continue;
+    const carried = candidate.callables.get(kind);
+    for (const [name, method] of members) {
+      const found = carried?.get(name);
+      if (found === undefined) return false;
+      if (found.signature.params.length !== method.signature.params.length) return false;
+    }
+  }
+  return true;
 }
 
 function callableBySymbol(

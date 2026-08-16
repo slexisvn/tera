@@ -73,6 +73,37 @@ const GAUGE = [
   "    this.raw = value / 10",
 ];
 
+const SHAPED = [
+  "interface Shaped:",
+  "  area() -> int",
+  "class Box implements Shaped:",
+  "  public constructor(n: int):",
+  "    this.n = n",
+  "  public area() -> int:",
+  "    return this.n * this.n",
+  "class Disc implements Shaped:",
+  "  public constructor(n: int):",
+  "    this.n = n",
+  "  public area() -> int:",
+  "    return this.n * 3",
+];
+
+const STATES = [
+  "class DraftState:",
+  "  public publish(document: Document) -> int:",
+  "    document.state = PublishedState()",
+  "    return 1",
+  "class PublishedState:",
+  "  public publish(document: Document) -> int:",
+  "    return 2",
+  "class Document:",
+  "  public constructor(n: int):",
+  "    this.n = n",
+  "    this.state = DraftState()",
+  "  public publish() -> int:",
+  "    return this.state.publish(this)",
+];
+
 const SIZED = [
   "class Sized:",
   "  public constructor(n: int):",
@@ -351,14 +382,26 @@ describe("AOT classes", () => {
 
   it("tests the shape id in the object header when the call site is polymorphic", () => {
     const program = compile(SHAPES.concat([
+      "fn measure(s: Shape) -> int:",
+      "  return s.area()",
+      "fn go(a: int) -> int:",
+      "  return measure(Shape(a)) + measure(Circle(a))",
+    ]));
+
+    expect(bodyOf(program, "measure")).toContain("+ 0)");
+    expect(bodyOf(program, "measure")).toContain("Shape_area(");
+    expect(bodyOf(program, "measure")).toContain("Circle_area(");
+  });
+
+  it("calls the implementation directly when it can see the receiver allocated", () => {
+    const program = compile(SHAPES.concat([
       "fn go(a: int) -> int:",
       "  s = Shape(a)",
       "  return s.area()",
     ]));
 
-    expect(bodyOf(program, "go")).toContain("+ 0)");
     expect(bodyOf(program, "go")).toContain("Shape_area(");
-    expect(bodyOf(program, "go")).toContain("Circle_area(");
+    expect(bodyOf(program, "go")).not.toContain("Circle_area(");
   });
 
   itNative("reads a property through a getter", () => {
@@ -420,13 +463,66 @@ describe("AOT classes", () => {
   it("tests the shape id when a getter site is polymorphic", () => {
     const program = compile([
       ...SIZED,
-      "fn go(a: int) -> int:",
-      "  s = Sized(a)",
+      "fn measure(s: Sized) -> int:",
       "  return s.width",
+      "fn go(a: int) -> int:",
+      "  return measure(Sized(a)) + measure(Wide(a))",
     ]);
 
-    expect(bodyOf(program, "go")).toContain("Sized_get_width(");
-    expect(bodyOf(program, "go")).toContain("Wide_get_width(");
+    expect(bodyOf(program, "measure")).toContain("Sized_get_width(");
+    expect(bodyOf(program, "measure")).toContain("Wide_get_width(");
+  });
+
+  itNative("dispatches through a field to the class the field currently holds", () => {
+    expectMatchesInterpreter(STATES.concat([
+      "fn go(a: int) -> int:",
+      "  d = Document(a)",
+      "  return d.publish() * 100 + d.publish()",
+    ]), "go", [7]);
+  });
+
+  it("covers a class that only matches the receiver's surface", () => {
+    const program = compile(STATES.concat([
+      "fn go(a: int) -> int:",
+      "  d = Document(a)",
+      "  return d.publish()",
+    ]));
+
+    expect(bodyOf(program, "Document_publish")).toContain("DraftState_publish(");
+    expect(bodyOf(program, "Document_publish")).toContain("PublishedState_publish(");
+  });
+
+  itNative("dispatches a call made through an interface typed value", () => {
+    expectMatchesInterpreter(SHAPED.concat([
+      "fn measure(s: Shaped) -> int:",
+      "  return s.area()",
+      "fn go(a: int) -> int:",
+      "  return measure(Box(a)) * 100 + measure(Disc(a))",
+    ]), "go", [7]);
+  });
+
+  itNative("stores an interface typed value in a field and calls back through it", () => {
+    expectMatchesInterpreter(SHAPED.concat([
+      "class Holder:",
+      "  public constructor(s: Shaped):",
+      "    this.s = s",
+      "  public measure() -> int:",
+      "    return this.s.area()",
+      "fn go(a: int) -> int:",
+      "  return Holder(Disc(a)).measure()",
+    ]), "go", [7]);
+  });
+
+  it("names every implementation of the interface at the call site", () => {
+    const program = compile(SHAPED.concat([
+      "fn measure(s: Shaped) -> int:",
+      "  return s.area()",
+      "fn go(a: int) -> int:",
+      "  return measure(Box(a)) + measure(Disc(a))",
+    ]));
+
+    expect(bodyOf(program, "measure")).toContain("Box_area(");
+    expect(bodyOf(program, "measure")).toContain("Disc_area(");
   });
 
   itNative("calls a static method on the class itself", () => {
@@ -662,7 +758,7 @@ describe("AOT classes", () => {
     ]);
 
     expect(bodyOf(program, "go")).toContain("unsigned char *v");
-    expect(bodyOf(program, "go")).toContain("[2] = {");
+    expect(bodyOf(program, "go")).toContain("tera_alloc(");
   });
 
   itNative("dispatches through an array holding two subclasses", () => {

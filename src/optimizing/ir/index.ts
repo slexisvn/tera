@@ -478,6 +478,11 @@ export function fieldScalarOf(node: { props: Record<string, unknown> }): AotScal
   return scalar as AotScalar;
 }
 
+export function heapElementScalarOf(node: { props: Record<string, unknown> }): AotScalar | null {
+  const scalar = node.props.elementScalar;
+  return typeof scalar === "string" ? (scalar as AotScalar) : null;
+}
+
 export function fieldOffsetOf(node: { props: Record<string, unknown> }): number {
   const offset = Number(node.props.offset);
   if (!Number.isInteger(offset)) throw new Error("field access has no integer offset");

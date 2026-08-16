@@ -6,7 +6,7 @@ import type {
   ExternalTypeAlias,
   ExternalValue,
 } from "../checker/index.js";
-import type { Signature } from "../checker/type-system.js";
+import { parseFunctionType, type Signature } from "../checker/type-system.js";
 import type { ClassNode } from "../checker/semantic-ast.js";
 import { CLASS_DATA_MEMBER, type ClassShapeMemberKind } from "../../core/class-member.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
@@ -120,10 +120,30 @@ function classSurfaceOf(
   };
 }
 
+function interfaceSurfaceOf(bound: BoundProgram, name: string): ClassSurface {
+  const members: ClassMemberSurface[] = [];
+  for (const member of shapeMembers(bound, name, name, false)) {
+    if (parseFunctionType(member.declaredType) === null) continue;
+    members.push({ ...member, member: "method", abstract: true });
+  }
+  return {
+    name,
+    parent: null,
+    abstract: true,
+    members,
+    constructorParams: [],
+    constructorParamNames: [],
+  };
+}
+
 export function classSurfacesOf(bound: BoundProgram): ClassSurface[] {
   const surfaces: ClassSurface[] = [];
   const known = new Map<string, ClassSurface>();
   for (const node of bound.program.body) {
+    if (node.kind === "Interface") {
+      surfaces.push(interfaceSurfaceOf(bound, node.name));
+      continue;
+    }
     if (node.kind !== "Class") continue;
     const surface = classSurfaceOf(bound, node, known);
     known.set(surface.name, surface);

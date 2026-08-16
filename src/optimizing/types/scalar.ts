@@ -28,6 +28,7 @@ const SCALAR_BY_KIND = new Map<string, AotScalar>([
   [TypeKind.Tagged, SCALAR_FLOAT64],
   [TypeKind.String, SCALAR_STRING],
   [TypeKind.Nullish, SCALAR_VOID],
+  [TypeKind.Array, SCALAR_POINTER],
 ]);
 
 const SCALAR_WIDTHS = new Map<AotScalar, number>([

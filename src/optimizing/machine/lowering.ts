@@ -1,6 +1,6 @@
 import type { NominalTypes } from "../types/declared.js";
 import type { CFGInstruction } from "../ir/index.js";
-import type { AotArray, AotLegality } from "../analyses/aot-legality.js";
+import type { AotLegality } from "../analyses/aot-legality.js";
 import type { AotScalar } from "../types/scalar.js";
 import type { MachineTargetModel } from "../target/model.js";
 import type { RegisterClassId } from "../target/registers.js";
@@ -40,8 +40,6 @@ export interface SelectionContext {
   widthOf(scalar: AotScalar): number;
   classOf(scalar: AotScalar): RegisterClassId;
   constantOf(value: CFGInstruction): unknown;
-  arrayOf(value: CFGInstruction): AotArray | null;
-  slotOf(array: AotArray): StackSlot;
   successorFor(prop: string): MachineBlock;
   guard(name: string): SelectionFork;
   emitCall(

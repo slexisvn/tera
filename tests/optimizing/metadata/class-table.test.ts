@@ -184,35 +184,58 @@ describe("class hierarchy analysis", () => {
     classSurface("Unit", [], "Circle"),
   ];
 
-  it("includes the class itself and every transitive subclass in its cone", () => {
+  const coneOf = (table: ReturnType<typeof buildClassTable>, name: string): string[] =>
+    table.dispatchConeOf(name).map((shape) => shape.name).sort();
+
+  it("includes every concrete subclass of an abstract base in its cone", () => {
     const table = buildClassTable(shapes);
 
-    expect(table.subclassesOf("Shape").map((shape) => shape.name).sort()).toEqual([
-      "Circle",
-      "Shape",
-      "Square",
-      "Unit",
-    ]);
+    expect(coneOf(table, "Shape")).toEqual(["Circle", "Square", "Unit"]);
   });
 
-  it("excludes siblings from a subclass cone", () => {
+  it("leaves the abstract base itself out of its own cone", () => {
     const table = buildClassTable(shapes);
 
-    expect(table.subclassesOf("Circle").map((shape) => shape.name).sort()).toEqual([
-      "Circle",
-      "Unit",
-    ]);
+    expect(coneOf(table, "Shape")).not.toContain("Shape");
   });
 
-  it("resolves a call on a leaf class to exactly one implementation", () => {
-    const table = buildClassTable(shapes);
-
-    expect(table.implementationsOf("Square", "area", "method").map((target) => target.symbol)).toEqual([
-      "Square.area",
+  it("covers an unrelated class that carries the same surface", () => {
+    const table = buildClassTable([
+      ...shapes,
+      classSurface("Blob", [method("area", "() -> float", "Blob")]),
     ]);
+
+    expect(coneOf(table, "Circle")).toEqual(["Blob", "Circle", "Square", "Unit"]);
   });
 
-  it("reports every overriding implementation reachable from the receiver type", () => {
+  it("leaves out a class that is missing part of the surface", () => {
+    const table = buildClassTable([
+      ...shapes,
+      classSurface("Point", [field("x", "float", "Point")]),
+    ]);
+
+    expect(coneOf(table, "Circle")).not.toContain("Point");
+  });
+
+  it("leaves out a class whose member of the same name takes a different arity", () => {
+    const table = buildClassTable([
+      ...shapes,
+      classSurface("Grid", [method("area", "(float) -> float", "Grid")]),
+    ]);
+
+    expect(coneOf(table, "Circle")).not.toContain("Grid");
+  });
+
+  it("leaves out a class that puts a shared field in a different slot", () => {
+    const table = buildClassTable([
+      classSurface("Header", [field("tag", "float", "Header"), field("size", "float", "Header")]),
+      classSurface("Footer", [field("size", "float", "Footer"), field("tag", "float", "Footer")]),
+    ]);
+
+    expect(coneOf(table, "Header")).toEqual(["Header"]);
+  });
+
+  it("reports every implementation reachable from the receiver type", () => {
     const table = buildClassTable(shapes);
 
     expect(table.implementationsOf("Shape", "area", "method").map((target) => target.symbol).sort()).toEqual([

@@ -1,5 +1,5 @@
 import * as ir from "../ir/index.js";
-import { builtinOwnerMember, builtinOwnerName } from "../types/declared.js";
+import { builtinOwnerMember, declaredNameOf } from "../types/declared.js";
 import type { LatticeType } from "../types/lattice.js";
 import type { DeclaredSignature } from "../types/signature.js";
 
@@ -38,6 +38,7 @@ export const ANY_SCALAR = "scalar";
 export const PRINT_BUILTIN = "print";
 export const INPUT_BUILTIN = "input";
 export const THROW_BUILTIN = "throw";
+export const TO_STRING_MEMBER = "to_string";
 
 const PRINT_ARGUMENT_SEPARATOR = " ".codePointAt(0)!;
 const PRINT_LINE_TERMINATOR = "\n".codePointAt(0)!;
@@ -201,7 +202,7 @@ export function builtinMethodIntrinsicFor(
   receiver: LatticeType,
   name: string,
 ): BuiltinMethodIntrinsic | null {
-  const owner = builtinOwnerName(receiver);
+  const owner = declaredNameOf(receiver);
   return owner === null ? null : builtinMethodIntrinsicByName(qualifiedMethodName(owner, name));
 }
 

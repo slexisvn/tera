@@ -76,6 +76,12 @@ const CALLS_ASYNC = src(
   "print(mid(1))",
 );
 
+const REACTIVE = src(
+  "signal price = 12.5",
+  "computed total = price * 2",
+  "print(total)",
+);
+
 const CALLS_ASYNC_THROUGH = src(
   "async fn later(n: int) -> int:",
   "  return n + 1",
@@ -256,6 +262,22 @@ describe("tera compile --target=c", () => {
 
       expect(built.status).toBe(1);
       expect(built.errors.join("\n")).toContain("cannot emit obj");
+    });
+  });
+
+  it("reads the syntax the run path reads", () => {
+    inWorkspace((dir) => {
+      const built = compile(dir, REACTIVE, ["--target=c", "--emit=source"]);
+
+      expect(built.errors.join("\n")).not.toContain("[Parser]");
+    });
+  });
+
+  it("reports what it cannot lower in reactive syntax instead of failing to parse", () => {
+    inWorkspace((dir) => {
+      const built = compile(dir, REACTIVE, ["--target=c", "--emit=source"]);
+
+      expect(built.errors.join("\n")).toContain("cannot emit");
     });
   });
 });

@@ -10,6 +10,7 @@ import {
   IR_GENERIC_SET_PROP,
   IR_LOAD_ELEMENT,
   IR_NEW_ARRAY,
+  IR_NEW_OBJECT,
   IR_PHI,
   irBranch,
   irCallKnownFunction,
@@ -23,7 +24,7 @@ import {
   irStoreField,
   irStoreText,
 } from "../ir/index.js";
-import { addPhi, connect, link } from "../ir/cfg-edit.js";
+import { addPhi, connect, link, splitBlockAfter } from "../ir/cfg-edit.js";
 import {
   carryNamedArguments,
   genericCalleeName,
@@ -56,6 +57,7 @@ export const FIELD_TYPE_PROP = "fieldType";
 export const FIELD_SCALAR_PROP = "fieldScalar";
 export const INSTANCE_SIZE_PROP = "instanceSize";
 export const VALUE_CLASS_PROP = "valueClassId";
+export const ARRAY_ELEMENT_SCALAR_PROP = "elementScalar";
 const INITIALIZES_PROP = "initializesReceiver";
 
 type Stamp = (node: CFGInstruction) => CFGInstruction;
@@ -84,6 +86,10 @@ function constructedShapeOf(node: CFGInstruction, classes: ClassTable): ClassSha
   if (node.type !== IR_GENERIC_CALL) return null;
   const name = genericCalleeName(node);
   return name === null ? null : classes.shapeOf(name);
+}
+
+function allocatesReceiver(receiver: CFGInstruction): boolean {
+  return receiver.type === IR_NEW_OBJECT || receiver.type === IR_GENERIC_CALL;
 }
 
 function shapeOfReceiver(
@@ -263,20 +269,15 @@ function staticCall(
 
 function exactCall(
   node: CFGInstruction,
-  callee: CFGInstruction,
+  callee: CFGInstruction | null,
   shape: ClassShape,
   name: string,
+  kind: ClassCallableKind,
+  args: CFGInstruction[],
 ): MemberCall | null {
-  const target = callableOf(shape.callables, "method", name);
+  const target = callableOf(shape.callables, kind, name);
   if (target === null || target.abstract) return null;
-  return {
-    node,
-    callee,
-    args: node.inputs.slice(1),
-    targets: [target],
-    dispatchOn: null,
-    kind: "method",
-  };
+  return { node, callee, args, targets: [target], dispatchOn: null, kind };
 }
 
 function virtualCall(
@@ -310,11 +311,14 @@ function memberCallFor(
   if (named !== null) {
     return node.inputs[1] === callee.inputs[0]
       ? staticCall(node, callee, named, name, "method", node.inputs.slice(2))
-      : exactCall(node, callee, named, name);
+      : exactCall(node, callee, named, name, "method", node.inputs.slice(1));
   }
-  const shape = shapeOfReceiver(callee.inputs[0], classes, types);
+  const receiver = callee.inputs[0]!;
+  const shape = shapeOfReceiver(receiver, classes, types);
   if (shape === null || shape.fields.has(name)) return null;
-  return virtualCall(node, callee, shape, name, "method", node.inputs.slice(1), classes);
+  const args = node.inputs.slice(1);
+  if (allocatesReceiver(receiver)) return exactCall(node, callee, shape, name, "method", args);
+  return virtualCall(node, callee, shape, name, "method", args, classes);
 }
 
 function accessorCallFor(
@@ -334,7 +338,9 @@ function accessorCallFor(
   if (named !== null) return staticCall(node, null, named, name, kind, written);
   const shape = shapeOfReceiver(receiver, classes, types);
   if (shape === null) return null;
-  return virtualCall(node, null, shape, name, kind, [receiver, ...written], classes);
+  const args = [receiver, ...written];
+  if (allocatesReceiver(receiver)) return exactCall(node, null, shape, name, kind, args);
+  return virtualCall(node, null, shape, name, kind, args, classes);
 }
 
 function targetSignatureOf(graph: CFGFunction, target: ClassMethod): DeclaredSignature {
@@ -404,28 +410,6 @@ function applyConstruction(
   editor.remove(node);
 }
 
-function splitBlockAfter(
-  graph: CFGFunction,
-  block: CFGBlock,
-  node: CFGInstruction,
-): CFGBlock {
-  const after = graph.addBlock();
-  const moved = block.nodes.splice(block.nodes.indexOf(node) + 1);
-  for (const item of moved) {
-    item.block = after;
-    after.nodes.push(item);
-  }
-  after.terminator = block.terminator;
-  block.terminator = null;
-  for (const successor of block.successors) {
-    const at = successor.predecessors.indexOf(block);
-    if (at >= 0) successor.predecessors[at] = after;
-    after.successors.push(successor);
-  }
-  block.successors = [];
-  return after;
-}
-
 function shapeIdOfReceiver(
   receiver: CFGInstruction,
   shape: ClassShape,
@@ -445,7 +429,7 @@ function dispatchArmsFor(
   classes: ClassTable,
 ): DispatchArm[] {
   const arms: DispatchArm[] = [];
-  for (const candidate of classes.subclassesOf(shape.name)) {
+  for (const candidate of classes.dispatchConeOf(shape.name)) {
     if (candidate.abstract) continue;
     const target = callableOf(candidate.callables, kind, name);
     if (target === null || target.abstract) continue;
@@ -539,14 +523,16 @@ export function memberCallTargets(
   };
 }
 
+export function resolveCalleeSignatures(graph: CFGFunction): number {
+  if (graph.calleeSignatures === null) return 0;
+  const resolved = stampCalleeSignatures(graph, graph.calleeSignatures);
+  if (graph.classes !== null) carryCalleeResultClasses(graph, graph.classes);
+  return resolved;
+}
+
 export function lowerClassMembers(graph: CFGFunction, types: TypeInference): number {
   const classes = graph.classes;
   if (classes === null) return 0;
-
-  if (graph.calleeSignatures !== null) {
-    stampCalleeSignatures(graph, graph.calleeSignatures);
-    carryCalleeResultClasses(graph, classes);
-  }
 
   const editor = new GraphEditor(graph);
   const stamp = nodeIdStamper(graph);

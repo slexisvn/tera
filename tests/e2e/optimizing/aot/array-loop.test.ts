@@ -56,7 +56,8 @@ describe("AOT arrays mutated across loop back-edges", () => {
     ];
     const program = compile(lines);
 
-    expect(bodyOf(program, "f")).toContain("] = {");
+    expect(bodyOf(program, "f")).toContain("tera_alloc(");
+    expect(bodyOf(program, "f")).toMatch(/\)\)\[\w+\]/);
     expectMatchesInterpreter(lines, "f", [9]);
   });
 
@@ -197,7 +198,7 @@ describe("AOT arrays mutated across loop back-edges", () => {
     ]);
 
     expect(bodyOf(program, "f")).toContain("int32_t v");
-    expect(bodyOf(program, "f")).toContain("] = {");
+    expect(bodyOf(program, "f")).toContain("tera_alloc(");
     expect(runCFunction(cSource(program), "f", [3])).toBe(21);
   });
 });

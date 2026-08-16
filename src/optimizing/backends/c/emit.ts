@@ -32,17 +32,16 @@ import {
   IR_LOAD_FIELD,
   IR_LOAD_TEXT,
   IR_NEW_OBJECT,
-  IR_NEW_ARRAY,
   IR_RUNTIME_BASE,
   IR_STORE_FIELD,
   IR_STORE_TEXT,
   allocationShapeOf,
   fieldOffsetOf,
   fieldScalarOf,
+  heapElementScalarOf,
   textCapacityOf,
   IR_LOAD_ELEMENT,
   IR_STORE_ELEMENT,
-  IR_LOAD_ARRAY_LENGTH,
   IR_GENERIC_ADD,
   IR_GENERIC_COMPARE,
   IR_GENERIC_GET_INDEX,
@@ -1089,7 +1088,6 @@ class CFunctionEmitter {
   private pointerValued(value: CFGInstruction): boolean {
     if (value.type === IR_RUNTIME_BASE) return false;
     if (value.uses.length === 0) return false;
-    if (this.legality.arrayOf(value) !== null) return false;
     return this.legality.scalarOf(value) === SCALAR_POINTER;
   }
 
@@ -1123,7 +1121,6 @@ class CFunctionEmitter {
     }
     for (const block of this.order) {
       for (const phi of block.phis) {
-        if (this.legality.arrayOf(phi) !== null) continue;
         const [name, next] = fresh("b", phiSeq);
         this.names.set(phi, name);
         phiSeq = next;
@@ -1242,7 +1239,6 @@ class CFunctionEmitter {
     entries.push([IR_CALL_BUILTIN, (ctx) => this.emitBuiltinCall(ctx)]);
     entries.push([IR_GENERIC_ADD, (ctx) => this.emitStringConcat(ctx)]);
     entries.push([IR_CALL_KNOWN_FUNCTION, (ctx) => this.emitKnownCall(ctx)]);
-    entries.push([IR_NEW_ARRAY, (ctx) => this.emitNewArray(ctx)]);
     entries.push([IR_NEW_OBJECT, (ctx) => this.emitNewObject(ctx)]);
     entries.push([
       IR_RUNTIME_BASE,
@@ -1256,7 +1252,6 @@ class CFunctionEmitter {
     entries.push([IR_GENERIC_GET_INDEX, (ctx) => this.emitLoadElement(ctx)]);
     entries.push([IR_STORE_ELEMENT, (ctx) => this.emitStoreElement(ctx)]);
     entries.push([IR_GENERIC_SET_INDEX, (ctx) => this.emitStoreElement(ctx)]);
-    entries.push([IR_LOAD_ARRAY_LENGTH, (ctx) => this.emitArrayLength(ctx)]);
     entries.push([IR_NEG, (ctx) => this.emitNegate(ctx)]);
     entries.push([IR_NOT, (ctx) => this.emitLogicalNot(ctx)]);
     entries.push([IR_INT32_NOT, (ctx) => this.define(ctx, `~${this.asInt32(ctx.node.inputs[0]!)}`)]);
@@ -1349,18 +1344,6 @@ class CFunctionEmitter {
     else this.define(ctx, `${callee}(${args})`);
   }
 
-  private emitNewArray(ctx: EmitContext): void {
-    const element = cTypeOf(this.legality.arrayOf(ctx.node)!.element);
-    const elements = ctx.node.inputs.map((input) => this.nameOf(input)).join(", ");
-    const count = ctx.node.inputs.length;
-    const name = ctx.nameOf(ctx.node);
-    ctx.emit(
-      count === 0
-        ? `${element} ${name}[1] = {0};`
-        : `${element} ${name}[${count}] = {${elements}};`,
-    );
-  }
-
   private fieldAccess(node: CFGInstruction, scalar: AotScalar): string {
     const receiver = this.nameOf(node.inputs[0]!);
     return `(*(${cTypeOf(scalar)} *)(${receiver} + ${fieldOffsetOf(node)}))`;
@@ -1405,23 +1388,24 @@ class CFunctionEmitter {
     return this.nameOf(value);
   }
 
+  private elementAccess(node: CFGInstruction, scalar: AotScalar | null): string {
+    const array = this.nameOf(node.inputs[0]!);
+    const index = this.asInt32(node.inputs[1]!);
+    if (scalar === null) return `${array}[${index}]`;
+    return `((${cTypeOf(scalar)} *)(${array} + ${fieldOffsetOf(node)}))[${index}]`;
+  }
+
   private emitLoadElement(ctx: EmitContext): void {
-    const array = ctx.node.inputs[0]!;
-    const index = ctx.node.inputs[1]!;
-    this.define(ctx, `${this.nameOf(array)}[${this.asInt32(index)}]`);
+    this.define(ctx, this.elementAccess(ctx.node, heapElementScalarOf(ctx.node)));
   }
 
   private emitStoreElement(ctx: EmitContext): void {
-    const array = ctx.node.inputs[0]!;
-    const index = ctx.node.inputs[1]!;
+    const scalar = heapElementScalarOf(ctx.node);
     const value = ctx.node.inputs[2]!;
-    const store = `${this.nameOf(array)}[${this.asInt32(index)}] = ${this.nameOf(value)}`;
+    const stored = scalar === null ? this.nameOf(value) : this.asScalar(value, scalar);
+    const store = `${this.elementAccess(ctx.node, scalar)} = ${stored}`;
     if (ctx.node.uses.length === 0) ctx.emit(`${store};`);
     else this.define(ctx, `(${store})`);
-  }
-
-  private emitArrayLength(ctx: EmitContext): void {
-    this.define(ctx, String(this.legality.arrayOf(ctx.node.inputs[0]!)!.length));
   }
 
   private emitNegate(ctx: EmitContext): void {
@@ -1502,7 +1486,7 @@ class CFunctionEmitter {
   }
 
   private copyEdge(from: CFGBlock, to: CFGBlock): void {
-    const phis = to.phis.filter((phi) => this.legality.arrayOf(phi) === null);
+    const phis = to.phis;
     if (phis.length === 0) return;
     const predIndex = to.predecessors.indexOf(from);
     if (predIndex < 0) {
@@ -1534,8 +1518,6 @@ class CFunctionEmitter {
   }
 
   private nameOf(value: CFGInstruction): string {
-    const array = this.legality.arrayOf(value);
-    if (array !== null && array.allocation !== value) return this.nameOf(array.allocation);
     return this.names.get(value) ?? `v${value.id}`;
   }
 

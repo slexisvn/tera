@@ -1,23 +1,22 @@
 import fs from "fs";
 import path from "path";
-import { createReactiveTeraOptions, createReactiveCheckOptions } from "@slexisvn/reactive/tera";
+import { createReactiveCheckOptions } from "@slexisvn/reactive/tera";
 import { Engine } from "../api/engine.js";
 import type { EngineOptions, EngineUnhandledRejection, OptimizedGraph } from "../api/engine.js";
 import type { TeraExtension } from "../api/extensions.js";
 import type { RegisterCompiledFunction } from "../bytecode/register/ops/bytecode.js";
-import { nativeToTagged, taggedToNative } from "../runtime/domain/host.js";
 import { checkSource } from "../frontend/checker/index.js";
 import type { CheckSourceOptions, Diagnostic } from "../frontend/checker/index.js";
 import { parse } from "../frontend/parser/language.js";
 import { buildModuleGraph, checkModuleGraph, type ModuleGraph } from "../frontend/modules/index.js";
 import { nodeModuleFileSystem } from "../frontend/modules/node-file-system.js";
 import { searchPathsForEntry, searchPathsIn } from "../frontend/packages.js";
-import { createBackendRegistry } from "../optimizing/backends/index.js";
 import { parseArgs, CliUsageError } from "./args.js";
 import type { CheckConfig, CliConfig, EngineFlags, RunConfig, SourceInputs } from "./config.js";
 import { printAst } from "./ast-printer.js";
 import { runDebug } from "./debug.js";
 import { helpFor } from "./help.js";
+import { hostEngineOptions } from "./host.js";
 import { nativesExtension, exposeGcExtension } from "./natives.js";
 import { createStdinInput } from "./stdin.js";
 import { runTargets } from "./targets.js";
@@ -74,17 +73,15 @@ function buildTiering(config: EngineFlags): TieringOverrides | undefined {
 }
 
 export function buildEngineOptions(config: EngineFlags): EngineOptions {
-  const base = createReactiveTeraOptions({ nativeToTagged, taggedToNative });
-  const extensions: TeraExtension[] = [...((base.extensions as TeraExtension[]) ?? [])];
+  const host = hostEngineOptions();
+  const extensions: TeraExtension[] = [...((host.extensions as TeraExtension[]) ?? [])];
   if (config.allowNatives) extensions.push(nativesExtension());
   if (config.exposeGc) extensions.push(exposeGcExtension());
 
   const options: EngineOptions = {
-    ...base,
+    ...host,
     extensions,
     input: createStdinInput(),
-    backends: createBackendRegistry(),
-    moduleFileSystem: nodeModuleFileSystem,
   };
 
   if (config.typecheck) options.typecheck = config.typecheck;

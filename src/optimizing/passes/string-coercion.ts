@@ -8,11 +8,10 @@ import { nodeIdStamper } from "../ir/graph-edit.js";
 import {
   builtinMethodCallMetadata,
   builtinMethodIntrinsicFor,
+  TO_STRING_MEMBER,
 } from "../metadata/builtin-methods.js";
 import { TypeKind } from "../types/lattice.js";
 import type { TypeInference } from "../analyses/type-inference.js";
-
-const TO_STRING_MEMBER = "to_string";
 
 export function coerceStringOperands(graph: CFGFunction, types: TypeInference): number {
   const editor = new GraphEditor(graph);

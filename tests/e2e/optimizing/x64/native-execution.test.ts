@@ -224,7 +224,7 @@ describe("x64 native execution matches the interpreter", () => {
       "  return data[n]",
     );
     const assembly = nativeFile(compile(source), ".s");
-    expect(assembly).toMatch(/movsd\s+\d+\(%rsp,%r\w+,8\)/);
+    expect(assembly).toMatch(/movsd\s+\d+\(%r\w+,%r\w+,8\)/);
     expect(runNativeFunction(compile(source), "at", [2])).toBe(3.5);
   });
 

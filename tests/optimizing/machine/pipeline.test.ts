@@ -10,12 +10,13 @@ import {
   irInt32Sub,
   irJump,
   irLoadElement,
-  irNewArray,
   irReturn,
   irStoreElement,
   resetIRNodeIds,
   type CFGBlock,
 } from "../../../src/optimizing/ir/index.js";
+import { ARRAY_ELEMENTS_OFFSET } from "../../../src/optimizing/metadata/class-table.js";
+import { SCALAR_FLOAT64 } from "../../../src/optimizing/types/scalar.js";
 import { addPhi, connect, link } from "../../../src/optimizing/ir/cfg-edit.js";
 import { AnalysisManager } from "../../../src/optimizing/infra/analysis-manager.js";
 import { createAnalysisRegistry } from "../../../src/optimizing/analyses/index.js";
@@ -92,16 +93,19 @@ function countingLoop(name: string): CFGFunction {
 
 function arraySum(name: string): CFGFunction {
   const graph = new CFGFunction(name);
-  graph.declaredSignature = { params: ["int"], returns: "float" };
-  const index = graph.addParameter(0);
+  graph.declaredSignature = { params: ["float[]", "int"], returns: "float" };
+  const array = graph.addParameter(0);
+  const index = graph.addParameter(1);
   const block = graph.addBlock();
-  const a = irConstant(1.5);
   const b = irConstant(2.5);
-  const array = irNewArray([a, b]);
-  const stored = irStoreElement(array, index, a);
+  const stored = irStoreElement(array, index, b);
   const loaded = irLoadElement(array, index);
+  for (const node of [stored, loaded]) {
+    node.props.elementScalar = SCALAR_FLOAT64;
+    node.props.offset = ARRAY_ELEMENTS_OFFSET;
+  }
   const sum = irFloat64Add(loaded, b);
-  for (const node of [a, b, array, stored, loaded, sum]) block.addNode(node);
+  for (const node of [b, stored, loaded, sum]) block.addNode(node);
   block.addNode(irReturn(sum));
   return graph;
 }

@@ -11,7 +11,7 @@ import {
   IR_RUNTIME_BASE,
 } from "../ir/index.js";
 import { buildDispatch } from "../infra/dispatch.js";
-import type { AotArray, AotLegality } from "../analyses/aot-legality.js";
+import type { AotLegality } from "../analyses/aot-legality.js";
 import { SCALAR_POINTER, type AotScalar } from "../types/scalar.js";
 import { argumentLocations, outgoingArgumentBytes } from "../target/abi.js";
 import {
@@ -28,7 +28,7 @@ import {
   type MachineInstruction,
   type MachineOperand,
   type RegisterOperand,
-  type StackSlot,
+
   type VirtualRegister,
 } from "./ir.js";
 import type { MachineLowering, SelectionContext, SelectionFork } from "./lowering.js";
@@ -57,7 +57,6 @@ class Selector {
   private readonly dispatch: (key: string, context: SelectionContext) => boolean;
   private readonly machineOf = new Map<CFGBlock, MachineBlock>();
   private readonly registers = new Map<CFGInstruction, VirtualRegister>();
-  private readonly arraySlots = new Map<AotArray, StackSlot>();
   private readonly rootSlots = new Map<CFGInstruction, number>();
   private readonly edgeTargets = new Map<string, MachineBlock>();
   private readonly fusedConditions = new Set<CFGInstruction>();
@@ -84,7 +83,6 @@ class Selector {
 
   run(): MachineFunction {
     this.planFusion();
-    this.reserveArrays();
     this.reserveRoots();
     this.bindPhis();
     this.bindParameters();
@@ -118,18 +116,9 @@ class Selector {
     }
   }
 
-  private reserveArrays(): void {
-    for (const array of this.legality.arrays) {
-      const width = this.widthOf(array.element);
-      const length = Math.max(array.length, 1);
-      this.arraySlots.set(array, this.fn.createSlot(length * width, width));
-    }
-  }
-
   private rootValue(value: CFGInstruction): boolean {
     if (value.type === IR_RUNTIME_BASE) return false;
     if (value.uses.length === 0) return false;
-    if (this.legality.arrayOf(value) !== null) return false;
     return this.legality.scalarOf(value) === SCALAR_POINTER;
   }
 
@@ -169,10 +158,7 @@ class Selector {
 
   private bindPhis(): void {
     for (const block of this.layout) {
-      for (const phi of block.phis) {
-        if (this.legality.arrayOf(phi) !== null) continue;
-        this.registerFor(phi);
-      }
+      for (const phi of block.phis) this.registerFor(phi);
     }
   }
 
@@ -216,9 +202,6 @@ class Selector {
   private registerFor(value: CFGInstruction): VirtualRegister {
     const existing = this.registers.get(value);
     if (existing !== undefined) return existing;
-    if (this.legality.arrayOf(value) !== null) {
-      throw new Error(`v${value.id} is a local array and has no register`);
-    }
     const scalar = this.scalarOf(value);
     const created = this.fn.createVirtual(this.classOf(scalar), this.widthOf(scalar));
     this.registers.set(value, created);
@@ -284,7 +267,7 @@ class Selector {
     const cached = this.edgeTargets.get(key);
     if (cached !== undefined) return cached;
 
-    const phis = successor.phis.filter((phi) => this.legality.arrayOf(phi) === null);
+    const phis = successor.phis;
     const landing = this.machineOf.get(successor)!;
     const source = this.current;
     let entry = landing;
@@ -402,8 +385,6 @@ class Selector {
       widthOf: (scalar) => this.widthOf(scalar),
       classOf: (scalar) => this.classOf(scalar),
       constantOf: (value) => (value.type === IR_CONSTANT ? value.props.value : undefined),
-      arrayOf: (value) => this.legality.arrayOf(value),
-      slotOf: (array) => this.arraySlots.get(array)!,
       successorFor: (prop) => this.successorFor(node, prop),
       guard: (name) => this.guard(name),
       emitCall: (symbol, args, destination) => this.emitCall(symbol, args, destination),

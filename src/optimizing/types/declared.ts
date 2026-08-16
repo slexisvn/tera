@@ -135,7 +135,7 @@ export interface BuiltinMemberType {
   readonly signature: DeclaredSignature;
 }
 
-export function builtinOwnerName(receiver: LatticeType): string | null {
+export function declaredNameOf(receiver: LatticeType): string | null {
   return CHECKER_NAME_BY_KIND.get(receiver.kind) ?? null;
 }
 
@@ -163,6 +163,6 @@ export function builtinMemberType(
   name: string,
   env: TypeEnv = builtinTypeEnv(),
 ): BuiltinMemberType | null {
-  const owner = builtinOwnerName(receiver);
+  const owner = declaredNameOf(receiver);
   return owner === null ? null : builtinOwnerMember(owner, name, env);
 }

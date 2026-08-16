@@ -59,7 +59,7 @@ describe("riscv64 assembly", () => {
     );
 
     expect(assembly).toMatch(/slli\s+\w+, \w+, 3/);
-    expect(assembly).toMatch(/add\s+\w+, \w+, sp/);
+    expect(assembly).toMatch(/add\s+\w+, \w+, \w+/);
     expect(assembly).toMatch(/fld\s+\w+, \d+\(\w+\)/);
   });
 

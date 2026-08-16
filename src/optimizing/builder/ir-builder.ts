@@ -369,7 +369,7 @@ export function buildIR(
     }
 
     const instr = instructions[i];
-    if (recovers && currentBlock.isTerminated()) continue;
+    if (currentBlock.isTerminated()) continue;
     const handlers = handlerStacks[i] ?? [];
     currentBlock = compileInstruction(
       instr,

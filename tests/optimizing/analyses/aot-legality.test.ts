@@ -11,6 +11,7 @@ import {
   irGenericGetProp,
   irInt32Add,
   irLoadArrayLength,
+  IR_LOAD_ELEMENT,
   irLoadElement,
   irLoadGlobal,
   irNewArray,
@@ -29,11 +30,13 @@ import { callReachability } from "../../../src/optimizing/metadata/call-graph.js
 import { AnalysisManager } from "../../../src/optimizing/infra/analysis-manager.js";
 import { createAnalysisRegistry } from "../../../src/optimizing/analyses/index.js";
 import { typeInferenceAnalysisId } from "../../../src/optimizing/analyses/type-inference.js";
+import { ARRAY_ELEMENTS_OFFSET } from "../../../src/optimizing/metadata/class-table.js";
 import {
   SCALAR_FLOAT64,
   SCALAR_INT32,
   SCALAR_STRING,
   TEXT_STORAGE_BYTES,
+  type AotScalar,
 } from "../../../src/optimizing/types/scalar.js";
 import {
   builtinIntrinsicByName,
@@ -211,77 +214,60 @@ describe("AOT legality values", () => {
 });
 
 describe("AOT legality arrays", () => {
-  function withArray(name: string, escape: boolean): CFGFunction {
+  function elementAccess(name: string, element: AotScalar, index: string): CFGFunction {
     const graph = new CFGFunction(name);
-    graph.declaredSignature = { params: ["int"], returns: "float" };
-    const index = graph.addParameter(0);
+    graph.declaredSignature = { params: ["float[]", index], returns: "float" };
+    const array = graph.addParameter(0);
+    const at = graph.addParameter(1);
     const block = graph.addBlock();
-    const first = irConstant(1.5);
-    const second = irConstant(2.5);
-    const array = irNewArray([first, second]);
-    block.addNode(first);
-    block.addNode(second);
-    block.addNode(array);
-    if (escape) {
-      const call = irCallKnownFunction({ name: "sink" } as never, [array]);
-      block.addNode(call);
-      block.addNode(irReturn(first));
-      return graph;
-    }
-    const loaded = irLoadElement(array, index);
+    const loaded = irLoadElement(array, at);
+    loaded.props.elementScalar = element;
+    loaded.props.offset = ARRAY_ELEMENTS_OFFSET;
     block.addNode(loaded);
     block.addNode(irReturn(loaded));
     return graph;
   }
 
-  it("models a non escaping array by allocation, length and element type", () => {
-    const legality = admitted(withArray("kept", false));
+  it("gives an element access the width the array was shaped with", () => {
+    const graph = elementAccess("read", SCALAR_FLOAT64, "int");
+    const loaded = graph.blocks[0]!.nodes.find((node) => node.type === IR_LOAD_ELEMENT)!;
 
-    expect(legality.arrays).toHaveLength(1);
-    expect(legality.arrays[0]!.length).toBe(2);
-    expect(legality.arrays[0]!.element).toBe(SCALAR_FLOAT64);
+    expect(admitted(graph).scalarOf(loaded)).toBe(SCALAR_FLOAT64);
   });
 
-  it("rejects an array that escapes into a call", () => {
-    expect(reasonOf(withArray("escaped", true))).toContain("array escapes to");
-  });
-
-  it("resolves a phi over the same array back to its allocation", () => {
-    const graph = new CFGFunction("looped");
-    graph.declaredSignature = { params: ["int"], returns: "float" };
-    const index = graph.addParameter(0);
-    const entry = graph.addBlock();
-    const header = graph.addBlock();
-    const first = irConstant(1.5);
-    const array = irNewArray([first]);
-    entry.addNode(first);
-    entry.addNode(array);
-    entry.addNode(new CFGInstruction("Jump", { targetBlock: header.id }));
-    link(entry, header);
-    const carried = addPhi(header, [array]);
-    const stored = irStoreElement(carried, index, first);
-    const length = irLoadArrayLength(carried);
-    header.addNode(stored);
-    header.addNode(length);
-    header.addNode(irReturn(length));
-    connect(header, header, [carried]);
-
-    const legality = admitted(graph);
-    expect(legality.arrayOf(carried)).toBe(legality.arrayOf(array));
-    expect(legality.arrayOf(carried)!.allocation).toBe(array);
-  });
-
-  it("rejects indexing a value that is not a local array", () => {
-    const graph = new CFGFunction("string_index");
-    graph.declaredSignature = { params: ["string", "int"], returns: "float" };
-    const text = graph.addParameter(0);
-    const index = graph.addParameter(1);
+  it("rejects an element access the shaping pass never reached", () => {
+    const graph = new CFGFunction("bare");
+    graph.declaredSignature = { params: ["float[]", "int"], returns: "float" };
+    const array = graph.addParameter(0);
+    const at = graph.addParameter(1);
     const block = graph.addBlock();
-    const loaded = irLoadElement(text, index);
+    const loaded = irLoadElement(array, at);
     block.addNode(loaded);
     block.addNode(irReturn(loaded));
 
-    expect(reasonOf(graph)).toContain("not a local array");
+    expect(reasonOf(graph)).toContain("cannot see the elements of");
+  });
+
+  it("rejects an index that is not an integer", () => {
+    expect(reasonOf(elementAccess("floating", SCALAR_FLOAT64, "float"))).toContain(
+      "indexed by a value that is not an integer",
+    );
+  });
+
+  it("rejects storing text into an array of numbers", () => {
+    const graph = new CFGFunction("mixed");
+    graph.declaredSignature = { params: ["float[]", "int", "string"], returns: "float" };
+    const array = graph.addParameter(0);
+    const at = graph.addParameter(1);
+    const text = graph.addParameter(2);
+    const block = graph.addBlock();
+    const stored = irStoreElement(array, at, text);
+    stored.props.elementScalar = SCALAR_FLOAT64;
+    stored.props.offset = ARRAY_ELEMENTS_OFFSET;
+    block.addNode(stored);
+    block.addNode(irReturn(stored));
+
+    expect(reasonOf(graph)).toContain("array has an unsupported element type");
   });
 });
 

@@ -48,6 +48,7 @@ import {
   IR_STORE_FIELD,
   IR_STORE_TEXT,
   IR_LOAD_GLOBAL,
+  heapElementScalarOf,
 } from "../ir/index.js";
 import { analysisId, type AnalysisPass } from "../infra/analysis-manager.js";
 import { computeValueLiveness } from "./value-liveness.js";
@@ -110,7 +111,6 @@ export const AOT_OPCODES: ReadonlySet<string> = new Set<string>([
   IR_NOT,
   IR_CALL_KNOWN_FUNCTION,
   IR_CALL_BUILTIN,
-  IR_NEW_ARRAY,
   IR_LOAD_ELEMENT,
   IR_STORE_ELEMENT,
   IR_LOAD_ARRAY_LENGTH,
@@ -190,10 +190,6 @@ function isConstantText(value: CFGInstruction | undefined): boolean {
   return value?.type === IR_CONSTANT && typeof value.props.value === "string";
 }
 
-function holdsConstantText(allocation: CFGInstruction): boolean {
-  return allocation.inputs.every(isConstantText);
-}
-
 /**
  * `Promise.resolve` and friends read a member off a value the runtime installs, which
  * a compiled program does not carry. Naming it beats reporting an anonymous global.
@@ -218,6 +214,7 @@ function isStatement(node: CFGInstruction): boolean {
 }
 
 const REJECTIONS = new Map<string, (node: CFGInstruction) => string>([
+  [IR_NEW_ARRAY, () => "array has an unsupported element type"],
   [IR_GENERIC_GET_PROP, (node) => `unsupported property ${String(node.props.propName)}`],
   [IR_GENERIC_CALL, () => "unsupported generic call"],
 ]);
@@ -230,12 +227,6 @@ export const AOT_PRINTABLE: ReadonlySet<AotScalar> = new Set<AotScalar>([
 
 const ASCII_LIMIT = 0x7f;
 const TEXT_CHARACTERS = TEXT_STORAGE_BYTES - 1;
-
-export interface AotArray {
-  readonly allocation: CFGInstruction;
-  readonly length: number;
-  readonly element: AotScalar;
-}
 
 export interface AotStringBuffer {
   readonly producer: CFGInstruction;
@@ -461,10 +452,8 @@ export interface AotLegality {
   readonly declaredReturn: boolean;
   readonly parameterScalars: readonly AotScalar[];
   readonly constants: readonly CFGInstruction[];
-  readonly arrays: readonly AotArray[];
   readonly stringBuffers: readonly AotStringBuffer[];
   scalarOf(value: CFGInstruction): AotScalar;
-  arrayOf(value: CFGInstruction): AotArray | null;
   stringBufferOf(value: CFGInstruction): AotStringBuffer | null;
 }
 
@@ -497,13 +486,11 @@ export function builtinOperandScalar(declared: string | null): AotScalar | null 
 
 class LegalityAnalyzer implements AotLegality {
   private readonly scalars = new Map<CFGInstruction, AotScalar>();
-  private readonly arrayByValue = new Map<CFGInstruction, AotArray>();
   private readonly bufferByValue = new Map<CFGInstruction, AotStringBuffer>();
   private readonly borrowedFrom = new Map<CFGInstruction, CFGInstruction>();
   private readonly rules: StringBufferRules;
   private readonly seenConstants = new Set<CFGInstruction>();
   readonly constants: CFGInstruction[] = [];
-  readonly arrays: AotArray[] = [];
   readonly stringBuffers: AotStringBuffer[] = [];
   returnScalar: AotScalar = SCALAR_FLOAT64;
   declaredReturn = false;
@@ -529,8 +516,6 @@ class LegalityAnalyzer implements AotLegality {
     if (entry.phis.length > 0) return this.bail("entry block has phis");
 
     this.voidReturn = aotScalarOf(this.returnedType() ?? anyType()) === SCALAR_VOID;
-    this.collectArrays();
-    if (this.failure !== null) return this.bail(this.failure);
     this.collectStringBuffers();
     if (this.failure !== null) return this.bail(this.failure);
     this.collectConstants();
@@ -549,10 +534,6 @@ class LegalityAnalyzer implements AotLegality {
       throw new Error(`legality admitted v${value.id} without a scalar type`);
     }
     return scalar;
-  }
-
-  arrayOf(value: CFGInstruction): AotArray | null {
-    return this.arrayByValue.get(value) ?? null;
   }
 
   stringBufferOf(value: CFGInstruction): AotStringBuffer | null {
@@ -586,67 +567,6 @@ class LegalityAnalyzer implements AotLegality {
     if (isStorableScalar(scalar) !== null) return scalar;
     this.fail(`value has no representation in ${context}`);
     return null;
-  }
-
-  private elementScalarOf(node: CFGInstruction): AotScalar | null {
-    const scalars = node.inputs.map((input) => aotScalarOf(this.types.typeOf(input)));
-    if (scalars.some((scalar) => scalar === SCALAR_POINTER)) {
-      return scalars.every((scalar) => scalar === SCALAR_POINTER) ? SCALAR_POINTER : null;
-    }
-    if (scalars.some((scalar) => scalar === SCALAR_STRING)) {
-      return holdsConstantText(node) ? SCALAR_STRING : null;
-    }
-    const element = aotElementScalarOf(this.types.typeOf(node));
-    return element === SCALAR_STRING ? null : element;
-  }
-
-  private collectArrays(): void {
-    for (const block of this.graph.blocks) {
-      for (const node of block.nodes) {
-        if (node.type !== IR_NEW_ARRAY) continue;
-        const element = this.elementScalarOf(node);
-        if (element === null) {
-          this.fail("array has an unsupported element type");
-          return;
-        }
-        const model: AotArray = {
-          allocation: node,
-          length: node.inputs.length,
-          element,
-        };
-        if (!this.bindArrayAliases(model)) return;
-        this.arrays.push(model);
-      }
-    }
-  }
-
-  private bindArrayAliases(model: AotArray): boolean {
-    const aliases = new Set<CFGInstruction>([model.allocation]);
-    const pending: CFGInstruction[] = [model.allocation];
-    while (pending.length > 0) {
-      for (const use of pending.pop()!.uses) {
-        if (use.type !== IR_PHI || aliases.has(use)) continue;
-        aliases.add(use);
-        pending.push(use);
-      }
-    }
-
-    for (const value of aliases) {
-      if (value.type === IR_PHI && !value.inputs.every((input) => aliases.has(input))) {
-        this.fail(`array escapes to ${IR_PHI}`);
-        return false;
-      }
-      for (const use of value.uses) {
-        if (use.type === IR_PHI) continue;
-        if (!ARRAY_OPS.has(use.type) || !aliases.has(use.inputs[0]!)) {
-          this.fail(`array escapes to ${use.type}`);
-          return false;
-        }
-      }
-    }
-
-    for (const value of aliases) this.arrayByValue.set(value, model);
-    return true;
   }
 
   private isStringValue(value: CFGInstruction): boolean {
@@ -843,10 +763,7 @@ class LegalityAnalyzer implements AotLegality {
   private checkBlocks(): void {
     let returns = 0;
     for (const block of this.graph.blocks) {
-      for (const phi of block.phis) {
-        if (this.arrayByValue.has(phi)) continue;
-        this.requireStorable(phi, IR_PHI);
-      }
+      for (const phi of block.phis) this.requireStorable(phi, IR_PHI);
       for (const node of block.nodes) {
         if (node.type === IR_RETURN) returns++;
         this.checkNode(node);
@@ -910,45 +827,42 @@ class LegalityAnalyzer implements AotLegality {
       return;
     }
     if (ARRAY_OPS.has(node.type)) {
-      const array = this.arrayOf(node.inputs[0]!);
-      if (array === null) {
-        this.fail(
-          node.type === IR_LOAD_ARRAY_LENGTH
-            ? "array length of an unsupported array"
-            : `${node.type} on a value that is not a local array`,
-        );
+      const element = heapElementScalarOf(node);
+      if (element === null) {
+        this.fail(`${node.type} on a value the compiler cannot see the elements of`);
         return;
       }
-      if (node.type === IR_LOAD_ELEMENT || node.type === IR_GENERIC_GET_INDEX) {
-        this.scalars.set(node, array.element);
-      }
-      const stored = node.inputs[2];
-      const value = stored === undefined ? null : aotScalarOf(this.types.typeOf(stored));
-      const references =
-        isReferenceScalar(array.element) || (value !== null && isReferenceScalar(value));
-      if (stored !== undefined && references && value !== array.element) {
-        this.fail("array has an unsupported element type");
-        return;
-      }
-      if (stored !== undefined && array.element === SCALAR_STRING && !isConstantText(stored)) {
-        this.fail(
-          "an array of strings only holds text the program spells out; store a constant " +
-            "there, or keep this part interpreted",
-        );
-        return;
-      }
+      this.checkHeapElement(node, element);
+      return;
     }
     const discards = node.type === IR_RETURN && this.voidReturn;
     for (const input of node.inputs) {
-      if (this.arrayByValue.has(input)) continue;
       const admitted = discards
         ? this.require(input, node.type)
         : this.requireStorable(input, node.type);
       if (admitted === null) return;
     }
-    if (isTerminator(node.type) || this.arrayByValue.has(node)) return;
+    if (isTerminator(node.type)) return;
     if (node.uses.length === 0 && isStatement(node)) return;
     this.require(node, node.type);
+  }
+
+  private checkHeapElement(node: CFGInstruction, element: AotScalar): void {
+    this.scalars.set(node.inputs[0]!, SCALAR_POINTER);
+    if (this.require(node.inputs[1]!, node.type) !== SCALAR_INT32) {
+      this.fail(`${node.type} is indexed by a value that is not an integer`);
+      return;
+    }
+    const stored = node.inputs[2];
+    if (stored !== undefined) {
+      const value = this.require(stored, node.type);
+      if (value === null) return;
+      if (value !== element && (isReferenceScalar(value) || isReferenceScalar(element))) {
+        this.fail("array has an unsupported element type");
+        return;
+      }
+    }
+    this.scalars.set(node, element);
   }
 
   private checkStringCompare(node: CFGInstruction): boolean {

@@ -4,8 +4,13 @@ import type { TransformPass } from "../infra/pass-manager.js";
 import { dominanceAnalysisId } from "../analyses/dominance.js";
 import { loopForestAnalysisId } from "../analyses/loops.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
+import { shapeArrays } from "../passes/array-shapes.js";
+import { lowerBooleanText } from "../passes/boolean-text.js";
 import { lowerBuiltinMethods } from "../passes/builtin-method-lowering.js";
-import { lowerClassMembers } from "../passes/class-member-lowering.js";
+import {
+  lowerClassMembers,
+  resolveCalleeSignatures,
+} from "../passes/class-member-lowering.js";
 import { capabilityCheck } from "../passes/capability-check.js";
 import { deadCodeElimination } from "../passes/dce.js";
 import { elideFrameStates } from "../passes/frame-state-elision.js";
@@ -39,7 +44,10 @@ export function targetLegalizationPipeline(
     {
       name: "iterator-lowering",
       preserves: preservesControlFlow,
-      run: (graph) => ({ changed: lowerIterators(graph) > 0 }),
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerIterators(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
     },
     {
       name: "global-builtin-lowering",
@@ -72,11 +80,40 @@ export function targetLegalizationPipeline(
       }),
     },
     {
+      name: "callee-signatures",
+      preserves: preservesControlFlow,
+      run: (graph) => ({ changed: resolveCalleeSignatures(graph) > 0 }),
+    },
+    {
       name: "class-member-lowering",
       preserves: { kind: "none" },
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
       run: (graph, analyses) => ({
         changed: lowerClassMembers(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "heap-iterator-lowering",
+      preserves: preservesControlFlow,
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerIterators(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "array-shapes",
+      preserves: preservesControlFlow,
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: shapeArrays(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "boolean-text",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerBooleanText(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
     {

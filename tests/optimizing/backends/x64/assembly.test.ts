@@ -87,7 +87,7 @@ describe("x64 assembly", () => {
     );
 
     expect(assembly).toMatch(/movslq\s+%e\w+, %r\w+/);
-    expect(assembly).toMatch(/movsd\s+\d+\(%rsp,%r\w+,8\), %xmm\d+/);
+    expect(assembly).toMatch(/movsd\s+\d+\(%r\w+,%r\w+,8\), %xmm\d+/);
   });
 
   it("keeps the stack pointer aligned for a call", () => {

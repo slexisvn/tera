@@ -1,5 +1,46 @@
-import { CFGInstruction, IR_BRANCH, IR_JUMP, IR_PHI, type CFGBlock } from "./index.js";
+import {
+  CFGInstruction,
+  IR_BRANCH,
+  IR_JUMP,
+  IR_PHI,
+  type CFGBlock,
+  type CFGFunction,
+} from "./index.js";
 import { detachInputs } from "./graph-edit.js";
+
+export function splitBlockAfter(
+  graph: CFGFunction,
+  block: CFGBlock,
+  node: CFGInstruction,
+): CFGBlock {
+  return splitBlockAt(graph, block, block.nodes.indexOf(node) + 1);
+}
+
+export function splitBlockBefore(
+  graph: CFGFunction,
+  block: CFGBlock,
+  node: CFGInstruction,
+): CFGBlock {
+  return splitBlockAt(graph, block, block.nodes.indexOf(node));
+}
+
+function splitBlockAt(graph: CFGFunction, block: CFGBlock, index: number): CFGBlock {
+  const after = graph.addBlock();
+  const moved = block.nodes.splice(index);
+  for (const item of moved) {
+    item.block = after;
+    after.nodes.push(item);
+  }
+  after.terminator = block.terminator;
+  block.terminator = null;
+  for (const successor of block.successors) {
+    const at = successor.predecessors.indexOf(block);
+    if (at >= 0) successor.predecessors[at] = after;
+    after.successors.push(successor);
+  }
+  block.successors = [];
+  return after;
+}
 
 export function link(pred: CFGBlock, succ: CFGBlock): void {
   if (!pred.successors.includes(succ)) pred.successors.push(succ);
