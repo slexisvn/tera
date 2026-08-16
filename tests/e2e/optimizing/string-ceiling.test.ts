@@ -56,10 +56,19 @@ describe("the AOT string ceiling", () => {
     );
   });
 
-  it("declines an array of strings because buffers hold one string each", () => {
+  it("admits an array of spelled-out strings because they live in read-only data", () => {
+    bothAdmit(src("fn f(i: int) -> string:", '  names = ["H", "O"]', "  return names[i]"));
+  });
+
+  it("declines an array of strings the program builds, because buffers hold one each", () => {
     bothDecline(
-      src("fn f(i: int) -> string:", '  names = ["H", "O"]', "  return names[i]"),
-      "array has an unsupported element type",
+      src(
+        "fn f(i: int, s: string) -> string:",
+        '  names = ["H", "O"]',
+        '  names[i] = s + "!"',
+        "  return names[i]",
+      ),
+      "stores it in an array",
     );
   });
 

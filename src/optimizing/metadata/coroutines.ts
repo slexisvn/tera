@@ -103,6 +103,10 @@ export function coroutinePromiseShape(
   );
 }
 
+export function coroutineCarriesValue(promise: ClassShape): boolean {
+  return promise.fields.has(CORO_VALUE_FIELD);
+}
+
 export interface CoroutineSlot {
   readonly name: string;
   readonly declaredType: string;

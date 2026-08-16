@@ -261,6 +261,29 @@ describe("Engine AOT", () => {
     expect(runCFunction(cSource(program), "tag", [])).toBe(4);
   });
 
+  itNative("keeps its own locals clear of the functions it calls", () => {
+    // The emitter numbers locals b0, b1, v0…; a function of the same name would be
+    // shadowed by one, and the call to it would stop being a call at all.
+    const program = nodeEngine({ typecheck: "off" }).compileAot(
+      src(
+        "fn b1(n: int) -> int:",
+        "  return n + 1",
+        "",
+        "fn f(n: int) -> int:",
+        "  a: int = 0",
+        "  i: int = 0",
+        "  while i < n:",
+        "    a = a + b1(i)",
+        "    i = i + 1",
+        "  return a",
+      ),
+      { functionNames: ["b1", "f"] },
+    );
+
+    expect(program.skipped).toEqual([]);
+    expect(runCFunction(cSource(program), "f", [4])).toBe(10);
+  });
+
   itNative("skips callers of functions the backend could not lower", () => {
     const program = nodeEngine({ typecheck: "off" }).compileAot(
       src(

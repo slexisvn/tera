@@ -9,6 +9,7 @@ import {
   IR_FLOAT64_MUL,
   IR_FLOAT64_SUB,
   IR_GENERIC_ADD,
+  IR_GENERIC_COMPARE,
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
   IR_INT32_ADD,
@@ -248,6 +249,7 @@ export class RiscvLowering implements MachineLowering {
       [IR_CALL_KNOWN_FUNCTION, (ctx) => this.selectKnownCall(ctx)],
       [IR_CALL_BUILTIN, (ctx) => this.selectBuiltin(ctx)],
       [IR_GENERIC_ADD, (ctx) => this.selectStringConcat(ctx)],
+      [IR_GENERIC_COMPARE, (ctx) => this.selectStringCompare(ctx)],
     ];
     for (const [opcode, mnemonic] of FLOAT_BINARY) {
       entries.push([opcode, (ctx) => this.selectFloatBinary(ctx, mnemonic)]);
@@ -614,9 +616,28 @@ export class RiscvLowering implements MachineLowering {
   }
 
   private selectIntCompare(ctx: SelectionContext): void {
-    const condition = this.intCondition(String(ctx.node.props.op));
     const left = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
     const right = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_INT32);
+    this.emitIntCondition(ctx, String(ctx.node.props.op), left, right);
+  }
+
+  private selectStringCompare(ctx: SelectionContext): void {
+    const left = ctx.registerOf(ctx.node.inputs[0]!);
+    const right = ctx.registerOf(ctx.node.inputs[1]!);
+    const ordering = ctx.temp(SCALAR_INT32);
+    ctx.external(RISCV_RUNTIME_SYMBOLS.stringCompare);
+    ctx.emitCall(RISCV_RUNTIME_SYMBOLS.stringCompare, [left, right], ordering);
+    const zero = this.loadNumber(ctx, 0, SCALAR_INT32);
+    this.emitIntCondition(ctx, String(ctx.node.props.op), ordering, zero);
+  }
+
+  private emitIntCondition(
+    ctx: SelectionContext,
+    operation: string,
+    left: VirtualRegister,
+    right: VirtualRegister,
+  ): void {
+    const condition = this.intCondition(operation);
     const result = this.destination(ctx, SCALAR_INT32);
     if (condition.equality) {
       ctx.emit(instruction("xor", [writeOf(result), readOf(left), readOf(right)]));

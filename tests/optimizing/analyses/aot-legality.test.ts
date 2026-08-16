@@ -126,13 +126,25 @@ describe("AOT legality values", () => {
     expect(reasonOf(graph)).toContain("unsupported property length");
   });
 
-  it("rejects a global whose value is used", () => {
+  it("rejects a global whose value is used, and names it", () => {
     const graph = returning("global", (fn) => {
       const global = irLoadGlobal("counter");
       fn.addBlock().addNode(global);
       return global;
     });
-    expect(reasonOf(graph)).toContain("load of a global value");
+    expect(reasonOf(graph)).toContain("load of the global value counter");
+  });
+
+  it("says where a member read off a runtime global comes from", () => {
+    const graph = returning("runtime_member", (fn) => {
+      const global = irLoadGlobal("Promise");
+      const read = irGenericGetProp(global, "resolve");
+      const block = fn.addBlock();
+      block.addNode(global);
+      block.addNode(read);
+      return read;
+    });
+    expect(reasonOf(graph)).toContain("Promise.resolve is part of the runtime");
   });
 
   it("accepts a global load nobody reads", () => {

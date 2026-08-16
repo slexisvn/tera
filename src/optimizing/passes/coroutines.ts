@@ -10,6 +10,7 @@ import {
   irJump,
   irLoadField,
   irLoadText,
+  irNewArray,
   irNewObject,
   irReturn,
   irRuntimeBase,
@@ -20,7 +21,12 @@ import {
   IRNodeIdAllocator,
   IR_AWAIT,
   IR_CONSTANT,
+  IR_GENERIC_GET_INDEX,
+  IR_GENERIC_SET_INDEX,
+  IR_LOAD_ELEMENT,
+  IR_NEW_ARRAY,
   IR_PHI,
+  IR_STORE_ELEMENT,
   IR_RETURN,
   IR_RUNTIME_BASE,
   SETTLED_TYPE_PROP,
@@ -69,6 +75,7 @@ import {
   CORO_VALUE_FIELD,
   CORO_WAITER_FIELD,
   CORO_WAITING_FIELD,
+  coroutineCarriesValue,
   type CoroutineSlot,
 } from "../metadata/coroutines.js";
 import {
@@ -89,6 +96,9 @@ export const CORO_REPORT = "tera_report_rejections";
 const RESUME_PENDING = 1;
 const RESUME_DONE = 0;
 const INT = "int";
+
+const ARRAY_WRITES = new Set<string>([IR_STORE_ELEMENT, IR_GENERIC_SET_INDEX]);
+const ARRAY_READS = new Set<string>([IR_LOAD_ELEMENT, IR_GENERIC_GET_INDEX]);
 
 const SLOT_TYPES = new Map<string, string>([
   [TypeKind.Smi, INT],
@@ -132,6 +142,10 @@ class Emitter {
     node.block = this.block;
     this.block.nodes.splice(this.cursor++, 0, node);
     return node;
+  }
+
+  position(): number {
+    return this.cursor < 0 ? this.block.nodes.length : this.cursor;
   }
 
   constant(value: number): CFGInstruction {
@@ -221,6 +235,23 @@ function unlink(node: CFGInstruction): void {
   }
   detach(node);
   node.block = null;
+}
+
+function deliverSettled(
+  graph: CFGFunction,
+  out: Emitter,
+  node: CFGInstruction,
+  awaited: CFGInstruction,
+  promise: ClassShape,
+): void {
+  if (!coroutineCarriesValue(promise)) {
+    if (node.uses.length === 0) return;
+    throw new CoroutineSplitError(
+      `${graph.name} uses the result of an await on a function that returns nothing; ` +
+        `give that function a return type, or keep this part interpreted`,
+    );
+  }
+  replaceUses(node, out.load(awaited, promise, CORO_VALUE_FIELD));
 }
 
 function replaceUses(value: CFGInstruction, replacement: CFGInstruction): void {
@@ -342,17 +373,10 @@ function suspendPointsOf(
       replaceUses(suspend, awaited);
       unlink(suspend);
     } else {
-      const value = new Emitter(classes, resume, 0).load(awaited, promise, CORO_VALUE_FIELD);
-      replaceUses(suspend, value);
+      const out = new Emitter(classes, resume, 0);
+      deliverSettled(graph, out, suspend, awaited, promise);
       unlink(suspend);
-      raiseWhenRejected(
-        graph,
-        classes,
-        resume,
-        resume.nodes.indexOf(value) + 1,
-        awaited,
-        promise,
-      );
+      raiseWhenRejected(graph, classes, resume, out.position(), awaited, promise);
     }
     points.push({ state: points.length + 1, block, resume, awaited, promise });
   }
@@ -383,11 +407,52 @@ function localizeRuntimeBases(graph: CFGFunction): void {
   graph.rebuildUses();
 }
 
+function rematerializable(node: CFGInstruction): boolean {
+  if (node.type !== IR_NEW_ARRAY) return false;
+  if (!node.inputs.every((input) => input.type === IR_CONSTANT)) return false;
+  return !node.uses.some((use) => ARRAY_WRITES.has(use.type) && use.inputs[0] === node);
+}
+
+function localizeConstantArrays(graph: CFGFunction): void {
+  for (const block of [...graph.blocks]) {
+    for (const node of [...block.nodes]) {
+      if (!rematerializable(node)) continue;
+      const copies = new Map<CFGBlock, CFGInstruction>([[block, node]]);
+      for (const use of [...node.uses]) {
+        const owner = use.block;
+        if (owner === null || use.type === IR_PHI) continue;
+        let copy = copies.get(owner);
+        if (copy === undefined) {
+          copy = irNewArray(node.inputs);
+          copy.props = { ...node.props };
+          copy.block = owner;
+          owner.nodes.unshift(copy);
+          copies.set(owner, copy);
+        }
+        for (let index = 0; index < use.inputs.length; index++) {
+          if (use.inputs[index] === node) use.replaceInput(index, copy);
+        }
+      }
+    }
+  }
+  graph.rebuildUses();
+}
+
 function slotTypeOf(type: LatticeType, classes: ClassTable): string | null {
   if (type.kind === TypeKind.Object) {
     return typeof type.map === "number" ? classes.shapeById(type.map)?.name ?? null : null;
   }
   return SLOT_TYPES.get(type.kind) ?? null;
+}
+
+function loadedElementType(value: CFGInstruction): string | null {
+  if (!ARRAY_READS.has(value.type)) return null;
+  const array = value.inputs[0];
+  if (array === undefined || array.type !== IR_NEW_ARRAY) return null;
+  const text = array.inputs.every(
+    (input) => input.type === IR_CONSTANT && typeof input.props.value === "string",
+  );
+  return text ? SLOT_TYPES.get(TypeKind.String) ?? null : null;
 }
 
 class FrameSpills {
@@ -405,7 +470,7 @@ class FrameSpills {
     const types = inferTypes(graph);
     const declare = (value: CFGInstruction, name: string): void => {
       const type = types.typeOf(value);
-      const declaredType = slotTypeOf(type, classes);
+      const declaredType = slotTypeOf(type, classes) ?? loadedElementType(value);
       if (declaredType === null) {
         throw new CoroutineSplitError(
           `${graph.name} keeps a ${type.kind} value across a suspend, and the compiler has no ` +
@@ -614,7 +679,9 @@ function settleAt(
   const settled = settlement.settled(block, returned);
   const out = new Emitter(classes, block);
   const held = out.load(self, frame, CORO_RESULT_FIELD);
-  if (settled !== null) out.store(held, promise, settlement.field, settled);
+  if (settled !== null && promise.fields.has(settlement.field)) {
+      out.store(held, promise, settlement.field, settled);
+    }
   out.store(held, promise, CORO_STATE_FIELD, out.constant(settlement.state));
   settlement.track(out, held, promise);
 
@@ -680,7 +747,9 @@ function settleInPlace(
     unlink(exit);
     const settled = settlement.settled(block, returned);
     const out = new Emitter(classes, block);
-    if (settled !== null) out.store(held, promise, settlement.field, settled);
+    if (settled !== null && promise.fields.has(settlement.field)) {
+      out.store(held, promise, settlement.field, settled);
+    }
     out.store(held, promise, CORO_STATE_FIELD, out.constant(settlement.state));
     settlement.track(out, held, promise);
     block.addNode(irReturn(held));
@@ -714,8 +783,19 @@ function splitInPlace(
 ): CoroutineSplit {
   const points = suspendPointsOf(graph, classes, promiseOf);
   if (points.length === 0) return settleInPlace(graph, classes, promise);
+  const awaited = new Set(
+    points.flatMap((point) => (point.promise === null ? [] : [point.promise.name])),
+  );
+  if (graph.recoversThrows && awaited.size > 1) {
+    throw new CoroutineSplitError(
+      `${graph.name} can catch a throw from awaits on ${awaited.size} different functions, ` +
+        `and the compiler cannot yet tell those rejections apart; await one of them at a ` +
+        `time, or keep this part interpreted`,
+    );
+  }
 
   localizeRuntimeBases(graph);
+  localizeConstantArrays(graph);
   const spills = new FrameSpills(graph, classes, points);
   const frame = coroutineFrameShape(classes, graph.name, spills.slots);
   const parameters = [...graph.parameters];
@@ -999,10 +1079,9 @@ export function lowerAwaitedPromises(
         const shape = promiseOf(awaited)!;
         const out = new Emitter(classes, block, at);
         out.add(irCallKnownFunction({ name: CORO_DRAIN } as never, []));
-        const value = out.load(awaited, shape, CORO_VALUE_FIELD);
-        replaceUses(node, value);
+        deliverSettled(graph, out, node, awaited, shape);
         unlink(node);
-        raiseWhenRejected(graph, classes, block, block.nodes.indexOf(value) + 1, awaited, shape);
+        raiseWhenRejected(graph, classes, block, out.position(), awaited, shape);
         lowered++;
       }
     }

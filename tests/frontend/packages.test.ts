@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  STATE_VERSION,
   installedPackagesIn,
   searchPathsForEntry,
   searchPathsIn,
@@ -28,7 +29,7 @@ function project(contents: Record<string, string>): string {
   return root;
 }
 
-function state(packages: Record<string, unknown>, stateVersion = 1): string {
+function state(packages: Record<string, unknown>, stateVersion = STATE_VERSION): string {
   return `${JSON.stringify({ stateVersion, packages }, null, 2)}\n`;
 }
 
@@ -194,7 +195,7 @@ describe("installed packages", () => {
       "tera_packages/slexis/http/__init__.tera": HTTP,
       "tera_packages/.peta/state.json": state(
         { "slexis.http": { version: "1.2.0", source: "petahub", files: 2 } },
-        2,
+        STATE_VERSION + 1,
       ),
     });
 

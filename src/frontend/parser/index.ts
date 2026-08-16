@@ -78,7 +78,7 @@ import {
   type ModelSectionNode,
 } from "../ast/index.js";
 
-import { CLASS_ABSTRACT_MODIFIER, CLASS_MEMBER_MODIFIER_KEYWORDS, CLASS_STATIC_MODIFIER, CLASS_VISIBILITY_KEYWORDS, DEFAULT_CLASS_VISIBILITY, classVisibilityOrDefault, isClassVisibility, type ClassVisibility } from "../../core/class-visibility.js";
+import { CLASS_ABSTRACT_MODIFIER, CLASS_ASYNC_MODIFIER, CLASS_MEMBER_MODIFIER_KEYWORDS, CLASS_STATIC_MODIFIER, CLASS_VISIBILITY_KEYWORDS, DEFAULT_CLASS_VISIBILITY, classVisibilityOrDefault, isClassVisibility, type ClassVisibility } from "../../core/class-visibility.js";
 import { Lexer, TokenType, type Token, type TokenTypeName, type TokenValue } from "../lexer/index.js";
 import { restParameterType, typeSourceFromTokens } from "../type-source.js";
 import { buildSyntaxPluginIndex, normalizeSyntaxPlugins, syntaxPluginsFor, type ParserCheckpoint, type ParserContext, type ParserSyntaxOptions, type StatementParseResult, type SyntaxPlugin, type SyntaxPluginIndex } from "./extensions.js";
@@ -97,6 +97,7 @@ type ClassMemberModifiers = {
   visibility: ClassVisibility;
   explicitVisibility: boolean;
   isAbstract: boolean;
+  isAsync: boolean;
 };
 type ParamsParseResult = {
   params: ParamNode[];
@@ -426,12 +427,19 @@ export class Parser {
   parseClassMemberModifiers(): ClassMemberModifiers {
     let isStatic = false;
     let isAbstract = false;
+    let isAsync = false;
     let visibility: ClassVisibility | null = null;
     while (true) {
       const value = this.current()?.value;
       if (value === CLASS_STATIC_MODIFIER && this.isStaticModifierAhead()) {
         if (isStatic) this.error("Duplicate class member modifier 'static'");
         isStatic = true;
+        this.advance();
+        continue;
+      }
+      if (value === CLASS_ASYNC_MODIFIER && this.isStaticModifierAhead()) {
+        if (isAsync) this.error("Duplicate class member modifier 'async'");
+        isAsync = true;
         this.advance();
         continue;
       }
@@ -449,7 +457,13 @@ export class Parser {
       }
       break;
     }
-    return { isStatic, isAbstract, visibility: classVisibilityOrDefault(visibility), explicitVisibility: visibility !== null };
+    return {
+      isStatic,
+      isAbstract,
+      isAsync,
+      visibility: classVisibilityOrDefault(visibility),
+      explicitVisibility: visibility !== null,
+    };
   }
 
   isStaticModifierAhead(): boolean {
@@ -1997,6 +2011,7 @@ export class Parser {
 
       if (!this.check(TokenType.Punctuator, "(")) {
         if (modifiers.isAbstract) this.error("Abstract class fields are not supported", memberStart);
+        if (modifiers.isAsync) this.error("Class fields cannot be async", memberStart);
         const declaredType = this.skipTypeAnnotation(new Set(["=", ";", "}"]));
         const init = this.match(TokenType.Punctuator, "=")
           ? this.parseExpression()
@@ -2027,13 +2042,21 @@ export class Parser {
       if (modifiers.isAbstract && modifiers.isStatic) {
         this.error("Static class members cannot be abstract", memberStart);
       }
+      if (modifiers.isAsync && memberName === "constructor" && !accessorKind) {
+        this.error("Constructors cannot be async", memberStart);
+      }
+      if (modifiers.isAsync && accessorKind) {
+        this.error(`Class ${accessorKind}ters cannot be async`, memberStart);
+      }
       const body = modifiers.isAbstract ? BlockStatement([]) : this.parseBlock();
       if (modifiers.isAbstract && this.isBodyStart()) {
         this.error("Abstract class members cannot have a body", this.current());
       }
       if (modifiers.isAbstract) this.consumeSemicolon();
 
-      const funcNode = FunctionDeclaration(memberName, params, body);
+      const funcNode = modifiers.isAsync
+        ? AsyncFunctionDeclaration(memberName, params, body)
+        : FunctionDeclaration(memberName, params, body);
       funcNode._paramInfo = parsedParams.info;
       funcNode._returnType = returnType;
       funcNode._typeParams = [];
@@ -2235,15 +2258,22 @@ export class Parser {
   parseArrowFunction(): ASTNode {
     const start = this.current();
     let params;
+    let info: FunctionParamInfo[] | null = null;
     if (this.check(TokenType.Identifier)) {
       params = [this.tokenString(this.advance(), "parameter")];
     } else {
-      params = this._parseParams();
+      const parsed = this._parseParamsWithInfo();
+      params = parsed.params;
+      info = parsed.info;
     }
+    const returnType = this.skipReturnType();
     this.expect(TokenType.Punctuator, "=>");
 
     const expr = this.parseExpression();
-    return withSpan(ArrowFunctionExpression(params, expr, true), start);
+    const node = ArrowFunctionExpression(params, expr, true);
+    if (info !== null) node._paramInfo = info;
+    if (returnType !== undefined) node._returnType = returnType;
+    return withSpan(node, start);
   }
 
   parseFunctionExpression(): ASTNode {

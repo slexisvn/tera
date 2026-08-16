@@ -47,9 +47,13 @@ export function stampCalleeSignatures(
       const name = calleeNameOf(node);
       if (name === null) continue;
       const target = node.props.target as CallTarget | undefined;
-      if (target?.declaredSignature !== undefined && target?.declaredSignature !== null) continue;
       const declared = signatures.get(name);
-      if (declared === undefined) continue;
+      if (declared === undefined) {
+        continue;
+      }
+      // The module's own view of a function wins: a signature stamped earlier can be
+      // out of date, as it is for a function that has since become a coroutine.
+      if (target?.declaredSignature === declared) continue;
       node.props.target = { ...target, name, declaredSignature: declared } as unknown as IRMetadataValue;
       resolved++;
     }

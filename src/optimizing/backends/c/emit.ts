@@ -44,6 +44,7 @@ import {
   IR_STORE_ELEMENT,
   IR_LOAD_ARRAY_LENGTH,
   IR_GENERIC_ADD,
+  IR_GENERIC_COMPARE,
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
   IR_CALL_BUILTIN,
@@ -1104,22 +1105,35 @@ class CFunctionEmitter {
   }
 
   private assignNames(): void {
+    const taken = this.calledSymbols();
+    const fresh = (prefix: string, sequence: number): [string, number] => {
+      let name = `${prefix}${sequence}`;
+      while (taken.has(name)) name = `${prefix}${++sequence}`;
+      return [name, sequence + 1];
+    };
     for (const param of this.graph.parameters) {
-      this.names.set(param, `p${Number(param.props.index)}`);
+      this.names.set(param, fresh("p", Number(param.props.index))[0]);
     }
     let phiSeq = 0;
     let valueSeq = 0;
     for (const constant of this.legality.constants) {
-      this.names.set(constant, `v${valueSeq++}`);
+      const [name, next] = fresh("v", valueSeq);
+      this.names.set(constant, name);
+      valueSeq = next;
     }
     for (const block of this.order) {
       for (const phi of block.phis) {
         if (this.legality.arrayOf(phi) !== null) continue;
-        this.names.set(phi, `b${phiSeq++}`);
+        const [name, next] = fresh("b", phiSeq);
+        this.names.set(phi, name);
+        phiSeq = next;
         this.blockPhis.push(phi);
       }
       for (const node of block.nodes) {
-        if (!this.names.has(node)) this.names.set(node, `v${valueSeq++}`);
+        if (this.names.has(node)) continue;
+        const [name, next] = fresh("v", valueSeq);
+        this.names.set(node, name);
+        valueSeq = next;
       }
     }
     for (const param of this.graph.parameters) this.reserveRoot(param);
@@ -1127,6 +1141,18 @@ class CFunctionEmitter {
     for (const block of this.order) {
       for (const node of block.nodes) this.reserveRoot(node);
     }
+  }
+
+  /** Locals must not shadow a function this one calls, or the call stops being one. */
+  private calledSymbols(): ReadonlySet<string> {
+    const reserved = new Set<string>([cIdentifier(this.graph.name)]);
+    for (const block of this.graph.blocks) {
+      for (const node of block.nodes) {
+        const callee = calleeSymbolName(node);
+        if (callee !== null) reserved.add(cIdentifier(callee));
+      }
+    }
+    return reserved;
   }
 
   private declareStringBuffers(): void {
@@ -1236,6 +1262,7 @@ class CFunctionEmitter {
     entries.push([IR_INT32_NOT, (ctx) => this.define(ctx, `~${this.asInt32(ctx.node.inputs[0]!)}`)]);
     entries.push([IR_INT32_COMPARE, (ctx) => this.emitCompare(ctx, false)]);
     entries.push([IR_FLOAT64_COMPARE, (ctx) => this.emitCompare(ctx, true)]);
+    entries.push([IR_GENERIC_COMPARE, (ctx) => this.emitStringCompare(ctx)]);
     entries.push([IR_LOAD_GLOBAL, () => undefined]);
     entries.push([IR_RETURN, (ctx) => this.emitReturn(ctx)]);
     entries.push([IR_JUMP, (ctx) => this.emitJump(ctx)]);
@@ -1421,6 +1448,16 @@ class CFunctionEmitter {
     const lhs = asDouble ? this.asDouble(left) : this.nameOf(left);
     const rhs = asDouble ? this.asDouble(right) : this.nameOf(right);
     this.define(ctx, `${lhs} ${operator} ${rhs}`);
+  }
+
+  private emitStringCompare(ctx: EmitContext): void {
+    const operator = COMPARE_OPERATORS.get(String(ctx.node.props.op));
+    if (operator === undefined) {
+      throw new Error(`C backend has no lowering for comparison ${String(ctx.node.props.op)}`);
+    }
+    const left = this.nameOf(ctx.node.inputs[0]!);
+    const right = this.nameOf(ctx.node.inputs[1]!);
+    this.define(ctx, `strcmp(${left}, ${right}) ${operator} 0`);
   }
 
   private emitReturn(ctx: EmitContext): void {

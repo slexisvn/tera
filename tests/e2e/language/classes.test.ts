@@ -552,4 +552,47 @@ describe("Tera classes", () => {
     ].join("\n");
     expect(new Engine({ typecheck: "off" }).runNative(source)).toBe("tera");
   });
+  it("awaits an async method", async () => {
+    const source = [
+      "class Service:",
+      "  public constructor(base: int):",
+      "    this.base = base",
+      "  public async fetch(id: int) -> int:",
+      "    return this.base + id",
+      "async fn main() -> int:",
+      "  s = Service(100)",
+      "  return await s.fetch(7)",
+      "main()",
+    ].join("\n");
+    expect(await new Engine({ typecheck: "off" }).runNative(source)).toBe(107);
+  });
+
+  it("awaits an async method that a subclass overrides", async () => {
+    const source = [
+      "class Source:",
+      "  public async load() -> int:",
+      "    return 1",
+      "class Doubled extends Source:",
+      "  public async load() -> int:",
+      "    return 2",
+      "async fn main() -> int:",
+      "  total = 0",
+      "  for s of [Source(), Doubled()]:",
+      "    total = total + await s.load()",
+      "  return total",
+      "main()",
+    ].join("\n");
+    expect(await new Engine({ typecheck: "off" }).runNative(source)).toBe(3);
+  });
+
+  it("rejects async on a constructor, an accessor and a field", () => {
+    const bad = [
+      ["class C:", "  public async constructor():", "    this.n = 1"],
+      ["class C:", "  public async get n():", "    return 1"],
+      ["class C:", "  public async n = 1"],
+    ];
+    for (const lines of bad) {
+      expect(() => new Engine({ typecheck: "off" }).runNative(lines.join("\n"))).toThrow();
+    }
+  });
 });

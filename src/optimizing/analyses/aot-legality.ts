@@ -40,6 +40,7 @@ import {
   IR_GENERIC_SET_INDEX,
   IR_GENERIC_CALL,
   IR_GENERIC_ADD,
+  IR_GENERIC_COMPARE,
   IR_LOAD_FIELD,
   IR_LOAD_TEXT,
   IR_NEW_OBJECT,
@@ -99,6 +100,7 @@ export const AOT_OPCODES: ReadonlySet<string> = new Set<string>([
   IR_INT32_SHR,
   IR_INT32_USHR,
   IR_INT32_COMPARE,
+  IR_GENERIC_COMPARE,
   IR_FLOAT64_ADD,
   IR_FLOAT64_SUB,
   IR_FLOAT64_MUL,
@@ -182,6 +184,31 @@ function keepsString(use: CFGInstruction): string {
     return callee === null ? "passes it to a function" : `passes it to ${callee}`;
   }
   return `keeps it in ${use.type}`;
+}
+
+function isConstantText(value: CFGInstruction | undefined): boolean {
+  return value?.type === IR_CONSTANT && typeof value.props.value === "string";
+}
+
+function holdsConstantText(allocation: CFGInstruction): boolean {
+  return allocation.inputs.every(isConstantText);
+}
+
+/**
+ * `Promise.resolve` and friends read a member off a value the runtime installs, which
+ * a compiled program does not carry. Naming it beats reporting an anonymous global.
+ */
+function globalValueReason(node: CFGInstruction): string {
+  const owner = node.props.name;
+  if (typeof owner !== "string") return "load of a global value";
+  const read = node.uses.find((use) => use.type === IR_GENERIC_GET_PROP);
+  const member = read?.props.propName;
+  if (typeof member !== "string") return `load of the global value ${owner}`;
+  return (
+    `${owner}.${member} is part of the runtime rather than of the program, so there is ` +
+    `nothing to compile for it; write the same thing with async and await, or keep this ` +
+    `part interpreted`
+  );
 }
 
 function isStatement(node: CFGInstruction): boolean {
@@ -269,6 +296,7 @@ export class StringBufferRules {
   }
 
   readsString(node: CFGInstruction): boolean {
+    if (node.type === IR_GENERIC_COMPARE) return true;
     return node.type === IR_CALL_BUILTIN && AOT_BUILTINS.has(String(node.props.name));
   }
 
@@ -565,7 +593,9 @@ class LegalityAnalyzer implements AotLegality {
     if (scalars.some((scalar) => scalar === SCALAR_POINTER)) {
       return scalars.every((scalar) => scalar === SCALAR_POINTER) ? SCALAR_POINTER : null;
     }
-    if (scalars.some((scalar) => scalar === SCALAR_STRING)) return null;
+    if (scalars.some((scalar) => scalar === SCALAR_STRING)) {
+      return holdsConstantText(node) ? SCALAR_STRING : null;
+    }
     const element = aotElementScalarOf(this.types.typeOf(node));
     return element === SCALAR_STRING ? null : element;
   }
@@ -847,7 +877,7 @@ class LegalityAnalyzer implements AotLegality {
       return;
     }
     if (node.type === IR_LOAD_GLOBAL) {
-      if (node.uses.length > 0) this.fail("load of a global value");
+      if (node.uses.length > 0) this.fail(globalValueReason(node));
       return;
     }
     if (node.type === IR_RUNTIME_BASE) {
@@ -874,6 +904,7 @@ class LegalityAnalyzer implements AotLegality {
       this.checkBuiltin(node);
       if (this.failure !== null) return;
     }
+    if (node.type === IR_GENERIC_COMPARE && !this.checkStringCompare(node)) return;
     if (node.type === IR_RETURN && node.inputs[0] === undefined) {
       this.fail("return without a value");
       return;
@@ -899,6 +930,13 @@ class LegalityAnalyzer implements AotLegality {
         this.fail("array has an unsupported element type");
         return;
       }
+      if (stored !== undefined && array.element === SCALAR_STRING && !isConstantText(stored)) {
+        this.fail(
+          "an array of strings only holds text the program spells out; store a constant " +
+            "there, or keep this part interpreted",
+        );
+        return;
+      }
     }
     const discards = node.type === IR_RETURN && this.voidReturn;
     for (const input of node.inputs) {
@@ -911,6 +949,18 @@ class LegalityAnalyzer implements AotLegality {
     if (isTerminator(node.type) || this.arrayByValue.has(node)) return;
     if (node.uses.length === 0 && isStatement(node)) return;
     this.require(node, node.type);
+  }
+
+  private checkStringCompare(node: CFGInstruction): boolean {
+    const strings = node.inputs.every(
+      (input) => aotScalarOf(this.types.typeOf(input)) === SCALAR_STRING,
+    );
+    if (strings) return true;
+    this.fail(
+      `${node.type} compares values the compiler cannot compare natively; annotate the ` +
+        `operands, or keep this part interpreted`,
+    );
+    return false;
   }
 
   private checkBuiltin(node: CFGInstruction): void {

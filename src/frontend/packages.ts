@@ -4,7 +4,7 @@ import type { ModuleFileSystem } from "./modules/index.js";
 export const PACKAGES_DIRECTORY = "tera_packages";
 export const STATE_DIRECTORY = ".peta";
 export const STATE_FILE = "state.json";
-export const STATE_VERSION = 1;
+export const STATE_VERSION = 2;
 
 export type InstalledPackage = {
   readonly name: string;

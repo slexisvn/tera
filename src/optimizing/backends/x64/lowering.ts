@@ -9,6 +9,7 @@ import {
   IR_FLOAT64_MUL,
   IR_FLOAT64_SUB,
   IR_GENERIC_ADD,
+  IR_GENERIC_COMPARE,
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
   IR_INT32_ADD,
@@ -261,6 +262,7 @@ export class X64Lowering implements MachineLowering {
       [IR_CALL_KNOWN_FUNCTION, (ctx) => this.selectKnownCall(ctx)],
       [IR_CALL_BUILTIN, (ctx) => this.selectBuiltin(ctx)],
       [IR_GENERIC_ADD, (ctx) => this.selectStringConcat(ctx)],
+      [IR_GENERIC_COMPARE, (ctx) => this.selectStringCompare(ctx)],
     ];
     for (const [opcode, mnemonic] of FLOAT_BINARY) {
       entries.push([opcode, (ctx) => this.selectFloatBinary(ctx, mnemonic)]);
@@ -741,6 +743,19 @@ export class X64Lowering implements MachineLowering {
       const code = this.emitIntComparison(ctx, operation, left, right);
       this.emitSetCondition(ctx, code, result);
     }
+    this.produce(ctx, result, SCALAR_INT32);
+  }
+
+  private selectStringCompare(ctx: SelectionContext): void {
+    const left = ctx.registerOf(ctx.node.inputs[0]!);
+    const right = ctx.registerOf(ctx.node.inputs[1]!);
+    const ordering = ctx.temp(SCALAR_INT32);
+    ctx.external(X64_RUNTIME_SYMBOLS.stringCompare);
+    ctx.emitCall(X64_RUNTIME_SYMBOLS.stringCompare, [left, right], ordering);
+    const zero = this.loadNumber(ctx, 0, SCALAR_INT32);
+    const result = this.destination(ctx, SCALAR_INT32);
+    const code = this.emitIntComparison(ctx, String(ctx.node.props.op), ordering, zero);
+    this.emitSetCondition(ctx, code, result);
     this.produce(ctx, result, SCALAR_INT32);
   }
 

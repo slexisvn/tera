@@ -17,6 +17,7 @@ export const X64_RUNTIME_SYMBOLS = {
   charAt: "tera_x64_char_at",
   int32ToString: "tera_x64_i32_to_str",
   stringLength: "tera_x64_strlen",
+  stringCompare: "tera_x64_strcmp",
   printString: "tera_x64_print_str",
   printInt: "tera_x64_print_i32",
   printFloat: "tera_x64_print_f64",

@@ -12,6 +12,7 @@ import { elideFrameStates } from "../passes/frame-state-elision.js";
 import { lowerGlobalBuiltins } from "../passes/global-builtin-lowering.js";
 import { lowerIterators } from "../passes/iterator-lowering.js";
 import { lowerNamedArguments } from "../passes/named-argument-lowering.js";
+import { shapeObjectLiterals } from "../passes/object-literal-shapes.js";
 import { representationSelection } from "../passes/repr-selection.js";
 import { speculationLowering } from "../passes/speculation-lowering.js";
 import { coerceStringOperands } from "../passes/string-coercion.js";
@@ -60,6 +61,14 @@ export function targetLegalizationPipeline(
       run: (graph, analyses) => ({
         changed:
           speculationLowering(graph, target, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "object-literal-shapes",
+      preserves: preservesControlFlow,
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: shapeObjectLiterals(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
     {

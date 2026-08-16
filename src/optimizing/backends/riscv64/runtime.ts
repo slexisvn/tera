@@ -232,6 +232,26 @@ function int32ToString(builder: MachineRoutineBuilder): void {
     .ret();
 }
 
+function stringCompare(builder: MachineRoutineBuilder): void {
+  const r = (name: string) => builder.read(name, WORD);
+  const w = (name: string) => builder.write(name, WORD);
+  builder
+    .at("scan")
+    .emit("lbu", w("t0"), mem(1, { base: r("a0") }))
+    .emit("lbu", w("t1"), mem(1, { base: r("a1") }))
+    .to("bne", "differ", r("t0"), r("t1"))
+    .to("beqz", "same", r("t0"))
+    .emit("addi", w("a0"), r("a0"), imm(1))
+    .emit("addi", w("a1"), r("a1"), imm(1))
+    .to("j", "scan")
+    .at("differ")
+    .emit("sub", w("a0"), r("t0"), r("t1"))
+    .ret()
+    .at("same")
+    .emit("li", w("a0"), imm(0))
+    .ret();
+}
+
 function stringLength(builder: MachineRoutineBuilder): void {
   const r = (name: string) => builder.read(name, WORD);
   const w = (name: string) => builder.write(name, WORD);
@@ -496,6 +516,7 @@ export function riscvRuntimeRoutines(
     [RISCV_RUNTIME_SYMBOLS.charAt, charAt],
     [RISCV_RUNTIME_SYMBOLS.int32ToString, int32ToString],
     [RISCV_RUNTIME_SYMBOLS.stringLength, stringLength],
+    [RISCV_RUNTIME_SYMBOLS.stringCompare, stringCompare],
     [RISCV_RUNTIME_SYMBOLS.floor, rounding("rdn")],
     [RISCV_RUNTIME_SYMBOLS.ceil, rounding("rup")],
     [RISCV_RUNTIME_SYMBOLS.trunc, rounding("rtz")],

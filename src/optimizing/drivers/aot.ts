@@ -2,6 +2,7 @@ import {
   IR_AWAIT,
   IR_CALL_KNOWN_FUNCTION,
   IR_GENERIC_CALL,
+  IR_RETURN,
   type CFGFunction,
   type CFGInstruction,
 } from "../ir/index.js";
@@ -14,6 +15,7 @@ import {
   summarizeStringEscapes,
 } from "../analyses/aot-legality.js";
 import { AWAITED_CALL_PROP } from "../builder/ir-builder.js";
+import { isPendingThrowReturn } from "../builder/throw-recovery.js";
 import { callReachability, markReentrantFunctions } from "../metadata/call-graph.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
 import type { AotBackend, LinkableFunction } from "../target/backend.js";
@@ -32,6 +34,9 @@ import { compilerOptions, type CompilerOptions } from "../options.js";
 import { cfgPassTracer, maintainGraph } from "../pipeline.js";
 import { createAnalysisRegistry } from "../analyses/index.js";
 import { elideAwaits } from "../passes/await-elision.js";
+import { literalReturnShapeOf, shapeObjectLiterals } from "../passes/object-literal-shapes.js";
+import { specializeFunctionArguments } from "../passes/function-argument-specialization.js";
+import { lowerPromiseSurface } from "../passes/promise-surface.js";
 import {
   buildDispatch,
   buildDrain,
@@ -131,6 +136,35 @@ function moduleClasses(module: ModuleIR): ClassTable | null {
   return null;
 }
 
+function uniquifyGraphNames(module: ModuleIR): void {
+  const taken = new Set<string>();
+  for (const unit of module.units) {
+    const graph = unit.graph;
+    if (!taken.has(graph.name)) {
+      taken.add(graph.name);
+      continue;
+    }
+    let ordinal = 2;
+    while (taken.has(`${graph.name}${ordinal}`)) ordinal++;
+    graph.name = `${graph.name}${ordinal}`;
+    taken.add(graph.name);
+  }
+}
+
+function adoptLiteralShapes(module: ModuleIR): void {
+  for (const unit of module.units) {
+    const graph = unit.graph;
+    if (graph.classes === null) continue;
+    const analyses =
+      unit.analyses ?? new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
+    if (shapeObjectLiterals(graph, analyses.get(typeInferenceAnalysisId)) === 0) continue;
+    analyses.invalidate(typeInferenceAnalysisId);
+    const returns = literalReturnShapeOf(graph);
+    if (returns === null) continue;
+    graph.declaredSignature = { params: graph.declaredSignature?.params ?? [], returns };
+  }
+}
+
 function moduleSignatures(module: ModuleIR): Map<string, DeclaredSignature> {
   const signatures = new Map<string, DeclaredSignature>();
   for (const unit of module.units) {
@@ -162,6 +196,31 @@ function calleeOf(node: CFGInstruction): string | null {
   return genericCalleeName(node) ?? calleeSymbolName(node);
 }
 
+function awaitsSomething(graph: CFGFunction, asynchronous: ReadonlySet<string>): boolean {
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      if (node.type !== IR_AWAIT) continue;
+      const awaited = node.inputs[0];
+      const name = awaited === undefined ? null : calleeOf(awaited);
+      if (name !== null && asynchronous.has(name)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * A rejection has to travel through the promise like any other settlement, or the
+ * caller sees the throw before its await has taken its turn.
+ */
+function canReject(graph: CFGFunction): boolean {
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      if (node.type === IR_RETURN && isPendingThrowReturn(node)) return true;
+    }
+  }
+  return false;
+}
+
 function suspendingFunctions(
   module: ModuleIR,
   asynchronous: ReadonlySet<string>,
@@ -175,6 +234,11 @@ function suspendingFunctions(
         if (name !== null && asynchronous.has(name)) suspending.add(name);
       }
     }
+  }
+  for (const unit of module.units) {
+    const graph = unit.graph;
+    if (!asynchronous.has(graph.name)) continue;
+    if (awaitsSomething(graph, asynchronous) || canReject(graph)) suspending.add(graph.name);
   }
   return suspending;
 }
@@ -307,6 +371,22 @@ export function compileModule(
   const seenSymbols = new Set<string>();
 
   const classes = moduleClasses(module);
+
+  uniquifyGraphNames(module);
+  const promises = lowerPromiseSurface(module);
+  if (promises.length > 0) module = { ...module, units: [...module.units, ...promises] };
+  const specialized = specializeFunctionArguments(module);
+  if (specialized.added.length > 0) {
+    module = {
+      ...module,
+      units: [
+        ...module.units.filter((unit) => !specialized.retired.has(unit.graph.name)),
+        ...specialized.added,
+      ],
+    };
+  }
+  adoptLiteralShapes(module);
+
   const plan = planCoroutines(module, classes);
   const failures = [...plan.failures];
   const declined = new Set(failures.map((failure) => failure.name));

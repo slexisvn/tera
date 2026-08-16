@@ -89,7 +89,7 @@ describe("AOT compile failures are classified", () => {
   it("records a genuine lowering limit as skipped", () => {
     const engine = nodeEngine({ typecheck: "off" });
     const program = engine.compileAot(
-      src("fn answer():", "  o = {a: 1}", "  return o.a"),
+      src("fn answer(f: (int) -> int) -> int:", "  return f(1)"),
       { functionNames: ["answer"] },
     );
 

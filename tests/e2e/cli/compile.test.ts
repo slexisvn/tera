@@ -263,7 +263,7 @@ describe("tera compile --target=c", () => {
 describe("tera compile entry reporting", () => {
   it("reports an entry the backend could not lower instead of writing a binary", () => {
     inWorkspace((dir) => {
-      const built = compile(dir, src("fn main():", "  o = {a: 1}", "  return o.a"), [
+      const built = compile(dir, src("fn main() -> int:", "  n: int = 255", "  print(n.to_string(16))", "  return 0"), [
         "--entry=main",
       ]);
 
@@ -287,7 +287,7 @@ describe("tera compile entry reporting", () => {
 
   it("reports a top level the backend could not lower", () => {
     inWorkspace((dir) => {
-      const built = compile(dir, src("o = {a: 1}", "print(o.a)"));
+      const built = compile(dir, src("n: int = 255", "print(n.to_string(16))"));
 
       expect(built.status).toBe(1);
       expect(built.errors.join("\n")).toContain("could not be lowered to native code");
