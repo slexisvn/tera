@@ -26,7 +26,9 @@ import {
   IR_INT32_USHR,
   IR_INT32_XOR,
   IR_JUMP,
+  arrayReserveOf,
   heapElementScalarOf,
+  IR_ARRAY_RESERVE,
   IR_LOAD_ELEMENT,
   IR_LOAD_GLOBAL,
   IR_NEG,
@@ -107,6 +109,7 @@ import {
   x64MaskData,
 } from "./runtime.js";
 import {
+  CLASS_FLAGS_OFFSET,
   CLASS_SHAPE_ID_OFFSET,
 } from "../../metadata/class-table.js";
 import {
@@ -248,6 +251,7 @@ export class X64Lowering implements MachineLowering {
       [IR_NEG, (ctx) => this.selectNegate(ctx)],
       [IR_NOT, (ctx) => this.selectLogicalNot(ctx)],
       [IR_NEW_OBJECT, (ctx) => this.selectNewObject(ctx)],
+      [IR_ARRAY_RESERVE, (ctx) => this.selectArrayReserve(ctx)],
       [IR_RUNTIME_BASE, (ctx) => this.selectRuntimeBase(ctx)],
       [IR_LOAD_FIELD, (ctx) => this.selectLoadField(ctx)],
       [IR_STORE_FIELD, (ctx) => this.selectStoreField(ctx)],
@@ -859,6 +863,12 @@ export class X64Lowering implements MachineLowering {
         imm(shape.id),
       ]),
     );
+    ctx.emit(
+      instruction("movl", [
+        mem(SHAPE_ID_WIDTH, { base: readOf(object), displacement: CLASS_FLAGS_OFFSET }),
+        imm(shape.size),
+      ]),
+    );
     ctx.emit(this.jump(fork.rejoin));
 
     fork.enterTaken();
@@ -866,6 +876,19 @@ export class X64Lowering implements MachineLowering {
     ctx.emit(this.jump(fork.rejoin));
 
     fork.enterRejoin();
+  }
+
+  private selectArrayReserve(ctx: SelectionContext): void {
+    const growth = arrayReserveOf(ctx.node);
+    const array = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_POINTER);
+    const buffer = this.loadNumber(ctx, growth.buffer, SCALAR_INT32);
+    const stride = this.loadNumber(ctx, growth.elementBytes, SCALAR_INT32);
+    ctx.external(X64_RUNTIME_SYMBOLS.arrayReserve);
+    ctx.emitCall(
+      X64_RUNTIME_SYMBOLS.arrayReserve,
+      [array, buffer, stride],
+      ctx.resultRegister(),
+    );
   }
 
   private selectRuntimeBase(ctx: SelectionContext): void {

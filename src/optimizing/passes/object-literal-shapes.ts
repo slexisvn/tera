@@ -7,10 +7,15 @@ import {
 } from "../ir/index.js";
 import { CLASS_DATA_MEMBER } from "../../core/class-member.js";
 import type { ClassMemberSurface, ClassSurface } from "../../frontend/modules/interface.js";
-import { declaredTypeOf, type ClassTable } from "../metadata/class-table.js";
+import {
+  CLASS_ID_PROP,
+  declaredTypeOf,
+  INSTANCE_SIZE_PROP,
+  VALUE_CLASS_PROP,
+  type ClassTable,
+} from "../metadata/class-table.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
-import { CLASS_ID_PROP, INSTANCE_SIZE_PROP, VALUE_CLASS_PROP } from "./class-member-lowering.js";
 
 const LITERAL_SHAPE_PREFIX = "tera_literal";
 const ANY_TYPE = "any";

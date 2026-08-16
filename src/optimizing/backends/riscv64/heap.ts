@@ -1,6 +1,13 @@
 import { imm, mem, sym, type RegisterOperand } from "../../machine/ir.js";
 import type { MachineRoutineBuilder } from "../../machine/routine.js";
 import {
+  ARRAY_CAPACITY_OFFSET,
+  ARRAY_ELEMENTS_OFFSET,
+  ARRAY_GROWTH_FACTOR,
+  ARRAY_INITIAL_CAPACITY,
+  ARRAY_LENGTH_OFFSET,
+  BUFFER_ELEMENTS_OFFSET,
+  CLASS_ALIGNMENT_BYTES,
   CLASS_FLAGS_OFFSET,
   CLASS_HEADER_BYTES,
   CLASS_SHAPE_ID_OFFSET,
@@ -32,6 +39,10 @@ const COUNT_BYTES = 4;
 const FREE_BLOCK_BYTES = CLASS_HEADER_BYTES + TERA_LINK_BYTES;
 const RECORD_SHIFT = TERA_CLASS_RECORD_SHIFT;
 const COUNT_SHIFT = Math.log2(COUNT_BYTES);
+const POINTER_SHIFT = TERA_ROOT_SLOT_SHIFT;
+const CLEAR_MARK = -1 - TERA_MARK_FLAG;
+const GROWTH_SHIFT = Math.log2(ARRAY_GROWTH_FACTOR);
+const ALIGNMENT_ROUNDING = CLASS_ALIGNMENT_BYTES - 1;
 const LINUX_EXIT = 93;
 const LINUX_MMAP = 222;
 const LINUX_PROT_READ_WRITE = 0x1 | 0x2;
@@ -115,26 +126,12 @@ function storeContext(
     );
 }
 
-function blockSize(
-  builder: MachineRoutineBuilder,
-  block: string,
-  size: string,
-  scratch: string,
-  label: string,
-): void {
+function blockSize(builder: MachineRoutineBuilder, block: string, size: string): void {
   const r = reader(builder);
   const w = writer(builder);
   builder
-    .emit("lwu", w(scratch), mem(COUNT_BYTES, { base: r(block), displacement: CLASS_SHAPE_ID_OFFSET }))
-    .to("bnez", `${label}.shaped`, r(scratch))
     .emit("lwu", w(size), mem(COUNT_BYTES, { base: r(block), displacement: CLASS_FLAGS_OFFSET }))
-    .to("j", `${label}.done`)
-    .at(`${label}.shaped`)
-    .emit("slli", w(scratch), r(scratch), imm(RECORD_SHIFT))
-    .emit("lla", w(size), sym(TERA_CLASS_RECORD.symbol))
-    .emit("add", w(size), r(size), r(scratch))
-    .emit("lwu", w(size), mem(COUNT_BYTES, { base: r(size), displacement: TERA_CLASS_RECORD.offsetOf("size") }))
-    .at(`${label}.done`);
+    .emit("andi", w(size), r(size), imm(CLEAR_MARK));
 }
 
 function marked(
@@ -177,17 +174,30 @@ function markPass(builder: MachineRoutineBuilder): void {
     .emit("slli", w("t1"), r("t1"), imm(RECORD_SHIFT))
     .emit("lla", w("t2"), sym(TERA_CLASS_RECORD.symbol))
     .emit("add", w("t2"), r("t2"), r("t1"))
+    .emit("lwu", w("a4"), mem(COUNT_BYTES, { base: r("t2"), displacement: TERA_CLASS_RECORD.offsetOf("tailReferences") }))
     .emit("lwu", w("t3"), mem(COUNT_BYTES, { base: r("t2"), displacement: TERA_CLASS_RECORD.offsetOf("fieldStart") }))
     .emit("lwu", w("t4"), mem(COUNT_BYTES, { base: r("t2"), displacement: TERA_CLASS_RECORD.offsetOf("fieldCount") }))
     .emit("lla", w("t2"), sym(TERA_CLASS_FIELDS.symbol))
     .emit("slli", w("t3"), r("t3"), imm(COUNT_SHIFT))
     .emit("add", w("t3"), r("t2"), r("t3"))
+    .to("beqz", "counted", r("a4"));
+  blockSize(builder, "a2", "t4");
+  builder
+    .emit("addi", w("t4"), r("t4"), imm(-BUFFER_ELEMENTS_OFFSET))
+    .emit("srli", w("t4"), r("t4"), imm(POINTER_SHIFT))
+    .at("counted")
     .emit("li", w("a3"), imm(0))
     .at("field")
     .to("bgeu", "advance", r("a3"), r("t4"))
+    .to("beqz", "listed", r("a4"))
+    .emit("slli", w("t2"), r("a3"), imm(POINTER_SHIFT))
+    .emit("addi", w("t2"), r("t2"), imm(BUFFER_ELEMENTS_OFFSET))
+    .to("j", "reference")
+    .at("listed")
     .emit("slli", w("t2"), r("a3"), imm(COUNT_SHIFT))
     .emit("add", w("t2"), r("t3"), r("t2"))
     .emit("lwu", w("t2"), mem(COUNT_BYTES, { base: r("t2") }))
+    .at("reference")
     .emit("add", w("t2"), r("a2"), r("t2"))
     .emit("ld", w("t2"), mem(WORD, { base: r("t2") }))
     .to("beqz", "next", r("t2"));
@@ -200,7 +210,7 @@ function markPass(builder: MachineRoutineBuilder): void {
     .emit("addi", w("a3"), r("a3"), imm(1))
     .to("j", "field")
     .at("advance");
-  blockSize(builder, "a2", "t1", "t2", "size");
+  blockSize(builder, "a2", "t1");
   builder
     .emit("add", w("t0"), r("t0"), r("t1"))
     .to("j", "scan")
@@ -241,7 +251,7 @@ function sweep(builder: MachineRoutineBuilder): void {
     .emit("lwu", w("t2"), mem(COUNT_BYTES, { base: r("a2"), displacement: CLASS_FLAGS_OFFSET }))
     .emit("andi", w("t2"), r("t2"), imm(~TERA_MARK_FLAG))
     .emit("sw", r("t2"), mem(COUNT_BYTES, { base: r("a2"), displacement: CLASS_FLAGS_OFFSET }));
-  blockSize(builder, "a2", "t1", "t2", "live");
+  blockSize(builder, "a2", "t1");
   builder
     .emit("add", w("t0"), r("t0"), r("t1"))
     .to("j", "scan")
@@ -257,7 +267,7 @@ function sweep(builder: MachineRoutineBuilder): void {
     .to("beqz", "join", r("t1"));
   marked(builder, "a3", "t2");
   builder.to("bnez", "linked", r("t2")).at("join");
-  blockSize(builder, "a3", "t1", "t2", "run.size");
+  blockSize(builder, "a3", "t1");
   builder
     .emit("add", w("a5"), r("a5"), r("t1"))
     .emit("add", w("a4"), r("a4"), r("t1"))
@@ -440,6 +450,7 @@ function allocate(builder: MachineRoutineBuilder): void {
     .to("j", "zero")
     .at("shaped")
     .emit("sw", r("a7"), mem(COUNT_BYTES, { base: r("t0"), displacement: CLASS_SHAPE_ID_OFFSET }))
+    .emit("sw", r("a6"), mem(COUNT_BYTES, { base: r("t0"), displacement: CLASS_FLAGS_OFFSET }))
     .emit("mv", w("a0"), r("t0"))
     .emit("ld", w("ra"), mem(WORD, { base: r("sp") }))
     .emit("addi", w("sp"), r("sp"), imm(RETURN_SLOT))
@@ -535,12 +546,70 @@ function enterRoots(builder: MachineRoutineBuilder): void {
     .emit("ecall");
 }
 
+const RESERVE_SLOTS = ["link", "array", "stride", "capacity"] as const;
+const RESERVE_FRAME = RESERVE_SLOTS.length * WORD;
+
+function arrayReserve(builder: MachineRoutineBuilder): void {
+  const r = reader(builder);
+  const w = writer(builder);
+  const spill = (slot: (typeof RESERVE_SLOTS)[number]) =>
+    mem(WORD, { base: r("sp"), displacement: RESERVE_SLOTS.indexOf(slot) * WORD });
+  builder
+    .emit("addi", w("sp"), r("sp"), imm(-RESERVE_FRAME))
+    .emit("sd", r("ra"), spill("link"))
+    .emit("sd", r("a0"), spill("array"))
+    .emit("sd", r("a2"), spill("stride"))
+    .emit("lwu", w("t0"), mem(COUNT_BYTES, { base: r("a0"), displacement: ARRAY_LENGTH_OFFSET }))
+    .emit("lwu", w("t1"), mem(COUNT_BYTES, { base: r("a0"), displacement: ARRAY_CAPACITY_OFFSET }))
+    .to("bltu", "keep", r("t0"), r("t1"))
+    .to("bnez", "double", r("t1"))
+    .emit("li", w("t1"), imm(ARRAY_INITIAL_CAPACITY))
+    .to("j", "sized")
+    .at("double")
+    .emit("slli", w("t1"), r("t1"), imm(GROWTH_SHIFT))
+    .at("sized")
+    .emit("sd", r("t1"), spill("capacity"))
+    .emit("mul", w("t2"), r("t1"), r("a2"))
+    .emit("addi", w("t2"), r("t2"), imm(BUFFER_ELEMENTS_OFFSET + ALIGNMENT_ROUNDING))
+    .emit("andi", w("t2"), r("t2"), imm(-CLASS_ALIGNMENT_BYTES))
+    .emit("mv", w("a0"), r("t2"))
+    .callSymbol(RISCV_RUNTIME_SYMBOLS.allocate)
+    .emit("ld", w("t0"), spill("array"))
+    .emit("ld", w("t1"), spill("stride"))
+    .emit("lwu", w("t2"), mem(COUNT_BYTES, { base: r("t0"), displacement: ARRAY_LENGTH_OFFSET }))
+    .emit("mul", w("t2"), r("t2"), r("t1"))
+    .emit("addi", w("t2"), r("t2"), imm(ALIGNMENT_ROUNDING))
+    .emit("andi", w("t2"), r("t2"), imm(-CLASS_ALIGNMENT_BYTES))
+    .emit("ld", w("t3"), mem(WORD, { base: r("t0"), displacement: ARRAY_ELEMENTS_OFFSET }))
+    .emit("li", w("t4"), imm(0))
+    .at("copy")
+    .to("bgeu", "copied", r("t4"), r("t2"))
+    .emit("add", w("a2"), r("t3"), r("t4"))
+    .emit("ld", w("a3"), mem(WORD, { base: r("a2"), displacement: BUFFER_ELEMENTS_OFFSET }))
+    .emit("add", w("a2"), r("a0"), r("t4"))
+    .emit("sd", r("a3"), mem(WORD, { base: r("a2"), displacement: BUFFER_ELEMENTS_OFFSET }))
+    .emit("addi", w("t4"), r("t4"), imm(WORD))
+    .to("j", "copy")
+    .at("copied")
+    .emit("ld", w("t1"), spill("capacity"))
+    .emit("sw", r("t1"), mem(COUNT_BYTES, { base: r("t0"), displacement: ARRAY_CAPACITY_OFFSET }))
+    .emit("sd", r("a0"), mem(WORD, { base: r("t0"), displacement: ARRAY_ELEMENTS_OFFSET }))
+    .to("j", "done")
+    .at("keep")
+    .emit("ld", w("a0"), mem(WORD, { base: r("a0"), displacement: ARRAY_ELEMENTS_OFFSET }))
+    .at("done")
+    .emit("ld", w("ra"), spill("link"))
+    .emit("addi", w("sp"), r("sp"), imm(RESERVE_FRAME))
+    .ret();
+}
+
 export function riscvHeapRoutines(): ReadonlyMap<
   string,
   (builder: MachineRoutineBuilder) => void
 > {
   return new Map([
     [RISCV_RUNTIME_SYMBOLS.allocate, allocate],
+    [RISCV_RUNTIME_SYMBOLS.arrayReserve, arrayReserve],
     [RISCV_RUNTIME_SYMBOLS.markPass, markPass],
     [RISCV_RUNTIME_SYMBOLS.sweep, sweep],
     [RISCV_RUNTIME_SYMBOLS.collect, collect],

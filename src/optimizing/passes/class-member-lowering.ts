@@ -9,9 +9,7 @@ import {
   IR_GENERIC_GET_PROP,
   IR_GENERIC_SET_PROP,
   IR_LOAD_ELEMENT,
-  IR_NEW_ARRAY,
   IR_NEW_OBJECT,
-  IR_PHI,
   irBranch,
   irCallKnownFunction,
   irConstant,
@@ -36,14 +34,19 @@ import type { ClassCallableKind } from "../../core/class-member.js";
 import { classValueNameOf } from "../metadata/class-symbols.js";
 import {
   callableOf,
+  CLASS_ID_PROP,
   CLASS_SHAPE_ID_OFFSET,
-  commonAncestorOf,
+  FIELD_SCALAR_PROP,
+  FIELD_TYPE_PROP,
+  INSTANCE_SIZE_PROP,
+  VALUE_CLASS_PROP,
   type ClassField,
   type ClassMethod,
   type ClassStaticField,
   type ClassShape,
   type ClassTable,
 } from "../metadata/class-table.js";
+import { arrayElementShapeOf } from "./array-shapes.js";
 import { TypeKind } from "../types/lattice.js";
 import { scalarWidth, SCALAR_INT32, SCALAR_TEXT } from "../types/scalar.js";
 import type { TypeInference } from "../analyses/type-inference.js";
@@ -52,12 +55,6 @@ import type { DeclaredSignature } from "../types/signature.js";
 const SHAPE_ID_TYPE = "int";
 const CALLEE_AND_RECEIVER = 2;
 
-export const CLASS_ID_PROP = "classId";
-export const FIELD_TYPE_PROP = "fieldType";
-export const FIELD_SCALAR_PROP = "fieldScalar";
-export const INSTANCE_SIZE_PROP = "instanceSize";
-export const VALUE_CLASS_PROP = "valueClassId";
-export const ARRAY_ELEMENT_SCALAR_PROP = "elementScalar";
 const INITIALIZES_PROP = "initializesReceiver";
 
 type Stamp = (node: CFGInstruction) => CFGInstruction;
@@ -94,6 +91,7 @@ function allocatesReceiver(receiver: CFGInstruction): boolean {
 
 function shapeOfReceiver(
   receiver: CFGInstruction | undefined,
+  graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
 ): ClassShape | null {
@@ -104,7 +102,9 @@ function shapeOfReceiver(
   if (type.kind === TypeKind.Object && typeof type.map === "number") {
     return classes.shapeById(type.map);
   }
-  return constructedShapeOf(receiver, classes) ?? elementShapeOf(receiver, classes);
+  return (
+    constructedShapeOf(receiver, classes) ?? elementShapeOf(receiver, graph, classes, types)
+  );
 }
 
 function shapeOfClassValue(
@@ -120,50 +120,51 @@ function carryValueClass(node: CFGInstruction, declaredType: string, classes: Cl
   if (shapeId !== null) node.props[VALUE_CLASS_PROP] = shapeId;
 }
 
-function carryCalleeResultClasses(graph: CFGFunction, classes: ClassTable): void {
+function calleeResultClass(
+  graph: CFGFunction,
+  node: CFGInstruction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  if (node.type === IR_CALL_KNOWN_FUNCTION) {
+    const target = node.props.target as
+      | { declaredSignature?: { returns?: string | null } | null }
+      | undefined;
+    return target?.declaredSignature?.returns ?? null;
+  }
+  const call = memberCallFor(graph, node, classes, types);
+  if (call === null || call.targets.length > 1) return null;
+  return call.targets[0]!.signature.returns;
+}
+
+function carryCalleeResultClasses(
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): void {
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      if (node.type !== IR_CALL_KNOWN_FUNCTION) continue;
-      const target = node.props.target as
-        | { declaredSignature?: { returns?: string | null } | null }
-        | undefined;
-      const returns = target?.declaredSignature?.returns;
-      if (typeof returns === "string") carryValueClass(node, returns, classes);
+      const returns = calleeResultClass(graph, node, classes, types);
+      if (returns !== null) carryValueClass(node, returns, classes);
     }
   }
 }
 
-function allocatedArrayOf(value: CFGInstruction | undefined): CFGInstruction | null {
-  const seen = new Set<CFGInstruction>();
-  const pending = value === undefined ? [] : [value];
-  while (pending.length > 0) {
-    const node = pending.pop()!;
-    if (seen.has(node)) continue;
-    seen.add(node);
-    if (node.type === IR_NEW_ARRAY) return node;
-    if (node.type === IR_PHI) pending.push(...node.inputs);
-  }
-  return null;
-}
-
-function elementShapeOf(node: CFGInstruction, classes: ClassTable): ClassShape | null {
+function elementShapeOf(
+  node: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): ClassShape | null {
   if (node.type !== IR_LOAD_ELEMENT && node.type !== IR_GENERIC_GET_INDEX) return null;
-  const allocation = allocatedArrayOf(node.inputs[0]);
-  if (allocation === null || allocation.inputs.length === 0) return null;
-  const shapes: ClassShape[] = [];
-  for (const element of allocation.inputs) {
-    const carried = element.props[VALUE_CLASS_PROP];
-    const shape = typeof carried === "number" ? classes.shapeById(carried) : null;
-    if (shape === null) return null;
-    shapes.push(shape);
-  }
-  const common = commonAncestorOf(classes, shapes);
-  if (common !== null) node.props[VALUE_CLASS_PROP] = common.id;
-  return common;
+  const element = arrayElementShapeOf(node.inputs[0], graph, classes, types);
+  if (element !== null) node.props[VALUE_CLASS_PROP] = element.id;
+  return element;
 }
 
 function fieldAccessFor(
   node: CFGInstruction,
+  graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
 ): FieldAccess | null {
@@ -176,7 +177,7 @@ function fieldAccessFor(
     const stat = named.staticFields.get(name);
     return stat === undefined ? null : { node, receiver: null, field: stat };
   }
-  const shape = shapeOfReceiver(receiver, classes, types);
+  const shape = shapeOfReceiver(receiver, graph, classes, types);
   if (shape === null) return null;
   const field = shape.fields.get(name);
   if (field === undefined) return null;
@@ -314,7 +315,7 @@ function memberCallFor(
       : exactCall(node, callee, named, name, "method", node.inputs.slice(1));
   }
   const receiver = callee.inputs[0]!;
-  const shape = shapeOfReceiver(receiver, classes, types);
+  const shape = shapeOfReceiver(receiver, graph, classes, types);
   if (shape === null || shape.fields.has(name)) return null;
   const args = node.inputs.slice(1);
   if (allocatesReceiver(receiver)) return exactCall(node, callee, shape, name, "method", args);
@@ -323,6 +324,7 @@ function memberCallFor(
 
 function accessorCallFor(
   node: CFGInstruction,
+  graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
 ): MemberCall | null {
@@ -336,7 +338,7 @@ function accessorCallFor(
 
   const named = shapeOfClassValue(receiver, classes);
   if (named !== null) return staticCall(node, null, named, name, kind, written);
-  const shape = shapeOfReceiver(receiver, classes, types);
+  const shape = shapeOfReceiver(receiver, graph, classes, types);
   if (shape === null) return null;
   const args = [receiver, ...written];
   if (allocatesReceiver(receiver)) return exactCall(node, null, shape, name, kind, args);
@@ -523,10 +525,10 @@ export function memberCallTargets(
   };
 }
 
-export function resolveCalleeSignatures(graph: CFGFunction): number {
+export function resolveCalleeSignatures(graph: CFGFunction, types: TypeInference): number {
   if (graph.calleeSignatures === null) return 0;
   const resolved = stampCalleeSignatures(graph, graph.calleeSignatures);
-  if (graph.classes !== null) carryCalleeResultClasses(graph, graph.classes);
+  if (graph.classes !== null) carryCalleeResultClasses(graph, graph.classes, types);
   return resolved;
 }
 
@@ -552,13 +554,13 @@ export function lowerClassMembers(graph: CFGFunction, types: TypeInference): num
         count++;
         continue;
       }
-      const access = fieldAccessFor(node, classes, types);
+      const access = fieldAccessFor(node, graph, classes, types);
       if (access !== null) {
         applyFieldAccess(editor, access, classes, stamp);
         count++;
         continue;
       }
-      const accessor = accessorCallFor(node, classes, types);
+      const accessor = accessorCallFor(node, graph, classes, types);
       if (accessor === null) continue;
       applyMemberCall(editor, graph, accessor, classes, stamp);
       count++;

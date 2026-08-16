@@ -827,6 +827,24 @@ export function irNewObject() {
   return new IRNode(ops.IR_NEW_OBJECT);
 }
 
+export function irArrayReserve(array: IRValueLike, buffer: number, elementBytes: number) {
+  const node = new IRNode(ops.IR_ARRAY_RESERVE, { classId: buffer, elementBytes });
+  node.addInput(array);
+  return node;
+}
+
+export function arrayReserveOf(node: { props: Record<string, unknown> }): {
+  buffer: number;
+  elementBytes: number;
+} {
+  const buffer = Number(node.props.classId);
+  const elementBytes = Number(node.props.elementBytes);
+  if (!Number.isInteger(buffer) || !Number.isInteger(elementBytes)) {
+    throw new Error("array growth has no buffer shape");
+  }
+  return { buffer, elementBytes };
+}
+
 export function irAwait(value: IRValueLike) {
   const node = new IRNode(ops.IR_AWAIT);
   node.addInput(value);

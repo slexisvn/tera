@@ -3,6 +3,13 @@ import type { MachineRoutineBuilder } from "../../machine/routine.js";
 import { alignUp } from "../../mc/buffer.js";
 import type { RuntimeAbi } from "../../target/abi.js";
 import {
+  ARRAY_CAPACITY_OFFSET,
+  ARRAY_ELEMENTS_OFFSET,
+  ARRAY_GROWTH_FACTOR,
+  ARRAY_INITIAL_CAPACITY,
+  ARRAY_LENGTH_OFFSET,
+  BUFFER_ELEMENTS_OFFSET,
+  CLASS_ALIGNMENT_BYTES,
   CLASS_FLAGS_OFFSET,
   CLASS_HEADER_BYTES,
   CLASS_SHAPE_ID_OFFSET,
@@ -39,6 +46,8 @@ const RECORD_SHIFT = TERA_CLASS_RECORD_SHIFT;
 const COUNT_SHIFT = Math.log2(COUNT_BYTES);
 const POINTER_SHIFT = TERA_ROOT_SLOT_SHIFT;
 const CLEAR_MARK = -1 - TERA_MARK_FLAG;
+const GROWTH_SHIFT = Math.log2(ARRAY_GROWTH_FACTOR);
+const ALIGNMENT_ROUNDING = CLASS_ALIGNMENT_BYTES - 1;
 
 export const ROOT_FRAME_REGISTER = "r10";
 export const ROOT_COUNT_REGISTER = "r11";
@@ -86,30 +95,11 @@ function indexed(
   });
 }
 
-function blockSize(
-  builder: MachineRoutineBuilder,
-  block: string,
-  size: string,
-  scratch: string,
-  label: string,
-): void {
-  const r = reader(builder);
+function blockSize(builder: MachineRoutineBuilder, block: string, size: string): void {
   const w = writer(builder);
   builder
-    .emit("movl", w(scratch), at(block, CLASS_SHAPE_ID_OFFSET, builder, COUNT_BYTES))
-    .emit("testl", r(scratch, COUNT_BYTES), r(scratch, COUNT_BYTES))
-    .to("jne", `${label}.shaped`)
     .emit("movl", w(size), at(block, CLASS_FLAGS_OFFSET, builder, COUNT_BYTES))
-    .to("jmp", `${label}.done`)
-    .at(`${label}.shaped`)
-    .emit("shlq", w(scratch, POINTER_BYTES), imm(RECORD_SHIFT))
-    .emit("leaq", w(size, POINTER_BYTES), global(TERA_CLASS_RECORD.symbol, POINTER_BYTES))
-    .emit(
-      "movl",
-      w(size),
-      indexed(size, scratch, 1, TERA_CLASS_RECORD.offsetOf("size"), builder, COUNT_BYTES),
-    )
-    .at(`${label}.done`);
+    .emit("andl", w(size), imm(CLEAR_MARK));
 }
 
 function markPass(builder: MachineRoutineBuilder): void {
@@ -119,11 +109,11 @@ function markPass(builder: MachineRoutineBuilder): void {
     .emit("pushq", r("rbx"))
     .emit("xorl", w("rax"), r("rax", COUNT_BYTES))
     .emit("xorl", w("r8"), r("r8", COUNT_BYTES))
-    .emit("movq", w("r11", POINTER_BYTES), contextField("arenaBase"))
     .at("scan")
     .emit("movq", w("rcx", POINTER_BYTES), contextField("arenaCursor"))
     .emit("cmpq", r("r8"), r("rcx"))
     .to("jae", "done")
+    .emit("movq", w("r11", POINTER_BYTES), contextField("arenaBase"))
     .emit("leaq", w("r10", POINTER_BYTES), indexed("r11", "r8", 1, 0, builder, POINTER_BYTES))
     .emit("movl", w("rcx"), at("r10", CLASS_SHAPE_ID_OFFSET, builder, COUNT_BYTES))
     .emit("testl", r("rcx", COUNT_BYTES), r("rcx", COUNT_BYTES))
@@ -132,6 +122,11 @@ function markPass(builder: MachineRoutineBuilder): void {
     .to("je", "advance")
     .emit("shlq", w("rcx", POINTER_BYTES), imm(RECORD_SHIFT))
     .emit("leaq", w("rdx", POINTER_BYTES), global(TERA_CLASS_RECORD.symbol, POINTER_BYTES))
+    .emit(
+      "movl",
+      w("r11"),
+      indexed("rdx", "rcx", 1, TERA_CLASS_RECORD.offsetOf("tailReferences"), builder, COUNT_BYTES),
+    )
     .emit(
       "movl",
       w("r9"),
@@ -148,11 +143,26 @@ function markPass(builder: MachineRoutineBuilder): void {
       w("r9", POINTER_BYTES),
       indexed("rdx", "r9", COUNT_BYTES, 0, builder, POINTER_BYTES),
     )
+    .emit("testl", r("r11", COUNT_BYTES), r("r11", COUNT_BYTES))
+    .to("je", "counted");
+  blockSize(builder, "r10", "rcx");
+  builder
+    .emit("subq", w("rcx", POINTER_BYTES), imm(BUFFER_ELEMENTS_OFFSET))
+    .emit("shrq", w("rcx", POINTER_BYTES), imm(POINTER_SHIFT))
+    .at("counted")
     .emit("xorl", w("rbx"), r("rbx", COUNT_BYTES))
     .at("field")
     .emit("cmpq", r("rbx"), r("rcx"))
     .to("jae", "advance")
+    .emit("testl", r("r11", COUNT_BYTES), r("r11", COUNT_BYTES))
+    .to("je", "listed")
+    .emit("movq", w("rdx", POINTER_BYTES), r("rbx"))
+    .emit("shlq", w("rdx", POINTER_BYTES), imm(POINTER_SHIFT))
+    .emit("addq", w("rdx", POINTER_BYTES), imm(BUFFER_ELEMENTS_OFFSET))
+    .to("jmp", "reference")
+    .at("listed")
     .emit("movl", w("rdx"), indexed("r9", "rbx", COUNT_BYTES, 0, builder, COUNT_BYTES))
+    .at("reference")
     .emit("movq", w("rdx", POINTER_BYTES), indexed("r10", "rdx", 1, 0, builder, POINTER_BYTES))
     .emit("testq", r("rdx"), r("rdx"))
     .to("je", "next")
@@ -164,7 +174,7 @@ function markPass(builder: MachineRoutineBuilder): void {
     .emit("incq", w("rbx", POINTER_BYTES))
     .to("jmp", "field")
     .at("advance");
-  blockSize(builder, "r10", "rdx", "rcx", "size");
+  blockSize(builder, "r10", "rdx");
   builder
     .emit("addq", w("r8", POINTER_BYTES), r("rdx"))
     .to("jmp", "scan")
@@ -206,7 +216,7 @@ function sweep(builder: MachineRoutineBuilder): void {
     .emit("testl", at("r10", CLASS_FLAGS_OFFSET, builder, COUNT_BYTES), imm(TERA_MARK_FLAG))
     .to("je", "dead")
     .emit("andl", at("r10", CLASS_FLAGS_OFFSET, builder, COUNT_BYTES), imm(CLEAR_MARK));
-  blockSize(builder, "r10", "rdx", "rcx", "live");
+  blockSize(builder, "r10", "rdx");
   builder
     .emit("addq", w("r8", POINTER_BYTES), r("rdx"))
     .to("jmp", "scan")
@@ -224,7 +234,7 @@ function sweep(builder: MachineRoutineBuilder): void {
     .emit("testl", at("r9", CLASS_FLAGS_OFFSET, builder, COUNT_BYTES), imm(TERA_MARK_FLAG))
     .to("jne", "linked")
     .at("join");
-  blockSize(builder, "r9", "rdx", "rcx", "run.size");
+  blockSize(builder, "r9", "rdx");
   builder
     .emit("addq", w("rax", POINTER_BYTES), r("rdx"))
     .emit("addq", w("rbx", POINTER_BYTES), r("rdx"))
@@ -454,8 +464,77 @@ function allocate(abi: RuntimeAbi, io: PlatformIo) {
       .to("jmp", "zero")
       .at("shaped")
       .emit("movl", at("r10", CLASS_SHAPE_ID_OFFSET, builder, COUNT_BYTES), r("r12", COUNT_BYTES))
+      .emit("movl", at("r10", CLASS_FLAGS_OFFSET, builder, COUNT_BYTES), r("rbx", COUNT_BYTES))
       .emit("movq", w("rax", POINTER_BYTES), r("r10"))
       .emit("addq", w(abi.stackPointer.name, POINTER_BYTES), imm(frame))
+      .emit("popq", w("r12", POINTER_BYTES))
+      .emit("popq", w("rbx", POINTER_BYTES))
+      .ret();
+  };
+}
+
+function arrayReserve(abi: RuntimeAbi) {
+  const [array, , stride] = x64IntegerArgumentNames(abi);
+  const frame = alignUp(abi.callingConvention.shadowSpaceBytes + POINTER_BYTES, 16);
+  return (builder: MachineRoutineBuilder): void => {
+    const r = reader(builder);
+    const w = writer(builder);
+    builder
+      .emit("pushq", r("rbx"))
+      .emit("pushq", r("r12"))
+      .emit("pushq", r("r13"))
+      .emit("pushq", r("r14"))
+      .emit("subq", w(abi.stackPointer.name, POINTER_BYTES), imm(frame))
+      .emit("movq", w("rbx", POINTER_BYTES), r(array!))
+      .emit("movl", w("r12"), r(stride!, COUNT_BYTES))
+      .emit("movl", w("r14"), at("rbx", ARRAY_LENGTH_OFFSET, builder, COUNT_BYTES))
+      .emit("movl", w("rax"), at("rbx", ARRAY_CAPACITY_OFFSET, builder, COUNT_BYTES))
+      .emit("cmpl", r("r14", COUNT_BYTES), r("rax", COUNT_BYTES))
+      .to("jl", "keep")
+      .emit("movl", w("r13"), r("rax", COUNT_BYTES))
+      .emit("testl", r("r13", COUNT_BYTES), r("r13", COUNT_BYTES))
+      .to("jne", "double")
+      .emit("movl", w("r13"), imm(ARRAY_INITIAL_CAPACITY))
+      .to("jmp", "sized")
+      .at("double")
+      .emit("shlq", w("r13", POINTER_BYTES), imm(GROWTH_SHIFT))
+      .at("sized")
+      .emit("movq", w("rax", POINTER_BYTES), r("r13"))
+      .emit("imulq", w("rax", POINTER_BYTES), r("r12"))
+      .emit("addq", w("rax", POINTER_BYTES), imm(BUFFER_ELEMENTS_OFFSET + ALIGNMENT_ROUNDING))
+      .emit("andq", w("rax", POINTER_BYTES), imm(-CLASS_ALIGNMENT_BYTES))
+      .emit("movq", w(array!, POINTER_BYTES), r("rax"))
+      .callSymbol(X64_RUNTIME_SYMBOLS.allocate)
+      .emit("movq", w("rcx", POINTER_BYTES), at("rbx", ARRAY_ELEMENTS_OFFSET, builder, POINTER_BYTES))
+      .emit("imulq", w("r14", POINTER_BYTES), r("r12"))
+      .emit("addq", w("r14", POINTER_BYTES), imm(ALIGNMENT_ROUNDING))
+      .emit("andq", w("r14", POINTER_BYTES), imm(-CLASS_ALIGNMENT_BYTES))
+      .emit("xorl", w("r8"), r("r8", COUNT_BYTES))
+      .at("copy")
+      .emit("cmpq", r("r8"), r("r14"))
+      .to("jae", "copied")
+      .emit(
+        "movq",
+        w("r9", POINTER_BYTES),
+        indexed("rcx", "r8", 1, BUFFER_ELEMENTS_OFFSET, builder, POINTER_BYTES),
+      )
+      .emit(
+        "movq",
+        indexed("rax", "r8", 1, BUFFER_ELEMENTS_OFFSET, builder, POINTER_BYTES),
+        r("r9"),
+      )
+      .emit("addq", w("r8", POINTER_BYTES), imm(POINTER_BYTES))
+      .to("jmp", "copy")
+      .at("copied")
+      .emit("movl", at("rbx", ARRAY_CAPACITY_OFFSET, builder, COUNT_BYTES), r("r13", COUNT_BYTES))
+      .emit("movq", at("rbx", ARRAY_ELEMENTS_OFFSET, builder, POINTER_BYTES), r("rax"))
+      .to("jmp", "done")
+      .at("keep")
+      .emit("movq", w("rax", POINTER_BYTES), at("rbx", ARRAY_ELEMENTS_OFFSET, builder, POINTER_BYTES))
+      .at("done")
+      .emit("addq", w(abi.stackPointer.name, POINTER_BYTES), imm(frame))
+      .emit("popq", w("r14", POINTER_BYTES))
+      .emit("popq", w("r13", POINTER_BYTES))
       .emit("popq", w("r12", POINTER_BYTES))
       .emit("popq", w("rbx", POINTER_BYTES))
       .ret();
@@ -610,6 +689,7 @@ export function x64HeapRoutines(
 ): ReadonlyMap<string, (builder: MachineRoutineBuilder) => void> {
   return new Map([
     [X64_RUNTIME_SYMBOLS.allocate, allocate(abi, io)],
+    [X64_RUNTIME_SYMBOLS.arrayReserve, arrayReserve(abi)],
     [X64_RUNTIME_SYMBOLS.markPass, markPass],
     [X64_RUNTIME_SYMBOLS.sweep, sweep],
     [X64_RUNTIME_SYMBOLS.collect, collect(abi)],

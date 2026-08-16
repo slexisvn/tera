@@ -46,8 +46,10 @@ import {
   IR_GENERIC_COMPARE,
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
+  IR_ARRAY_RESERVE,
   IR_CALL_BUILTIN,
   IR_LOAD_GLOBAL,
+  arrayReserveOf,
 } from "../../ir/index.js";
 import { buildDispatch } from "../../infra/dispatch.js";
 import {
@@ -65,9 +67,17 @@ import {
   TERA_STATIC_ROOT_COUNT,
   TERA_STATIC_ROOTS,
   TERA_STATICS,
+  TERA_POINTER_BYTES,
   type TeraContextField,
 } from "../../target/runtime-layout.js";
 import {
+  ARRAY_CAPACITY_OFFSET,
+  ARRAY_ELEMENTS_OFFSET,
+  ARRAY_GROWTH_FACTOR,
+  ARRAY_INITIAL_CAPACITY,
+  ARRAY_LENGTH_OFFSET,
+  BUFFER_ELEMENTS_OFFSET,
+  CLASS_ALIGNMENT_BYTES,
   CLASS_FLAGS_OFFSET,
   CLASS_HEADER_BYTES,
   referenceFieldOffsets,
@@ -644,6 +654,9 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
 const C_CLASS_TYPE = "tera_class";
 const C_CONTEXT_TYPE = "tera_context_t";
 const C_BLOCK_SIZE = "tera_block_size";
+const C_REFERENCE_COUNT = "tera_reference_count";
+const C_REFERENCE_AT = "tera_reference_at";
+const C_ARRAY_RESERVE = "tera_array_reserve";
 const C_MARK = "tera_mark";
 const C_SWEEP = "tera_sweep";
 const C_TAKE = "tera_take";
@@ -705,7 +718,7 @@ export function cClassTable(classes: ClassTable | null): string {
       tables.push(`static const uint32_t ${name}[] = { ${offsets.join(", ")} };`);
     }
     rows.push(
-      `  { ${shape.size}, ${offsets.length}, ${offsets.length > 0 ? name : "0"} },`,
+      `  { ${shape.tailReferences ? 1 : 0}, ${offsets.length}, ${offsets.length > 0 ? name : "0"} },`,
     );
     for (const field of shape.staticFields.values()) {
       if (field.scalar === SCALAR_POINTER) statics.push(field.offset);
@@ -713,7 +726,7 @@ export function cClassTable(classes: ClassTable | null): string {
   }
   return [
     `typedef struct {`,
-    `  uint32_t size;`,
+    `  uint32_t tail;`,
     `  uint32_t fields;`,
     `  const uint32_t *offsets;`,
     `} ${C_CLASS_TYPE};`,
@@ -740,9 +753,21 @@ static ${C_CONTEXT_TYPE} ${TERA_CONTEXT.symbol} = {
 };
 
 static uint32_t ${C_BLOCK_SIZE}(const unsigned char *block) {
-  uint32_t shape = *(const uint32_t *)block;
-  if (shape == ${TERA_FREE_SHAPE_ID}u) return *(const uint32_t *)(block + ${CLASS_FLAGS_OFFSET});
-  return ${TERA_CLASS_RECORD.symbol}[shape].size;
+  return *(const uint32_t *)(block + ${CLASS_FLAGS_OFFSET}) & ~(uint32_t)${TERA_MARK_FLAG}u;
+}
+
+static uint32_t ${C_REFERENCE_COUNT}(const unsigned char *block) {
+  const ${C_CLASS_TYPE} *shape = &${TERA_CLASS_RECORD.symbol}[*(const uint32_t *)block];
+  if (shape->tail == 0u) return shape->fields;
+  return (${C_BLOCK_SIZE}(block) - ${BUFFER_ELEMENTS_OFFSET}u) / ${TERA_POINTER_BYTES}u;
+}
+
+static unsigned char *${C_REFERENCE_AT}(const unsigned char *block, uint32_t at) {
+  const ${C_CLASS_TYPE} *shape = &${TERA_CLASS_RECORD.symbol}[*(const uint32_t *)block];
+  uint32_t offset = shape->tail == 0u
+    ? shape->offsets[at]
+    : ${BUFFER_ELEMENTS_OFFSET}u + at * ${TERA_POINTER_BYTES}u;
+  return *(unsigned char **)(block + offset);
 }
 
 static int32_t ${C_MARK}(unsigned char *object) {
@@ -754,9 +779,9 @@ static int32_t ${C_MARK}(unsigned char *object) {
     uint32_t *flags = (uint32_t *)(block + ${CLASS_FLAGS_OFFSET});
     if ((*flags & ${TERA_MARK_FLAG}u) != 0u) continue;
     *flags |= ${TERA_MARK_FLAG}u;
-    const ${C_CLASS_TYPE} *shape = &${TERA_CLASS_RECORD.symbol}[*(const uint32_t *)block];
-    for (uint32_t at = 0; at < shape->fields; at++) {
-      unsigned char *field = *(unsigned char **)(block + shape->offsets[at]);
+    uint32_t references = ${C_REFERENCE_COUNT}(block);
+    for (uint32_t at = 0; at < references; at++) {
+      unsigned char *field = ${C_REFERENCE_AT}(block, at);
       if (field == 0) continue;
       if (top == ${TERA_MARKS.capacity}) overflowed = 1;
       else ${cContextField("marksBase")}[top++] = field;
@@ -771,12 +796,11 @@ static int32_t tera_mark_pending(void) {
   while (at < ${cContextField("arenaCursor")}) {
     unsigned char *block = ${cContextField("arenaBase")} + at;
     uint32_t size = ${C_BLOCK_SIZE}(block);
-    uint32_t shape = *(const uint32_t *)block;
-    if (shape != ${TERA_FREE_SHAPE_ID}u &&
+    if (*(const uint32_t *)block != ${TERA_FREE_SHAPE_ID}u &&
         (*(uint32_t *)(block + ${CLASS_FLAGS_OFFSET}) & ${TERA_MARK_FLAG}u) != 0u) {
-      const ${C_CLASS_TYPE} *entry = &${TERA_CLASS_RECORD.symbol}[shape];
-      for (uint32_t index = 0; index < entry->fields; index++) {
-        unsigned char *field = *(unsigned char **)(block + entry->offsets[index]);
+      uint32_t references = ${C_REFERENCE_COUNT}(block);
+      for (uint32_t index = 0; index < references; index++) {
+        unsigned char *field = ${C_REFERENCE_AT}(block, index);
         if (field == 0) continue;
         if ((*(uint32_t *)(field + ${CLASS_FLAGS_OFFSET}) & ${TERA_MARK_FLAG}u) != 0u) continue;
         overflowed |= ${C_MARK}(field);
@@ -844,7 +868,7 @@ static unsigned char *${C_TAKE}(size_t size) {
   unsigned char *previous = 0;
   unsigned char *at = ${cContextField("freeHead")};
   while (at != 0) {
-    size_t bytes = *(const uint32_t *)(at + ${CLASS_FLAGS_OFFSET});
+    size_t bytes = ${C_BLOCK_SIZE}(at);
     unsigned char *next = *(unsigned char **)(at + ${CLASS_HEADER_BYTES});
     size_t rest = bytes - size;
     if (bytes == size || (bytes > size && rest >= ${CLASS_HEADER_BYTES} + ${TERA_LINK_BYTES})) {
@@ -876,7 +900,26 @@ static unsigned char *${TERA_ALLOC_SYMBOL}(size_t size, int32_t shape_id) {
   if (object == 0) exit(${TERA_EXIT_HEAP_EXHAUSTED});
   for (size_t at = 0; at < size; at++) object[at] = 0;
   *(uint32_t *)object = (uint32_t)shape_id;
+  *(uint32_t *)(object + ${CLASS_FLAGS_OFFSET}) = (uint32_t)size;
   return object;
+}
+
+static inline unsigned char *${C_ARRAY_RESERVE}(unsigned char *array, int32_t shape_id, int32_t stride) {
+  int32_t length = *(const int32_t *)(array + ${ARRAY_LENGTH_OFFSET});
+  int32_t capacity = *(const int32_t *)(array + ${ARRAY_CAPACITY_OFFSET});
+  unsigned char *elements = *(unsigned char **)(array + ${ARRAY_ELEMENTS_OFFSET});
+  if (length < capacity) return elements;
+  int32_t grown = capacity == 0 ? ${ARRAY_INITIAL_CAPACITY} : capacity * ${ARRAY_GROWTH_FACTOR};
+  size_t bytes = ${BUFFER_ELEMENTS_OFFSET} + (size_t)grown * (size_t)stride;
+  bytes = (bytes + ${CLASS_ALIGNMENT_BYTES} - 1u) / ${CLASS_ALIGNMENT_BYTES} * ${CLASS_ALIGNMENT_BYTES};
+  unsigned char *fresh = ${TERA_ALLOC_SYMBOL}(bytes, shape_id);
+  memcpy(
+    fresh + ${BUFFER_ELEMENTS_OFFSET},
+    elements + ${BUFFER_ELEMENTS_OFFSET},
+    (size_t)length * (size_t)stride);
+  *(int32_t *)(array + ${ARRAY_CAPACITY_OFFSET}) = grown;
+  *(unsigned char **)(array + ${ARRAY_ELEMENTS_OFFSET}) = fresh;
+  return fresh;
 }`;
 
 const C_BUILTIN_SUPPORT = [
@@ -1240,6 +1283,7 @@ class CFunctionEmitter {
     entries.push([IR_GENERIC_ADD, (ctx) => this.emitStringConcat(ctx)]);
     entries.push([IR_CALL_KNOWN_FUNCTION, (ctx) => this.emitKnownCall(ctx)]);
     entries.push([IR_NEW_OBJECT, (ctx) => this.emitNewObject(ctx)]);
+    entries.push([IR_ARRAY_RESERVE, (ctx) => this.emitArrayReserve(ctx)]);
     entries.push([
       IR_RUNTIME_BASE,
       (ctx) => this.define(ctx, `(unsigned char *)&${String(ctx.node.props.symbol)}`),
@@ -1352,6 +1396,15 @@ class CFunctionEmitter {
   private emitNewObject(ctx: EmitContext): void {
     const shape = allocationShapeOf(ctx.node);
     this.define(ctx, `${TERA_ALLOC_SYMBOL}(${shape.size}, ${shape.id})`);
+  }
+
+  private emitArrayReserve(ctx: EmitContext): void {
+    const growth = arrayReserveOf(ctx.node);
+    const array = this.nameOf(ctx.node.inputs[0]!);
+    this.define(
+      ctx,
+      `${C_ARRAY_RESERVE}(${array}, ${growth.buffer}, ${growth.elementBytes})`,
+    );
   }
 
   private emitLoadField(ctx: EmitContext): void {

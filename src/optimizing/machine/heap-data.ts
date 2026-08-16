@@ -45,9 +45,9 @@ function classData(classes: ClassTable | null): ClassData {
   const records: MachineDataItem[] = [];
   const fields: MachineDataItem[] = [];
   const statics: MachineDataItem[] = [];
-  const record = (size: number, start: number, count: number): void => {
+  const record = (tail: boolean, start: number, count: number): void => {
     const values = new Map<string, number>([
-      ["size", size],
+      ["tailReferences", tail ? 1 : 0],
       ["fieldStart", start],
       ["fieldCount", count],
       ["reserved", 0],
@@ -57,10 +57,10 @@ function classData(classes: ClassTable | null): ClassData {
     }
   };
 
-  record(0, 0, 0);
+  record(false, 0, 0);
   for (const shape of classes === null ? [] : classes.shapes()) {
     const offsets = referenceFieldOffsets(shape);
-    record(shape.size, fields.length, offsets.length);
+    record(shape.tailReferences, fields.length, offsets.length);
     for (const offset of offsets) fields.push(integerData(offset, TERA_CLASS_FIELDS.bytes));
     for (const field of shape.staticFields.values()) {
       if (field.scalar === SCALAR_POINTER) {

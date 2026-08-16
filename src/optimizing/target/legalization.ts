@@ -4,7 +4,7 @@ import type { TransformPass } from "../infra/pass-manager.js";
 import { dominanceAnalysisId } from "../analyses/dominance.js";
 import { loopForestAnalysisId } from "../analyses/loops.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
-import { shapeArrays } from "../passes/array-shapes.js";
+import { lowerArrayAccess, shapeArrayAllocations } from "../passes/array-shapes.js";
 import { lowerBooleanText } from "../passes/boolean-text.js";
 import { lowerBuiltinMethods } from "../passes/builtin-method-lowering.js";
 import {
@@ -82,7 +82,18 @@ export function targetLegalizationPipeline(
     {
       name: "callee-signatures",
       preserves: preservesControlFlow,
-      run: (graph) => ({ changed: resolveCalleeSignatures(graph) > 0 }),
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: resolveCalleeSignatures(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "array-allocation-shapes",
+      preserves: preservesControlFlow,
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: shapeArrayAllocations(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
     },
     {
       name: "class-member-lowering",
@@ -101,11 +112,11 @@ export function targetLegalizationPipeline(
       }),
     },
     {
-      name: "array-shapes",
+      name: "array-access-lowering",
       preserves: preservesControlFlow,
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
       run: (graph, analyses) => ({
-        changed: shapeArrays(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+        changed: lowerArrayAccess(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
     {

@@ -20,6 +20,7 @@ export interface OpcodeGroup {
   readonly mr?: OpcodeForm;
   readonly mi?: OpcodeForm;
   readonly mi8?: OpcodeForm;
+  readonly m1?: OpcodeForm;
   readonly ai?: OpcodeForm;
   readonly m?: OpcodeForm;
   readonly mc?: OpcodeForm;
@@ -139,6 +140,7 @@ function addShifts(table: Map<string, OpcodeGroup>): void {
           extension,
           immediateBytes: 1,
         },
+        m1: { bytes: [byteForm ? 0xd0 : 0xd1], rexW, extension },
         mc: { bytes: [byteForm ? 0xd2 : 0xd3], rexW, extension },
       });
     }

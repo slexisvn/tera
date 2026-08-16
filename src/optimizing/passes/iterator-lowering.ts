@@ -44,7 +44,7 @@ const ITERATOR_OPS: ReadonlySet<string> = new Set<string>([
 type Stamp = (node: CFGInstruction) => CFGInstruction;
 
 type Sequence =
-  | { readonly kind: "elements"; readonly array: CFGInstruction; readonly count: number | null }
+  | { readonly kind: "elements"; readonly array: CFGInstruction }
   | {
       readonly kind: "range";
       readonly call: CFGInstruction;
@@ -119,9 +119,7 @@ function sequenceBehind(node: CFGInstruction, types: TypeInference): Sequence | 
     THROUGH_ALIASES,
     (candidate) => candidate.type === IR_NEW_ARRAY,
   );
-  if (allocation !== null) {
-    return { kind: "elements", array: allocation, count: allocation.inputs.length };
-  }
+  if (allocation !== null) return { kind: "elements", array: allocation };
   const call = reachedThrough(
     iterable,
     THROUGH_ALIASES,
@@ -130,7 +128,7 @@ function sequenceBehind(node: CFGInstruction, types: TypeInference): Sequence | 
   if (call !== null) return rangeBehind(call, types);
   const element = aotElementScalarOf(types.typeOf(iterable));
   if (element === null || isReferenceScalar(element)) return null;
-  return { kind: "elements", array: iterable, count: null };
+  return { kind: "elements", array: iterable };
 }
 
 function rangeStart(
@@ -188,11 +186,7 @@ function elementsReplacement(
     stepped.props.noOverflow = true;
     return stepped;
   }
-  const limit = stamp(
-    sequence.count === null
-      ? irLoadArrayLength(sequence.array)
-      : irConstant(sequence.count),
-  );
+  const limit = stamp(irLoadArrayLength(sequence.array));
   editor.insertBefore(node, limit);
   const past = stamp(irInt32Compare(AT_END, cursor, limit));
   past.props.noOverflow = true;

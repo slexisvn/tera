@@ -6,10 +6,9 @@ import {
   type RegisterState,
 } from "./cfg-state.js";
 import { TERA_CONTEXT } from "../target/runtime-layout.js";
+import { FIELD_SCALAR_PROP, FIELD_TYPE_PROP } from "../metadata/class-table.js";
 import { SCALAR_INT32, SCALAR_STRING, type AotScalar } from "../types/scalar.js";
 
-const FIELD_TYPE_PROP = "fieldType";
-const FIELD_SCALAR_PROP = "fieldScalar";
 const PENDING_FLAG_TYPE = "int";
 const NOT_PENDING = 0;
 const PENDING = 1;

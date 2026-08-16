@@ -1,4 +1,5 @@
 import type { CFGInstruction, IRMetadataValue } from "./index.js";
+import { CLASS_ID_PROP, FIELD_TYPE_PROP } from "../metadata/class-table.js";
 import {
   builtinMemberType,
   type BuiltinMemberType,
@@ -91,6 +92,7 @@ export const IR_ITERATOR_NEXT = "IteratorNext";
 export const IR_ITERATOR_DONE = "IteratorDone";
 export const IR_ITERATOR_VALUE = "IteratorValue";
 export const IR_NEW_ARRAY = "NewArray";
+export const IR_ARRAY_RESERVE = "ArrayReserve";
 export const IR_MAKE_CLOSURE = "MakeClosure";
 export const IR_TYPEOF = "TypeOf";
 export const IR_NOT = "Not";
@@ -337,8 +339,6 @@ function constant(result: LatticeType): Transfer {
 
 const ANY: Transfer = () => anyType();
 
-const FIELD_TYPE_PROP = "fieldType";
-const CLASS_ID_PROP = "classId";
 export const SETTLED_TYPE_PROP = "settledType";
 
 const allocatedObjectType: Transfer = (node) => {
@@ -669,6 +669,7 @@ export type Opcode =
   | typeof IR_ITERATOR_DONE
   | typeof IR_ITERATOR_VALUE
   | typeof IR_NEW_ARRAY
+  | typeof IR_ARRAY_RESERVE
   | typeof IR_MAKE_CLOSURE
   | typeof IR_TYPEOF
   | typeof IR_NOT
@@ -849,6 +850,7 @@ export const OPERATIONS = {
   [IR_ITERATOR_DONE]: pureValue(ONE_INPUT, RESULT_BOOL, constant(booleanType())),
   [IR_ITERATOR_VALUE]: pureValue(ONE_INPUT, RESULT_HANDLE, ANY),
   [IR_NEW_ARRAY]: allocation(variadic(0), RESULT_HANDLE, newArrayTransfer),
+  [IR_ARRAY_RESERVE]: { ...allocation(ONE_INPUT, RESULT_HANDLE, allocatedObjectType), opaqueMemory: true },
   [IR_NEW_REGEX]: allocation(NO_INPUTS, RESULT_HANDLE, constant(objectType())),
   [IR_MAKE_CLOSURE]: { ...allocation(NO_INPUTS, RESULT_HANDLE, constant(objectType())), opaqueMemory: true },
 

@@ -1,5 +1,5 @@
 import {
-  IR_CONSTANT,
+  IR_GENERIC_CALL,
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_GET_PROP,
   IR_GENERIC_SET_INDEX,
@@ -9,7 +9,9 @@ import {
   IR_PARAMETER,
   IR_PHI,
   IR_STORE_ELEMENT,
+  irArrayReserve,
   irConstant,
+  irInt32Add,
   irLoadElement,
   irLoadField,
   irNewObject,
@@ -21,11 +23,20 @@ import {
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
 import {
-  arrayLayoutOf,
-  arrayElementOffset,
+  arrayBufferBytes,
+  bufferElementOffset,
   commonAncestorOf,
   declaredTypeOf,
+  ARRAY_CAPACITY_OFFSET,
+  ARRAY_ELEMENT_SCALAR_PROP,
+  ARRAY_ELEMENTS_OFFSET,
   ARRAY_LENGTH_OFFSET,
+  BUFFER_ELEMENTS_OFFSET,
+  CLASS_ID_PROP,
+  FIELD_SCALAR_PROP,
+  FIELD_TYPE_PROP,
+  INSTANCE_SIZE_PROP,
+  VALUE_CLASS_PROP,
   type ClassShape,
   type ClassTable,
 } from "../metadata/class-table.js";
@@ -46,20 +57,17 @@ import {
   isNumericScalar,
   isReferenceScalar,
   isStorableScalar,
+  scalarWidth,
   SCALAR_INT32,
+  SCALAR_POINTER,
   type AotScalar,
 } from "../types/scalar.js";
-import {
-  ARRAY_ELEMENT_SCALAR_PROP,
-  CLASS_ID_PROP,
-  FIELD_SCALAR_PROP,
-  FIELD_TYPE_PROP,
-  INSTANCE_SIZE_PROP,
-  VALUE_CLASS_PROP,
-} from "./class-member-lowering.js";
 
 const COUNT_TYPE = "int";
 const LENGTH_MEMBER = "length";
+const PUSH_MEMBER = "push";
+const ONE_ELEMENT = 1;
+const CALLEE_AND_RECEIVER = 2;
 
 type Stamp = (node: CFGInstruction) => CFGInstruction;
 
@@ -73,15 +81,34 @@ const WRITES_ELEMENT: ReadonlySet<string> = new Set<string>([
   IR_GENERIC_SET_INDEX,
 ]);
 
+function memberCalled(node: CFGInstruction, member: string): CFGInstruction | null {
+  if (node.type !== IR_GENERIC_CALL || node.props.isMethod !== true) return null;
+  const callee = node.inputs[0];
+  if (callee?.type !== IR_GENERIC_GET_PROP) return null;
+  if (String(callee.props.propName) !== member) return null;
+  return callee.inputs[0] === node.inputs[1] ? callee : null;
+}
+
+function pushedValue(use: CFGInstruction, array: CFGInstruction): CFGInstruction | null {
+  if (memberCalled(use, PUSH_MEMBER) === null || use.inputs[1] !== array) return null;
+  return use.inputs[2] ?? null;
+}
+
 function storedValues(allocation: CFGInstruction): CFGInstruction[] {
   const aliases = new Set<CFGInstruction>([allocation]);
   const pending = [allocation];
   const values = [...allocation.inputs];
   while (pending.length > 0) {
-    for (const use of pending.pop()!.uses) {
+    const array = pending.pop()!;
+    for (const use of array.uses) {
       if (use.type === IR_PHI && !aliases.has(use)) {
         aliases.add(use);
         pending.push(use);
+        continue;
+      }
+      const pushed = pushedValue(use, array);
+      if (pushed !== null) {
+        values.push(pushed);
         continue;
       }
       if (!WRITES_ELEMENT.has(use.type) || !aliases.has(use.inputs[0]!)) continue;
@@ -91,6 +118,27 @@ function storedValues(allocation: CFGInstruction): CFGInstruction[] {
   return values;
 }
 
+function classOfValue(
+  value: CFGInstruction,
+  classes: ClassTable,
+  types: TypeInference,
+): ClassShape | null {
+  const carried = value.props[VALUE_CLASS_PROP];
+  if (typeof carried === "number") return classes.shapeById(carried);
+  const type = types.typeOf(value);
+  if (type.kind !== TypeKind.Object || typeof type.map !== "number") return null;
+  return classes.shapeById(type.map);
+}
+
+function valueTypeOf(
+  value: CFGInstruction,
+  classes: ClassTable,
+  types: TypeInference,
+): LatticeType {
+  const shape = classOfValue(value, classes, types);
+  return shape === null ? types.typeOf(value) : objectType(shape.id);
+}
+
 function sharedClass(
   values: readonly CFGInstruction[],
   classes: ClassTable,
@@ -98,9 +146,7 @@ function sharedClass(
 ): LatticeType | null {
   const shapes: ClassShape[] = [];
   for (const value of values) {
-    const type = types.typeOf(value);
-    if (type.kind !== TypeKind.Object || typeof type.map !== "number") return null;
-    const shape = classes.shapeById(type.map);
+    const shape = classOfValue(value, classes, types);
     if (shape === null) return null;
     shapes.push(shape);
   }
@@ -119,7 +165,7 @@ function elementTypeOf(
   const values = storedValues(allocation);
   let joined: LatticeType = declared.kind === TypeKind.Any ? neverType() : declared;
   for (const value of values) {
-    const stored = types.typeOf(value);
+    const stored = valueTypeOf(value, classes, types);
     if (isStorableScalar(aotScalarOf(stored)) === null) return null;
     joined = joinTypes(joined, stored)!;
   }
@@ -133,25 +179,22 @@ function fits(value: AotScalar, element: AotScalar): boolean {
     : isNumericScalar(value);
 }
 
-function constantIndex(node: CFGInstruction): number | null {
-  const index = node.inputs[1];
-  if (index?.type !== IR_CONSTANT) return null;
-  const value = index.props.value;
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
-}
-
 interface ArrayModel {
-  readonly shape: ClassShape | null;
+  readonly shape: ClassShape;
+  readonly buffer: ClassShape;
   readonly element: AotScalar;
   readonly declaredType: string;
-  readonly length: number | null;
+}
+
+function modelOf(shape: ClassShape | null, classes: ClassTable): ArrayModel | null {
+  if (shape === null) return null;
+  const layout = classes.arrayLayoutOf(shape);
+  return layout === null ? null : { shape, ...layout };
 }
 
 function shapedArray(array: CFGInstruction, classes: ClassTable): ArrayModel | null {
   const carried = array.props[VALUE_CLASS_PROP];
-  const shape = typeof carried === "number" ? classes.shapeById(carried) : null;
-  const layout = shape === null ? null : arrayLayoutOf(shape);
-  return layout === null ? null : { shape, ...layout };
+  return modelOf(typeof carried === "number" ? classes.shapeById(carried) : null, classes);
 }
 
 function declaredArrayOf(array: CFGInstruction, graph: CFGFunction): string | null {
@@ -188,11 +231,106 @@ function receivedArray(
   types: TypeInference,
 ): ArrayModel | null {
   const carried = receivedElement(array, graph, classes, types);
-  if (carried === null) return null;
-  const element = isStorableScalar(aotScalarOf(carried));
-  const declaredType = declaredTypeOf(carried, classes);
-  if (element === null || declaredType === null) return null;
-  return { shape: null, element, declaredType, length: null };
+  return carried === null ? null : modelOf(classes.defineArray(carried), classes);
+}
+
+function arrayModelOf(
+  array: CFGInstruction | undefined,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): ArrayModel | null {
+  if (array === undefined) return null;
+  return shapedArray(array, classes) ?? receivedArray(array, graph, classes, types);
+}
+
+export function arrayElementShapeOf(
+  array: CFGInstruction | undefined,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): ClassShape | null {
+  const model = arrayModelOf(array, graph, classes, types);
+  return model === null ? null : classes.shapeOf(model.declaredType);
+}
+
+function allocateObject(
+  editor: GraphEditor,
+  before: CFGInstruction,
+  shape: ClassShape,
+  bytes: number,
+  stamp: Stamp,
+): CFGInstruction {
+  const allocation = stamp(irNewObject());
+  allocation.props[CLASS_ID_PROP] = shape.id;
+  allocation.props[INSTANCE_SIZE_PROP] = bytes;
+  allocation.props[VALUE_CLASS_PROP] = shape.id;
+  allocation.frameState = before.frameState;
+  editor.insertBefore(before, allocation);
+  return allocation;
+}
+
+function storeCount(
+  editor: GraphEditor,
+  before: CFGInstruction,
+  array: CFGInstruction,
+  offset: number,
+  value: CFGInstruction,
+  model: ArrayModel,
+  stamp: Stamp,
+): CFGInstruction {
+  const store = stamp(irStoreField(array, offset, value));
+  store.props[CLASS_ID_PROP] = model.shape.id;
+  store.props[FIELD_SCALAR_PROP] = SCALAR_INT32;
+  store.props[FIELD_TYPE_PROP] = COUNT_TYPE;
+  store.frameState = before.frameState;
+  editor.insertBefore(before, store);
+  return store;
+}
+
+function loadCount(
+  editor: GraphEditor,
+  before: CFGInstruction,
+  array: CFGInstruction,
+  offset: number,
+  model: ArrayModel,
+  stamp: Stamp,
+): CFGInstruction {
+  const load = stamp(irLoadField(array, offset));
+  load.props[CLASS_ID_PROP] = model.shape.id;
+  load.props[FIELD_SCALAR_PROP] = SCALAR_INT32;
+  load.props[FIELD_TYPE_PROP] = COUNT_TYPE;
+  load.frameState = before.frameState;
+  editor.insertBefore(before, load);
+  return load;
+}
+
+function loadBuffer(
+  editor: GraphEditor,
+  before: CFGInstruction,
+  array: CFGInstruction,
+  model: ArrayModel,
+  stamp: Stamp,
+): CFGInstruction {
+  const load = stamp(irLoadField(array, ARRAY_ELEMENTS_OFFSET));
+  load.props[CLASS_ID_PROP] = model.shape.id;
+  load.props[FIELD_SCALAR_PROP] = SCALAR_POINTER;
+  load.props[FIELD_TYPE_PROP] = model.buffer.name;
+  load.props[VALUE_CLASS_PROP] = model.buffer.id;
+  load.frameState = before.frameState;
+  editor.insertBefore(before, load);
+  return load;
+}
+
+function constantAt(
+  editor: GraphEditor,
+  before: CFGInstruction,
+  value: number,
+  stamp: Stamp,
+): CFGInstruction {
+  const constant = stamp(irConstant(value));
+  editor.insertBefore(before, constant);
+  return constant;
 }
 
 function allocate(
@@ -204,102 +342,123 @@ function allocate(
 ): boolean {
   const carried = elementTypeOf(node, classes, types);
   if (carried === null) return false;
-  const length = node.inputs.length;
-  const shape = classes.defineArray(carried, length);
-  if (shape === null) return false;
-  const element = arrayLayoutOf(shape)!.element;
+  const model = modelOf(classes.defineArray(carried), classes);
+  if (model === null) return false;
   for (const value of node.inputs) {
-    const stored = aotScalarOf(types.typeOf(value));
-    if (stored === null || !fits(stored, element)) return false;
+    const stored = aotScalarOf(valueTypeOf(value, classes, types));
+    if (stored === null || !fits(stored, model.element)) return false;
   }
 
-  const allocation = stamp(irNewObject());
-  allocation.props[CLASS_ID_PROP] = shape.id;
-  allocation.props[INSTANCE_SIZE_PROP] = shape.size;
-  allocation.props[VALUE_CLASS_PROP] = shape.id;
-  allocation.frameState = node.frameState;
-  editor.insertBefore(node, allocation);
-
-  for (const field of shape.fields.values()) {
-    if (field.scalar !== SCALAR_INT32 || field.declaredType !== COUNT_TYPE) continue;
-    const count = stamp(irConstant(length));
-    editor.insertBefore(node, count);
-    const store = stamp(irStoreField(allocation, field.offset, count, field.name));
-    store.props[CLASS_ID_PROP] = shape.id;
-    store.props[FIELD_SCALAR_PROP] = SCALAR_INT32;
-    store.props[FIELD_TYPE_PROP] = COUNT_TYPE;
-    editor.insertBefore(node, store);
-  }
-
+  const count = node.inputs.length;
+  const buffer = allocateObject(
+    editor,
+    node,
+    model.buffer,
+    arrayBufferBytes(model.element, count),
+    stamp,
+  );
   node.inputs.forEach((value, index) => {
     const store = stamp(
-      irStoreField(allocation, arrayElementOffset(element, index), value, String(index)),
+      irStoreField(buffer, bufferElementOffset(model.element, index), value, String(index)),
     );
-    store.props[CLASS_ID_PROP] = shape.id;
-    store.props[FIELD_SCALAR_PROP] = element;
+    store.props[CLASS_ID_PROP] = model.buffer.id;
+    store.props[FIELD_SCALAR_PROP] = model.element;
+    store.props[FIELD_TYPE_PROP] = model.declaredType;
     editor.insertBefore(node, store);
   });
 
-  editor.replaceAllUses(node, allocation);
+  const array = allocateObject(editor, node, model.shape, model.shape.size, stamp);
+  const counted = constantAt(editor, node, count, stamp);
+  storeCount(editor, node, array, ARRAY_LENGTH_OFFSET, counted, model, stamp);
+  storeCount(editor, node, array, ARRAY_CAPACITY_OFFSET, counted, model, stamp);
+  const elements = stamp(irStoreField(array, ARRAY_ELEMENTS_OFFSET, buffer));
+  elements.props[CLASS_ID_PROP] = model.shape.id;
+  elements.props[FIELD_SCALAR_PROP] = SCALAR_POINTER;
+  elements.props[FIELD_TYPE_PROP] = model.buffer.name;
+  editor.insertBefore(node, elements);
+
+  editor.replaceAllUses(node, array);
   editor.remove(node);
   return true;
 }
 
-function loadCount(
+function replaceLength(
   editor: GraphEditor,
   node: CFGInstruction,
   model: ArrayModel,
   stamp: Stamp,
 ): void {
-  const array = node.inputs[0]!;
-  const replacement =
-    model.length === null
-      ? stamp(irLoadField(array, ARRAY_LENGTH_OFFSET))
-      : stamp(irConstant(model.length));
-  if (model.length === null) {
-    if (model.shape !== null) replacement.props[CLASS_ID_PROP] = model.shape.id;
-    replacement.props[FIELD_SCALAR_PROP] = SCALAR_INT32;
-    replacement.props[FIELD_TYPE_PROP] = COUNT_TYPE;
-  }
-  replacement.frameState = node.frameState;
-  editor.insertBefore(node, replacement);
-  editor.replaceAllUses(node, replacement);
+  const length = loadCount(editor, node, node.inputs[0]!, ARRAY_LENGTH_OFFSET, model, stamp);
+  editor.replaceAllUses(node, length);
   editor.remove(node);
 }
 
-function accessElement(
+function elementAccess(
+  editor: GraphEditor,
+  before: CFGInstruction,
+  access: CFGInstruction,
+  model: ArrayModel,
+  stamp: Stamp,
+): CFGInstruction {
+  const stamped = stamp(access);
+  stamped.props[ARRAY_ELEMENT_SCALAR_PROP] = model.element;
+  stamped.props.offset = BUFFER_ELEMENTS_OFFSET;
+  stamped.props[CLASS_ID_PROP] = model.buffer.id;
+  stamped.props[FIELD_SCALAR_PROP] = model.element;
+  stamped.props[FIELD_TYPE_PROP] = model.declaredType;
+  stamped.frameState = before.frameState;
+  editor.insertBefore(before, stamped);
+  return stamped;
+}
+
+function replaceElement(
   editor: GraphEditor,
   node: CFGInstruction,
   model: ArrayModel,
   stamp: Stamp,
 ): void {
-  const array = node.inputs[0]!;
-  const reads = READS_ELEMENT.has(node.type);
-  const at = constantIndex(node);
-  const known = at !== null && model.length !== null && at < model.length;
-  const offset = known ? arrayElementOffset(model.element, at!) : 0;
-  const replacement = known
-    ? stamp(
-        reads
-          ? irLoadField(array, offset)
-          : irStoreField(array, offset, node.inputs[2]!, String(at)),
-      )
-    : stamp(
-        reads
-          ? irLoadElement(array, node.inputs[1]!)
-          : irStoreElement(array, node.inputs[1]!, node.inputs[2]!),
-      );
-  if (!known) {
-    replacement.props[ARRAY_ELEMENT_SCALAR_PROP] = model.element;
-    replacement.props.offset = arrayElementOffset(model.element, 0);
-  }
-  if (model.shape !== null) replacement.props[CLASS_ID_PROP] = model.shape.id;
-  replacement.props[FIELD_SCALAR_PROP] = model.element;
-  replacement.props[FIELD_TYPE_PROP] = model.declaredType;
-  replacement.frameState = node.frameState;
-  editor.insertBefore(node, replacement);
-  editor.replaceAllUses(node, replacement);
+  const buffer = loadBuffer(editor, node, node.inputs[0]!, model, stamp);
+  const index = node.inputs[1]!;
+  const access = elementAccess(
+    editor,
+    node,
+    READS_ELEMENT.has(node.type)
+      ? irLoadElement(buffer, index)
+      : irStoreElement(buffer, index, node.inputs[2]!),
+    model,
+    stamp,
+  );
+  editor.replaceAllUses(node, access);
   editor.remove(node);
+}
+
+function replacePush(
+  editor: GraphEditor,
+  node: CFGInstruction,
+  callee: CFGInstruction,
+  model: ArrayModel,
+  stamp: Stamp,
+): void {
+  const array = node.inputs[1]!;
+  const buffer = stamp(
+    irArrayReserve(array, model.buffer.id, scalarWidth(model.element)),
+  );
+  buffer.props[VALUE_CLASS_PROP] = model.buffer.id;
+  buffer.frameState = node.frameState;
+  editor.insertBefore(node, buffer);
+
+  const length = loadCount(editor, node, array, ARRAY_LENGTH_OFFSET, model, stamp);
+  elementAccess(editor, node, irStoreElement(buffer, length, node.inputs[2]!), model, stamp);
+
+  const step = constantAt(editor, node, ONE_ELEMENT, stamp);
+  const grown = stamp(irInt32Add(length, step));
+  grown.props.noOverflow = true;
+  editor.insertBefore(node, grown);
+  storeCount(editor, node, array, ARRAY_LENGTH_OFFSET, grown, model, stamp);
+
+  editor.replaceAllUses(node, grown);
+  editor.remove(node);
+  if (callee.uses.length === 0) editor.remove(callee);
 }
 
 function readsLength(node: CFGInstruction): boolean {
@@ -307,7 +466,7 @@ function readsLength(node: CFGInstruction): boolean {
   return node.type === IR_GENERIC_GET_PROP && String(node.props.propName) === LENGTH_MEMBER;
 }
 
-export function shapeArrays(graph: CFGFunction, types: TypeInference): number {
+export function shapeArrayAllocations(graph: CFGFunction, types: TypeInference): number {
   const classes = graph.classes;
   if (classes === null) return 0;
   const editor = new GraphEditor(graph);
@@ -321,23 +480,36 @@ export function shapeArrays(graph: CFGFunction, types: TypeInference): number {
     }
   }
   if (changed > 0) graph.rebuildUses();
+  return changed;
+}
 
-  let reached = 0;
+export function lowerArrayAccess(graph: CFGFunction, types: TypeInference): number {
+  const classes = graph.classes;
+  if (classes === null) return 0;
+  const editor = new GraphEditor(graph);
+  const stamp = nodeIdStamper(graph);
+  let changed = 0;
+
   for (const block of graph.blocks) {
     for (const node of [...block.nodes]) {
       if (node.block !== block) continue;
-      const array = node.inputs[0];
-      if (array === undefined) continue;
-      const touches =
-        readsLength(node) || READS_ELEMENT.has(node.type) || WRITES_ELEMENT.has(node.type);
-      if (!touches) continue;
-      const model = shapedArray(array, classes) ?? receivedArray(array, graph, classes, types);
+      const push = memberCalled(node, PUSH_MEMBER);
+      if (push !== null && node.inputs.length - CALLEE_AND_RECEIVER === ONE_ELEMENT) {
+        const model = arrayModelOf(node.inputs[1], graph, classes, types);
+        if (model === null) continue;
+        replacePush(editor, node, push, model, stamp);
+        changed++;
+        continue;
+      }
+      const reads = readsLength(node);
+      if (!reads && !READS_ELEMENT.has(node.type) && !WRITES_ELEMENT.has(node.type)) continue;
+      const model = arrayModelOf(node.inputs[0], graph, classes, types);
       if (model === null) continue;
-      reached++;
-      if (readsLength(node)) loadCount(editor, node, model, stamp);
-      else accessElement(editor, node, model, stamp);
+      changed++;
+      if (reads) replaceLength(editor, node, model, stamp);
+      else replaceElement(editor, node, model, stamp);
     }
   }
-  if (reached > 0) graph.rebuildUses();
-  return changed + reached;
+  if (changed > 0) graph.rebuildUses();
+  return changed;
 }

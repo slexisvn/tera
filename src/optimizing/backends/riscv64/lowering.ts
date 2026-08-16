@@ -26,7 +26,9 @@ import {
   IR_INT32_USHR,
   IR_INT32_XOR,
   IR_JUMP,
+  arrayReserveOf,
   heapElementScalarOf,
+  IR_ARRAY_RESERVE,
   IR_LOAD_ELEMENT,
   IR_LOAD_GLOBAL,
   IR_NEG,
@@ -236,6 +238,7 @@ export class RiscvLowering implements MachineLowering {
       [IR_NEG, (ctx) => this.selectNegate(ctx)],
       [IR_NOT, (ctx) => this.selectLogicalNot(ctx)],
       [IR_NEW_OBJECT, (ctx) => this.selectNewObject(ctx)],
+      [IR_ARRAY_RESERVE, (ctx) => this.selectArrayReserve(ctx)],
       [IR_RUNTIME_BASE, (ctx) => this.selectRuntimeBase(ctx)],
       [IR_LOAD_FIELD, (ctx) => this.selectLoadField(ctx)],
       [IR_STORE_FIELD, (ctx) => this.selectStoreField(ctx)],
@@ -770,6 +773,19 @@ export class RiscvLowering implements MachineLowering {
     const identity = this.loadNumber(ctx, shape.id, SCALAR_INT32);
     ctx.external(RISCV_RUNTIME_SYMBOLS.allocate);
     ctx.emitCall(RISCV_RUNTIME_SYMBOLS.allocate, [size, identity], ctx.resultRegister());
+  }
+
+  private selectArrayReserve(ctx: SelectionContext): void {
+    const growth = arrayReserveOf(ctx.node);
+    const array = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_POINTER);
+    const buffer = this.loadNumber(ctx, growth.buffer, SCALAR_INT32);
+    const stride = this.loadNumber(ctx, growth.elementBytes, SCALAR_INT32);
+    ctx.external(RISCV_RUNTIME_SYMBOLS.arrayReserve);
+    ctx.emitCall(
+      RISCV_RUNTIME_SYMBOLS.arrayReserve,
+      [array, buffer, stride],
+      ctx.resultRegister(),
+    );
   }
 
   private selectRuntimeBase(ctx: SelectionContext): void {

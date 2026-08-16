@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { heapData, heapImageOf } from "../../../src/optimizing/machine/heap-data.js";
 import { machineDataSize } from "../../../src/optimizing/machine/data.js";
 import { buildClassTable } from "../../../src/optimizing/metadata/class-table.js";
+import { objectType, smiType } from "../../../src/optimizing/types/lattice.js";
 import { C_HEAP_SUPPORT, cClassTable } from "../../../src/optimizing/backends/c/emit.js";
 import {
   TERA_ARRAYS,
@@ -91,8 +92,40 @@ describe("runtime layout", () => {
         field.bytes,
       ]);
     });
-    const shape = items[perRecord + TERA_CLASS_RECORD.fields.findIndex((f) => f.name === "size")]!;
-    expect(shape).toEqual({ kind: "integer", value: BigInt(classes.shapeOf("Pair")!.size), size: 4 });
+    const tail = items[perRecord + TERA_CLASS_RECORD.fields.findIndex((f) => f.name === "tailReferences")]!;
+    expect(tail).toEqual({ kind: "integer", value: 0n, size: 4 });
+  });
+
+  it("marks only a buffer of references as carrying a tail the collector walks", () => {
+    const classes = buildClassTable([
+      {
+        name: "Node",
+        parent: null,
+        abstract: false,
+        constructorParams: [],
+        constructorParamNames: [],
+        members: [],
+      },
+    ] as never);
+    const references = classes.arrayLayoutOf(
+      classes.defineArray(objectType(classes.shapeIdOf("Node")!))!,
+    )!;
+    const numbers = classes.arrayLayoutOf(classes.defineArray(smiType())!)!;
+
+    expect(references.buffer.tailReferences).toBe(true);
+    expect(numbers.buffer.tailReferences).toBe(false);
+
+    const items = new Map(
+      heapData(heapImageOf(classes, undefined)).map((datum) => [datum.label, datum]),
+    ).get(TERA_CLASS_RECORD.symbol)!.items;
+    const tailAt = (shape: number): unknown =>
+      items[
+        shape * TERA_CLASS_RECORD.fields.length +
+          TERA_CLASS_RECORD.fields.findIndex((field) => field.name === "tailReferences")
+      ];
+
+    expect(tailAt(references.buffer.id)).toEqual({ kind: "integer", value: 1n, size: 4 });
+    expect(tailAt(numbers.buffer.id)).toEqual({ kind: "integer", value: 0n, size: 4 });
   });
 
   it("declares the same context fields in the C backend, in the same order", () => {

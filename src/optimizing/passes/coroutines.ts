@@ -49,7 +49,15 @@ import {
   builtinMethodCallMetadata,
   THROW_BUILTIN,
 } from "../metadata/builtin-methods.js";
-import type { ClassShape, ClassTable } from "../metadata/class-table.js";
+import {
+  CLASS_ID_PROP,
+  FIELD_SCALAR_PROP,
+  FIELD_TYPE_PROP,
+  INSTANCE_SIZE_PROP,
+  VALUE_CLASS_PROP,
+  type ClassShape,
+  type ClassTable,
+} from "../metadata/class-table.js";
 import {
   coroutineFrameShape,
   coroutineResumeName,
@@ -78,13 +86,6 @@ import {
   coroutineCarriesValue,
   type CoroutineSlot,
 } from "../metadata/coroutines.js";
-import {
-  CLASS_ID_PROP,
-  FIELD_SCALAR_PROP,
-  FIELD_TYPE_PROP,
-  INSTANCE_SIZE_PROP,
-  VALUE_CLASS_PROP,
-} from "./class-member-lowering.js";
 import { aotScalarOf, scalarWidth, SCALAR_POINTER, SCALAR_TEXT } from "../types/scalar.js";
 import { nominalLatticeType } from "../types/declared.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";

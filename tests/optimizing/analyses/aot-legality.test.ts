@@ -30,7 +30,7 @@ import { callReachability } from "../../../src/optimizing/metadata/call-graph.js
 import { AnalysisManager } from "../../../src/optimizing/infra/analysis-manager.js";
 import { createAnalysisRegistry } from "../../../src/optimizing/analyses/index.js";
 import { typeInferenceAnalysisId } from "../../../src/optimizing/analyses/type-inference.js";
-import { ARRAY_ELEMENTS_OFFSET } from "../../../src/optimizing/metadata/class-table.js";
+import { BUFFER_ELEMENTS_OFFSET } from "../../../src/optimizing/metadata/class-table.js";
 import {
   SCALAR_FLOAT64,
   SCALAR_INT32,
@@ -222,7 +222,7 @@ describe("AOT legality arrays", () => {
     const block = graph.addBlock();
     const loaded = irLoadElement(array, at);
     loaded.props.elementScalar = element;
-    loaded.props.offset = ARRAY_ELEMENTS_OFFSET;
+    loaded.props.offset = BUFFER_ELEMENTS_OFFSET;
     block.addNode(loaded);
     block.addNode(irReturn(loaded));
     return graph;
@@ -263,7 +263,7 @@ describe("AOT legality arrays", () => {
     const block = graph.addBlock();
     const stored = irStoreElement(array, at, text);
     stored.props.elementScalar = SCALAR_FLOAT64;
-    stored.props.offset = ARRAY_ELEMENTS_OFFSET;
+    stored.props.offset = BUFFER_ELEMENTS_OFFSET;
     block.addNode(stored);
     block.addNode(irReturn(stored));
 

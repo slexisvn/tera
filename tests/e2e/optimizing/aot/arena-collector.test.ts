@@ -3,6 +3,7 @@ import { nodeEngine } from "../../../helpers/engine.js";
 import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
 import { TERA_ARENA } from "../../../../src/optimizing/target/runtime-layout.js";
+import { scalarWidth, SCALAR_POINTER } from "../../../../src/optimizing/types/scalar.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
@@ -33,6 +34,10 @@ const HOLDER = [
 
 const CELL_BYTES = 16;
 const ROUNDS_PAST_THE_ARENA = Math.ceil((TERA_ARENA.size / CELL_BYTES) * 4);
+const KEPT_CELLS = Math.floor(
+  TERA_ARENA.size / (CELL_BYTES + scalarWidth(SCALAR_POINTER)) / 8,
+);
+const KEPT_SUM = (KEPT_CELLS * (KEPT_CELLS - 1)) / 2;
 
 function image(source: string): Uint8Array {
   const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
@@ -64,6 +69,24 @@ const RETAIN = [
   "    seen = (seen + Holder(Cell(i & 3)).reading) & 65535",
   "    i = i + 1",
   "  return keeper.reading",
+];
+
+const GROWN = [
+  ...CELL,
+  "fn churn(rounds: int) -> int:",
+  "  xs = [Cell(0)]",
+  "  i = 1",
+  `  while i < ${KEPT_CELLS}:`,
+  "    xs.push(Cell(i))",
+  "    i = i + 1",
+  "  j = 0",
+  "  while j < rounds:",
+  "    dropped = Cell(j)",
+  "    j = j + 1",
+  "  seen = 0",
+  "  for c of xs:",
+  "    seen = seen + c.value",
+  "  return seen",
 ];
 
 function churned(rounds: number): number {
@@ -141,6 +164,12 @@ describe("AOT arena collector", () => {
       nodeEngine({ typecheck: "off" }).runNative(`${body}\nchurn(1000)\n`),
     );
   });
+
+  itNative("keeps the elements of a grown array alive across collections", () => {
+    expect(runCFunction(compile(src(...GROWN)), "churn", [ROUNDS_PAST_THE_ARENA])).toBe(
+      KEPT_SUM,
+    );
+  });
 });
 
 describe("native arena collector", () => {
@@ -157,6 +186,12 @@ describe("native arena collector", () => {
     const run = runPe(image(src(...RETAIN, `print(churn(${ROUNDS_PAST_THE_ARENA}))`)));
 
     expect([run.status, run.stdout.trim()]).toEqual([0, "1234"]);
+  });
+
+  itRunsPe("keeps the elements of a grown array alive across collections", () => {
+    const run = runPe(image(src(...GROWN, `print(churn(${ROUNDS_PAST_THE_ARENA}))`)));
+
+    expect([run.status, run.stdout.trim()]).toEqual([0, String(KEPT_SUM)]);
   });
 
   itRunsPe("still reclaims when the roots live in a class the program keeps", () => {

@@ -25,6 +25,7 @@ import { isFloatRegister, needsRexForByteAccess, x64RegisterNumber } from "./reg
 
 const TARGET = "x64";
 const ACCUMULATOR = 0;
+const SHIFT_BY_ONE = 1;
 
 function physicalOf(operand: RegisterOperand, opcode: string) {
   if (operand.register.kind !== "physical") {
@@ -128,6 +129,11 @@ function encodeImmediate(
 ): EncodedInstruction {
   const out = sink();
   const rm = rmOf(destination, opcode);
+  const once = group.m1;
+  if (once !== undefined && Number(value) === SHIFT_BY_ONE) {
+    emitForm(out, once, once.extension ?? 0, rm, opcode);
+    return encoded(out.bytes, out.fixups);
+  }
   const short = group.mi8;
   if (short !== undefined && fitsSigned(value, 8)) {
     emitForm(out, short, short.extension ?? 0, rm, opcode);

@@ -1,5 +1,6 @@
 import {
   TERA_ALLOC_SYMBOL,
+  TERA_ARRAY_RESERVE_SYMBOL,
   TERA_COLLECT_SYMBOL,
   TERA_ENTER_ROOTS_SYMBOL,
   TERA_GROW_SYMBOL,
@@ -32,6 +33,7 @@ export const X64_RUNTIME_SYMBOLS = {
   bignumAdd: "tera_x64_bn_add",
   floatToString: "tera_x64_f64_to_str",
   allocate: TERA_ALLOC_SYMBOL,
+  arrayReserve: TERA_ARRAY_RESERVE_SYMBOL,
   collect: TERA_COLLECT_SYMBOL,
   enterRoots: TERA_ENTER_ROOTS_SYMBOL,
   reserve: TERA_RESERVE_SYMBOL,

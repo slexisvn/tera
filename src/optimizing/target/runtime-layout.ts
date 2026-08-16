@@ -127,7 +127,7 @@ export const TERA_CONTEXT = declareRecord("tera_context", [
 export type TeraContextField = (typeof TERA_CONTEXT.fields)[number]["name"];
 
 export const TERA_CLASS_RECORD = declareRecord("tera_classes", [
-  { name: "size", bytes: COUNT_BYTES },
+  { name: "tailReferences", bytes: COUNT_BYTES },
   { name: "fieldStart", bytes: COUNT_BYTES },
   { name: "fieldCount", bytes: COUNT_BYTES },
   { name: "reserved", bytes: COUNT_BYTES },
@@ -153,6 +153,7 @@ export const TERA_TABLES: readonly RuntimeTable[] = [
 ];
 
 export const TERA_ALLOC_SYMBOL = "tera_alloc";
+export const TERA_ARRAY_RESERVE_SYMBOL = "tera_array_reserve";
 export const TERA_COLLECT_SYMBOL = "tera_collect";
 export const TERA_ENTER_ROOTS_SYMBOL = "tera_enter_roots";
 export const TERA_RESERVE_SYMBOL = "tera_reserve";

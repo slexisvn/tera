@@ -36,26 +36,46 @@ export const CLASS_FLAGS_OFFSET = 4;
 export const CLASS_HEADER_BYTES = 8;
 export const CLASS_ALIGNMENT_BYTES = 8;
 
-const ARRAY_COUNT_FIELDS = 2;
+export const CLASS_ID_PROP = "classId";
+export const FIELD_TYPE_PROP = "fieldType";
+export const FIELD_SCALAR_PROP = "fieldScalar";
+export const INSTANCE_SIZE_PROP = "instanceSize";
+export const VALUE_CLASS_PROP = "valueClassId";
+export const ARRAY_ELEMENT_SCALAR_PROP = "elementScalar";
+
 const ARRAY_SHAPE_PREFIX = "tera_array";
+const ARRAY_BUFFER_PREFIX = "tera_array_buffer";
 const ARRAY_LENGTH_FIELD = "length";
 const ARRAY_CAPACITY_FIELD = "capacity";
-export const ARRAY_LENGTH_OFFSET = CLASS_HEADER_BYTES;
-export const ARRAY_ELEMENTS_OFFSET =
-  CLASS_HEADER_BYTES + ARRAY_COUNT_FIELDS * scalarWidth(SCALAR_INT32);
+const ARRAY_ELEMENTS_FIELD = "elements";
 
-export function arrayElementOffset(element: AotScalar, index: number): number {
-  return ARRAY_ELEMENTS_OFFSET + index * scalarWidth(element);
+export const ARRAY_LENGTH_OFFSET = CLASS_HEADER_BYTES;
+export const ARRAY_CAPACITY_OFFSET = ARRAY_LENGTH_OFFSET + scalarWidth(SCALAR_INT32);
+export const ARRAY_ELEMENTS_OFFSET = ARRAY_CAPACITY_OFFSET + scalarWidth(SCALAR_INT32);
+export const BUFFER_ELEMENTS_OFFSET = CLASS_HEADER_BYTES;
+export const ARRAY_INITIAL_CAPACITY = 1;
+export const ARRAY_GROWTH_FACTOR = 2;
+
+export function bufferElementOffset(element: AotScalar, index: number): number {
+  return BUFFER_ELEMENTS_OFFSET + index * scalarWidth(element);
 }
 
-function arrayShapeName(element: AotScalar, length: number): string {
-  return `${ARRAY_SHAPE_PREFIX}$${element}$${length}`;
+export function arrayBufferBytes(element: AotScalar, capacity: number): number {
+  return alignUp(bufferElementOffset(element, capacity), CLASS_ALIGNMENT_BYTES);
+}
+
+function arrayShapeName(declaredType: string): string {
+  return `${ARRAY_SHAPE_PREFIX}$${declaredType}`;
+}
+
+function arrayBufferName(element: AotScalar): string {
+  return `${ARRAY_BUFFER_PREFIX}$${element}`;
 }
 
 export interface ArrayLayout {
   readonly element: AotScalar;
   readonly declaredType: string;
-  readonly length: number;
+  readonly buffer: ClassShape;
 }
 
 export function declaredTypeOf(type: LatticeType, classes: ClassTable): string | null {
@@ -65,43 +85,12 @@ export function declaredTypeOf(type: LatticeType, classes: ClassTable): string |
   return declaredNameOf(type);
 }
 
-export function arrayLayoutOf(shape: ClassShape): ArrayLayout | null {
-  if (!shape.name.startsWith(`${ARRAY_SHAPE_PREFIX}$`)) return null;
-  const length = shape.fields.size - ARRAY_COUNT_FIELDS;
-  const first = shape.fields.get(String(0));
-  if (length === 0) return { element: SCALAR_INT32, declaredType: COUNT_TYPE, length };
-  if (first === undefined) return null;
-  return { element: first.scalar, declaredType: first.declaredType, length };
-}
-
 const COUNT_TYPE = "int";
 
-function arrayCount(name: string, owner: string, offset: number): ClassField {
-  return { name, declaredType: COUNT_TYPE, offset, scalar: SCALAR_INT32, owner };
-}
-
-function arrayShape(
-  id: number,
-  name: string,
-  declaredType: string,
-  element: AotScalar,
-  length: number,
-): ClassShape {
-  const fields = new Map<string, ClassField>([
-    [ARRAY_LENGTH_FIELD, arrayCount(ARRAY_LENGTH_FIELD, name, ARRAY_LENGTH_OFFSET)],
-    [
-      ARRAY_CAPACITY_FIELD,
-      arrayCount(ARRAY_CAPACITY_FIELD, name, ARRAY_LENGTH_OFFSET + scalarWidth(SCALAR_INT32)),
-    ],
-  ]);
-  for (let index = 0; index < length; index++) {
-    fields.set(String(index), {
-      name: String(index),
-      declaredType,
-      offset: arrayElementOffset(element, index),
-      scalar: element,
-      owner: name,
-    });
+function syntheticShape(id: number, name: string, fields: Map<string, ClassField>): ClassShape {
+  let cursor = CLASS_HEADER_BYTES;
+  for (const field of fields.values()) {
+    cursor = Math.max(cursor, field.offset + scalarWidth(field.scalar));
   }
   return {
     id,
@@ -112,11 +101,44 @@ function arrayShape(
     callables: inheritCallables(null),
     staticCallables: inheritCallables(null),
     staticFields: new Map(),
-    size: alignUp(arrayElementOffset(element, length), CLASS_ALIGNMENT_BYTES),
+    size: alignUp(cursor, CLASS_ALIGNMENT_BYTES),
+    tailReferences: false,
     constructorSymbol: name,
     constructorSignature: { params: [name], returns: name },
     constructorParamNames: [],
     unsupported: [],
+  };
+}
+
+function arrayShape(id: number, name: string, buffer: string): ClassShape {
+  const count = (field: string, offset: number): [string, ClassField] => [
+    field,
+    { name: field, declaredType: COUNT_TYPE, offset, scalar: SCALAR_INT32, owner: name },
+  ];
+  return syntheticShape(
+    id,
+    name,
+    new Map<string, ClassField>([
+      count(ARRAY_LENGTH_FIELD, ARRAY_LENGTH_OFFSET),
+      count(ARRAY_CAPACITY_FIELD, ARRAY_CAPACITY_OFFSET),
+      [
+        ARRAY_ELEMENTS_FIELD,
+        {
+          name: ARRAY_ELEMENTS_FIELD,
+          declaredType: buffer,
+          offset: ARRAY_ELEMENTS_OFFSET,
+          scalar: SCALAR_POINTER,
+          owner: name,
+        },
+      ],
+    ]),
+  );
+}
+
+function arrayBufferShape(id: number, name: string, element: AotScalar): ClassShape {
+  return {
+    ...syntheticShape(id, name, new Map()),
+    tailReferences: element === SCALAR_POINTER,
   };
 }
 
@@ -157,6 +179,7 @@ export interface ClassShape {
   readonly staticCallables: ClassCallables;
   readonly staticFields: ReadonlyMap<string, ClassStaticField>;
   readonly size: number;
+  readonly tailReferences: boolean;
   readonly constructorSymbol: string;
   readonly constructorSignature: DeclaredSignature;
   readonly constructorParamNames: readonly string[];
@@ -168,7 +191,8 @@ export interface ClassTable extends NominalTypes {
   shapeOf(name: string): ClassShape | null;
   shapeById(id: number): ClassShape | null;
   shapes(): readonly ClassShape[];
-  defineArray(element: LatticeType, length: number): ClassShape | null;
+  defineArray(element: LatticeType): ClassShape | null;
+  arrayLayoutOf(shape: ClassShape): ArrayLayout | null;
   dispatchConeOf(name: string): readonly ClassShape[];
   implementationsOf(
     name: string,
@@ -297,6 +321,7 @@ class Table implements ClassTable {
   private readonly cones = new Map<string, readonly ClassShape[]>();
   private readonly byMember = new Map<string, ClassShape[]>();
   private readonly staticOffsets = new Map<string, number>();
+  private readonly arrays = new Map<string, ArrayLayout>();
   private staticsSize = 0;
 
   constructor(surfaces: readonly ClassSurface[]) {
@@ -314,16 +339,30 @@ class Table implements ClassTable {
     return this.byName.get(surface.name)!;
   }
 
-  defineArray(element: LatticeType, length: number): ClassShape | null {
+  defineArray(element: LatticeType): ClassShape | null {
     const declared = declaredTypeOf(element, this);
     const scalar = isStorableScalar(aotScalarOf(element));
     if (declared === null || scalar === null) return null;
-    const name = arrayShapeName(scalar, length);
+    const buffer = this.mint(arrayBufferName(scalar), (id, name) =>
+      arrayBufferShape(id, name, scalar),
+    );
+    const shape = this.mint(arrayShapeName(declared), (id, name) =>
+      arrayShape(id, name, buffer.name),
+    );
+    this.arrays.set(shape.name, { element: scalar, declaredType: declared, buffer });
+    return shape;
+  }
+
+  arrayLayoutOf(shape: ClassShape): ArrayLayout | null {
+    return this.arrays.get(shape.name) ?? null;
+  }
+
+  private mint(name: string, build: (id: number, name: string) => ClassShape): ClassShape {
     const existing = this.byName.get(name);
     if (existing !== undefined) return existing;
     const id = FIRST_CLASS_ID + this.byId.size;
     this.ids.set(name, id);
-    this.adopt(arrayShape(id, name, declared, scalar, length));
+    this.adopt(build(id, name));
     this.cones.clear();
     return this.byName.get(name)!;
   }
@@ -445,6 +484,7 @@ class Table implements ClassTable {
       staticCallables,
       staticFields,
       size: alignUp(cursor, CLASS_ALIGNMENT_BYTES),
+      tailReferences: false,
       constructorSymbol: surface.name,
       constructorSignature: {
         params: [surface.name, ...surface.constructorParams],
