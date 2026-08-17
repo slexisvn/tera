@@ -1,3 +1,5 @@
+export const BACK_EDGES_PER_SAFEPOINT = 1024;
+
 export const DEFAULT_TIERING_POLICY = Object.freeze({
   baselineThreshold: 8,
   jitThreshold: 50,

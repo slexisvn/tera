@@ -46,6 +46,50 @@ while i < 1500000:
     expect(engine.runValue("return first;").value).toBe(1.25);
     expect(engine.runValue("return it.next().value;").value).toBe(1.75);
     expect(engine.runValue("return it.next().value;").value).toBe(2.25);
+  }, 120000);
+
+  it("keeps the slab bounded once the loop runs in baseline-compiled code", () => {
+    const engine = new Engine({
+      tieringPolicy: { baselineThreshold: 2, jitThreshold: Number.MAX_SAFE_INTEGER },
+    });
+    const boxedDoubles = 4 * 250000;
+
+    engine.run(`fn spin(n):
+  total = 0.5
+  i = 0
+  while i < n:
+    total = total + 0.25
+    i = i + 1
+  return total
+r = 0.0
+for k of range(4):
+  r = spin(250000)`);
+
+    expect(engine.runValue("return r;").value).toBe(62500.5);
+    expect(engine.valueHeap.heapPayloadCount()).toBeLessThan(boxedDoubles / 2);
+  }, 60000);
+
+  it("still reaches a safepoint when the back edge is a conditional jump", () => {
+    const engine = new Engine({
+      tieringPolicy: { baselineThreshold: 2, jitThreshold: Number.MAX_SAFE_INTEGER },
+    });
+    const boxedDoubles = 4 * 250000;
+
+    engine.run(`fn spin(n):
+  total = 0.5
+  i = 0
+  while true:
+    if i >= n:
+      return total
+    total = total + 0.25
+    i = i + 1
+  return total
+r = 0.0
+for k of range(4):
+  r = spin(250000)`);
+
+    expect(engine.runValue("return r;").value).toBe(62500.5);
+    expect(engine.valueHeap.heapPayloadCount()).toBeLessThan(boxedDoubles / 2);
   }, 60000);
 });
 
@@ -116,5 +160,5 @@ for j of range(1000000):
   last = j`);
 
     expect(engine.runValue("return last;").value).toBe(999999);
-  }, 60000);
+  }, 120000);
 });

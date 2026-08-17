@@ -8,7 +8,9 @@ import {
   type TaggedValue,
 } from "../../core/value/index.js";
 import { BaselineRuntime, type BaselineInterpreter } from "./runtime.js";
+import type { Environment } from "../../runtime/intrinsics/environment.js";
 import { DEFAULT_TIERING_POLICY } from "../../runtime/tiering/policy.js";
+import { BACK_EDGES_PER_SAFEPOINT } from "../../runtime/tiering/defaults.js";
 
 export { BaselineRuntime } from "./runtime.js";
 
@@ -25,6 +27,19 @@ type BaselineCompiledFunction = bytecode.RegisterCompiledFunction;
 
 function functionName(compiledFn: BaselineCompiledFunction): string {
   return compiledFn.name || "<anonymous>";
+}
+
+const SCRATCH_LOCALS = ["t", "t2", "t3", "t4", "osr"] as const;
+const ROOTED_LOCALS = ["acc", ...SCRATCH_LOCALS] as const;
+
+function safepointBefore(target: bytecode.RegisterOperand, from: number): string {
+  if (typeof target !== "number" || target > from) return "";
+  const loopSpan = from + 1 - target;
+  return (
+    `if(++sp>=${BACK_EDGES_PER_SAFEPOINT}){sp=0;` +
+    `osr=$.backEdge(${target},r,tv,env,${loopSpan});` +
+    `if(osr!==null)return osr;}`
+  );
 }
 
 export class BaselineCompiler {
@@ -64,7 +79,7 @@ export class BaselineCompiler {
         thisValue: TaggedValue,
         runtime: BaselineRuntime,
         pc: number,
-        closureEnv: { cells: unknown[] } | null,
+        closureEnv: Environment | null,
       ) => TaggedValue;
 
       tracer.jitCompile(
@@ -76,7 +91,7 @@ export class BaselineCompiler {
         args: TaggedValue[],
         thisValue: TaggedValue,
         interp: object,
-        closureEnv: { cells: unknown[] } | null,
+        closureEnv: Environment | null,
       ) {
         return fn(args, thisValue || rt.u, rt, 0, closureEnv);
       };
@@ -119,7 +134,7 @@ export class BaselineCompiler {
     );
 
     let c = "";
-    c += `var acc,t,t2,t3,t4;\n`;
+    c += `var acc,${SCRATCH_LOCALS.join(",")},sp=0;\n`;
     c += `var r=new Array(${nRegs});\n`;
     c += `for(var i=0;i<${nRegs};i++)r[i]=$.u;\n`;
     c += `for(var i=0;i<args.length&&i<${nParams};i++)r[i]=args[i];\n`;
@@ -128,7 +143,7 @@ export class BaselineCompiler {
     if (hasClosures) {
       c += `var _ouv=new Map(),_ce=env?env.cells:null;\n`;
     }
-    c += `$.enter(r,function(){return[acc,t,t2,t3,t4];});\ntry{\n`;
+    c += `$.enter(r,function(){return[${ROOTED_LOCALS.join(",")}];});\ntry{\n`;
     c += `L:while(1){switch(pc){\n`;
 
     for (let i = 0; i < instrs.length; i++) {
@@ -238,16 +253,16 @@ export class BaselineCompiler {
         return `acc=$.typeofOp(acc);`;
 
       case bytecode.ROP_JUMP:
-        return `pc=${o[0]};continue L;`;
+        return `${safepointBefore(o[0], idx)}pc=${o[0]};continue L;`;
 
       case bytecode.ROP_JUMP_IF_FALSE: {
         const fbSlot = o.length > 1 ? o[1] : -1;
-        return `if(!$.toBool(acc)){$.branch(${fbSlot},true);pc=${o[0]};continue L;}$.branch(${fbSlot},false);`;
+        return `if(!$.toBool(acc)){$.branch(${fbSlot},true);${safepointBefore(o[0], idx)}pc=${o[0]};continue L;}$.branch(${fbSlot},false);`;
       }
 
       case bytecode.ROP_JUMP_IF_TRUE: {
         const fbSlot = o.length > 1 ? o[1] : -1;
-        return `if($.toBool(acc)){$.branch(${fbSlot},true);pc=${o[0]};continue L;}$.branch(${fbSlot},false);`;
+        return `if($.toBool(acc)){$.branch(${fbSlot},true);${safepointBefore(o[0], idx)}pc=${o[0]};continue L;}$.branch(${fbSlot},false);`;
       }
 
       case bytecode.ROP_CALL: {

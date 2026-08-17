@@ -136,6 +136,7 @@ import { assertConstructorAccess } from "../../../runtime/class-access.js";
 import { assertClassImplementsRuntime, type RuntimeInterfaceContract } from "../../../runtime/interface-contract.js";
 
 import { RegisterFrame, throwIfTDZ, type ResumeOwner } from "./frame.js";
+import { enterOsr } from "../../../runtime/tiering/osr.js";
 import {
   requiresInterpreterOnly,
   getBinaryOperands,
@@ -1365,37 +1366,14 @@ export class RegisterInterpreter {
         : false;
     if (!hot) return null;
 
-    if (feedback && feedback.osrUrgency === 0) {
-      feedback.incrementOsrUrgency();
-      return null;
-    }
-
-    const engine = this.jitEngine;
-    if (
-      !engine ||
-      !policy ||
-      engine.osrEnabled === false ||
-      compiledFn.disableOptimization ||
-      requiresInterpreterOnly(compiledFn) ||
-      typeof engine.compileOsr !== "function"
-    ) {
-      return null;
-    }
-
-    let entry = compiledFn.osrCache.get(target);
-    if (entry === undefined) {
-      entry = engine.compileOsr(compiledFn, target);
-    }
-    if (feedback) feedback.resetLoopBudget();
-    if (!entry) return null;
-
-    const args: TaggedValue[] = [];
-    for (const slot of entry.slots) {
-      const value = frame.getReg(slot);
-      args.push(value === undefined ? mkUndefined() : value);
-    }
-    if (entry.code._declinesEntry?.(args)) return null;
-    return entry.code(args, frame.thisValue, this, frame.closureEnv);
+    return enterOsr(
+      this,
+      compiledFn,
+      target,
+      (slot) => frame.getReg(slot),
+      frame.thisValue,
+      frame.closureEnv,
+    );
   }
 
   runFrame(frame: RegisterFrame): TaggedValue {

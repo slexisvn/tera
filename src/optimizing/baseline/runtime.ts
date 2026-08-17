@@ -5,6 +5,8 @@ import { applyBinaryOverload, applyRelational, applyUnaryOverload, type Relation
 
 const CMP_METHOD: readonly RelationalOverload[] = ["lt", "gt", "le", "ge"];
 import { forInKeys } from "../../runtime/enumerate.js";
+import { enterOsr, type OsrCapableEngine } from "../../runtime/tiering/osr.js";
+import { BACK_EDGES_PER_SAFEPOINT } from "../../runtime/tiering/defaults.js";
 
 import {
   mkSmi,
@@ -80,8 +82,13 @@ export type BaselineInterpreter = {
   callRuntimeIntrinsic(name: string, args: TaggedValue[]): TaggedValue;
   constructFunctionValue(fn: TaggedValue, args: TaggedValue[]): TaggedValue;
   tieringPolicy?: { jitThreshold: number } | null;
-  jitEngine?: { optimizeFunction?: (fn: bytecode.RegisterCompiledFunction) => void } | null;
+  jitEngine?:
+    | (OsrCapableEngine & {
+        optimizeFunction?: (fn: bytecode.RegisterCompiledFunction) => void;
+      })
+    | null;
   baselineFrames?: BaselineFrameRoots[];
+  _maybeSweepHeapPayloads(): void;
 };
 
 export type BaselineFrameRoots = {
@@ -437,6 +444,30 @@ export class BaselineRuntime {
 
   leave(): void {
     this.interp.baselineFrames?.pop();
+  }
+
+  backEdge(
+    target: number,
+    registers: TaggedValue[],
+    thisValue: TaggedValue,
+    closureEnv: Environment | null,
+    loopSpan: number,
+  ): TaggedValue | null {
+    this.interp._maybeSweepHeapPayloads();
+    const feedback = this.cf.feedbackVector;
+    if (
+      feedback &&
+      !feedback.decrementLoopBudget(loopSpan * BACK_EDGES_PER_SAFEPOINT)
+    )
+      return null;
+    return enterOsr(
+      this.interp,
+      this.cf,
+      target,
+      (slot) => registers[slot],
+      thisValue,
+      closureEnv,
+    );
   }
 
   gi(obj: TaggedValue, index: TaggedValue, fbSlot: number) {
