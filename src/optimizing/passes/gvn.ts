@@ -106,7 +106,7 @@ export function globalValueNumbering(
           KEEP_ALIVE.has(n.type),
       );
     }
-    graph.rebuildUses?.();
+    graph.rebuildUses();
   }
 
   return gvnCount;

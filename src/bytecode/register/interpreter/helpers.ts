@@ -197,20 +197,33 @@ export function runAsyncWithSuspension(
     if (e instanceof AsyncSuspend) {
       resumeAfterSuspend(interpreter, e, capability);
     } else {
-      const thrown =
-        e === null ||
-        e === undefined ||
-        typeof e === "object" ||
-        typeof e === "string" ||
-        typeof e === "number" ||
-        typeof e === "boolean" ||
-        typeof e === "symbol"
-          ? e
-          : String(e);
-      const errVal = errorToTaggedValue(thrown);
-      capability.reject(errVal);
+      capability.reject(errorToTaggedValue(asThrownValue(e)));
     }
   }
+}
+
+export type ThrownValue =
+  | RegisterException
+  | VMError
+  | Error
+  | object
+  | string
+  | number
+  | boolean
+  | symbol
+  | null
+  | undefined;
+
+export function asThrownValue(e: unknown): ThrownValue {
+  return e === null ||
+    e === undefined ||
+    typeof e === "object" ||
+    typeof e === "string" ||
+    typeof e === "number" ||
+    typeof e === "boolean" ||
+    typeof e === "symbol"
+    ? e
+    : String(e);
 }
 
 export function errorToTaggedValue(

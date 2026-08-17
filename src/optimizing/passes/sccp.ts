@@ -1,5 +1,5 @@
 import * as ir from "../ir/index.js";
-import { replaceValueUses } from "../ir/graph-edit.js";
+import { detachInputs, replaceValueUses } from "../ir/graph-edit.js";
 import { rewriteBranchAsJump } from "../ir/cfg-edit.js";
 import { Worklist } from "../infra/worklist.js";
 import { flatLattice, type FlatValue } from "../infra/lattice.js";
@@ -296,26 +296,24 @@ export function sparseConditionalConstantPropagation(graph: SccpGraph): number {
 
   for (const block of graph.blocks) {
     if (!solver.isReachable(block)) continue;
-    const replacements: Array<{ node: SccpNode; value: ConstantValue }> = [];
-    for (const node of block.nodes) {
+    const replacements: Array<{ node: SccpNode; at: number; value: ConstantValue }> = [];
+    for (let at = 0; at < block.nodes.length; at++) {
+      const node = block.nodes[at];
       if (!FOLDABLE.has(node.type) && !FORWARDING.has(node.type)) continue;
       const cell = solver.cellOf(node);
       if (cell.kind !== "constant") continue;
       if (FORWARDING.has(node.type) && node.uses.length === 0) continue;
-      replacements.push({ node, value: cell.value });
+      replacements.push({ node, at, value: cell.value });
     }
-    for (const { node, value } of replacements) {
+    for (const { node, at, value } of replacements) {
       const folded = ir.irConstant(value);
       if (FORWARDING.has(node.type)) {
         replaceValueUses(graph, node, folded);
       } else {
         folded.block = block;
-        block.nodes[block.nodes.indexOf(node)] = folded;
+        block.nodes[at] = folded;
         replaceValueUses(graph, node, folded);
-        for (const input of node.inputs) {
-          input.uses = input.uses.filter((use) => use !== node);
-        }
-        node.inputs = [];
+        detachInputs(node);
         node.block = null;
       }
       rewrites++;

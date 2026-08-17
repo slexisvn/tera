@@ -1,4 +1,8 @@
 import { CLASS_ABSTRACT_MODIFIER, CLASS_VISIBILITIES } from "../../core/class-visibility.js";
+import {
+  MULTI_CHAR_PUNCTUATORS,
+  SINGLE_CHAR_PUNCTUATORS,
+} from "../operators.js";
 
 export const TokenType = {
   Number: "Number",
@@ -76,67 +80,6 @@ export const KEYWORDS = new Set([
   "from",
 ]);
 
-const MULTI_CHAR_PUNCTUATORS = [
-  ">>>=",
-  "**=",
-  "...",
-  "===",
-  "!==",
-  ">>>",
-  "<<=",
-  ">>=",
-  "+=",
-  "-=",
-  "*=",
-  "/=",
-  "%=",
-  "&=",
-  "|=",
-  "^=",
-  "==",
-  "!=",
-  "<=",
-  ">=",
-  "&&",
-  "||",
-  "??",
-  "?.",
-  "++",
-  "--",
-  "**",
-  "<<",
-  ">>",
-  "=>",
-  "->",
-];
-
-const SINGLE_CHAR_PUNCTUATORS = new Set([
-  "+",
-  "-",
-  "*",
-  "/",
-  "%",
-  "<",
-  ">",
-  "!",
-  "=",
-  ".",
-  ",",
-  ";",
-  "(",
-  ")",
-  "{",
-  "}",
-  "[",
-  "]",
-  ":",
-  "?",
-  "@",
-  "&",
-  "|",
-  "^",
-  "~",
-]);
 
 function makeToken(
   type: TokenTypeName,

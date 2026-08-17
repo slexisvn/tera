@@ -1,4 +1,5 @@
 import type { IRMetadataValue } from "../ir/index.js";
+import { isInt32 } from "../target/integer.js";
 
 export const TypeKind = Object.freeze({
   Any: "Any",
@@ -222,18 +223,6 @@ export function excludeType(
   if (!current || !excluded) return current || anyType();
   if (isSubtype(current, excluded)) return neverType();
   return current;
-}
-
-const INT32_MIN = -2147483648;
-const INT32_MAX = 2147483647;
-
-function isInt32(value: number): boolean {
-  return (
-    Number.isInteger(value) &&
-    !Object.is(value, -0) &&
-    value >= INT32_MIN &&
-    value <= INT32_MAX
-  );
 }
 
 export function typeFromConstant(value: IRMetadataValue): LatticeType {

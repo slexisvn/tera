@@ -277,7 +277,7 @@ function heapId(v: number): number {
   return (v - (v & TAG_MASK)) * TAG_SHIFT_DIV;
 }
 
-const TAG_SHIFT_MULT = 1 << TAG_BITS;
+export const TAG_SHIFT_MULT = 1 << TAG_BITS;
 const TAG_SHIFT_DIV = 1 / TAG_SHIFT_MULT;
 
 function hasHeapIdentity(payload: HeapPayload): payload is Extract<HeapPayload, object> {

@@ -117,6 +117,11 @@ import {
   TERA_POINTER_BYTES,
 } from "../../target/runtime-layout.js";
 import {
+  INT32_MAX,
+  INT32_MIN,
+  INT32_SHIFT_MASK,
+} from "../../target/integer.js";
+import {
   contextField,
   ROOT_COUNT_REGISTER,
   ROOT_ENTRY_BYTES,
@@ -208,9 +213,7 @@ const PRINT_ROUTINES = new Map<AotScalar, string>([
   [SCALAR_FLOAT64, X64_RUNTIME_SYMBOLS.printFloat],
 ]);
 
-const INT32_MIN = -2147483648;
-const INT32_MAX = 2147483647;
-const SHIFT_MASK = 31;
+const SHIFT_MASK = INT32_SHIFT_MASK;
 
 function doubleBits(value: number): bigint {
   const view = new DataView(new ArrayBuffer(8));

@@ -209,12 +209,13 @@ export function applyOsrTransform(
     variantPhis[index].props.index = index;
   }
 
+  const osrParamSet = new Set(osrParams);
   for (const block of graph.blocks) {
     if (!osrBlocks.has(block)) continue;
     for (const node of block.nodes) {
       for (const input of node.inputs) {
         if (input.block === null) {
-          if (input.type === ir.IR_PARAMETER && !osrParams.includes(input)) {
+          if (input.type === ir.IR_PARAMETER && !osrParamSet.has(input)) {
             return false;
           }
           continue;

@@ -51,7 +51,7 @@ export function runSnapshotDataflow<State>(
     changed += problem.rewrite(block, input);
   }
 
-  if (changed > 0) graph.rebuildUses?.();
+  if (changed > 0) graph.rebuildUses();
   return changed;
 }
 

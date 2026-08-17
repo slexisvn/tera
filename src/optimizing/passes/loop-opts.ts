@@ -9,16 +9,13 @@ import type { LoopForest } from "../analyses/loops.js";
 import type { ModRef } from "../analyses/mod-ref.js";
 import type { PointsToResult } from "../analyses/points-to.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
+import { retainNodes } from "../ir/graph-edit.js";
 
 type LoopNode = ir.CFGInstruction;
 type LoopBlock = ir.CFGBlock;
 type LoopGraph = ir.CFGFunction;
 
 type NodeBlockPair = { node: LoopNode; block: LoopBlock };
-
-function nodeFromIr(value: ir.CFGInstruction): LoopNode {
-  return value;
-}
 
 function isSideEffectFree(node: LoopNode): boolean {
   return ir.isMovable(node) && node.frameState === null;
@@ -92,10 +89,16 @@ export function hoistLoopInvariants(
       ? preHeader.nodes.indexOf(terminator)
       : preHeader.nodes.length;
 
+    const hoistedFrom = new Map<LoopBlock, Set<LoopNode>>();
+    const hoisted: LoopNode[] = [];
     for (const { node, block } of invariantNodes) {
-      block.nodes = block.nodes.filter((n) => n !== node);
-      preHeader.nodes.splice(insertionPoint, 0, node);
-      insertionPoint++;
+      let leaving = hoistedFrom.get(block);
+      if (leaving === undefined) {
+        leaving = new Set();
+        hoistedFrom.set(block, leaving);
+      }
+      leaving.add(node);
+      hoisted.push(node);
       node.block = preHeader;
       nodeToBlock.set(node.id, preHeader);
       hoistedCount++;
@@ -104,6 +107,8 @@ export function hoistLoopInvariants(
         `LICM: hoisted ${node.type} v${node.id} from B${block.id} to pre-header B${preHeader.id}`,
       );
     }
+    for (const [block, leaving] of hoistedFrom) retainNodes(block, leaving);
+    preHeader.nodes.splice(insertionPoint, 0, ...hoisted);
   }
   return hoistedCount;
 }
@@ -155,6 +160,7 @@ export function loopUnrolling(
     const canUseInPreHeader = (value: LoopNode): boolean =>
       valueAvailableAtBlock(value, preHeader, nodeToBlock, dominators);
     const peeledNodes: { original: LoopNode; isLoad: boolean }[] = [];
+    const peeledOriginals = new Set<LoopNode>();
     const peelableLoads = new Map<number, LoopNode>();
 
     for (const block of bodyBlocks) {
@@ -184,10 +190,12 @@ export function loopUnrolling(
         )
           continue;
         for (const inp of node.inputs) {
-          if (peelableLoads.has(inp.id) && !peeledNodes.some((p) => p.original === inp)) {
+          if (peelableLoads.has(inp.id) && !peeledOriginals.has(inp)) {
+            peeledOriginals.add(inp);
             peeledNodes.push({ original: inp, isLoad: true });
           }
         }
+        peeledOriginals.add(node);
         peeledNodes.push({ original: node, isLoad: false });
       }
     }
@@ -195,17 +203,15 @@ export function loopUnrolling(
     if (peeledNodes.length === 0) continue;
 
     const cloneMap = new Map<number, LoopNode>();
-    for (const { original, isLoad } of peeledNodes) {
-      const peeled = nodeFromIr(
-        new ir.IRNode(original.type, { ...original.props }),
-      );
+    const clones: LoopNode[] = [];
+    for (const { original } of peeledNodes) {
+      const peeled = new ir.IRNode(original.type, { ...original.props });
       for (const inp of original.inputs) {
-        peeled.addInput!(cloneMap.get(inp.id) || inp);
+        peeled.addInput(cloneMap.get(inp.id) || inp);
       }
       if (original.frameState) peeled.frameState = original.frameState;
-      preHeader.nodes.splice(insertIdx, 0, peeled);
-      insertIdx++;
       peeled.block = preHeader;
+      clones.push(peeled);
       cloneMap.set(original.id, peeled);
 
       tracer.jitCompile(
@@ -213,6 +219,7 @@ export function loopUnrolling(
         `LoopUnroll: peeled ${original.type} v${original.id} into pre-header B${preHeader.id}`,
       );
     }
+    preHeader.nodes.splice(insertIdx, 0, ...clones);
 
     unrollCount++;
   }

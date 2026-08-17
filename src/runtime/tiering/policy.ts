@@ -1,11 +1,7 @@
 import { AdaptiveTieringPolicy } from "./adaptive.js";
+import { DEFAULT_TIERING_POLICY } from "./defaults.js";
 
-export const DEFAULT_TIERING_POLICY = Object.freeze({
-  baselineThreshold: 8,
-  jitThreshold: 50,
-  loopOsrThreshold: 30,
-  maxDeoptCount: 3,
-});
+export { DEFAULT_TIERING_POLICY, compileCooldownUntil } from "./defaults.js";
 
 export type TieringPolicyOptions =
   | "adaptive"

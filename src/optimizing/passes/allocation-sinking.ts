@@ -1,6 +1,7 @@
 import * as ir from "../ir/index.js";
 import { tracer } from "../../core/tracing/index.js";
 import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
+import { detachUsesOfAll, retainNodes } from "../ir/graph-edit.js";
 
 type SinkNode = ir.CFGInstruction;
 type SinkBlock = ir.CFGBlock;
@@ -192,22 +193,22 @@ function removeAllocation(
     }
   }
 
+  const dead = new Set<SinkNode>();
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      if (!toDelete.has(node.id)) continue;
-      for (const input of node.inputs) {
-        if (input?.uses) input.uses = input.uses.filter((use) => use !== node);
-      }
-      node.uses = [];
-      node.inputs = [];
+      if (toDelete.has(node.id)) dead.add(node);
     }
   }
-
-  alloc.uses = alloc.uses.filter((use) => !analysis.escapePoints.includes(use));
-
-  for (const graphBlock of graph.blocks) {
-    graphBlock.nodes = graphBlock.nodes.filter((n) => !toDelete.has(n.id));
+  detachUsesOfAll(dead);
+  for (const node of dead) {
+    node.uses = [];
+    node.inputs = [];
   }
+
+  const escaped = new Set(analysis.escapePoints);
+  alloc.uses = alloc.uses.filter((use) => !escaped.has(use));
+
+  for (const block of graph.blocks) retainNodes(block, dead);
 }
 
 function findStoredValue(

@@ -384,19 +384,26 @@ function suspendPointsOf(
   return points;
 }
 
-function localizeRuntimeBases(graph: CFGFunction): void {
+function localizeInto(
+  graph: CFGFunction,
+  selects: (node: CFGInstruction) => boolean,
+  rematerialize: (node: CFGInstruction) => CFGInstruction,
+): void {
+  const prepended = new Map<CFGBlock, CFGInstruction[]>();
   for (const block of [...graph.blocks]) {
     for (const node of [...block.nodes]) {
-      if (node.type !== IR_RUNTIME_BASE) continue;
+      if (!selects(node)) continue;
       const copies = new Map<CFGBlock, CFGInstruction>([[block, node]]);
       for (const use of [...node.uses]) {
         const owner = use.block;
         if (owner === null || use.type === IR_PHI) continue;
         let copy = copies.get(owner);
         if (copy === undefined) {
-          copy = irRuntimeBase(String(node.props.symbol));
+          copy = rematerialize(node);
           copy.block = owner;
-          owner.nodes.unshift(copy);
+          const pending = prepended.get(owner);
+          if (pending === undefined) prepended.set(owner, [copy]);
+          else pending.push(copy);
           copies.set(owner, copy);
         }
         for (let index = 0; index < use.inputs.length; index++) {
@@ -405,7 +412,16 @@ function localizeRuntimeBases(graph: CFGFunction): void {
       }
     }
   }
+  for (const [block, copies] of prepended) block.nodes.unshift(...copies);
   graph.rebuildUses();
+}
+
+function localizeRuntimeBases(graph: CFGFunction): void {
+  localizeInto(
+    graph,
+    (node) => node.type === IR_RUNTIME_BASE,
+    (node) => irRuntimeBase(String(node.props.symbol)),
+  );
 }
 
 function rematerializable(node: CFGInstruction): boolean {
@@ -415,28 +431,11 @@ function rematerializable(node: CFGInstruction): boolean {
 }
 
 function localizeConstantArrays(graph: CFGFunction): void {
-  for (const block of [...graph.blocks]) {
-    for (const node of [...block.nodes]) {
-      if (!rematerializable(node)) continue;
-      const copies = new Map<CFGBlock, CFGInstruction>([[block, node]]);
-      for (const use of [...node.uses]) {
-        const owner = use.block;
-        if (owner === null || use.type === IR_PHI) continue;
-        let copy = copies.get(owner);
-        if (copy === undefined) {
-          copy = irNewArray(node.inputs);
-          copy.props = { ...node.props };
-          copy.block = owner;
-          owner.nodes.unshift(copy);
-          copies.set(owner, copy);
-        }
-        for (let index = 0; index < use.inputs.length; index++) {
-          if (use.inputs[index] === node) use.replaceInput(index, copy);
-        }
-      }
-    }
-  }
-  graph.rebuildUses();
+  localizeInto(graph, rematerializable, (node) => {
+    const copy = irNewArray(node.inputs);
+    copy.props = { ...node.props };
+    return copy;
+  });
 }
 
 function slotTypeOf(type: LatticeType, classes: ClassTable): string | null {
@@ -846,13 +845,14 @@ export function drainBeforeExit(graph: CFGFunction): number {
   return withFreshNodeIds(graph, () => {
     let inserted = 0;
     for (const block of graph.blocks) {
-      const exit = block.nodes.find((node) => node.type === IR_RETURN);
-      if (exit === undefined) continue;
-      for (const name of [CORO_DRAIN, CORO_REPORT]) {
+      const at = block.nodes.findIndex((node) => node.type === IR_RETURN);
+      if (at < 0) continue;
+      const calls = [CORO_DRAIN, CORO_REPORT].map((name) => {
         const call = irCallKnownFunction({ name } as never, []);
         call.block = block;
-        block.nodes.splice(block.nodes.indexOf(exit), 0, call);
-      }
+        return call;
+      });
+      block.nodes.splice(at, 0, ...calls);
       inserted++;
     }
     if (inserted > 0) graph.rebuildUses();

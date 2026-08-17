@@ -3,7 +3,6 @@ export type DeclaredDefault = number | string | boolean | null;
 const SIGNATURE_ARROW = "->";
 const ANY_TYPE = "any";
 
-/** Splits "a, (b, c) -> d, e" on the commas that are not inside brackets. */
 function topLevelParts(source: string): readonly string[] {
   const parts: string[] = [];
   let depth = 0;
@@ -21,7 +20,6 @@ function topLevelParts(source: string): readonly string[] {
   return parts.map((part) => part.trim()).filter((part) => part.length > 0);
 }
 
-/** Reads a written function type such as "(int, string) -> bool". */
 export function functionSignatureOf(declared: string | null | undefined): DeclaredSignature | null {
   if (typeof declared !== "string") return null;
   const source = declared.trim();

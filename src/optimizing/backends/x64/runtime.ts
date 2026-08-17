@@ -29,6 +29,27 @@ import { x64HeapRoutines } from "./heap.js";
 import { x64IoRoutines } from "./io.js";
 import { X64_PROGRAM_ENTRY, X64_RUNTIME_SYMBOLS } from "./runtime-symbols.js";
 import { TERA_EXIT_HEAP_EXHAUSTED } from "../../target/faults.js";
+import { INT32_MIN } from "../../target/integer.js";
+import {
+  MMAP_ANY_ADDRESS,
+  MMAP_ERROR_LIMIT,
+  MMAP_NO_FILE,
+  MMAP_NO_OFFSET,
+  PROT_READ_WRITE,
+  X64_LINUX_SYSCALLS,
+  X64_MACOS_SYSCALLS,
+  type SyscallTable,
+} from "../../target/syscalls.js";
+import {
+  CHAR_DIGIT_ZERO,
+  CHAR_MINUS_SIGN,
+  DECIMAL_RADIX,
+} from "../../target/text.js";
+import {
+  FLOAT64_EXPONENT_BIAS,
+  FLOAT64_EXPONENT_MASK,
+  FLOAT64_MANTISSA_BITS,
+} from "../../target/float64.js";
 
 export { X64_PROGRAM_ENTRY, X64_RUNTIME_SYMBOLS };
 
@@ -40,13 +61,12 @@ const MASKS = new Map<string, readonly MachineDataItem[]>([
   [ABS_MASK_KEY, [integerData(0x7fffffffffffffffn, 8), integerData(0, 8)]],
 ]);
 
-const DIGIT_ZERO = 48;
-const MINUS_SIGN = 45;
-const RADIX = 10;
-const INT32_MIN = -2147483648;
-const MANTISSA_BITS = 52;
-const EXPONENT_MASK = 2047;
-const EXPONENT_BIAS = 1075;
+const DIGIT_ZERO = CHAR_DIGIT_ZERO;
+const MINUS_SIGN = CHAR_MINUS_SIGN;
+const RADIX = DECIMAL_RADIX;
+const MANTISSA_BITS = FLOAT64_MANTISSA_BITS;
+const EXPONENT_MASK = FLOAT64_EXPONENT_MASK;
+const EXPONENT_BIAS = FLOAT64_EXPONENT_BIAS;
 const STDIN = 0;
 
 const SYSV_STREAMS = new Map<ProgramStream, number>([
@@ -56,41 +76,9 @@ const SYSV_STREAMS = new Map<ProgramStream, number>([
 const SYSCALL_NUMBER = "rax";
 const SYSCALL_ARGUMENTS: readonly string[] = ["rdi", "rsi", "rdx", "r10", "r8", "r9"];
 
-export interface SysvSyscalls {
-  readonly read: number;
-  readonly write: number;
-  readonly exit: number;
-  readonly mmap: number;
-  readonly mapFlags: number;
-}
-
-const PROT_READ_WRITE = 0x1 | 0x2;
-const MAP_PRIVATE = 0x02;
-const LINUX_MAP_ANONYMOUS = 0x20;
-const LINUX_MAP_NORESERVE = 0x4000;
-const MACOS_MAP_ANONYMOUS = 0x1000;
-const MMAP_ANY_ADDRESS = 0;
-const MMAP_NO_FILE = -1;
-const MMAP_NO_OFFSET = 0;
-const MMAP_ERROR_LIMIT = -4095;
-
-export const LINUX_SYSCALLS: SysvSyscalls = {
-  read: 0,
-  write: 1,
-  exit: 60,
-  mmap: 9,
-  mapFlags: MAP_PRIVATE | LINUX_MAP_ANONYMOUS | LINUX_MAP_NORESERVE,
-};
-
-const MACOS_CLASS_UNIX = 0x2000000;
-
-export const MACOS_SYSCALLS: SysvSyscalls = {
-  read: MACOS_CLASS_UNIX | 3,
-  write: MACOS_CLASS_UNIX | 4,
-  exit: MACOS_CLASS_UNIX | 1,
-  mmap: MACOS_CLASS_UNIX | 197,
-  mapFlags: MAP_PRIVATE | MACOS_MAP_ANONYMOUS,
-};
+export type SysvSyscalls = SyscallTable;
+export const LINUX_SYSCALLS = X64_LINUX_SYSCALLS;
+export const MACOS_SYSCALLS = X64_MACOS_SYSCALLS;
 
 export function x64MaskData(key: string): readonly MachineDataItem[] {
   const items = MASKS.get(key);

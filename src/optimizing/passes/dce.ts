@@ -1,7 +1,7 @@
 import * as ir from "../ir/index.js";
 import { markFrameStateValues, visitFrameStateValues } from "../ir/frame-state-values.js";
-import { replaceValueUses } from "../ir/graph-edit.js";
-import { disconnect, removePhi } from "../ir/cfg-edit.js";
+import { detachUsesOfAll, replaceValueUses, retainNodes } from "../ir/graph-edit.js";
+import { disconnect, removePhis } from "../ir/cfg-edit.js";
 
 type DceNode = ir.CFGInstruction;
 type DceBlock = ir.CFGBlock;
@@ -40,22 +40,17 @@ export function deadCodeElimination(graph: DceGraph): number {
   }
 
   for (const block of graph.blocks) {
-    for (const phi of [...block.phis]) {
-      if (liveNodes.has(phi.id)) continue;
-      removePhi(block, phi);
-      dceCount++;
-    }
-    block.nodes = block.nodes.filter((node) => {
-      if (liveNodes.has(node.id)) return true;
-      node.inputs.forEach((inp) => {
-        if (inp) inp.uses = inp.uses.filter((u) => u !== node);
-      });
-      dceCount++;
-      return false;
-    });
+    const deadPhis = new Set(block.phis.filter((phi) => !liveNodes.has(phi.id)));
+    dceCount += deadPhis.size;
+    removePhis(block, deadPhis);
+
+    const deadNodes = new Set(block.nodes.filter((node) => !liveNodes.has(node.id)));
+    dceCount += deadNodes.size;
+    detachUsesOfAll(deadNodes);
+    retainNodes(block, deadNodes);
   }
 
-  graph.rebuildUses?.();
+  graph.rebuildUses();
   return dceCount;
 }
 
@@ -104,12 +99,10 @@ export function eliminateTrivialPhis(graph: DceGraph): number {
   if (folds.size === 0) return 0;
 
   for (const block of graph.blocks) {
-    for (const phi of [...block.phis]) {
-      if (folds.has(phi)) removePhi(block, phi);
-    }
+    removePhis(block, new Set(block.phis.filter((phi) => folds.has(phi))));
   }
 
-  graph.rebuildUses?.();
+  graph.rebuildUses();
   return folds.size;
 }
 
@@ -129,16 +122,19 @@ export function eliminateDeadPhis(graph: DceGraph): number {
   while (changed) {
     changed = false;
     for (const block of graph.blocks) {
-      for (const phi of [...block.phis]) {
-        if (phi.uses.length > 0 || frameStateReferenced.has(phi)) continue;
-        removePhi(block, phi);
-        removed++;
-        changed = true;
-      }
+      const dead = new Set(
+        block.phis.filter(
+          (phi) => phi.uses.length === 0 && !frameStateReferenced.has(phi),
+        ),
+      );
+      if (dead.size === 0) continue;
+      removePhis(block, dead);
+      removed += dead.size;
+      changed = true;
     }
   }
 
-  if (removed > 0) graph.rebuildUses?.();
+  if (removed > 0) graph.rebuildUses();
   return removed;
 }
 
@@ -163,18 +159,18 @@ export function eliminateUnreachableBlocks(graph: DceGraph): number {
   if (reachable.size === origLen) return 0;
 
   const deadBlocks = graph.blocks.filter((b) => !reachable.has(b.id));
+  const deadNodes = new Set<DceNode>();
   for (const dead of deadBlocks) {
-    for (const node of dead.nodes) {
-      node.inputs.forEach((inp) => {
-        if (inp) inp.uses = inp.uses.filter((u) => u !== node);
-      });
-    }
+    for (const node of dead.nodes) deadNodes.add(node);
+  }
+  detachUsesOfAll(deadNodes);
+  for (const dead of deadBlocks) {
     for (const succ of [...dead.successors]) {
       if (reachable.has(succ.id)) disconnect(dead, succ);
     }
   }
 
   graph.blocks = graph.blocks.filter((b) => reachable.has(b.id));
-  graph.rebuildUses?.();
+  graph.rebuildUses();
   return origLen - graph.blocks.length;
 }

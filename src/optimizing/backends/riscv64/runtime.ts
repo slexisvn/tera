@@ -20,7 +20,20 @@ import { printTerminatorAt } from "../../metadata/builtin-methods.js";
 import { FLOAT64_DECIMAL_BYTES } from "../../target/float64.js";
 import {
   TERA_ALLOC_SYMBOL,
+  TERA_POINTER_BYTES,
 } from "../../target/runtime-layout.js";
+import { INT32_MIN } from "../../target/integer.js";
+import { RISCV64_LINUX_SYSCALLS } from "../../target/syscalls.js";
+import {
+  CHAR_DIGIT_ZERO,
+  CHAR_MINUS_SIGN,
+  DECIMAL_RADIX,
+} from "../../target/text.js";
+import {
+  FLOAT64_EXPONENT_BIAS,
+  FLOAT64_EXPONENT_MASK,
+  FLOAT64_MANTISSA_BITS,
+} from "../../target/float64.js";
 import {
   TERA_EXIT_HEAP_EXHAUSTED,
   TERA_EXIT_UNCAUGHT_THROW,
@@ -29,15 +42,14 @@ import {
 
 
 
-const WORD = 8;
-const DIGIT_ZERO = 48;
-const MINUS_SIGN = 45;
-const RADIX = 10;
-const INT32_MIN = -2147483648;
-const MANTISSA_BITS = 52;
-const EXPONENT_MASK = 2047;
-const EXPONENT_BIAS = 1075;
-const LINUX_EXIT = 93;
+const WORD = TERA_POINTER_BYTES;
+const DIGIT_ZERO = CHAR_DIGIT_ZERO;
+const MINUS_SIGN = CHAR_MINUS_SIGN;
+const RADIX = DECIMAL_RADIX;
+const MANTISSA_BITS = FLOAT64_MANTISSA_BITS;
+const EXPONENT_MASK = FLOAT64_EXPONENT_MASK;
+const EXPONENT_BIAS = FLOAT64_EXPONENT_BIAS;
+const LINUX_EXIT = RISCV64_LINUX_SYSCALLS.exit;
 
 function toInt32(builder: MachineRoutineBuilder): void {
   const r = (name: string) => builder.read(name, WORD);

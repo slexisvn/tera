@@ -3,20 +3,11 @@ import type {
   LocalBindingKind,
   RegisterCompiledFunction,
   RegisterInstruction,
+  SimpleConstructorField,
+  SimpleConstructorSource,
 } from "../ops/bytecode.js";
 
-type ConstructorSource =
-  | { kind: "local"; index: number }
-  | { kind: "const"; index: number }
-  | { kind: "undefined" }
-  | { kind: "null" }
-  | { kind: "true" }
-  | { kind: "false" };
-
-export type SimpleConstructorField = {
-  name: string;
-  source: ConstructorSource;
-};
+export type { SimpleConstructorField, SimpleConstructorSource };
 
 type SimpleConstructorInfo = SimpleConstructorField[] | null;
 
@@ -73,7 +64,7 @@ function analyzeConstructor(
       return null;
     }
 
-    let source: ConstructorSource;
+    let source: SimpleConstructorSource;
     if (c.opcode === bytecode.ROP_LDA_REG) {
       const index = numericOperand(c, 0);
       if (index === null) return null;

@@ -1,4 +1,10 @@
-import type { RuntimeValue } from "../../core/value/index.js";
+import {
+  getPayload,
+  isArray,
+  isSmi,
+  type RuntimeValue,
+  type TaggedValue,
+} from "../../core/value/index.js";
 import { tracer } from "../../core/tracing/index.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 
@@ -414,6 +420,14 @@ export class FeedbackSlot {
   recordAllocationSite(hiddenClassId: number): void {
     this.totalRecordCount++;
     this.allocationSiteHCs.add(hiddenClassId);
+  }
+
+  recordIndexedAccess(receiver: TaggedValue, index: TaggedValue): void {
+    this.recordArrayAccess(
+      isArray(receiver),
+      isSmi(index),
+      isArray(receiver) ? getPayload(receiver).getElementsKind() : null,
+    );
   }
 
   recordArrayAccess(

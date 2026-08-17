@@ -4,7 +4,11 @@ import {
   type ClassCallableKind,
 } from "../../core/class-member.js";
 import type { ClassMemberSurface, ClassSurface } from "../../frontend/modules/interface.js";
-import { TERA_STATICS_BYTES } from "../target/runtime-layout.js";
+import {
+  TERA_LINK_BYTES,
+  TERA_MARK_FLAG,
+  TERA_STATICS_BYTES,
+} from "../target/runtime-layout.js";
 import {
   builtinTypeEnv,
   declaredNameOf,
@@ -55,6 +59,11 @@ export const ARRAY_ELEMENTS_OFFSET = ARRAY_CAPACITY_OFFSET + scalarWidth(SCALAR_
 export const BUFFER_ELEMENTS_OFFSET = CLASS_HEADER_BYTES;
 export const ARRAY_INITIAL_CAPACITY = 1;
 export const ARRAY_GROWTH_FACTOR = 2;
+
+export const FREE_BLOCK_BYTES = CLASS_HEADER_BYTES + TERA_LINK_BYTES;
+export const CLEAR_MARK = -1 - TERA_MARK_FLAG;
+export const GROWTH_SHIFT = Math.log2(ARRAY_GROWTH_FACTOR);
+export const ALIGNMENT_ROUNDING = CLASS_ALIGNMENT_BYTES - 1;
 
 export function bufferElementOffset(element: AotScalar, index: number): number {
   return BUFFER_ELEMENTS_OFFSET + index * scalarWidth(element);

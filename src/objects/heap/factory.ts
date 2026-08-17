@@ -1,4 +1,4 @@
-import { JSObject } from "./js-object.js";
+import { JSObject, presizeInstanceSlots } from "./js-object.js";
 import { JSArray } from "./js-array.js";
 import { JSProxy } from "../exotic/js-proxy.js";
 import type { HiddenClass } from "../maps/hidden-class.js";
@@ -56,6 +56,23 @@ export function createJSObject(
     _gc.allocate(obj, pretenure);
   }
   return obj;
+}
+
+type InstantiableFunction = {
+  prototypeObj?: JSObject | null;
+  slackExpectedProperties?: number;
+};
+
+export function allocateInstance(fn: InstantiableFunction): JSObject {
+  const instance = createJSObject();
+  instance.constructorRef = fn as TaggedValue;
+  if (!fn.prototypeObj) {
+    fn.prototypeObj = createJSObject();
+    fn.prototypeObj.constructorRef = fn as TaggedValue;
+  }
+  instance.setPrototype(fn.prototypeObj);
+  presizeInstanceSlots(instance, fn);
+  return instance;
 }
 
 export function createJSArray(

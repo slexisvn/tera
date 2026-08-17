@@ -16,23 +16,7 @@ import {
 } from "../../core/value/index.js";
 import type { TaggedValue } from "../../core/value/index.js";
 import { createJSArray } from "../../objects/heap/factory.js";
-
-type InterpreterLike = {
-  callFunctionValue(
-    fn: TaggedValue,
-    args: TaggedValue[],
-    thisValue: TaggedValue,
-  ): TaggedValue;
-};
-
-type BuiltinMethod = {
-  name: string;
-  call(
-    args: TaggedValue[],
-    thisValue: TaggedValue,
-    interpreter?: InterpreterLike,
-  ): TaggedValue;
-};
+import type { BuiltinMethod, InterpreterLike } from "./builtin-method.js";
 
 type RuntimeArray = {
   elements: Array<TaggedValue | undefined>;
@@ -68,6 +52,40 @@ function valueAt(arr: RuntimeArray, index: number): TaggedValue {
 function rawElement(arr: RuntimeArray, index: number): TaggedValue {
   const value = arr.elements[index];
   return value === undefined ? mkUndefined() : value;
+}
+
+type CallbackScan = {
+  arr: RuntimeArray;
+  args: TaggedValue[];
+  at(index: number): TaggedValue;
+  invoke(...callArgs: TaggedValue[]): TaggedValue;
+};
+
+function callbackMethod(
+  name: string,
+  run: (scan: CallbackScan) => TaggedValue,
+): BuiltinMethod {
+  return {
+    name,
+    call(
+      args: TaggedValue[],
+      thisValue: TaggedValue,
+      interpreter?: InterpreterLike,
+    ) {
+      const arr = runtimeArray(thisValue);
+      const runner = requireInterpreter(interpreter);
+      const callback = args[0];
+      if (!isFunction(callback))
+        throw new Error("TypeError: callback is not a function");
+      return run({
+        arr,
+        args,
+        at: (index) => valueAt(arr, index),
+        invoke: (...callArgs) =>
+          runner.callFunctionValue(callback, callArgs, mkUndefined()),
+      });
+    },
+  };
 }
 
 function requireInterpreter(interpreter?: InterpreterLike): InterpreterLike {
@@ -164,102 +182,43 @@ export const ARRAY_METHODS = {
     },
   },
 
-  find: {
-    name: "Array.prototype.find",
-    call(
-      args: TaggedValue[],
-      thisValue: TaggedValue,
-      interpreter?: InterpreterLike,
-    ) {
-      const arr = runtimeArray(thisValue);
-      const runner = requireInterpreter(interpreter);
-      const callback = args[0];
-      if (!isFunction(callback))
-        throw new Error("TypeError: callback is not a function");
-      for (let i = 0; i < arr.getLength(); i++) {
-        const elem = valueAt(arr, i);
-        const result = runner.callFunctionValue(
-          callback,
-          [elem, mkSmi(i)],
-          mkUndefined(),
-        );
-        if (toBool(result)) return elem;
-      }
-      return mkUndefined();
-    },
-  },
+  find: callbackMethod("Array.prototype.find", ({ arr, at, invoke }) => {
+    for (let i = 0; i < arr.getLength(); i++) {
+      const elem = at(i);
+      if (toBool(invoke(elem, mkSmi(i)))) return elem;
+    }
+    return mkUndefined();
+  }),
 
-  findLast: {
-    name: "Array.prototype.findLast",
-    call(
-      args: TaggedValue[],
-      thisValue: TaggedValue,
-      interpreter?: InterpreterLike,
-    ) {
-      const arr = runtimeArray(thisValue);
-      const runner = requireInterpreter(interpreter);
-      const callback = args[0];
-      if (!isFunction(callback))
-        throw new Error("TypeError: callback is not a function");
-      for (let i = arr.getLength() - 1; i >= 0; i--) {
-        const elem = valueAt(arr, i);
-        if (toBool(runner.callFunctionValue(callback, [elem, mkSmi(i)], mkUndefined())))
-          return elem;
-      }
-      return mkUndefined();
-    },
-  },
+  findLast: callbackMethod("Array.prototype.findLast", ({ arr, at, invoke }) => {
+    for (let i = arr.getLength() - 1; i >= 0; i--) {
+      const elem = at(i);
+      if (toBool(invoke(elem, mkSmi(i)))) return elem;
+    }
+    return mkUndefined();
+  }),
 
-  findLastIndex: {
-    name: "Array.prototype.findLastIndex",
-    call(
-      args: TaggedValue[],
-      thisValue: TaggedValue,
-      interpreter?: InterpreterLike,
-    ) {
-      const arr = runtimeArray(thisValue);
-      const runner = requireInterpreter(interpreter);
-      const callback = args[0];
-      if (!isFunction(callback))
-        throw new Error("TypeError: callback is not a function");
-      for (let i = arr.getLength() - 1; i >= 0; i--) {
-        const elem = valueAt(arr, i);
-        if (toBool(runner.callFunctionValue(callback, [elem, mkSmi(i)], mkUndefined())))
-          return mkSmi(i);
-      }
-      return mkSmi(-1);
-    },
-  },
+  findLastIndex: callbackMethod("Array.prototype.findLastIndex", ({ arr, at, invoke }) => {
+    for (let i = arr.getLength() - 1; i >= 0; i--) {
+      if (toBool(invoke(at(i), mkSmi(i)))) return mkSmi(i);
+    }
+    return mkSmi(-1);
+  }),
 
-  reduceRight: {
-    name: "Array.prototype.reduceRight",
-    call(
-      args: TaggedValue[],
-      thisValue: TaggedValue,
-      interpreter?: InterpreterLike,
-    ) {
-      const arr = runtimeArray(thisValue);
-      const runner = requireInterpreter(interpreter);
-      const callback = args[0];
-      if (!isFunction(callback))
-        throw new Error("TypeError: callback is not a function");
-      let acc: TaggedValue;
-      let i = arr.getLength() - 1;
-      if (args.length > 1) {
-        acc = args[1];
-      } else {
-        if (arr.getLength() === 0)
-          throw new Error("TypeError: Reduce of empty array with no initial value");
-        acc = valueAt(arr, i);
-        i--;
-      }
-      for (; i >= 0; i--) {
-        const elem = valueAt(arr, i);
-        acc = runner.callFunctionValue(callback, [acc, elem, mkSmi(i)], mkUndefined());
-      }
-      return acc;
-    },
-  },
+  reduceRight: callbackMethod("Array.prototype.reduceRight", ({ arr, args, at, invoke }) => {
+    let acc: TaggedValue;
+    let i = arr.getLength() - 1;
+    if (args.length > 1) {
+      acc = args[1];
+    } else {
+      if (arr.getLength() === 0)
+        throw new Error("TypeError: Reduce of empty array with no initial value");
+      acc = at(i);
+      i--;
+    }
+    for (; i >= 0; i--) acc = invoke(acc, at(i), mkSmi(i));
+    return acc;
+  }),
 
   copyWithin: {
     name: "Array.prototype.copyWithin",
@@ -286,144 +245,50 @@ export const ARRAY_METHODS = {
     },
   },
 
-  findIndex: {
-    name: "Array.prototype.findIndex",
-    call(
-      args: TaggedValue[],
-      thisValue: TaggedValue,
-      interpreter?: InterpreterLike,
-    ) {
-      const arr = runtimeArray(thisValue);
-      const runner = requireInterpreter(interpreter);
-      const callback = args[0];
-      if (!isFunction(callback))
-        throw new Error("TypeError: callback is not a function");
-      for (let i = 0; i < arr.getLength(); i++) {
-        const elem = valueAt(arr, i);
-        const result = runner.callFunctionValue(
-          callback,
-          [elem, mkSmi(i)],
-          mkUndefined(),
-        );
-        if (toBool(result)) return mkSmi(i);
-      }
-      return mkSmi(-1);
-    },
-  },
+  findIndex: callbackMethod("Array.prototype.findIndex", ({ arr, at, invoke }) => {
+    for (let i = 0; i < arr.getLength(); i++) {
+      if (toBool(invoke(at(i), mkSmi(i)))) return mkSmi(i);
+    }
+    return mkSmi(-1);
+  }),
 
-  forEach: {
-    name: "Array.prototype.forEach",
-    call(
-      args: TaggedValue[],
-      thisValue: TaggedValue,
-      interpreter?: InterpreterLike,
-    ) {
-      const arr = runtimeArray(thisValue);
-      const runner = requireInterpreter(interpreter);
-      const callback = args[0];
-      if (!isFunction(callback))
-        throw new Error("TypeError: callback is not a function");
-      for (let i = 0; i < arr.getLength(); i++) {
-        const elem = valueAt(arr, i);
-        runner.callFunctionValue(
-          callback,
-          [elem, mkSmi(i)],
-          mkUndefined(),
-        );
-      }
-      return mkUndefined();
-    },
-  },
+  forEach: callbackMethod("Array.prototype.forEach", ({ arr, at, invoke }) => {
+    for (let i = 0; i < arr.getLength(); i++) invoke(at(i), mkSmi(i));
+    return mkUndefined();
+  }),
 
-  map: {
-    name: "Array.prototype.map",
-    call(
-      args: TaggedValue[],
-      thisValue: TaggedValue,
-      interpreter?: InterpreterLike,
-    ) {
-      const arr = runtimeArray(thisValue);
-      const runner = requireInterpreter(interpreter);
-      const callback = args[0];
-      if (!isFunction(callback))
-        throw new Error("TypeError: callback is not a function");
-      const result: TaggedValue[] = [];
-      for (let i = 0; i < arr.getLength(); i++) {
-        const elem = valueAt(arr, i);
-        result.push(
-          runner.callFunctionValue(
-            callback,
-            [elem, mkSmi(i)],
-            mkUndefined(),
-          ),
-        );
-      }
-      return mkArray(createJSArray(result));
-    },
-  },
+  map: callbackMethod("Array.prototype.map", ({ arr, at, invoke }) => {
+    const result: TaggedValue[] = [];
+    for (let i = 0; i < arr.getLength(); i++) result.push(invoke(at(i), mkSmi(i)));
+    return mkArray(createJSArray(result));
+  }),
 
-  filter: {
-    name: "Array.prototype.filter",
-    call(
-      args: TaggedValue[],
-      thisValue: TaggedValue,
-      interpreter?: InterpreterLike,
-    ) {
-      const arr = runtimeArray(thisValue);
-      const runner = requireInterpreter(interpreter);
-      const callback = args[0];
-      if (!isFunction(callback))
-        throw new Error("TypeError: callback is not a function");
-      const result: TaggedValue[] = [];
-      for (let i = 0; i < arr.getLength(); i++) {
-        const elem = valueAt(arr, i);
-        const keep = runner.callFunctionValue(
-          callback,
-          [elem, mkSmi(i)],
-          mkUndefined(),
-        );
-        if (toBool(keep)) result.push(elem);
-      }
-      return mkArray(createJSArray(result));
-    },
-  },
+  filter: callbackMethod("Array.prototype.filter", ({ arr, at, invoke }) => {
+    const result: TaggedValue[] = [];
+    for (let i = 0; i < arr.getLength(); i++) {
+      const elem = at(i);
+      if (toBool(invoke(elem, mkSmi(i)))) result.push(elem);
+    }
+    return mkArray(createJSArray(result));
+  }),
 
-  reduce: {
-    name: "Array.prototype.reduce",
-    call(
-      args: TaggedValue[],
-      thisValue: TaggedValue,
-      interpreter?: InterpreterLike,
-    ) {
-      const arr = runtimeArray(thisValue);
-      const runner = requireInterpreter(interpreter);
-      const callback = args[0];
-      if (!isFunction(callback))
-        throw new Error("TypeError: callback is not a function");
-      let accumulator: TaggedValue;
-      let startIndex: number;
-      if (args.length > 1) {
-        accumulator = args[1];
-        startIndex = 0;
-      } else {
-        if (arr.getLength() === 0)
-          throw new Error(
-            "TypeError: Reduce of empty array with no initial value",
-          );
-        accumulator = valueAt(arr, 0);
-        startIndex = 1;
-      }
-      for (let i = startIndex; i < arr.getLength(); i++) {
-        const elem = valueAt(arr, i);
-        accumulator = runner.callFunctionValue(
-          callback,
-          [accumulator, elem, mkSmi(i)],
-          mkUndefined(),
-        );
-      }
-      return accumulator;
-    },
-  },
+  reduce: callbackMethod("Array.prototype.reduce", ({ arr, args, at, invoke }) => {
+    let accumulator: TaggedValue;
+    let startIndex: number;
+    if (args.length > 1) {
+      accumulator = args[1];
+      startIndex = 0;
+    } else {
+      if (arr.getLength() === 0)
+        throw new Error("TypeError: Reduce of empty array with no initial value");
+      accumulator = at(0);
+      startIndex = 1;
+    }
+    for (let i = startIndex; i < arr.getLength(); i++) {
+      accumulator = invoke(accumulator, at(i), mkSmi(i));
+    }
+    return accumulator;
+  }),
 
   concat: {
     name: "Array.prototype.concat",

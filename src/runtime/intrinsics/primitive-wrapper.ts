@@ -5,12 +5,6 @@ type PrimitiveWrapper = {
   _primitiveValue?: TaggedValue;
 };
 
-/**
- * Value-returning half of the primitive-wrapper unwrap pair.
- * If `thisValue` is the primitive itself (per `guard`), returns `extract(thisValue)`.
- * If it is a wrapper object whose `_primitiveValue` matches `guard`, returns
- * `extract` of that inner value. Otherwise falls back to `coerce(thisValue)`.
- */
 export function unwrapPrimitive<T>(
   thisValue: TaggedValue,
   guard: (v: TaggedValue) => boolean,
@@ -26,11 +20,6 @@ export function unwrapPrimitive<T>(
   return coerce(thisValue);
 }
 
-/**
- * Tagged-value-returning half of the primitive-wrapper unwrap pair.
- * Returns the primitive `TaggedValue` (either `thisValue` itself or the wrapper's
- * `_primitiveValue`), otherwise returns `thisValue` unchanged.
- */
 export function unwrapPrimitiveTagged(
   thisValue: TaggedValue,
   guard: (v: TaggedValue) => boolean,

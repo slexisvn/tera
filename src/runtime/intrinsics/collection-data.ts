@@ -5,12 +5,6 @@ type CollectionReceiver = {
   hiddenClass: { instanceType: string };
 } & Record<string, unknown>;
 
-/**
- * Shared receiver-guard for collection prototype methods (Map/Set/WeakMap).
- * Unwraps the payload, verifies it carries the expected internal-data `field`
- * and matching `instanceType`, and returns that internal data. Otherwise throws
- * an incompatible-receiver TypeError labelled with `label`.
- */
 export function getCollectionData<T>(
   thisValue: TaggedValue,
   field: string,

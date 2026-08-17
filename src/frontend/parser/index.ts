@@ -1,3 +1,4 @@
+import { BINARY_OPERATORS, COMPOUND_ASSIGN_OPERATORS } from "../operators.js";
 import {
   NodeType,
   Program,
@@ -204,46 +205,9 @@ const TYPE_ARGUMENT_PUNCTUATORS = new Set<TokenValue>([
   "]",
 ]);
 
-const BINARY_OPS = new Set([
-  "==",
-  "!=",
-  "===",
-  "!==",
-  "<",
-  ">",
-  "<=",
-  ">=",
-  "+",
-  "-",
-  "*",
-  "/",
-  "%",
-  "@",
-  "&",
-  "|",
-  "^",
-  "<<",
-  ">>",
-  ">>>",
-  "**",
-  "instanceof",
-  "in",
-]);
+const BINARY_OPS = new Set<string>(BINARY_OPERATORS);
 
-const COMPOUND_ASSIGN_OPS = new Set([
-  "+=",
-  "-=",
-  "*=",
-  "/=",
-  "%=",
-  "&=",
-  "|=",
-  "^=",
-  "<<=",
-  ">>=",
-  ">>>=",
-  "**=",
-]);
+const COMPOUND_ASSIGN_OPS = new Set<string>(COMPOUND_ASSIGN_OPERATORS);
 
 export class Parser {
   tokens: ParserToken[];

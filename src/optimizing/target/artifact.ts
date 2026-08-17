@@ -3,24 +3,34 @@ import type { ClassTable } from "../metadata/class-table.js";
 import type { EntryDelivery } from "./entry.js";
 import type { AotScalar } from "../types/scalar.js";
 
-export type BackendArtifact =
-  | { readonly kind: "wasm"; readonly bytes: Uint8Array }
-  | {
-      readonly kind: "c";
-      readonly prototype: string;
-      readonly source: string;
-      readonly headerPreamble: string;
-      readonly sourcePreamble: string;
-      readonly translationUnitPreamble: string;
-    }
-  | {
-      readonly kind: "native";
-      readonly prototype: string;
-      readonly fn: MachineFunction;
-      readonly headerPreamble: string;
-      readonly runtimeSupport: readonly NativeRuntimeRoutine[];
-    }
-  | { readonly kind: "llvm"; readonly module: string };
+export interface BackendArtifact {
+  readonly kind: string;
+}
+
+export interface CArtifact extends BackendArtifact {
+  readonly kind: "c";
+  readonly prototype: string;
+  readonly source: string;
+  readonly headerPreamble: string;
+  readonly sourcePreamble: string;
+  readonly translationUnitPreamble: string;
+}
+
+export interface NativeArtifact extends BackendArtifact {
+  readonly kind: "native";
+  readonly prototype: string;
+  readonly fn: MachineFunction;
+  readonly headerPreamble: string;
+  readonly runtimeSupport: readonly NativeRuntimeRoutine[];
+}
+
+export function isCArtifact(artifact: BackendArtifact): artifact is CArtifact {
+  return artifact.kind === "c";
+}
+
+export function isNativeArtifact(artifact: BackendArtifact): artifact is NativeArtifact {
+  return artifact.kind === "native";
+}
 
 export interface NativeRuntimeRoutine {
   readonly symbol: string;

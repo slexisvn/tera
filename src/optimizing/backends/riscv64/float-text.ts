@@ -17,24 +17,35 @@ import {
   FLOAT64_SIGN_SHIFT,
   FLOAT64_SIGNIFICANT_DIGITS,
 } from "../../target/float64.js";
+import { TERA_POINTER_BYTES } from "../../target/runtime-layout.js";
+import {
+  BIGNUM_NAMES,
+  DECIMAL_POINT,
+  DIGIT_ZERO,
+  EXPONENT_MARK,
+  floatTextKeys,
+  HIGH_FLAG,
+  INCLUSIVE_FLAG,
+  INFINITY_TEXT,
+  LOW_FLAG,
+  MINUS_SIGN,
+  NEGATIVE_FLAG,
+  NEGATIVE_INFINITY_TEXT,
+  NOT_A_NUMBER_TEXT,
+  PLUS_SIGN,
+  RADIX,
+  STATE_BYTES,
+  STATE_DESTINATION,
+  STATE_DIVISOR_SHIFT,
+  STATE_POSITIVE_EXPONENT,
+  STATE_REMAINDER_SHIFT,
+  STATE_STEP,
+  type BignumName,
+} from "../../target/float-text-spec.js";
 import { RISCV_RUNTIME_SYMBOLS } from "./runtime-symbols.js";
 
-const WORD = 8;
-const RADIX = 10;
-const DIGIT_ZERO = "0".codePointAt(0)!;
-const MINUS_SIGN = "-".codePointAt(0)!;
-const PLUS_SIGN = "+".codePointAt(0)!;
-const DECIMAL_POINT = ".".codePointAt(0)!;
-const EXPONENT_MARK = "e".codePointAt(0)!;
-
-const NOT_A_NUMBER_TEXT = "NaN";
-const INFINITY_TEXT = "Infinity";
-const NEGATIVE_INFINITY_TEXT = `-${INFINITY_TEXT}`;
-
-const NEGATIVE_FLAG = 1;
-const INCLUSIVE_FLAG = 2;
-const LOW_FLAG = 4;
-const HIGH_FLAG = 8;
+const WORD = TERA_POINTER_BYTES;
+const STACK_ALIGNMENT_BYTES = 16;
 
 const CURSOR = "s1";
 const DECIMAL = "s2";
@@ -42,30 +53,15 @@ const COUNT = "s3";
 const FLAGS = "s4";
 const DIGIT = "s5";
 const SAVED: readonly string[] = ["ra", CURSOR, DECIMAL, COUNT, FLAGS, DIGIT];
-const FRAME_BYTES = Math.ceil((SAVED.length * WORD) / 16) * 16;
+const FRAME_BYTES =
+  Math.ceil((SAVED.length * WORD) / STACK_ALIGNMENT_BYTES) * STACK_ALIGNMENT_BYTES;
 
-const BIGNUM_NAMES = ["remainder", "divisor", "above", "below", "scratch"] as const;
-type BignumName = (typeof BIGNUM_NAMES)[number];
+const KEYS = floatTextKeys("rv64");
+const STATE_KEY = KEYS.state;
+const DIGITS_KEY = KEYS.digits;
+const EXPONENT_KEY = KEYS.exponent;
 
-const STATE_KEY = "rv64:float-state";
-const DIGITS_KEY = "rv64:float-digits";
-const EXPONENT_KEY = "rv64:float-exponent";
-const TEXT_KEYS: ReadonlyMap<string, string> = new Map([
-  [NOT_A_NUMBER_TEXT, "rv64:float-nan"],
-  [INFINITY_TEXT, "rv64:float-infinity"],
-  [NEGATIVE_INFINITY_TEXT, "rv64:float-negative-infinity"],
-]);
-
-const STATE_REMAINDER_SHIFT = 0;
-const STATE_DIVISOR_SHIFT = 4;
-const STATE_POSITIVE_EXPONENT = 8;
-const STATE_STEP = 12;
-const STATE_DESTINATION = 16;
-const STATE_BYTES = 24;
-
-function bignumKey(name: BignumName): string {
-  return `rv64:float-${name}`;
-}
+const bignumKey = KEYS.bignum;
 
 function reader(builder: MachineRoutineBuilder) {
   return (name: string, width = WORD): RegisterOperand => builder.read(name, width);
@@ -463,7 +459,7 @@ function copyUntilTerminator(context: DriverContext, address: string, block: str
 
 function copyText(context: DriverContext, text: string, block: string): void {
   const { builder, w } = context;
-  const datum = builder.data(TEXT_KEYS.get(text)!, 1, [asciiData(text)]);
+  const datum = builder.data(KEYS.ofText(text), 1, [asciiData(text)]);
   builder.emit("lla", w("t0"), sym(datum.label));
   copyUntilTerminator(context, "t0", block);
 }

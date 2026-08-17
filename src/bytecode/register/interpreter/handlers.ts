@@ -45,6 +45,7 @@ import {
   INSTANCE_TYPE_BOOLEAN_WRAPPER,
 } from "../../../objects/maps/hidden-class.js";
 import {
+  allocateInstance,
   createJSObject,
   createJSArray,
 } from "../../../objects/heap/factory.js";
@@ -539,13 +540,7 @@ export function handleLdaIndex(
   }
 
   if (fbSlotIdx_idx >= 0 && compiledFn.feedbackVector) {
-    const slot = compiledFn.feedbackVector.getSlot(fbSlotIdx_idx);
-    if (slot)
-      slot.recordArrayAccess(
-        isArray(obj),
-        isSmi(index),
-        isArray(obj) ? getPayload(obj).getElementsKind() : null,
-      );
+    compiledFn.feedbackVector.getSlot(fbSlotIdx_idx)?.recordIndexedAccess(obj, index);
   }
 
   if (isArray(obj)) {
@@ -688,14 +683,7 @@ export function handleNew(
       if (stub) {
         return stub(args);
       } else {
-        const newObj = createJSObject();
-        newObj.constructorRef = fn;
-        if (!fn.prototypeObj) {
-          fn.prototypeObj = createJSObject();
-          fn.prototypeObj.constructorRef = fn;
-        }
-        newObj.setPrototype(fn.prototypeObj);
-        presizeInstanceSlots(newObj, fn);
+        const newObj = allocateInstance(fn);
         const thisVal = mkObject(newObj);
         let returnVal;
         if (fn.closure) {

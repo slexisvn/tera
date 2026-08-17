@@ -56,7 +56,7 @@ import {
 import { getMigrationStats } from "../objects/heap/js-object.js";
 import { IRNodeIdAllocator, resetIRNodeIds, withIRNodeIdAllocator } from "../optimizing/ir/index.js";
 import type { CompilerOptions } from "../optimizing/options.js";
-import { createTieringPolicy } from "../runtime/tiering/policy.js";
+import { compileCooldownUntil, createTieringPolicy } from "../runtime/tiering/policy.js";
 import type { TieringPolicyOptions } from "../runtime/tiering/policy.js";
 import {
   MicrotaskQueue,
@@ -1604,29 +1604,15 @@ export class Engine {
           `Wasm installed in ${elapsed.toFixed(2)}ms`,
         );
       } else {
-        compiledFn.compileFailureCount =
-          (compiledFn.compileFailureCount || 0) + 1;
         const rejection = jitResult.rejection.compileRejection;
         const malformedGraph = rejection?.kind === "malformed";
-        compiledFn.lastCompileFailureReason = malformedGraph
-          ? `internal compiler error: ${rejection.reason}`
-          : rejection?.reason || jitResult.rejection.analysisFailure || "not-compilable";
-        if (malformedGraph) {
-          compiledFn.disableOptimization = true;
-        } else {
-          compiledFn.optimizationCooldownUntil =
-            Date.now() + Math.min(5000, 250 * compiledFn.compileFailureCount);
-        }
-        const policyHooks = policyWithCompileHooks(this.tieringPolicy);
-        if (
-          this.tieringPolicy &&
-          typeof policyHooks.recordCompileFailure === "function"
-        ) {
-          policyHooks.recordCompileFailure(
-            compiledFn,
-            compiledFn.lastCompileFailureReason,
-          );
-        }
+        this.recordCompileFailure(
+          compiledFn,
+          malformedGraph
+            ? `internal compiler error: ${rejection.reason}`
+            : rejection?.reason || jitResult.rejection.analysisFailure || "not-compilable",
+          malformedGraph,
+        );
         tracer.jitCompile(
           functionName(compiledFn),
           "Wasm compilation skipped — cooldown",
@@ -1635,33 +1621,39 @@ export class Engine {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       const internal = !isBackendLoweringError(e);
-      compiledFn.compileFailureCount =
-        (compiledFn.compileFailureCount || 0) + 1;
-      compiledFn.lastCompileFailureReason = internal
-        ? `internal compiler error: ${message}`
-        : message;
-      if (internal) {
-        compiledFn.disableOptimization = true;
-      } else {
-        compiledFn.optimizationCooldownUntil =
-          Date.now() + Math.min(5000, 250 * compiledFn.compileFailureCount);
-      }
-      const policyHooks = policyWithCompileHooks(this.tieringPolicy);
-      if (
-        this.tieringPolicy &&
-        typeof policyHooks.recordCompileFailure === "function"
-      ) {
-        policyHooks.recordCompileFailure(
-          compiledFn,
-          compiledFn.lastCompileFailureReason,
-        );
-      }
+      this.recordCompileFailure(
+        compiledFn,
+        internal ? `internal compiler error: ${message}` : message,
+        internal,
+      );
       tracer.jitCompile(
         functionName(compiledFn),
         internal
           ? `Optimization disabled — internal compiler error: ${message}`
           : `Compilation failed: ${message}`,
       );
+    }
+  }
+
+  private recordCompileFailure(
+    compiledFn: RegisterCompiledFunction,
+    reason: string,
+    unrecoverable: boolean,
+  ): void {
+    compiledFn.compileFailureCount = (compiledFn.compileFailureCount || 0) + 1;
+    compiledFn.lastCompileFailureReason = reason;
+    if (unrecoverable) {
+      compiledFn.disableOptimization = true;
+    } else {
+      compiledFn.optimizationCooldownUntil = compileCooldownUntil(
+        this.tieringPolicy,
+        compiledFn.compileFailureCount,
+        Date.now(),
+      );
+    }
+    const policyHooks = policyWithCompileHooks(this.tieringPolicy);
+    if (this.tieringPolicy && typeof policyHooks.recordCompileFailure === "function") {
+      policyHooks.recordCompileFailure(compiledFn, reason);
     }
   }
 

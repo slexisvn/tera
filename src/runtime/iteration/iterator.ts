@@ -68,10 +68,6 @@ export function createIteratorResult(value: TaggedValue, done: boolean): TaggedV
   return mkObject(obj);
 }
 
-/**
- * Wraps a raw single-value iterator (e.g. Map/Set keys/values) into a JS
- * iterator value, yielding each item directly.
- */
 export function wrapValueIterator(
   source: TaggedValue,
   iter: Iterator<TaggedValue>,
@@ -85,10 +81,6 @@ export function wrapValueIterator(
   );
 }
 
-/**
- * Wraps a raw entry iterator (e.g. Map/Set entries) into a JS iterator value,
- * yielding each entry as a two-element `[key, value]` array.
- */
 export function wrapEntryIterator(
   source: TaggedValue,
   iter: Iterator<[TaggedValue, TaggedValue]>,

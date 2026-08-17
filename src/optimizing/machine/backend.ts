@@ -3,11 +3,12 @@ import type { AnalysisManager } from "../infra/analysis-manager.js";
 import { aotLegalityAnalysisId } from "../analyses/aot-legality.js";
 import type { AotBackend, LinkableFunction, TargetPlatform } from "../target/backend.js";
 import type { Emitter } from "../target/emitter.js";
-import type {
-  AotLinkOptions,
-  AotOutputFile,
-  AotOutputFormat,
-  NativeRuntimeRoutine,
+import {
+  isNativeArtifact,
+  type AotLinkOptions,
+  type AotOutputFile,
+  type AotOutputFormat,
+  type NativeRuntimeRoutine,
 } from "../target/artifact.js";
 import { BackendLoweringError } from "../target/errors.js";
 import { prototypeOf } from "../target/c-types.js";
@@ -93,7 +94,7 @@ function nativeParts(functions: readonly LinkableFunction[]): NativePart[] {
   const parts: NativePart[] = [];
   for (const fn of functions) {
     const artifact = fn.emitted.artifact;
-    if (artifact.kind !== "native") continue;
+    if (!isNativeArtifact(artifact)) continue;
     parts.push({
       name: fn.name,
       prototype: artifact.prototype,

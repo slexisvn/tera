@@ -58,6 +58,7 @@ import { markReachableHeapIds } from "../../../gc/roots.js";
 import { markNamedArguments } from "../../../runtime/named-arguments.js";
 
 import {
+  allocateInstance,
   createJSObject,
   createJSArray,
   createJSPrimitiveWrapper,
@@ -143,6 +144,7 @@ import {
   runAsyncWithSuspension,
   resumeAfterSuspend,
   runGeneratorFrame,
+  type ThrownValue,
 } from "./helpers.js";
 import {
   installPromiseBuiltin,
@@ -225,17 +227,6 @@ type NamedRuntimeArg = {
   value: TaggedValue;
 };
 
-type ThrownValue =
-  | RegisterException
-  | VMError
-  | Error
-  | object
-  | string
-  | number
-  | boolean
-  | symbol
-  | null
-  | undefined;
 
 export function updateCallMode(compiled: CompiledFunctionLike): void {
   if (compiled.isGenerator) compiled.callMode = CALL_GENERATOR;
@@ -1269,14 +1260,7 @@ export class RegisterInterpreter {
     this.initFeedbackVector(compiled);
     const stub = !fn.closure ? this.getConstructorStub(compiled, fn) : null;
     if (stub) return stub(args);
-    const newObj = createJSObject();
-    newObj.constructorRef = fn;
-    if (!fn.prototypeObj) {
-      fn.prototypeObj = createJSObject();
-      fn.prototypeObj.constructorRef = fn;
-    }
-    newObj.setPrototype(fn.prototypeObj);
-    presizeInstanceSlots(newObj, fn);
+    const newObj = allocateInstance(fn);
     const thisVal = mkObject(newObj);
     const returnVal = this.callFunctionValue(callee, args, thisVal);
     recordConstruction(fn, newObj);

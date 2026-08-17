@@ -1,4 +1,12 @@
-import type { Representation } from "../types/representation.js";
+import {
+  REP_BOOL,
+  REP_FLOAT64,
+  REP_HANDLE,
+  REP_INT32,
+  REP_TAGGED,
+  REP_TAGGED_NUMBER,
+  type Representation,
+} from "../types/representation.js";
 import type { AotScalar } from "../types/scalar.js";
 import type { CapabilitySet } from "./capabilities.js";
 import type { SpeculationStrategy } from "./speculation.js";
@@ -11,6 +19,19 @@ export type MachineRepr =
   | "boolean"
   | "tagged"
   | "pointer";
+
+const MACHINE_REPR = new Map<Representation, MachineRepr>([
+  [REP_INT32, "int32"],
+  [REP_FLOAT64, "float64"],
+  [REP_TAGGED_NUMBER, "float64"],
+  [REP_BOOL, "boolean"],
+  [REP_HANDLE, "pointer"],
+  [REP_TAGGED, "tagged"],
+]);
+
+export function defaultMachineReprOf(rep: Representation): MachineRepr {
+  return MACHINE_REPR.get(rep) ?? "pointer";
+}
 
 export interface TargetModel {
   readonly name: string;

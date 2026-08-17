@@ -129,7 +129,7 @@ import {
   type BuiltinPrototypeSet,
 } from "../../../runtime/value-semantics.js";
 
-type RuntimeInterpreterLike = {
+export type RuntimeInterpreterLike = {
   builtinPrototypes?: BuiltinPrototypeSet;
   globalCells: {
     get(name: string): { read(): TaggedValue } | undefined;

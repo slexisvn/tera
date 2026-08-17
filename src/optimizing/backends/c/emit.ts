@@ -139,6 +139,7 @@ import {
   FLOAT64_SIGN_SHIFT,
   FLOAT64_SIGNIFICANT_DIGITS,
 } from "../../target/float64.js";
+import { INT32_MAX, INT32_MIN, UINT32_RANGE } from "../../target/integer.js";
 import {
   cTypeOf,
   declarationOf,
@@ -230,10 +231,10 @@ static inline double tera_u32_shr(int32_t a, int32_t b) {
 static inline int32_t tera_to_i32(double value) {
   if (!isfinite(value)) return 0;
   double truncated = trunc(value);
-  if (truncated >= -2147483648.0 && truncated <= 2147483647.0) return (int32_t)truncated;
-  double wrapped = fmod(truncated, 4294967296.0);
-  if (wrapped < 0.0) wrapped += 4294967296.0;
-  if (wrapped >= 2147483648.0) wrapped -= 4294967296.0;
+  if (truncated >= ${INT32_MIN}.0 && truncated <= ${INT32_MAX}.0) return (int32_t)truncated;
+  double wrapped = fmod(truncated, ${UINT32_RANGE}.0);
+  if (wrapped < 0.0) wrapped += ${UINT32_RANGE}.0;
+  if (wrapped >= ${UINT32_RANGE / 2}.0) wrapped -= ${UINT32_RANGE}.0;
   return (int32_t)wrapped;
 }
 
@@ -1183,7 +1184,6 @@ class CFunctionEmitter {
     }
   }
 
-  /** Locals must not shadow a function this one calls, or the call stops being one. */
   private calledSymbols(): ReadonlySet<string> {
     const reserved = new Set<string>([cIdentifier(this.graph.name)]);
     for (const block of this.graph.blocks) {

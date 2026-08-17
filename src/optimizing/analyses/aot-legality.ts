@@ -192,10 +192,6 @@ function isConstantText(value: CFGInstruction | undefined): boolean {
   return value?.type === IR_CONSTANT && typeof value.props.value === "string";
 }
 
-/**
- * `Promise.resolve` and friends read a member off a value the runtime installs, which
- * a compiled program does not carry. Naming it beats reporting an anonymous global.
- */
 function globalValueReason(node: CFGInstruction): string {
   const owner = node.props.name;
   if (typeof owner !== "string") return "load of a global value";

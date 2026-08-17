@@ -444,15 +444,7 @@ export class BaselineRuntime {
       const key = isString(index) ? getPayload(index) : toDisplayString(index);
       return runtimeGetProperty(obj, key, this.interp);
     }
-    if (this.fv) {
-      const slot = this.fv.getSlot(fbSlot);
-      if (slot)
-        slot.recordArrayAccess(
-          isArray(obj),
-          isSmi(index),
-          isArray(obj) ? getPayload(obj).getElementsKind() : null,
-        );
-    }
+    this.fv?.getSlot(fbSlot)?.recordIndexedAccess(obj, index);
     if (isArray(obj)) {
       const idx = toNumber(index);
       const key = isString(index) ? getPayload(index) : toDisplayString(index);

@@ -28,6 +28,12 @@ import type {
 import { storeBarrierForTaggedValue } from "../../gc/write-barrier.js";
 import type { GCObject } from "../../gc/incremental-marker.js";
 import { payloadGCObject } from "./gc-payload.js";
+import {
+  ownsSymbolProperty,
+  readSymbolProperty,
+  removeSymbolProperty,
+  writeSymbolProperty,
+} from "./symbol-properties.js";
 
 const MAX_IN_OBJECT_PROPERTIES = 10;
 const SLACK_TRACKING_CALL_COUNT = 7;
@@ -113,23 +119,19 @@ export class JSObject {
   }
 
   getSymbolProperty(taggedSym: TaggedValue): TaggedValue | undefined {
-    if (!this.symbolProperties) return undefined;
-    return this.symbolProperties.get(getPayload(taggedSym));
+    return readSymbolProperty(this, taggedSym);
   }
 
   setSymbolProperty(taggedSym: TaggedValue, value: TaggedValue): void {
-    if (!this.symbolProperties) this.symbolProperties = new Map();
-    this.symbolProperties.set(getPayload(taggedSym), value);
+    writeSymbolProperty(this, taggedSym, value);
   }
 
   deleteSymbolProperty(taggedSym: TaggedValue): boolean {
-    if (!this.symbolProperties) return true;
-    return this.symbolProperties.delete(getPayload(taggedSym));
+    return removeSymbolProperty(this, taggedSym);
   }
 
   hasSymbolProperty(taggedSym: TaggedValue): boolean {
-    if (!this.symbolProperties) return false;
-    return this.symbolProperties.has(getPayload(taggedSym));
+    return ownsSymbolProperty(this, taggedSym);
   }
 
   visitReferences(callback: (value: GCObject) => void): void {

@@ -41,7 +41,6 @@ interface MethodCall {
   readonly args: readonly CFGInstruction[];
 }
 
-/** A method call carries the receiver as its first input, ahead of the arguments. */
 function methodCallOf(node: CFGInstruction): MethodCall | null {
   if (node.type !== IR_GENERIC_CALL || node.props.isMethod !== true) return null;
   const callee = node.inputs[0];
@@ -56,7 +55,6 @@ const WRITTEN_BY_JS_TYPE = new Map<string, string>([
   ["boolean", "bool"],
 ]);
 
-/** What a spelled-out value would have been written as, so a slot can hold it. */
 function writtenTypeOfConstant(value: CFGInstruction | undefined): string {
   if (value === undefined || value.type !== IR_CONSTANT) return ANY_TYPE;
   const held = value.props.value;
@@ -79,10 +77,6 @@ function writtenNameOf(type: LatticeType, classes: ClassTable | null): string {
   return WRITTEN_BY_KIND.get(type.kind) ?? ANY_TYPE;
 }
 
-/**
- * What a function settles with: what it says, or — for a callback written without
- * types — what its returns actually carry once its parameters are known.
- */
 function writtenReturnOf(graph: CFGFunction): string {
   const declared = graph.declaredSignature?.returns;
   if (!isUnwritten(declared)) return declared!;
@@ -124,7 +118,6 @@ function removeNode(node: CFGInstruction): void {
   node.block = null;
 }
 
-/** Drops a value and whatever it alone was reading, so no orphan reads survive. */
 function removeChain(node: CFGInstruction): void {
   const inputs = [...node.inputs];
   removeNode(node);
@@ -180,7 +173,6 @@ class PromiseSurface {
     return typeof name === "string" ? this.graphsByName.get(name) ?? null : null;
   }
 
-  /** The type a call settles with, as written on the function it calls. */
   private settledTypeOf(call: CFGInstruction): string {
     const name = calleeNameOf(call);
     const callee = name === null ? null : this.graphsByName.get(name) ?? null;
@@ -216,7 +208,6 @@ class PromiseSurface {
     }
   }
 
-  /** `Promise.resolve(v)` becomes a call to an async function that returns v. */
   private lowerResolve(owner: CFGFunction, call: MethodCall): void {
     const value = call.args[0];
     if (value === undefined || call.args.length !== 1) return;
@@ -232,11 +223,6 @@ class PromiseSurface {
     this.swap(owner, call.node, replacement);
   }
 
-  /**
-   * `await Promise.all([a(), b()])` becomes awaiting each call in turn and collecting the
-   * results, which keeps what matters: every call is already running before the first
-   * await, and the array is only built once they have all settled.
-   */
   private lowerAll(owner: CFGFunction, call: MethodCall): void {
     const list = call.args[0];
     if (list === undefined || call.args.length !== 1) return;
@@ -274,12 +260,6 @@ class PromiseSurface {
     return callee !== null && callee.isAsync;
   }
 
-  /**
-   * `p.then(cb)` becomes an async function that awaits p and hands the settled value to
-   * cb; `p.catch(cb)` awaits p and hands cb whatever it threw instead. Both only work
-   * when the promise comes straight from a call this module can name, because the
-   * awaited call has to move inside the function that awaits it.
-   */
   private lowerContinuation(owner: CFGFunction, call: MethodCall): void {
     const producer = call.receiver;
     if (producer === null || call.args.length !== 1) return;
@@ -342,11 +322,6 @@ class PromiseSurface {
   }
 }
 
-/**
- * Rewrites the promise surface into ordinary async functions, so the coroutine pipeline
- * carries it rather than the compiler needing a promise object of its own.
- */
 export function lowerPromiseSurface(module: ModuleIR): readonly CompilationUnit[] {
   return new PromiseSurface(module).run();
 }
-

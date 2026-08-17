@@ -14,10 +14,6 @@ export interface GraphClone {
 
 const BLOCK_PROPS: readonly string[] = ["targetBlock", "trueBlock", "falseBlock"];
 
-/**
- * Copies a function graph node for node. Frame states are dropped: they describe
- * interpreter state for deoptimisation, which no ahead-of-time target keeps.
- */
 export function cloneGraph(source: CFGFunction, name: string): GraphClone {
   const graph = new CFGFunction(name);
   graph.classes = source.classes;

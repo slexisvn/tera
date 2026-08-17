@@ -1,6 +1,7 @@
 import { ExecutionProfile } from "../../feedback/profile/index.js";
 import { tracer } from "../../core/tracing/index.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
+import { DEFAULT_TIERING_POLICY } from "./defaults.js";
 
 const DEFAULT_HOTNESS_THRESHOLD = 50;
 const COOLDOWN_BASE_MS = 500;
@@ -14,6 +15,8 @@ type AdaptiveTieringOptions = {
   baselineThreshold?: number;
   loopOsrThreshold?: number;
   jitThreshold?: number;
+  compileCooldownStepMs?: number;
+  maxCompileCooldownMs?: number;
 };
 type FeedbackSummary = Record<string, number>;
 type TieringFunctionRecord = {
@@ -38,6 +41,8 @@ export class AdaptiveTieringPolicy {
   maxDeoptCount: number;
   jitThreshold: number;
   compilationPressure: number;
+  compileCooldownStepMs: number;
+  maxCompileCooldownMs: number;
 
   constructor(options: AdaptiveTieringOptions | "adaptive" = {}) {
     const opts = options === "adaptive" ? {} : options;
@@ -51,6 +56,10 @@ export class AdaptiveTieringPolicy {
     this.maxDeoptCount = Infinity;
     this.jitThreshold = opts.jitThreshold || 50;
     this.compilationPressure = 0;
+    this.compileCooldownStepMs =
+      opts.compileCooldownStepMs ?? DEFAULT_TIERING_POLICY.compileCooldownStepMs;
+    this.maxCompileCooldownMs =
+      opts.maxCompileCooldownMs ?? DEFAULT_TIERING_POLICY.maxCompileCooldownMs;
   }
 
   getProfile(fn: TieringProfileKey): ExecutionProfile {

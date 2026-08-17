@@ -43,6 +43,20 @@ function editDistance(left: string, right: string): number {
   return previous[right.length]!;
 }
 
+const exportedNames = new WeakMap<object, string[]>();
+
+function exportedNamesOf(owner: ModuleRecord): string[] {
+  let names = exportedNames.get(owner);
+  if (names === undefined) {
+    names = [];
+    for (const entry of owner.bindings.values()) {
+      if (entry.exported) names.push(entry.name);
+    }
+    exportedNames.set(owner, names);
+  }
+  return names;
+}
+
 function nearestName(target: string, candidates: Iterable<string>): string | null {
   let best: string | null = null;
   let bestDistance = SUGGESTION_DISTANCE;
@@ -136,10 +150,7 @@ class ModuleChecker {
         if (binding.submodule !== null) continue;
         const declared = owner.bindings.get(binding.imported);
         if (declared === undefined) {
-          const suggestion = nearestName(
-            binding.imported,
-            [...owner.bindings.values()].filter((entry) => entry.exported).map((entry) => entry.name),
-          );
+          const suggestion = nearestName(binding.imported, exportedNamesOf(owner));
           this.error(
             record,
             binding.span.line,

@@ -106,10 +106,25 @@ class SymbolTableBuilder {
   }
 
   materializeInferredLocals(): void {
+    const declared = new Map<SourceScope, Set<string>>();
+    const declaredIn = (scope: SourceScope): Set<string> => {
+      let known = declared.get(scope);
+      if (known === undefined) {
+        known = new Set(
+          scope.symbols.map((symbol) => symbolPosition(symbol.name, symbol.line, symbol.column)),
+        );
+        declared.set(scope, known);
+      }
+      return known;
+    };
+
     for (const locals of this.inferred.locals.values()) {
       for (const local of locals) {
         const scope = findScopeAt(this.root, local.line);
-        if (scope.symbols.some((symbol) => symbol.name === local.name && symbol.line === local.line && symbol.column === local.column)) continue;
+        const known = declaredIn(scope);
+        const position = symbolPosition(local.name, local.line, local.column);
+        if (known.has(position)) continue;
+        known.add(position);
         addSymbol(scope, local.name, local.kind ?? "variable", local.line, local.column, local.type === "any" ? null : local.type, {
           visibleFromLine: local.scopeStartLine,
           visibleFromColumn: local.scopeStartColumn,
@@ -561,6 +576,10 @@ function substituteTypeParams(typeName: string, params: string[], args: string[]
   return out;
 }
 
+function symbolPosition(name: string, line: number, column: number): string {
+  return `${name}:${line}:${column}`;
+}
+
 function escapeRegExp(source: string): string {
   return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -568,9 +587,16 @@ function escapeRegExp(source: string): string {
 function commonMembers(groups: SourceSymbol[][]): SourceSymbol[] {
   const [first, ...rest] = groups;
   if (!first) return [];
+  const byName = rest.map(
+    (group) => new Map(group.map((item) => [item.name, item] as const)),
+  );
   const out: SourceSymbol[] = [];
   for (const member of first) {
-    const matches = rest.map((group) => group.find((item) => item.name === member.name)).filter((item): item is SourceSymbol => !!item);
+    const matches: SourceSymbol[] = [];
+    for (const group of byName) {
+      const found = group.get(member.name);
+      if (found !== undefined) matches.push(found);
+    }
     if (matches.length !== rest.length) continue;
     const types = [member, ...matches].map((item) => item.typeName).filter((type): type is string => !!type);
     out.push({ ...member, typeName: types.length ? unionTypeNames(types) : member.typeName });
@@ -579,11 +605,11 @@ function commonMembers(groups: SourceSymbol[][]): SourceSymbol[] {
 }
 
 function unionTypeNames(types: string[]): string {
-  const out: string[] = [];
+  const out = new Set<string>();
   for (const type of types) {
-    for (const part of splitUnionTopLevel(type)) if (!out.includes(part)) out.push(part);
+    for (const part of splitUnionTopLevel(type)) out.add(part);
   }
-  return out.join(" | ");
+  return [...out].join(" | ");
 }
 
 function splitUnionTopLevel(source: string): string[] {

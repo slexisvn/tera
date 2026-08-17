@@ -84,6 +84,11 @@ export function irRequiresFrameState(node: IRValueLike) {
   return canDeoptimize(node);
 }
 
+function dropOneUse(producer: CFGInstruction, user: CFGInstruction): void {
+  const at = producer.uses.indexOf(user);
+  if (at >= 0) producer.uses.splice(at, 1);
+}
+
 export class CFGInstruction {
   id: number;
   type: ops.Opcode;
@@ -122,7 +127,7 @@ export class CFGInstruction {
       throw new Error(`IR input must be an instruction, got ${valueLabel(value)}`);
     }
     const old = this.inputs[index];
-    old.uses = old.uses.filter((u) => u !== this);
+    dropOneUse(old, this);
     this.inputs[index] = value;
     value.uses.push(this);
   }
@@ -210,6 +215,7 @@ export class CFGFunction {
   parameterCount: number;
   parameters: CFGInstruction[];
   dependencies: CFGDependency[];
+  private readonly dependencyKeys: Set<string>;
   inlineBudgetRemaining: number;
   bailout: string | null;
   osrCandidates: Map<number, OsrCandidate>;
@@ -235,6 +241,7 @@ export class CFGFunction {
     this.parameterCount = 0;
     this.parameters = [];
     this.dependencies = [];
+    this.dependencyKeys = new Set();
     this.bailout = null;
     this.inlineBudgetRemaining = 0;
     this.osrCandidates = new Map();
@@ -275,9 +282,8 @@ export class CFGFunction {
 
   addDependency(kind: string, id: string | number, version: number | null = null) {
     const key = `${kind}:${id}:${version ?? ""}`;
-    for (const dep of this.dependencies) {
-      if (`${dep.kind}:${dep.id}:${dep.version ?? ""}` === key) return;
-    }
+    if (this.dependencyKeys.has(key)) return;
+    this.dependencyKeys.add(key);
     this.dependencies.push({ kind, id, version });
   }
 

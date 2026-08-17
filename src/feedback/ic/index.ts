@@ -388,6 +388,56 @@ export class MegamorphicCache {
   }
 }
 
+abstract class SiteInlineCache<TEntry> {
+  siteId: SiteId;
+  megamorphicCache: MegamorphicCache;
+  state: ICState;
+  entries: TEntry[] | null;
+  hitCount: number;
+  missCount: number;
+  transitionCount: number;
+
+  constructor(siteId: SiteId, megamorphicCache = new MegamorphicCache()) {
+    this.siteId = siteId;
+    this.megamorphicCache = megamorphicCache;
+    this.state = IC_UNINITIALIZED;
+    this.entries = [];
+    this.hitCount = 0;
+    this.missCount = 0;
+    this.transitionCount = 0;
+  }
+
+  invalidate(): void {
+    this.state = IC_UNINITIALIZED;
+    this.entries = [];
+    this.transitionCount++;
+  }
+}
+
+abstract class PropertySiteInlineCache<TEntry> extends SiteInlineCache<TEntry> {
+  monomorphicSinceCount: number;
+  jitCandidate: boolean;
+
+  constructor(siteId: SiteId, megamorphicCache = new MegamorphicCache()) {
+    super(siteId, megamorphicCache);
+    this.monomorphicSinceCount = 0;
+    this.jitCandidate = false;
+  }
+
+  invalidate(): void {
+    super.invalidate();
+    this.monomorphicSinceCount = 0;
+    this.jitCandidate = false;
+  }
+
+  isSettled(): boolean {
+    return (
+      (this.hitCount >= SETTLED_CALL_THRESHOLD && this.transitionCount === 0) ||
+      this.hitCount - this.missCount >= SETTLED_CALL_THRESHOLD
+    );
+  }
+}
+
 class ICEntry<THandler extends PropertyHandler = PropertyHandler> {
   hiddenClassId: MapId;
   mapVersion: MapVersion | null;
@@ -521,29 +571,7 @@ export class StoreElementHandler {
   }
 }
 
-export class PropertyLoadIC {
-  siteId: SiteId;
-  megamorphicCache: MegamorphicCache;
-  state: ICState;
-  entries: Array<ICEntry<LoadPropertyHandler>> | null;
-  hitCount: number;
-  missCount: number;
-  transitionCount: number;
-  monomorphicSinceCount: number;
-  jitCandidate: boolean;
-
-  constructor(siteId: SiteId, megamorphicCache = new MegamorphicCache()) {
-    this.siteId = siteId;
-    this.megamorphicCache = megamorphicCache;
-    this.state = IC_UNINITIALIZED;
-    this.entries = [];
-    this.hitCount = 0;
-    this.missCount = 0;
-    this.transitionCount = 0;
-    this.monomorphicSinceCount = 0;
-    this.jitCandidate = false;
-  }
-
+export class PropertyLoadIC extends PropertySiteInlineCache<ICEntry<LoadPropertyHandler>> {
   lookup(obj: ICObject, propertyName: PropertyKey): LoadLookupResult {
     if (obj.hiddenClass.isDeprecated && obj.migrateInstance) {
       obj.migrateInstance();
@@ -724,14 +752,6 @@ export class PropertyLoadIC {
     return { hit: !missing, value };
   }
 
-  invalidate() {
-    this.state = IC_UNINITIALIZED;
-    this.entries = [];
-    this.monomorphicSinceCount = 0;
-    this.jitCandidate = false;
-    this.transitionCount++;
-  }
-
   getSortedHandlers() {
     if (!this.entries || this.entries.length === 0) return [];
     return [...this.entries].sort((a, b) => b.hitCount - a.hitCount);
@@ -750,13 +770,6 @@ export class PropertyLoadIC {
       return top;
     }
     return null;
-  }
-
-  isSettled() {
-    return (
-      (this.hitCount >= SETTLED_CALL_THRESHOLD && this.transitionCount === 0) ||
-      this.hitCount - this.missCount >= SETTLED_CALL_THRESHOLD
-    );
   }
 
   getPolymorphicProfile() {
@@ -799,29 +812,7 @@ export class PropertyLoadIC {
   }
 }
 
-export class PropertyStoreIC {
-  siteId: SiteId;
-  megamorphicCache: MegamorphicCache;
-  state: ICState;
-  entries: Array<ICEntry<StorePropertyHandler>> | null;
-  hitCount: number;
-  missCount: number;
-  transitionCount: number;
-  monomorphicSinceCount: number;
-  jitCandidate: boolean;
-
-  constructor(siteId: SiteId, megamorphicCache = new MegamorphicCache()) {
-    this.siteId = siteId;
-    this.megamorphicCache = megamorphicCache;
-    this.state = IC_UNINITIALIZED;
-    this.entries = [];
-    this.hitCount = 0;
-    this.missCount = 0;
-    this.transitionCount = 0;
-    this.monomorphicSinceCount = 0;
-    this.jitCandidate = false;
-  }
-
+export class PropertyStoreIC extends PropertySiteInlineCache<ICEntry<StorePropertyHandler>> {
   store(obj: ICObject, propertyName: PropertyKey, value: TaggedValue): boolean {
     if (obj.hiddenClass.isDeprecated && obj.migrateInstance) {
       obj.migrateInstance();
@@ -984,14 +975,6 @@ export class PropertyStoreIC {
     );
   }
 
-  invalidate() {
-    this.state = IC_UNINITIALIZED;
-    this.entries = [];
-    this.monomorphicSinceCount = 0;
-    this.jitCandidate = false;
-    this.transitionCount++;
-  }
-
   getSortedHandlers() {
     if (!this.entries || this.entries.length === 0) return [];
     return [...this.entries].sort((a, b) => b.hitCount - a.hitCount);
@@ -1010,13 +993,6 @@ export class PropertyStoreIC {
       return top;
     }
     return null;
-  }
-
-  isSettled() {
-    return (
-      (this.hitCount >= SETTLED_CALL_THRESHOLD && this.transitionCount === 0) ||
-      this.hitCount - this.missCount >= SETTLED_CALL_THRESHOLD
-    );
   }
 
   getPolymorphicProfile() {
@@ -1059,25 +1035,7 @@ export class PropertyStoreIC {
   }
 }
 
-export class ElementLoadIC {
-  siteId: SiteId;
-  megamorphicCache: MegamorphicCache;
-  state: ICState;
-  entries: Array<ElementICEntry<LoadElementHandler>> | null;
-  hitCount: number;
-  missCount: number;
-  transitionCount: number;
-
-  constructor(siteId: SiteId, megamorphicCache = new MegamorphicCache()) {
-    this.siteId = siteId;
-    this.megamorphicCache = megamorphicCache;
-    this.state = IC_UNINITIALIZED;
-    this.entries = [];
-    this.hitCount = 0;
-    this.missCount = 0;
-    this.transitionCount = 0;
-  }
-
+export class ElementLoadIC extends SiteInlineCache<ElementICEntry<LoadElementHandler>> {
   lookup(arrayObj: ICArray, index: number): LoadLookupResult {
     const elementsKind = arrayObj.getElementsKind();
 
@@ -1151,12 +1109,6 @@ export class ElementLoadIC {
     tracer.icEvent(siteTraceId(this.siteId), prevState, this.state, kindTraceId(elementsKind), 0);
   }
 
-  invalidate() {
-    this.state = IC_UNINITIALIZED;
-    this.entries = [];
-    this.transitionCount++;
-  }
-
   getStats() {
     return {
       siteId: this.siteId,
@@ -1171,25 +1123,7 @@ export class ElementLoadIC {
   }
 }
 
-export class ElementStoreIC {
-  siteId: SiteId;
-  megamorphicCache: MegamorphicCache;
-  state: ICState;
-  entries: Array<ElementICEntry<StoreElementHandler>> | null;
-  hitCount: number;
-  missCount: number;
-  transitionCount: number;
-
-  constructor(siteId: SiteId, megamorphicCache = new MegamorphicCache()) {
-    this.siteId = siteId;
-    this.megamorphicCache = megamorphicCache;
-    this.state = IC_UNINITIALIZED;
-    this.entries = [];
-    this.hitCount = 0;
-    this.missCount = 0;
-    this.transitionCount = 0;
-  }
-
+export class ElementStoreIC extends SiteInlineCache<ElementICEntry<StoreElementHandler>> {
   store(arrayObj: ICArray, index: number, value: TaggedValue): boolean {
     const elementsKind = arrayObj.getElementsKind();
 
@@ -1283,12 +1217,6 @@ export class ElementStoreIC {
     }
     this.transitionCount++;
     tracer.icEvent(siteTraceId(this.siteId), prevState, this.state, kindTraceId(elementsKind), 0);
-  }
-
-  invalidate() {
-    this.state = IC_UNINITIALIZED;
-    this.entries = [];
-    this.transitionCount++;
   }
 
   getStats() {

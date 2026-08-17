@@ -18,24 +18,8 @@ import {
 } from "../../core/value/index.js";
 import type { RuntimeValue, TaggedValue } from "../../core/value/index.js";
 import { createJSArray } from "../../objects/heap/factory.js";
+import type { BuiltinMethod, InterpreterLike } from "./builtin-method.js";
 import { unwrapPrimitive } from "./primitive-wrapper.js";
-
-type InterpreterLike = {
-  callFunctionValue(
-    fn: TaggedValue,
-    args: TaggedValue[],
-    thisValue: TaggedValue,
-  ): TaggedValue;
-};
-
-type BuiltinMethod = {
-  name: string;
-  call(
-    args: TaggedValue[],
-    thisValue: TaggedValue,
-    interpreter?: InterpreterLike,
-  ): TaggedValue;
-};
 
 type RegexPayload = {
   nativeRegex: RegExp;

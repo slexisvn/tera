@@ -42,7 +42,6 @@ function calleeNameOf(node: CFGInstruction): string | null {
   return calleeSymbolName(node);
 }
 
-/** Parameter positions whose every use is "call me". */
 function calledParametersOf(graph: CFGFunction): readonly number[] {
   const called: number[] = [];
   graph.parameters.forEach((parameter, index) => {
@@ -55,11 +54,6 @@ function calledParametersOf(graph: CFGFunction): readonly number[] {
   return called;
 }
 
-/**
- * A callback written without types still has to agree with the parameter it is handed
- * to, so the written function type fills in whatever the callback left unsaid. It is
- * only ever filled in, never overruled, so a callback used at two types is refused.
- */
 function adoptWrittenTypes(target: CFGFunction, written: DeclaredSignature): boolean {
   const declared = target.declaredSignature;
   const params = target.parameters.map((parameter, index) => {
@@ -102,10 +96,6 @@ function replaceCall(
   node.block = null;
 }
 
-/**
- * Anonymous functions all share one name, so the call has to name the graph it
- * reaches rather than leaving the callee to be looked up by what it calls itself.
- */
 function bindCallees(graph: CFGFunction, handoffs: readonly Handoff[]): void {
   for (const handoff of handoffs) {
     const parameter = graph.parameters[handoff.index]!;
@@ -176,10 +166,6 @@ class Specializer {
     return { added: this.added, retired: this.retired };
   }
 
-  /**
-   * Anonymous functions all answer to the same name, so a handed-over function is
-   * identified by the compiled function the constant holds, not by what it is called.
-   */
   private handoffAt(site: CallSite, index: number): Handoff | null {
     const argument = site.node.inputs[site.firstArgument + index];
     if (argument === undefined) return null;
@@ -187,11 +173,6 @@ class Specializer {
     return target === null ? null : { index, name: target.name, target };
   }
 
-  /**
-   * A function reaches an argument either spelled out on the spot or read from the
-   * global it was declared into. A global only names one function for good if the
-   * program never assigns to it again.
-   */
   private targetOf(argument: CFGInstruction): CFGFunction | null {
     if (argument.type === IR_CONSTANT) {
       const compiled = compiledFunctionConstant(argument.props.value);
@@ -238,11 +219,14 @@ class Specializer {
       handoffs.push(chosen);
     }
 
+    const handoffsByIndex = handoffs.map(
+      (chosen) => new Map(chosen.map((entry) => [entry.index, entry] as const)),
+    );
     for (const index of indices) {
       const written = functionSignatureOf(graph.declaredSignature?.params[index]);
       if (written === null) continue;
-      for (const chosen of handoffs) {
-        const handoff = chosen.find((entry) => entry.index === index)!;
+      for (const chosen of handoffsByIndex) {
+        const handoff = chosen.get(index)!;
         if (!adoptWrittenTypes(handoff.target, written)) return;
         this.unitOfGraph.get(handoff.target)?.analyses?.invalidate(typeInferenceAnalysisId);
       }
@@ -267,12 +251,6 @@ class Specializer {
   }
 }
 
-/**
- * Turns `apply(f, x)` — where `f` is only ever called — into one copy of `apply` per
- * function handed to it, so the call through the parameter becomes a direct call.
- * Nothing changes unless every call site hands over a function the module defines,
- * so a genuinely dynamic callee still declines the way it did before.
- */
 export function specializeFunctionArguments(module: ModuleIR): Specialization {
   return new Specializer(module).run();
 }

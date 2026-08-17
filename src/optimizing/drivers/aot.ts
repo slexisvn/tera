@@ -208,10 +208,6 @@ function awaitsSomething(graph: CFGFunction, asynchronous: ReadonlySet<string>):
   return false;
 }
 
-/**
- * A rejection has to travel through the promise like any other settlement, or the
- * caller sees the throw before its await has taken its turn.
- */
 function canReject(graph: CFGFunction): boolean {
   for (const block of graph.blocks) {
     for (const node of block.nodes) {

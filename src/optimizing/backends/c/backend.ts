@@ -1,7 +1,11 @@
 import type { CFGFunction } from "../../ir/index.js";
 import type { AotBackend, LinkableFunction } from "../../target/backend.js";
 import type { Emitter } from "../../target/emitter.js";
-import type { AotLinkOptions, AotOutputFile } from "../../target/artifact.js";
+import {
+  isCArtifact,
+  type AotLinkOptions,
+  type AotOutputFile,
+} from "../../target/artifact.js";
 import type { AnalysisManager } from "../../infra/analysis-manager.js";
 import { BackendLoweringError } from "../../target/errors.js";
 import { typeInferenceAnalysisId } from "../../analyses/type-inference.js";
@@ -44,7 +48,7 @@ function cFunctionsOf(functions: readonly LinkableFunction[]): CFunction[] {
   const result: CFunction[] = [];
   for (const fn of functions) {
     const artifact = fn.emitted.artifact;
-    if (artifact.kind !== "c") continue;
+    if (!isCArtifact(artifact)) continue;
     result.push({
       prototype: artifact.prototype,
       definition: stripSourcePreamble(artifact.source, artifact.sourcePreamble),

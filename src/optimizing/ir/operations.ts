@@ -1082,3 +1082,56 @@ export function isMovable(node: CFGInstruction): boolean {
   const current = effectsOf(node);
   return current.writes === MEMORY_NONE && !current.allocates;
 }
+
+export const TYPED_ARITHMETIC_OPS: readonly string[] = [
+  IR_INT32_ADD,
+  IR_INT32_SUB,
+  IR_INT32_MUL,
+  IR_INT32_DIV,
+  IR_INT32_MOD,
+  IR_FLOAT64_ADD,
+  IR_FLOAT64_SUB,
+  IR_FLOAT64_MUL,
+  IR_FLOAT64_DIV,
+  IR_INT32_COMPARE,
+  IR_FLOAT64_COMPARE,
+];
+
+export const GENERIC_ARITHMETIC_OPS: readonly string[] = [
+  IR_GENERIC_ADD,
+  IR_GENERIC_SUB,
+  IR_GENERIC_MUL,
+  IR_GENERIC_DIV,
+  IR_GENERIC_MOD,
+  IR_GENERIC_COMPARE,
+  IR_GENERIC_POW,
+];
+
+export const GENERIC_BITWISE_OPS: readonly string[] = [
+  IR_GENERIC_BITAND,
+  IR_GENERIC_BITOR,
+  IR_GENERIC_BITXOR,
+  IR_GENERIC_SHL,
+  IR_GENERIC_SHR,
+  IR_GENERIC_USHR,
+  IR_GENERIC_BITNOT,
+];
+
+export const GENERIC_RELATIONAL_OPS: readonly string[] = [
+  IR_GENERIC_INSTANCEOF,
+  IR_GENERIC_IN,
+];
+
+export const GENERIC_PROPERTY_OPS: readonly string[] = [
+  IR_GENERIC_GET_PROP,
+  IR_GENERIC_SET_PROP,
+  IR_GENERIC_DELETE_PROP,
+  IR_GENERIC_GET_INDEX,
+  IR_GENERIC_SET_INDEX,
+];
+
+export const GENERIC_VALUE_OPS: readonly string[] = [
+  ...GENERIC_ARITHMETIC_OPS,
+  ...GENERIC_BITWISE_OPS,
+  ...GENERIC_RELATIONAL_OPS,
+];

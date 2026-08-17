@@ -10,6 +10,7 @@ import {
 } from "../iteration/iterator.js";
 import { INSTANCE_TYPE_SET } from "../../objects/maps/hidden-class.js";
 import { getCollectionData } from "./collection-data.js";
+import type { BuiltinMethod, InterpreterLike } from "./builtin-method.js";
 import { argOrUndefined } from "../builtins/index.js";
 
 type SetData = {
@@ -19,15 +20,6 @@ type SetData = {
   clear(): void;
   iterateValues(): IterableIterator<TaggedValue>;
   iterateEntries(): IterableIterator<[TaggedValue, TaggedValue]>;
-};
-
-type InterpreterLike = {
-  callFunctionValue(fn: TaggedValue, args: TaggedValue[], thisValue: TaggedValue): TaggedValue;
-};
-
-type BuiltinMethod = {
-  name: string;
-  call(args: TaggedValue[], thisValue: TaggedValue, interpreter?: InterpreterLike): TaggedValue;
 };
 
 function getSetData(thisValue: TaggedValue): SetData {

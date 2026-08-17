@@ -9,6 +9,7 @@ import {
 } from "../../core/value/index.js";
 import type { TaggedValue } from "../../core/value/index.js";
 import { tracer } from "../../core/tracing/index.js";
+import { asThrownValue } from "../../bytecode/register/interpreter/helpers.js";
 import {
   MicrotaskQueue,
   PromiseReactionMicrotask,
@@ -229,17 +230,7 @@ export function promiseThen(
         capability.reject(result);
       }
     } catch (e) {
-      const thrown =
-        e === null ||
-        e === undefined ||
-        typeof e === "object" ||
-        typeof e === "string" ||
-        typeof e === "number" ||
-        typeof e === "boolean" ||
-        typeof e === "symbol"
-          ? e
-          : String(e);
-      capability.reject(interpreter.exceptionToValue(thrown));
+      capability.reject(interpreter.exceptionToValue(asThrownValue(e)));
     }
   });
   tracer.log("promise", "Promise reaction registered");

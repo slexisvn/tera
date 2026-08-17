@@ -17,18 +17,46 @@ export function replaceValueUses(
   replaceGraphFrameStateValue(graph, node, replacement);
 }
 
-export function detachInputs(node: GraphNode): void {
+export function dropUse(producer: GraphNode, user: GraphNode): void {
+  const at = producer.uses.indexOf(user);
+  if (at >= 0) producer.uses.splice(at, 1);
+}
+
+export function detachUsesOf(node: GraphNode): void {
   for (const input of node.inputs) {
     if (input?.uses) input.uses = input.uses.filter((use) => use !== node);
   }
+}
+
+export function detachUsesOfAll(dead: ReadonlySet<GraphNode>): void {
+  if (dead.size === 0) return;
+  const producers = new Set<GraphNode>();
+  for (const node of dead) {
+    for (const input of node.inputs) {
+      if (input?.uses) producers.add(input);
+    }
+  }
+  for (const producer of producers) {
+    producer.uses = producer.uses.filter((use) => !dead.has(use));
+  }
+}
+
+export function detachInputs(node: GraphNode): void {
+  detachUsesOf(node);
   node.inputs = [];
 }
 
 export function detachNode(node: GraphNode): void {
-  for (const input of node.inputs) {
-    if (input?.uses) input.uses = input.uses.filter((use) => use !== node);
-  }
+  detachUsesOf(node);
   node.uses = [];
+}
+
+export function retainNodes(
+  block: { nodes: GraphNode[] },
+  dead: ReadonlySet<GraphNode>,
+): void {
+  if (dead.size === 0) return;
+  block.nodes = block.nodes.filter((node) => !dead.has(node));
 }
 
 export function homeFloatingValues(graph: ir.CFGFunction): number {

@@ -6,7 +6,7 @@ import {
   type CFGBlock,
   type CFGFunction,
 } from "./index.js";
-import { detachInputs } from "./graph-edit.js";
+import { detachInputs, detachUsesOfAll, dropUse, retainNodes } from "./graph-edit.js";
 
 export function splitBlockAfter(
   graph: CFGFunction,
@@ -89,7 +89,7 @@ export function disconnectAt(succ: CFGBlock, index: number): void {
   for (const phi of succ.phis) {
     const removed = phi.inputs[index];
     phi.inputs.splice(index, 1);
-    if (removed) removed.uses = removed.uses.filter((use) => use !== phi);
+    if (removed) dropUse(removed, phi);
   }
   pred.successors = pred.successors.filter((block) => block !== succ);
 }
@@ -114,12 +114,20 @@ export function rewriteBranchAsJump(
 }
 
 export function removePhi(block: CFGBlock, phi: CFGInstruction): void {
-  for (const input of phi.inputs) {
-    if (input) input.uses = input.uses.filter((use) => use !== phi);
+  removePhis(block, new Set([phi]));
+}
+
+export function removePhis(
+  block: CFGBlock,
+  dead: ReadonlySet<CFGInstruction>,
+): void {
+  if (dead.size === 0) return;
+  detachUsesOfAll(dead);
+  for (const phi of dead) {
+    phi.inputs = [];
+    phi.block = null;
   }
-  phi.inputs = [];
-  block.phis = block.phis.filter((candidate) => candidate !== phi);
-  block.nodes = block.nodes.filter((candidate) => candidate !== phi);
+  block.phis = block.phis.filter((candidate) => !dead.has(candidate));
+  retainNodes(block, dead);
   for (let i = 0; i < block.phis.length; i++) block.phis[i].props.index = i;
-  phi.block = null;
 }

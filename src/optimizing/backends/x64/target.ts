@@ -1,19 +1,10 @@
 import { capabilitySet } from "../../target/capabilities.js";
 import { proveOrGeneric } from "../../target/speculation.js";
-import type { MachineRepr, ScalarLocation } from "../../target/model.js";
+import { defaultMachineReprOf, type ScalarLocation } from "../../target/model.js";
 import type { NativeTargetModel } from "../../machine/backend.js";
 import type { RuntimeAbi } from "../../target/abi.js";
 import type { RegisterClass, RegisterFile } from "../../target/registers.js";
 import { sanitizeSymbol, C_KEYWORDS, C_LIBRARY_NAMES } from "../../target/symbols.js";
-import {
-  REP_BOOL,
-  REP_FLOAT64,
-  REP_HANDLE,
-  REP_INT32,
-  REP_TAGGED,
-  REP_TAGGED_NUMBER,
-  type Representation,
-} from "../../types/representation.js";
 import {
   SCALAR_FLOAT64,
   SCALAR_INT32,
@@ -33,15 +24,6 @@ import {
   x64RuntimeRoutines,
 } from "./runtime.js";
 import { windowsIo } from "./windows.js";
-
-const MACHINE_REPR = new Map<Representation, MachineRepr>([
-  [REP_INT32, "int32"],
-  [REP_FLOAT64, "float64"],
-  [REP_TAGGED_NUMBER, "float64"],
-  [REP_BOOL, "boolean"],
-  [REP_HANDLE, "pointer"],
-  [REP_TAGGED, "tagged"],
-]);
 
 const LOCATIONS = new Map<AotScalar, ScalarLocation>([
   [SCALAR_INT32, { classId: X64_GPR, width: 4 }],
@@ -102,7 +84,7 @@ export function x64Target(options: X64TargetOptions = {}): X64TargetModel {
       if (location === undefined) throw new Error(`no x64 location for ${scalar}`);
       return location;
     },
-    machineReprOf: (rep) => MACHINE_REPR.get(rep) ?? "pointer",
+    machineReprOf: defaultMachineReprOf,
     symbolOf: (name) => sanitizeSymbol(name, RESERVED_SYMBOLS),
   };
 }

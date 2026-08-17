@@ -1,7 +1,7 @@
 import * as ir from "../ir/index.js";
 
 import { tracer } from "../../core/tracing/index.js";
-import { replaceValueUses } from "../ir/graph-edit.js";
+import { detachInputs, replaceValueUses, retainNodes } from "../ir/graph-edit.js";
 
 type SimplifyNode = ir.CFGInstruction;
 type SimplifyBlock = ir.CFGBlock;
@@ -58,16 +58,13 @@ export function algebraicSimplification(graph: SimplifyGraph): number {
         const replacement = simplified(node);
         if (replacement === null) continue;
         replaceValueUses(graph, node, replacement);
-        for (const input of node.inputs) {
-          input.uses = input.uses.filter((use) => use !== node);
-        }
-        node.inputs = [];
+        detachInputs(node);
         node.block = null;
         dead.add(node);
         count++;
         changed = true;
       }
-      if (dead.size > 0) block.nodes = block.nodes.filter((n) => !dead.has(n));
+      retainNodes(block, dead);
     }
   }
 

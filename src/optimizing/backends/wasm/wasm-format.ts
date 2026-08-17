@@ -307,7 +307,3 @@ export class WasmModuleBuilder {
 export const DEOPT_SNAPSHOT_BASE = 8;
 export const DEOPT_SNAPSHOT_SLOT_BYTES = 8;
 export const WASM_PAGE_BYTES = 65536;
-
-export function heapBaseForSnapshotSlots(deoptSnapshotSlots: number): number {
-  return DEOPT_SNAPSHOT_BASE + deoptSnapshotSlots * DEOPT_SNAPSHOT_SLOT_BYTES;
-}

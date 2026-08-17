@@ -1,10 +1,19 @@
 import * as bytecode from "../../bytecode/register/ops/bytecode.js";
 import { tracer } from "../../core/tracing/index.js";
-import type { TaggedValue } from "../../core/value/index.js";
+import {
+  SMI_MAX,
+  SMI_MIN,
+  TAG_MASK,
+  TAG_SHIFT_MULT,
+  type TaggedValue,
+} from "../../core/value/index.js";
 import { BaselineRuntime, type BaselineInterpreter } from "./runtime.js";
+import { DEFAULT_TIERING_POLICY } from "../../runtime/tiering/policy.js";
 
 export { BaselineRuntime } from "./runtime.js";
-import { DEFAULT_TIERING_POLICY } from "../../runtime/tiering/policy.js";
+
+const TAGGED_SMI_MIN = SMI_MIN * TAG_SHIFT_MULT;
+const TAGGED_SMI_MAX = SMI_MAX * TAG_SHIFT_MULT;
 export const BASELINE_THRESHOLD = DEFAULT_TIERING_POLICY.baselineThreshold;
 
 interface BaselineInstruction {
@@ -187,13 +196,13 @@ export class BaselineCompiler {
         return `$.si(r[${o[0]}],r[${o[1]}],acc,${o[2] ?? 0});`;
 
       case bytecode.ROP_ADD:
-        return `t=r[${o[0]}];if((acc&15)===0&&(t&15)===0){t2=acc+t;if(t2>=-17179869184&&t2<=17179869168)acc=t2;else acc=$.add(acc,t,${o[1]});}else{acc=$.add(acc,t,${o[1]});}`;
+        return `t=r[${o[0]}];if((acc&${TAG_MASK})===0&&(t&${TAG_MASK})===0){t2=acc+t;if(t2>=${TAGGED_SMI_MIN}&&t2<=${TAGGED_SMI_MAX})acc=t2;else acc=$.add(acc,t,${o[1]});}else{acc=$.add(acc,t,${o[1]});}`;
 
       case bytecode.ROP_SUB:
-        return `t=r[${o[0]}];if((acc&15)===0&&(t&15)===0){t2=acc-t;if(t2>=-17179869184&&t2<=17179869168)acc=t2;else acc=$.sub(acc,t,${o[1]});}else{acc=$.sub(acc,t,${o[1]});}`;
+        return `t=r[${o[0]}];if((acc&${TAG_MASK})===0&&(t&${TAG_MASK})===0){t2=acc-t;if(t2>=${TAGGED_SMI_MIN}&&t2<=${TAGGED_SMI_MAX})acc=t2;else acc=$.sub(acc,t,${o[1]});}else{acc=$.sub(acc,t,${o[1]});}`;
 
       case bytecode.ROP_MUL:
-        return `t=r[${o[0]}];if((acc&15)===0&&(t&15)===0){t2=(acc/16)*(t/16);if((t2|0)===t2&&t2>=-1073741824&&t2<=1073741823&&(t2!==0||1/t2>0))acc=t2*16;else acc=$.mul(acc,t,${o[1]});}else{acc=$.mul(acc,t,${o[1]});}`;
+        return `t=r[${o[0]}];if((acc&${TAG_MASK})===0&&(t&${TAG_MASK})===0){t2=(acc/${TAG_SHIFT_MULT})*(t/${TAG_SHIFT_MULT});if((t2|0)===t2&&t2>=${SMI_MIN}&&t2<=${SMI_MAX}&&(t2!==0||1/t2>0))acc=t2*${TAG_SHIFT_MULT};else acc=$.mul(acc,t,${o[1]});}else{acc=$.mul(acc,t,${o[1]});}`;
 
       case bytecode.ROP_DIV:
         return `acc=$.div(acc,r[${o[0]}],${o[1]});`;
@@ -202,22 +211,22 @@ export class BaselineCompiler {
         return `acc=$.mod(acc,r[${o[0]}],${o[1]});`;
 
       case bytecode.ROP_EQ:
-        return `t=r[${o[0]}];if((acc&15)===0&&(t&15)===0)acc=acc===t?$.t:$.f;else acc=$.eq(acc,t,${o[1]});`;
+        return `t=r[${o[0]}];if((acc&${TAG_MASK})===0&&(t&${TAG_MASK})===0)acc=acc===t?$.t:$.f;else acc=$.eq(acc,t,${o[1]});`;
 
       case bytecode.ROP_NEQ:
-        return `t=r[${o[0]}];if((acc&15)===0&&(t&15)===0)acc=acc!==t?$.t:$.f;else acc=$.neq(acc,t,${o[1]});`;
+        return `t=r[${o[0]}];if((acc&${TAG_MASK})===0&&(t&${TAG_MASK})===0)acc=acc!==t?$.t:$.f;else acc=$.neq(acc,t,${o[1]});`;
 
       case bytecode.ROP_LT:
-        return `t=r[${o[0]}];if((acc&15)===0&&(t&15)===0)acc=acc<t?$.t:$.f;else acc=$.cmp(acc,t,0,${o[1]});`;
+        return `t=r[${o[0]}];if((acc&${TAG_MASK})===0&&(t&${TAG_MASK})===0)acc=acc<t?$.t:$.f;else acc=$.cmp(acc,t,0,${o[1]});`;
 
       case bytecode.ROP_GT:
-        return `t=r[${o[0]}];if((acc&15)===0&&(t&15)===0)acc=acc>t?$.t:$.f;else acc=$.cmp(acc,t,1,${o[1]});`;
+        return `t=r[${o[0]}];if((acc&${TAG_MASK})===0&&(t&${TAG_MASK})===0)acc=acc>t?$.t:$.f;else acc=$.cmp(acc,t,1,${o[1]});`;
 
       case bytecode.ROP_LTE:
-        return `t=r[${o[0]}];if((acc&15)===0&&(t&15)===0)acc=acc<=t?$.t:$.f;else acc=$.cmp(acc,t,2,${o[1]});`;
+        return `t=r[${o[0]}];if((acc&${TAG_MASK})===0&&(t&${TAG_MASK})===0)acc=acc<=t?$.t:$.f;else acc=$.cmp(acc,t,2,${o[1]});`;
 
       case bytecode.ROP_GTE:
-        return `t=r[${o[0]}];if((acc&15)===0&&(t&15)===0)acc=acc>=t?$.t:$.f;else acc=$.cmp(acc,t,3,${o[1]});`;
+        return `t=r[${o[0]}];if((acc&${TAG_MASK})===0&&(t&${TAG_MASK})===0)acc=acc>=t?$.t:$.f;else acc=$.cmp(acc,t,3,${o[1]});`;
 
       case bytecode.ROP_NOT:
         return `acc=$.not(acc,${o[0] ?? -1});`;

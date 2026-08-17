@@ -6,6 +6,7 @@ import type { LoopForest } from "../analyses/loops.js";
 import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
 import { detachInputs } from "../ir/graph-edit.js";
 import { rewriteBranchAsJump } from "../ir/cfg-edit.js";
+import { withinInt32 } from "../target/integer.js";
 
 type IRNodeLike = ir.CFGInstruction;
 type IRBlockLike = ir.CFGBlock;
@@ -437,8 +438,7 @@ export function rangeAnalysisAndBoundsCheckElimination(
         if (
           r.min >= NEG_INF &&
           r.max <= INF &&
-          r.min > -2147483648 &&
-          r.max < 2147483647 &&
+          withinInt32(r.min, r.max) &&
           !mayBeMinusZero(node)
         ) {
           if (!node.props) node.props = {};

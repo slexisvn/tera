@@ -86,6 +86,14 @@ import {
   visitDeoptSnapshotValues,
 } from "../../ir/frame-state-values.js";
 import * as wasmFormat from "./wasm-format.js";
+import {
+  WASM_MEMORY_MAX_PAGES,
+  exceedsAddressSpace,
+  pagesToGrow,
+  slotAddress,
+  wasmMemoryLayout,
+  type WasmMemoryLayout,
+} from "./memory-layout.js";
 import { elementsKindId, elementsKindName } from "./object-layout.js";
 import {
   metadataString,
@@ -135,6 +143,7 @@ import {
   executeRuntimeStub,
   serializeObject,
   deserializeObject,
+  type RuntimeInterpreterLike,
 } from "./runtime-support.js";
 
 type ThreadLocalState = {
@@ -156,9 +165,6 @@ registerExternalRootProvider((visit) => {
 const MAX_WASM_CALL_DEPTH = 1000;
 const UINT32_RANGE = 2 ** 32;
 const INT64_TRUNC_LIMIT = 2 ** 63;
-const WASM_PAGE_BYTES = 65536;
-const WASM_MEMORY_PAGES = 1;
-const WASM_MEMORY_MAX_PAGES = 256;
 const MAX_SERIALIZE_DEPTH = 512;
 let wasmCallDepth = 0;
 
@@ -224,24 +230,10 @@ type GlobalCellsLike = {
   get(name: string): { read(): TaggedValue } | undefined;
   write(name: string, value: TaggedValue): void;
 };
-type WasmInterpreter = {
+type WasmInterpreter = RuntimeInterpreterLike & {
   tieringPolicy?: TieringPolicyLike;
   globalCells: GlobalCellsLike;
   resumeAt(frame: RegisterFrame): TaggedValue;
-  _lookupBuiltinPrototype(proto: TaggedValue, propName: string): TaggedValue;
-  toPrimitiveValue(value: TaggedValue, hint?: string): TaggedValue;
-  callFunctionValue(
-    callee: TaggedValue,
-    args: TaggedValue[],
-    receiver: TaggedValue,
-  ): TaggedValue;
-  constructFunctionValue(callee: TaggedValue, args: TaggedValue[]): TaggedValue;
-  callRuntimeIntrinsic(name: string, args: TaggedValue[]): TaggedValue;
-  consumePendingLazyDeopt?(
-    compiledFn: RegisterCompiledFunction,
-    bytecodeOffset: number,
-    reason: string,
-  ): void;
 };
 type WasmCompiledFunction = RegisterCompiledFunction & {
   deoptCount?: number;
@@ -271,7 +263,7 @@ type WasmAnalysis = {
   needsMemory: boolean;
   needsDeoptImport: boolean;
   deoptSnapshotSlots: number;
-  heapBase: number;
+  memoryLayout: WasmMemoryLayout;
   entryGuards: AnyNode[];
   isOsr: boolean;
   needsRuntimeStubImport: boolean;
@@ -393,7 +385,7 @@ export class WasmCodegen {
   _typeofConstants: Map<string, SyntheticConstantNode> | null = null;
   _nonPrimitiveConstants: SyntheticConstantNode[] | null = null;
   _globalCandidates: Map<string, GlobalCandidateEntry> | null = null;
-  _globalCellOffsets: Map<string, number> | null = null;
+  _globalCellNames: string[] | null = null;
   _selfRecursiveCandidates: AnyNode[] | null = null;
 
   failAnalysis(node: AnyNode, reason: string): null {
@@ -915,8 +907,8 @@ export class WasmCodegen {
           return inputRep !== REP_HANDLE;
         });
         if (hasNumericStore && entry.stores.length > 0 && !hasCalls) {
-          if (!this._globalCellOffsets) this._globalCellOffsets = new Map();
-          this._globalCellOffsets.set(name, 32768 + this._globalCellOffsets.size * 8);
+          if (!this._globalCellNames) this._globalCellNames = [];
+          this._globalCellNames.push(name);
           needsMemory = true;
           for (const loadNode of entry.loads) {
             nodeWasmType.set(loadNode.id, wasmFormat.TYPE_F64);
@@ -1471,18 +1463,34 @@ export class WasmCodegen {
     const _syntheticConstants = this._typeofConstants
       ? [...this._typeofConstants.values()]
       : [];
-    const globalCellOffsets = this._globalCellOffsets || null;
+    const globalCellNames = this._globalCellNames || [];
     this._nonPrimitiveConstants = null;
     this._typeofConstants = null;
-    this._globalCellOffsets = null;
+    this._globalCellNames = null;
     this._globalCandidates = null;
 
     const deoptSnapshotSlots = maxDeoptSnapshotSlots(graph);
-    const heapBase = wasmFormat.heapBaseForSnapshotSlots(deoptSnapshotSlots);
-    if (heapBase > WASM_MEMORY_PAGES * wasmFormat.WASM_PAGE_BYTES) {
-      this.lastAnalysisFailure = `deopt snapshot needs ${heapBase} bytes, over the ${WASM_MEMORY_PAGES}-page budget`;
+    const memoryLayout = wasmMemoryLayout({
+      deoptSnapshotSlots,
+      globalCells: globalCellNames.length,
+      constPointers: _nonPrimitiveConstants.length,
+    });
+    if (exceedsAddressSpace(memoryLayout)) {
+      this.lastAnalysisFailure = `fixed memory regions need ${memoryLayout.initialPages} pages, over the ${WASM_MEMORY_MAX_PAGES}-page budget`;
       return null;
     }
+
+    const globalCellOffsets = globalCellNames.length
+      ? new Map(
+          globalCellNames.map((name, index) => [
+            name,
+            slotAddress(memoryLayout.globalCells, index),
+          ]),
+        )
+      : null;
+    _nonPrimitiveConstants.forEach((constNode, index) => {
+      constNode._constPtrIndex = slotAddress(memoryLayout.constPointers, index);
+    });
 
     return {
       paramTypes,
@@ -1497,7 +1505,7 @@ export class WasmCodegen {
       needsMemory,
       needsDeoptImport,
       deoptSnapshotSlots,
-      heapBase,
+      memoryLayout,
       entryGuards,
       isOsr: !!graph.osrParamSlots,
       needsRuntimeStubImport,
@@ -2437,7 +2445,7 @@ export class WasmCodegen {
     analysis: AnyAnalysis,
     objSize: number,
   ): void {
-    const pagesToGrow = Math.ceil(objSize / WASM_PAGE_BYTES) + 1;
+    const growthPages = Math.ceil(objSize / wasmFormat.WASM_PAGE_BYTES) + 1;
     bytes.push(
       wasmFormat.OP_LOCAL_GET,
       ...wasmFormat.encodeU32(analysis._allocTempLocal),
@@ -2447,14 +2455,14 @@ export class WasmCodegen {
     bytes.push(wasmFormat.OP_MEMORY_SIZE, ...wasmFormat.encodeU32(0));
     bytes.push(
       wasmFormat.OP_I32_CONST,
-      ...wasmFormat.encodeS32(WASM_PAGE_BYTES),
+      ...wasmFormat.encodeS32(wasmFormat.WASM_PAGE_BYTES),
     );
     bytes.push(wasmFormat.OP_I32_MUL);
     bytes.push(wasmFormat.OP_I32_GT_S);
     bytes.push(wasmFormat.OP_IF, wasmFormat.TYPE_VOID);
     bytes.push(
       wasmFormat.OP_I32_CONST,
-      ...wasmFormat.encodeS32(pagesToGrow),
+      ...wasmFormat.encodeS32(growthPages),
     );
     bytes.push(wasmFormat.OP_MEMORY_GROW, ...wasmFormat.encodeU32(0));
     bytes.push(wasmFormat.OP_DROP);
@@ -3947,12 +3955,6 @@ export class WasmCodegen {
       return null;
     }
 
-    let constPtrBase = 49152;
-    for (const constNode of analysis._nonPrimitiveConstants) {
-      constNode._constPtrIndex = constPtrBase;
-      constPtrBase += 64;
-    }
-
     const builder = new wasmFormat.WasmModuleBuilder();
 
     let deoptImportIdx = -1;
@@ -4058,7 +4060,7 @@ export class WasmCodegen {
 
     if (analysis.needsMemory) {
       memory = new WebAssembly.Memory({
-        initial: WASM_MEMORY_PAGES,
+        initial: analysis.memoryLayout.initialPages,
         maximum: WASM_MEMORY_MAX_PAGES,
       });
       imports.env.memory = memory;
@@ -4254,7 +4256,7 @@ export class WasmCodegen {
     const { paramTypes, resultType, entryGuards, needsMemory, resultValueRep } =
       analysis;
 
-    let arenaTop = analysis.heapBase;
+    let arenaTop = analysis.memoryLayout.arenaBase;
 
     const hasStubs = !!(
       analysis.runtimeStubTable &&
@@ -4385,9 +4387,8 @@ export class WasmCodegen {
         if (!memory) return;
         const currentSize = memory.buffer.byteLength;
         if (needed > currentSize) {
-          const pagesToGrow = Math.ceil((needed - currentSize) / 65536);
           try {
-            memory.grow(pagesToGrow);
+            memory.grow(pagesToGrow(needed, currentSize));
           } catch (e) {
           }
         }
@@ -4597,7 +4598,7 @@ export class WasmCodegen {
             return info.value;
           }
           if (analysis.hasInlineAlloc && !memory) return mkNumber(ptr);
-          if (analysis.hasInlineAlloc && p >= analysis.heapBase && p < takeObjPtr()) {
+          if (analysis.hasInlineAlloc && p >= analysis.memoryLayout.arenaBase && p < takeObjPtr()) {
             if (!memory) return mkNumber(ptr);
             const dv = new DataView(memory.buffer);
             const hcId = dv.getInt32(p, true);
@@ -4617,7 +4618,7 @@ export class WasmCodegen {
         syncTagged(ptr: number) {
           const p = Math.trunc(ptr);
           let info = objPtrs.get(p);
-          if (!info && analysis.hasInlineAlloc && p >= analysis.heapBase) {
+          if (!info && analysis.hasInlineAlloc && p >= analysis.memoryLayout.arenaBase) {
             this.getTagged?.(ptr);
             info = objPtrs.get(p);
           }
@@ -4650,8 +4651,7 @@ export class WasmCodegen {
       }
 
       if (analysis.globalCellOffsets && memory) {
-        const gcEnd = 32768 + analysis.globalCellOffsets.size * 8;
-        ensureMemory(gcEnd);
+        ensureMemory(analysis.memoryLayout.globalCells.end);
         const dv = new DataView(memory.buffer);
         for (const [name, offset] of analysis.globalCellOffsets) {
           const cell = interpreter.globalCells.get(name);
@@ -4751,7 +4751,7 @@ export class WasmCodegen {
 
       if (resultValueRep === REP_HANDLE) {
         const ptr = Math.trunc(rawResult);
-        if (ptr >= analysis.heapBase && ptr < nextObjPtr) {
+        if (ptr >= analysis.memoryLayout.arenaBase && ptr < nextObjPtr) {
           if (!memory) return mkNumber(rawResult);
           const dv = new DataView(memory.buffer);
           const hcId = dv.getInt32(ptr, true);

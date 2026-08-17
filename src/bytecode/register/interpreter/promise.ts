@@ -26,7 +26,7 @@ import {
   iteratorValue,
 } from "../../../runtime/iteration/iterator.js";
 import { VMTypeError } from "../../../core/errors/index.js";
-import { RegisterException } from "./helpers.js";
+import { RegisterException, type ThrownValue } from "./helpers.js";
 
 type GlobalCellsLike = {
   write(name: string, value: TaggedValue): void;
@@ -69,16 +69,6 @@ function iteratorRecord(value: TaggedValue) {
   return getPayload(value);
 }
 
-type ThrownValue =
-  | RegisterException
-  | Error
-  | object
-  | string
-  | number
-  | boolean
-  | symbol
-  | null
-  | undefined;
 
 function collectIteratorItems(
   interpreter: InterpreterLike,

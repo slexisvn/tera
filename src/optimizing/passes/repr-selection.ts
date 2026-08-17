@@ -1,4 +1,5 @@
 import * as ir from "../ir/index.js";
+import { isInt32 } from "../target/integer.js";
 import {
   REP_BOOL,
   REP_FLOAT64,
@@ -167,14 +168,7 @@ export function representationSelection(graph: ReprGraph): number {
   const constantRep = (value: ir.IRMetadataValue): Representation => {
     if (typeof value === "boolean") return REP_BOOL;
     if (typeof value === "number") {
-      if (
-        Number.isInteger(value) &&
-        !Object.is(value, -0) &&
-        value >= -2147483648 &&
-        value <= 2147483647
-      )
-        return REP_INT32;
-      return REP_FLOAT64;
+      return isInt32(value) ? REP_INT32 : REP_FLOAT64;
     }
     if (
       value === undefined ||
