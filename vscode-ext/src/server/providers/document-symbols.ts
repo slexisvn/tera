@@ -3,7 +3,7 @@ import {
   type DocumentSymbol,
   type DocumentSymbolParams,
 } from "vscode-languageserver/node.js";
-import type { AnalyzedDocument, Scope, TeraSymbol } from "../analyzer/index.ts";
+import type { Position, Scope, TeraSymbol } from "../analyzer/index.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
 const KIND_BY_SYMBOL: Record<string, SymbolKind> = {
@@ -37,27 +37,27 @@ export function computeDocumentSymbols(
 ): DocumentSymbol[] {
   const document = context.analyzer.get(params.textDocument.uri);
   if (!document) return [];
-  return outline(document.symbols.root, document);
+  return outline(document.symbols.root);
 }
 
-function outline(scope: Scope | null, document: AnalyzedDocument): DocumentSymbol[] {
+function outline(scope: Scope | null): DocumentSymbol[] {
   if (scope === null) return [];
   const symbols: DocumentSymbol[] = [];
   for (const symbol of scope.symbols) {
     if (symbol.kind === "parameter" || symbol.line <= 0) continue;
-    symbols.push(toDocumentSymbol(symbol, document));
+    symbols.push(toDocumentSymbol(symbol));
   }
   return symbols;
 }
 
-function toDocumentSymbol(symbol: TeraSymbol, document: AnalyzedDocument): DocumentSymbol {
+function toDocumentSymbol(symbol: TeraSymbol): DocumentSymbol {
   const start = { line: symbol.line - 1, character: symbol.column - 1 };
   const selection = {
     start,
     end: { line: start.line, character: start.character + symbol.name.length },
   };
-  const children = outline(symbol.scope ?? null, document);
-  const end = children.length === 0 ? selection.end : children[children.length - 1]!.range.end;
+  const children = outline(symbol.scope ?? null);
+  const end = children.reduce((furthest, child) => later(furthest, child.range.end), selection.end);
   return {
     name: symbol.name,
     detail: symbol.typeName ?? undefined,
@@ -66,4 +66,9 @@ function toDocumentSymbol(symbol: TeraSymbol, document: AnalyzedDocument): Docum
     selectionRange: selection,
     children: children.length === 0 ? undefined : children,
   };
+}
+
+function later(left: Position, right: Position): Position {
+  if (right.line > left.line) return right;
+  return right.line === left.line && right.character > left.character ? right : left;
 }

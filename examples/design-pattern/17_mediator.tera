@@ -1,5 +1,5 @@
 interface Participant:
-  receive(from: string, text: string) -> string
+  receive(sender: string, text: string) -> string
 
 class ChatRoom:
   private users: User[] = []
@@ -8,11 +8,11 @@ class ChatRoom:
   public join(user: User) -> void:
     this.users.push(user)
     user.setRoom(this)
-  public send(from: User, text: string) -> string:
+  public send(sender: User, text: string) -> string:
     messages = []
     for user of this.users:
-      if user.name != from.name:
-        messages.push(user.receive(from.name, text))
+      if user.name != sender.name:
+        messages.push(user.receive(sender.name, text))
     return messages.join(" | ")
 
 class User implements Participant:
@@ -27,8 +27,8 @@ class User implements Participant:
     if room != null:
       return room.send(this, text)
     return "offline"
-  public receive(from: string, text: string) -> string:
-    return this.name + "<-" + from + ":" + text
+  public receive(sender: string, text: string) -> string:
+    return this.name + "<-" + sender + ":" + text
 
 room = ChatRoom()
 alice = User("alice")

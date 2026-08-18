@@ -6,6 +6,8 @@ import { builtinMethod, createTypeEnv, signatureType, type Binding } from "./typ
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
 import type { SyntaxPlugin } from "../parser/extensions.js";
 
+const SYNTHETIC_LINE = 0;
+
 export type SymbolPosition = { line: number; character: number };
 
 export type SymbolKind = "function" | "model" | "module" | "variable" | "parameter" | "field" | "method" | "property";
@@ -120,7 +122,7 @@ class SymbolTableBuilder {
 
     for (const locals of this.inferred.locals.values()) {
       for (const local of locals) {
-        const scope = findScopeAt(this.root, local.line);
+        const scope = findScopeAt(this.root, local.line, this.lines);
         const known = declaredIn(scope);
         const position = symbolPosition(local.name, local.line, local.column);
         if (known.has(position)) continue;
@@ -145,22 +147,23 @@ class SymbolTableBuilder {
     }
 
     const root = this.root;
+    const lines = this.lines;
     const fieldsByType = this.fieldsByType;
     const parentsByType = this.parentsByType;
     return {
       root,
       scopes: this.scopes,
       flat: this.scopes.flatMap((scope) => scope.symbols),
-      findScopeAt: (position) => findScopeAt(root, position.line + 1),
-      resolve: (name, position) => resolveName(root, name, position.line + 1, position.character + 1),
+      findScopeAt: (position) => findScopeAt(root, position.line + 1, lines),
+      resolve: (name, position) => resolveName(root, name, position.line + 1, position.character + 1, lines),
       resolveField: (typeName, fieldName, position) => {
-        const scope = position ? findScopeAt(root, position.line + 1) : null;
+        const scope = position ? findScopeAt(root, position.line + 1, lines) : null;
         return (typeName ? membersFor(typeName, fieldsByType).find((field) =>
           field.name === fieldName && sourceAccessAllowed(field, typeName, scope, parentsByType),
         ) : null) ?? null;
       },
       membersOf: (typeName, position) => {
-        const scope = position ? findScopeAt(root, position.line + 1) : null;
+        const scope = position ? findScopeAt(root, position.line + 1, lines) : null;
         return typeName ? membersFor(typeName, fieldsByType).filter((field) =>
           sourceAccessAllowed(field, typeName, scope, parentsByType) && !isHiddenMember(typeName, field.name),
         ) : [];
@@ -282,8 +285,8 @@ class SymbolTableBuilder {
     if (member.memberKind !== "constructor") upsertMember(this.fieldsByType.get(targetOwner), symbol);
     const child = this.childScope(scope, member.fn.name, "function", member.fn.span.line, member.fn.span.column);
     symbol.scope = child;
-    addSymbol(child, "this", "variable", member.fn.span.line, member.fn.span.column, targetOwner);
-    if (parent && !member.static) addSymbol(child, "super", "variable", member.fn.span.line, member.fn.span.column, parent);
+    addSymbol(child, "this", "variable", SYNTHETIC_LINE, SYNTHETIC_LINE, targetOwner);
+    if (parent && !member.static) addSymbol(child, "super", "variable", SYNTHETIC_LINE, SYNTHETIC_LINE, parent);
     this.addParams(child, member.fn);
     for (const stmt of member.fn.body) {
       this.visitThisField(stmt, child, targetOwner);
@@ -659,15 +662,23 @@ function splitTopLevel(source: string): string[] {
   return out;
 }
 
-function findScopeAt(scope: SourceScope, line: number): SourceScope {
+function findScopeAt(scope: SourceScope, line: number, lines: string[]): SourceScope {
   for (const child of scope.children) {
-    if (line >= child.startLine && line <= child.endLine) return findScopeAt(child, line);
+    if (line < child.startLine || line > child.endLine) continue;
+    if (!indentedInto(lines, line, child.indent)) continue;
+    return findScopeAt(child, line, lines);
   }
   return scope;
 }
 
-function resolveName(root: SourceScope, name: string, line: number, column: number): SourceSymbol | null {
-  let scope: SourceScope | null = findScopeAt(root, line);
+function indentedInto(lines: string[], line: number, indent: number): boolean {
+  const text = lines[line - 1];
+  if (text === undefined || text.trim() === "") return true;
+  return text.length - text.trimStart().length > indent;
+}
+
+function resolveName(root: SourceScope, name: string, line: number, column: number, lines: string[]): SourceSymbol | null {
+  let scope: SourceScope | null = findScopeAt(root, line, lines);
   while (scope) {
     let best: SourceSymbol | null = null;
     for (const symbol of scope.symbols) {
