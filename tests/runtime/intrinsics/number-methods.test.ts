@@ -6,6 +6,12 @@ import {
   mkNumber,
   getPayload,
 } from "../../../src/core/value/index.js";
+import {
+  argumentLists,
+  describeArguments,
+  outcome,
+  tagged,
+} from "../../helpers/intrinsic-oracle.js";
 
 function callMethod(name, thisVal, ...args) {
   return NUMBER_METHODS[name].call(args, thisVal);
@@ -82,4 +88,24 @@ describe("NUMBER_METHODS", () => {
       expect(callMethod("valueOf", d)).toBe(d);
     });
   });
+});
+
+describe("NUMBER_METHODS digit arguments match ECMA-262", () => {
+  const RECEIVERS = [3.14159, 0, 255, 0.0042, 12345, 1e21, -7.5];
+  const FORMATTERS = ["toFixed", "toPrecision", "toExponential"];
+
+  for (const method of FORMATTERS) {
+    it(`${method} agrees with Number.prototype.${method}`, () => {
+      for (const receiver of RECEIVERS) {
+        for (const args of argumentLists(1)) {
+          const where = `${receiver}.${method}${describeArguments(args)}`;
+          const tera = outcome(() =>
+            str(callMethod(method, mkNumber(receiver), ...args.map(tagged))),
+          );
+          const node = outcome(() => receiver[method](...args));
+          expect({ where, ...tera }).toEqual({ where, ...node });
+        }
+      }
+    });
+  }
 });

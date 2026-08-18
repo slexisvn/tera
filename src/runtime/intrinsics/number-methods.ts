@@ -1,20 +1,15 @@
 import {
   mkString,
-  isSmi,
   isNumber,
-  getPayload,
   toNumber,
 } from "../../core/value/index.js";
 import type { TaggedValue } from "../../core/value/index.js";
+import { integerArg } from "./builtin-method.js";
+import type { BuiltinMethod } from "./builtin-method.js";
 import {
   unwrapPrimitive,
   unwrapPrimitiveTagged,
 } from "./primitive-wrapper.js";
-
-type BuiltinMethod = {
-  name: string;
-  call(args: TaggedValue[], thisValue: TaggedValue): TaggedValue;
-};
 
 function unwrapNumber(thisValue: TaggedValue): number {
   return unwrapPrimitive(thisValue, isNumber, toNumber, toNumber);
@@ -39,9 +34,7 @@ export const NUMBER_METHODS = {
     name: "Number.prototype.toFixed",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const num = unwrapNumber(thisValue);
-      const digits =
-        args.length > 0 && isSmi(args[0]) ? getPayload(args[0]) : 0;
-      return mkString(num.toFixed(digits));
+      return mkString(num.toFixed(integerArg(args, 0, 0)));
     },
   },
 
@@ -56,9 +49,7 @@ export const NUMBER_METHODS = {
     name: "Number.prototype.toPrecision",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const num = unwrapNumber(thisValue);
-      const precision =
-        args.length > 0 && isSmi(args[0]) ? getPayload(args[0]) : undefined;
-      return mkString(num.toPrecision(precision));
+      return mkString(num.toPrecision(integerArg(args, 0, undefined)));
     },
   },
 
@@ -66,9 +57,7 @@ export const NUMBER_METHODS = {
     name: "Number.prototype.toExponential",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const num = unwrapNumber(thisValue);
-      const fractionDigits =
-        args.length > 0 && isSmi(args[0]) ? getPayload(args[0]) : undefined;
-      return mkString(num.toExponential(fractionDigits));
+      return mkString(num.toExponential(integerArg(args, 0, undefined)));
     },
   },
-} as Record<string, BuiltinMethod>;
+} satisfies Record<string, BuiltinMethod>;

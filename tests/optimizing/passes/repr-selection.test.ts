@@ -348,6 +348,80 @@ describe("representationSelection", () => {
       expect(bodyBoxes).toHaveLength(0);
       expect(carried.inputs[1]).toBe(entryBoxes[0]);
     });
+
+    it("boxes an int32 return so every return of a function shares one representation", () => {
+      const graph = new CFGFunction("test");
+      const entry = graph.addBlock();
+      const numeric = graph.addBlock();
+      const handled = graph.addBlock();
+
+      const cond = irConstant(true);
+      entry.addNode(cond);
+      link(entry, numeric);
+      link(entry, handled);
+      entry.addNode(irBranch(cond, numeric, handled));
+
+      const one = irConstant(1);
+      const two = irConstant(2);
+      numeric.addNode(one);
+      numeric.addNode(two);
+      const add = irInt32Add(one, two);
+      numeric.addNode(add);
+      const numericReturn = irReturn(add);
+      numeric.addNode(numericReturn);
+
+      const text = irConstant("x");
+      handled.addNode(text);
+      const handleReturn = irReturn(text);
+      handled.addNode(handleReturn);
+
+      const insertCount = representationSelection(graph);
+
+      expect(insertCount).toBe(1);
+      const boxNodes = numeric.nodes.filter((node) => node.type === IR_BOX);
+      expect(boxNodes).toHaveLength(1);
+      expect(boxNodes[0].inputs[0]).toBe(add);
+      expect(boxNodes[0].props.toType).toBe("handle");
+      expect(numericReturn.inputs[0]).toBe(boxNodes[0]);
+      expect(numericReturn.inputs[0].props._rep).toBe(REP_HANDLE);
+      expect(handleReturn.inputs[0].props._rep).toBe(REP_HANDLE);
+    });
+
+    it("leaves returns alone when they already share one representation", () => {
+      const graph = new CFGFunction("test");
+      const entry = graph.addBlock();
+      const left = graph.addBlock();
+      const right = graph.addBlock();
+
+      const cond = irConstant(true);
+      entry.addNode(cond);
+      link(entry, left);
+      link(entry, right);
+      entry.addNode(irBranch(cond, left, right));
+
+      const one = irConstant(1);
+      const two = irConstant(2);
+      left.addNode(one);
+      left.addNode(two);
+      const add = irInt32Add(one, two);
+      left.addNode(add);
+      left.addNode(irReturn(add));
+
+      const three = irConstant(3);
+      const four = irConstant(4);
+      right.addNode(three);
+      right.addNode(four);
+      const other = irInt32Add(three, four);
+      right.addNode(other);
+      right.addNode(irReturn(other));
+
+      const insertCount = representationSelection(graph);
+      const nodes = graph.blocks.flatMap((block) => block.nodes);
+
+      expect(insertCount).toBe(0);
+      expect(nodes.filter((node) => node.type === IR_BOX)).toHaveLength(0);
+      expect(nodes.filter((node) => node.type === IR_UNBOX)).toHaveLength(0);
+    });
   });
 });
 

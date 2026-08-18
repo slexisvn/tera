@@ -374,6 +374,15 @@ export function representationSelection(graph: ReprGraph): number {
 
   reflowPhiRepresentations();
 
+  const returnedValues: ReprNode[] = [];
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      if (node.type === ir.IR_RETURN && node.inputs[0])
+        returnedValues.push(node.inputs[0]);
+    }
+  }
+  const returnRep = joinIncomingReps(returnedValues, true) as Representation;
+
   let insertCount = 0;
 
   const getExpectedInputRep = (
@@ -382,8 +391,7 @@ export function representationSelection(graph: ReprGraph): number {
   ): Representation | null => {
     if (isInt32Consumer(consumer.type)) return REP_INT32;
     if (isFloat64Consumer(consumer.type)) return REP_FLOAT64;
-    if (consumer.type === ir.IR_RETURN)
-      return nodeRep.get(consumer.inputs[inputIndex]?.id) || REP_HANDLE;
+    if (consumer.type === ir.IR_RETURN) return returnRep;
     if (consumer.type === ir.IR_CHECK_SMI) return REP_INT32;
     if (consumer.type === ir.IR_CHECK_NUMBER) return REP_FLOAT64;
     if (consumer.type === ir.IR_BRANCH) return REP_BOOL;

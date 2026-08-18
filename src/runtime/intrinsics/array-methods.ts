@@ -5,7 +5,6 @@ import {
   mkUndefined,
   mkArray,
   isFunction,
-  isSmi,
   isUndefined,
   isArray,
   toBool,
@@ -16,6 +15,7 @@ import {
 } from "../../core/value/index.js";
 import type { TaggedValue } from "../../core/value/index.js";
 import { createJSArray } from "../../objects/heap/factory.js";
+import { integerArg } from "./builtin-method.js";
 import type { BuiltinMethod, InterpreterLike } from "./builtin-method.js";
 
 type RuntimeArray = {
@@ -138,9 +138,9 @@ export const ARRAY_METHODS = {
     name: "Array.prototype.splice",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const arr = runtimeArray(thisValue);
-      const start = isSmi(args[0]) ? getPayload(args[0]) : 0;
+      const start = integerArg(args, 0, 0);
       const deleteCount =
-        args.length > 1 && isSmi(args[1]) ? getPayload(args[1]) : undefined;
+        args.length === 1 ? undefined : integerArg(args, 1, 0);
       const items = args.slice(2);
       const removed = arr.splice(start, deleteCount, ...items);
       return mkArray(createJSArray(removed));
@@ -152,9 +152,7 @@ export const ARRAY_METHODS = {
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const arr = runtimeArray(thisValue);
       const target = args[0] === undefined ? mkUndefined() : args[0];
-      const fromIndex =
-        args.length > 1 && isSmi(args[1]) ? getPayload(args[1]) : undefined;
-      return mkSmi(arr.indexOf(target, fromIndex));
+      return mkSmi(arr.indexOf(target, integerArg(args, 1, 0)));
     },
   },
 
@@ -176,9 +174,7 @@ export const ARRAY_METHODS = {
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const arr = runtimeArray(thisValue);
       const target = args[0] === undefined ? mkUndefined() : args[0];
-      const fromIndex =
-        args.length > 1 && isSmi(args[1]) ? getPayload(args[1]) : undefined;
-      return mkBool(arr.includes(target, fromIndex));
+      return mkBool(arr.includes(target, integerArg(args, 1, 0)));
     },
   },
 
@@ -314,11 +310,10 @@ export const ARRAY_METHODS = {
     name: "Array.prototype.slice",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const arr = runtimeArray(thisValue);
-      const start =
-        args.length > 0 && isSmi(args[0]) ? getPayload(args[0]) : undefined;
-      const end =
-        args.length > 1 && isSmi(args[1]) ? getPayload(args[1]) : undefined;
-      const sliced = arr.slice(start, end);
+      const sliced = arr.slice(
+        integerArg(args, 0, 0),
+        integerArg(args, 1, undefined),
+      );
       return mkArray(createJSArray(sliced.elements));
     },
   },

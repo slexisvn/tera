@@ -1,9 +1,9 @@
 import {
   mkArray,
   mkBool,
-  mkDouble,
   mkFunction,
   mkNull,
+  mkNumber,
   mkObject,
   mkString,
   mkUndefined,
@@ -255,7 +255,7 @@ export function nativeToTagged(value: unknown): TaggedValue {
   if (value === undefined) return mkUndefined();
   if (value === null) return mkNull();
   if (typeof value === "string") return mkString(value);
-  if (typeof value === "number") return mkDouble(value);
+  if (typeof value === "number") return mkNumber(value);
   if (typeof value === "boolean") return mkBool(value);
   if (Array.isArray(value)) return mkArray(createJSArray(value.map(nativeToTagged)));
   if (value instanceof Map) {

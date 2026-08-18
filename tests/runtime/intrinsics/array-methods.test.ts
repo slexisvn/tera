@@ -11,6 +11,12 @@ import {
   toNumber,
 } from "../../../src/core/value/index.js";
 import { createJSArray } from "../../../src/objects/heap/factory.js";
+import {
+  argumentLists,
+  describeArguments,
+  outcome,
+  tagged,
+} from "../../helpers/intrinsic-oracle.js";
 
 function arr(...vals) {
   return mkArray(createJSArray(vals));
@@ -333,5 +339,61 @@ describe("ARRAY_METHODS", () => {
       const a = arr(mkSmi(1), mkSmi(0), mkSmi(2));
       expect(getPayload(callMethod("includes", a, mkSmi(0)))).toBe(true);
     });
+  });
+});
+
+describe("ARRAY_METHODS bounds arguments match ECMA-262", () => {
+  const ELEMENTS = [10, 20, 30, 20];
+
+  function receiver() {
+    return arr(...ELEMENTS.map((n) => mkSmi(n)));
+  }
+
+  function plain(result) {
+    return elements(result).map((v) => getPayload(v));
+  }
+
+  function agreesOn(arity, apply, reference) {
+    for (const args of argumentLists(arity)) {
+      const where = describeArguments(args);
+      const tera = outcome(() => apply(receiver(), args.map(tagged)));
+      const node = outcome(() => reference([...ELEMENTS], args));
+      expect({ where, ...tera }).toEqual({ where, ...node });
+    }
+  }
+
+  it("slice agrees with Array.prototype.slice", () => {
+    agreesOn(
+      2,
+      (a, args) => plain(callMethod("slice", a, ...args)),
+      (a, args) => a.slice(...args),
+    );
+  });
+
+  it("splice agrees with Array.prototype.splice", () => {
+    agreesOn(
+      2,
+      (a, args) => ({
+        removed: plain(callMethod("splice", a, ...args)),
+        kept: elements(a).map((v) => getPayload(v)),
+      }),
+      (a, args) => ({ removed: a.splice(...args), kept: a }),
+    );
+  });
+
+  it("indexOf agrees with Array.prototype.indexOf", () => {
+    agreesOn(
+      1,
+      (a, args) => getPayload(callMethod("indexOf", a, mkSmi(20), ...args)),
+      (a, args) => a.indexOf(20, ...args),
+    );
+  });
+
+  it("includes agrees with Array.prototype.includes", () => {
+    agreesOn(
+      1,
+      (a, args) => getPayload(callMethod("includes", a, mkSmi(30), ...args)),
+      (a, args) => a.includes(30, ...args),
+    );
   });
 });

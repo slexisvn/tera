@@ -793,6 +793,14 @@ export function toNumber(v: TaggedValue): number {
   return NaN;
 }
 
+export function toIntegerOrInfinity(v: TaggedValue): number {
+  const n = toNumber(v);
+  if (Number.isNaN(n)) return 0;
+  if (!Number.isFinite(n)) return n;
+  const truncated = Math.trunc(n);
+  return truncated === 0 ? 0 : truncated;
+}
+
 export function toBool(v: TaggedValue): boolean {
   if (isUndefined(v) || isNull(v) || v === CODE_FALSE) return false;
   if (v === CODE_TRUE) return true;

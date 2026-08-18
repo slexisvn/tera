@@ -202,17 +202,64 @@ describe("optimized return values keep their representation", () => {
     expect(step?.optimizedCode).toBeTruthy();
   });
 
+  it("still optimizes a function that returns a string from one branch and a number from another", () => {
+    const source = stepping(
+      ["fn step(a,i):", "  if i == 40000:", '    return "x"', "  return a + 1"],
+      guarded,
+      60000,
+    );
+    const engine = withJit();
+    expect(engine.runNative(source)).toEqual(withoutJit().runNative(source));
+    const step = engine.collectFunctions().find((fn) => fn.name === "step");
+    expect(step?.optimizedCode).toBeTruthy();
+    expect(step?.lastCompileFailureReason ?? null).toBeNull();
+  });
+
+  it("still optimizes a function that returns an object from one branch and a number from another", () => {
+    const source = stepping(
+      ["fn step(a,i):", "  if i == 40000:", "    return {v: 1}", "  return a + 1"],
+      guarded,
+      60000,
+    );
+    const engine = withJit();
+    expect(engine.runNative(source)).toEqual(withoutJit().runNative(source));
+    const step = engine.collectFunctions().find((fn) => fn.name === "step");
+    expect(step?.optimizedCode).toBeTruthy();
+    expect(step?.lastCompileFailureReason ?? null).toBeNull();
+  });
+
+  it("still optimizes a function that returns a boolean from one branch and a number from another", () => {
+    const source = stepping(
+      ["fn step(a,i):", "  if i == 40000:", "    return true", "  return a + 1"],
+      guarded,
+      60000,
+    );
+    const engine = withJit();
+    expect(engine.runNative(source)).toEqual(withoutJit().runNative(source));
+    const step = engine.collectFunctions().find((fn) => fn.name === "step");
+    expect(step?.optimizedCode).toBeTruthy();
+    expect(step?.lastCompileFailureReason ?? null).toBeNull();
+  });
+
   it("stops retrying a function the wasm backend cannot compile", () => {
     const engine = withJit();
     engine.runNative(
       stepping(
-        ["fn step(a,i):", "  if i == 40000:", '    return "x"', "  return a + 1"],
-        guarded,
+        [
+          "fn step(a,i):",
+          "  near = (i > 1 and i < 5) or (i > 100 and i < 200)",
+          "  if near:",
+          "    return a + 1",
+          "  return a + 2",
+        ],
+        ["    acc = v"],
         60000,
       ),
     );
     const step = engine.collectFunctions().find((fn) => fn.name === "step");
     expect(step?.optimizedCode).toBeFalsy();
+    expect(step?.lastCompileFailureReason).toBeTruthy();
+    expect(step?.disableOptimization).toBe(false);
     expect(step?.compileFailureCount ?? 0).toBeLessThan(10);
   });
 });

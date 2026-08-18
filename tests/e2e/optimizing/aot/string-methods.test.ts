@@ -92,6 +92,13 @@ const AGREEING_PROGRAMS: readonly (readonly [string, string])[] = [
     src('word = "hey"', "for i of range(0, 2):", "  print(word.to_upper_case())"),
   ],
   [
+    "passes a range loop variable to int-argument methods",
+    src(
+      "for i of range(0, 3):",
+      '  print(i, "ab".repeat(i), "cd".slice(0, i))',
+    ),
+  ],
+  [
     "calls a method on a parameter",
     src(
       "fn shout(word: string) -> string:",

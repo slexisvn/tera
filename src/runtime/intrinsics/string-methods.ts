@@ -6,8 +6,6 @@ import {
   mkUndefined,
   mkArray,
   mkNull,
-  isSmi,
-  isDouble,
   isString,
   isUndefined,
   isFunction,
@@ -18,6 +16,7 @@ import {
 } from "../../core/value/index.js";
 import type { RuntimeValue, TaggedValue } from "../../core/value/index.js";
 import { createJSArray } from "../../objects/heap/factory.js";
+import { integerArg } from "./builtin-method.js";
 import type { BuiltinMethod, InterpreterLike } from "./builtin-method.js";
 import { unwrapPrimitive } from "./primitive-wrapper.js";
 
@@ -44,8 +43,7 @@ export const STRING_METHODS = {
     name: "String.prototype.charAt",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const str = unwrapString(thisValue);
-      const idx = args.length > 0 && isSmi(args[0]) ? getPayload(args[0]) : 0;
-      return mkString(str.charAt(idx));
+      return mkString(str.charAt(integerArg(args, 0, 0)));
     },
   },
 
@@ -53,8 +51,7 @@ export const STRING_METHODS = {
     name: "String.prototype.charCodeAt",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const str = unwrapString(thisValue);
-      const idx = args.length > 0 && isSmi(args[0]) ? getPayload(args[0]) : 0;
-      const code = str.charCodeAt(idx);
+      const code = str.charCodeAt(integerArg(args, 0, 0));
       return Number.isNaN(code) ? mkNumber(NaN) : mkSmi(code);
     },
   },
@@ -63,11 +60,7 @@ export const STRING_METHODS = {
     name: "String.prototype.codePointAt",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const str = unwrapString(thisValue);
-      const idx =
-        args.length > 0 && (isSmi(args[0]) || isDouble(args[0]))
-          ? Math.trunc(getPayload(args[0]))
-          : 0;
-      const cp = str.codePointAt(idx);
+      const cp = str.codePointAt(integerArg(args, 0, 0));
       return cp === undefined ? mkUndefined() : mkSmi(cp);
     },
   },
@@ -76,10 +69,9 @@ export const STRING_METHODS = {
     name: "String.prototype.substring",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const str = unwrapString(thisValue);
-      const start = args.length > 0 && isSmi(args[0]) ? getPayload(args[0]) : 0;
-      const end =
-        args.length > 1 && isSmi(args[1]) ? getPayload(args[1]) : undefined;
-      return mkString(str.substring(start, end));
+      return mkString(
+        str.substring(integerArg(args, 0, 0), integerArg(args, 1, undefined)),
+      );
     },
   },
 
@@ -88,15 +80,9 @@ export const STRING_METHODS = {
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const str = unwrapString(thisValue);
       const len = str.length;
-      let start =
-        args.length > 0 && (isSmi(args[0]) || isDouble(args[0]))
-          ? Math.trunc(getPayload(args[0]))
-          : 0;
+      let start = integerArg(args, 0, 0);
       if (start < 0) start = Math.max(len + start, 0);
-      const length =
-        args.length > 1 && (isSmi(args[1]) || isDouble(args[1]))
-          ? Math.trunc(getPayload(args[1]))
-          : len - start;
+      const length = integerArg(args, 1, len - start);
       if (length <= 0) return mkString("");
       return mkString(str.substr(start, length));
     },
@@ -106,10 +92,9 @@ export const STRING_METHODS = {
     name: "String.prototype.slice",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const str = unwrapString(thisValue);
-      const start = args.length > 0 && isSmi(args[0]) ? getPayload(args[0]) : 0;
-      const end =
-        args.length > 1 && isSmi(args[1]) ? getPayload(args[1]) : undefined;
-      return mkString(str.slice(start, end));
+      return mkString(
+        str.slice(integerArg(args, 0, 0), integerArg(args, 1, undefined)),
+      );
     },
   },
 
@@ -119,9 +104,7 @@ export const STRING_METHODS = {
       const str = unwrapString(thisValue);
       const search =
         args.length > 0 && isString(args[0]) ? getPayload(args[0]) : "";
-      const fromIndex =
-        args.length > 1 && isSmi(args[1]) ? getPayload(args[1]) : undefined;
-      return mkSmi(str.indexOf(search, fromIndex));
+      return mkSmi(str.indexOf(search, integerArg(args, 1, undefined)));
     },
   },
 
@@ -131,9 +114,7 @@ export const STRING_METHODS = {
       const str = unwrapString(thisValue);
       const search =
         args.length > 0 && isString(args[0]) ? getPayload(args[0]) : "";
-      const fromIndex =
-        args.length > 1 && isSmi(args[1]) ? getPayload(args[1]) : undefined;
-      return mkSmi(str.lastIndexOf(search, fromIndex));
+      return mkSmi(str.lastIndexOf(search, integerArg(args, 1, undefined)));
     },
   },
 
@@ -350,8 +331,7 @@ export const STRING_METHODS = {
     name: "String.prototype.repeat",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const str = unwrapString(thisValue);
-      const count = args.length > 0 && isSmi(args[0]) ? getPayload(args[0]) : 0;
-      return mkString(str.repeat(count));
+      return mkString(str.repeat(integerArg(args, 0, 0)));
     },
   },
 
@@ -359,8 +339,7 @@ export const STRING_METHODS = {
     name: "String.prototype.padStart",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const str = unwrapString(thisValue);
-      const targetLen =
-        args.length > 0 && isSmi(args[0]) ? getPayload(args[0]) : 0;
+      const targetLen = integerArg(args, 0, 0);
       const padStr =
         args.length > 1 && isString(args[1])
           ? (getPayload(args[1]) as string)
@@ -373,8 +352,7 @@ export const STRING_METHODS = {
     name: "String.prototype.padEnd",
     call(args: TaggedValue[], thisValue: TaggedValue) {
       const str = unwrapString(thisValue);
-      const targetLen =
-        args.length > 0 && isSmi(args[0]) ? getPayload(args[0]) : 0;
+      const targetLen = integerArg(args, 0, 0);
       const padStr =
         args.length > 1 && isString(args[1])
           ? (getPayload(args[1]) as string)
