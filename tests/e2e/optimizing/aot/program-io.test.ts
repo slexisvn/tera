@@ -69,9 +69,13 @@ describe("print and input as compiled builtins", () => {
   });
 
   it("declines a print it has no way to format", () => {
-    const program = compile('print([1, 2])');
+    const program = compile(src("xs: int[][] = [[1, 2], [3]]", "print(xs)"));
 
     expect(program.skipped.map((fn) => fn.name)).toEqual(["tera_program"]);
+  });
+
+  itRunsPe("prints an array natively the way the interpreter does", () => {
+    agrees(src("xs: int[] = [1, 2]", "print(xs)"), []);
   });
 
   it("declines a print result used as a value", () => {

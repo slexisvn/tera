@@ -65,20 +65,24 @@ import {
   SCALAR_INT32,
   SCALAR_POINTER,
   SCALAR_STRING,
+  SCALAR_TEXT,
   SCALAR_VOID,
   TEXT_STORAGE_BYTES,
   type AotScalar,
 } from "../types/scalar.js";
-import { anyType, joinTypes, type LatticeType } from "../types/lattice.js";
+import { anyType, joinTypes, TypeKind, type LatticeType } from "../types/lattice.js";
 import type { DeclaredSignature } from "../types/signature.js";
 import {
   ANY_SCALAR,
   builtinAcceptsArity,
   builtinIntrinsicByName,
   builtinParameterAt,
+  BUILTIN_METHOD_NAMES,
+  GLOBAL_BUILTIN_NAMES,
   INPUT_BUILTIN,
   PRINT_BUILTIN,
   qualifiedMethodName,
+  STRING_PRODUCING_BUILTINS,
   THROW_BUILTIN,
 } from "../metadata/builtin-methods.js";
 import { typeInferenceAnalysisId, type TypeInference } from "./type-inference.js";
@@ -134,27 +138,11 @@ export const AOT_CHAR_AT = qualifiedMethodName("string", "char_at");
 export const AOT_INT_TO_STRING = qualifiedMethodName("int", "to_string");
 export const AOT_FLOAT_TO_STRING = qualifiedMethodName("float", "to_string");
 
-export const AOT_STRING_BUILTINS: ReadonlySet<string> = new Set<string>([
-  AOT_CHAR_AT,
-  AOT_INT_TO_STRING,
-  AOT_FLOAT_TO_STRING,
-]);
+export const AOT_STRING_BUILTINS: ReadonlySet<string> = STRING_PRODUCING_BUILTINS;
 
 export const AOT_BUILTINS: ReadonlySet<string> = new Set<string>([
-  PRINT_BUILTIN,
-  INPUT_BUILTIN,
-  THROW_BUILTIN,
-  qualifiedMethodName("Math", "abs"),
-  qualifiedMethodName("Math", "floor"),
-  qualifiedMethodName("Math", "ceil"),
-  qualifiedMethodName("Math", "sqrt"),
-  qualifiedMethodName("Math", "trunc"),
-  qualifiedMethodName("Math", "round"),
-  qualifiedMethodName("Math", "min"),
-  qualifiedMethodName("Math", "max"),
-  qualifiedMethodName("string", "char_code_at"),
-  qualifiedMethodName("string", "length"),
-  ...AOT_STRING_BUILTINS,
+  ...GLOBAL_BUILTIN_NAMES,
+  ...BUILTIN_METHOD_NAMES,
 ]);
 
 const ARRAY_OPS: ReadonlySet<string> = new Set<string>([
@@ -445,6 +433,16 @@ export function summarizeStringEscapes(
   return model;
 }
 
+export interface PrintableField {
+  readonly name: string;
+  readonly offset: number;
+  readonly scalar: AotScalar;
+}
+
+export type PrintableAggregate =
+  | { readonly kind: "array"; readonly element: AotScalar }
+  | { readonly kind: "object"; readonly fields: readonly PrintableField[] };
+
 export interface AotLegality {
   readonly returnScalar: AotScalar;
   readonly declaredReturn: boolean;
@@ -453,6 +451,7 @@ export interface AotLegality {
   readonly stringBuffers: readonly AotStringBuffer[];
   scalarOf(value: CFGInstruction): AotScalar;
   stringBufferOf(value: CFGInstruction): AotStringBuffer | null;
+  aggregateOf(value: CFGInstruction): PrintableAggregate | null;
 }
 
 export type AotLegalityResult =
@@ -536,6 +535,26 @@ class LegalityAnalyzer implements AotLegality {
 
   stringBufferOf(value: CFGInstruction): AotStringBuffer | null {
     return this.bufferByValue.get(value) ?? null;
+  }
+
+  aggregateOf(value: CFGInstruction): PrintableAggregate | null {
+    const classes = this.graph.classes;
+    const type = this.types.typeOf(value);
+    if (classes === null || type.kind !== TypeKind.Object || type.map === null) return null;
+    const shape = classes.shapeById(Number(type.map));
+    if (shape === null) return null;
+    const layout = classes.arrayLayoutOf(shape);
+    if (layout !== null) {
+      return AOT_PRINTABLE.has(layout.element)
+        ? { kind: "array", element: layout.element }
+        : null;
+    }
+    const fields: PrintableField[] = [];
+    for (const field of shape.fields.values()) {
+      if (!AOT_PRINTABLE.has(field.scalar) && field.scalar !== SCALAR_TEXT) return null;
+      fields.push({ name: field.name, offset: field.offset, scalar: field.scalar });
+    }
+    return { kind: "object", fields };
   }
 
   private fail(reason: string): void {
@@ -892,6 +911,9 @@ class LegalityAnalyzer implements AotLegality {
       if (actual === null) return;
       if (declared === ANY_SCALAR) {
         if (name === PRINT_BUILTIN && !AOT_PRINTABLE.has(actual)) {
+          if (actual === SCALAR_POINTER && this.aggregateOf(node.inputs[index]!) !== null) {
+            continue;
+          }
           this.fail(`${name} cannot format a ${actual} value`);
           return;
         }

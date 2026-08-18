@@ -52,9 +52,11 @@ import {
   AOT_INT_TO_STRING,
   calleeSymbolName,
   type AotStringBuffer,
+  type PrintableAggregate,
 } from "../../analyses/aot-legality.js";
 import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
 import { asciiData, integerData, zeroFilledBuffer } from "../../machine/data.js";
+import { ARRAY_PRINT_SYMBOLS } from "./print-aggregate.js";
 import type { FrameLayout, SavedRegister } from "../../machine/frame.js";
 import { latticeFromDeclaredType } from "../../types/declared.js";
 import type { DeclaredSignature } from "../../types/signature.js";
@@ -64,13 +66,21 @@ import {
   SCALAR_INT32,
   SCALAR_POINTER,
   SCALAR_STRING,
+  SCALAR_TEXT,
   SCALAR_VOID,
+  scalarWidth,
   type AotScalar,
 } from "../../types/scalar.js";
 import {
+  AGGREGATE_SEPARATOR_TEXT,
   builtinIntrinsicByName,
   builtinParameterAt,
   INPUT_BUILTIN,
+  NO_TERMINATOR,
+  OBJECT_CLOSE_TEXT,
+  OBJECT_OPEN_TEXT,
+  PARSE_FLOAT_BUILTIN,
+  PARSE_INT_BUILTIN,
   PRINT_BUILTIN,
   printTerminatorAt,
   qualifiedMethodName,
@@ -198,6 +208,12 @@ const RUNTIME_BUILTINS = new Map<string, string>([
   [qualifiedMethodName("Math", "min"), X64_RUNTIME_SYMBOLS.minimum],
   [qualifiedMethodName("Math", "max"), X64_RUNTIME_SYMBOLS.maximum],
   [qualifiedMethodName("string", "char_code_at"), X64_RUNTIME_SYMBOLS.charCodeAt],
+  [qualifiedMethodName("string", "index_of"), X64_RUNTIME_SYMBOLS.stringIndexOf],
+  [qualifiedMethodName("string", "includes"), X64_RUNTIME_SYMBOLS.stringIncludes],
+  [qualifiedMethodName("string", "starts_with"), X64_RUNTIME_SYMBOLS.stringStartsWith],
+  [qualifiedMethodName("string", "ends_with"), X64_RUNTIME_SYMBOLS.stringEndsWith],
+  [PARSE_INT_BUILTIN, X64_RUNTIME_SYMBOLS.parseInt],
+  [PARSE_FLOAT_BUILTIN, X64_RUNTIME_SYMBOLS.parseFloat],
 ]);
 
 const STRING_BUFFER_BUILTINS = new Map<string, string>([
@@ -205,6 +221,15 @@ const STRING_BUFFER_BUILTINS = new Map<string, string>([
   [AOT_INT_TO_STRING, X64_RUNTIME_SYMBOLS.int32ToString],
   [AOT_FLOAT_TO_STRING, X64_RUNTIME_SYMBOLS.floatToString],
   [INPUT_BUILTIN, X64_RUNTIME_SYMBOLS.input],
+  [qualifiedMethodName("string", "to_upper_case"), X64_RUNTIME_SYMBOLS.stringUpper],
+  [qualifiedMethodName("string", "to_lower_case"), X64_RUNTIME_SYMBOLS.stringLower],
+  [qualifiedMethodName("string", "trim"), X64_RUNTIME_SYMBOLS.stringTrim],
+  [qualifiedMethodName("string", "trim_start"), X64_RUNTIME_SYMBOLS.stringTrimStart],
+  [qualifiedMethodName("string", "trim_end"), X64_RUNTIME_SYMBOLS.stringTrimEnd],
+  [qualifiedMethodName("string", "slice"), X64_RUNTIME_SYMBOLS.stringSlice],
+  [qualifiedMethodName("string", "repeat"), X64_RUNTIME_SYMBOLS.stringRepeat],
+  [qualifiedMethodName("string", "replace"), X64_RUNTIME_SYMBOLS.stringReplace],
+  [qualifiedMethodName("string", "replace_all"), X64_RUNTIME_SYMBOLS.stringReplaceAll],
 ]);
 
 const PRINT_ROUTINES = new Map<AotScalar, string>([
@@ -1067,22 +1092,98 @@ export class X64Lowering implements MachineLowering {
     this.produce(ctx, result, SCALAR_STRING);
   }
 
+  private emitPrintText(ctx: SelectionContext, text: string, terminator: number): void {
+    const datum = ctx.data.intern(`aggregate:${text}`, 1, [asciiData(text)], ".LS");
+    const address = ctx.tempIn(X64_GPR, 8);
+    ctx.emit(instruction("leaq", [writeOf(address), mem(8, { symbol: datum.label })]));
+    ctx.external(X64_RUNTIME_SYMBOLS.printString);
+    ctx.emitCall(
+      X64_RUNTIME_SYMBOLS.printString,
+      [address, this.loadNumber(ctx, terminator, SCALAR_INT32)],
+      null,
+    );
+  }
+
+  private selectPrintValue(
+    ctx: SelectionContext,
+    operand: VirtualRegister,
+    scalar: AotScalar,
+    terminator: number,
+  ): void {
+    const symbol = PRINT_ROUTINES.get(scalar);
+    if (symbol === undefined) {
+      throw new BackendLoweringError(`x64 backend cannot print a ${scalar} value`);
+    }
+    ctx.external(symbol);
+    ctx.emitCall(symbol, [operand, this.loadNumber(ctx, terminator, SCALAR_INT32)], null);
+  }
+
+  private selectPrintAggregate(
+    ctx: SelectionContext,
+    value: CFGInstruction,
+    aggregate: PrintableAggregate,
+    terminator: number,
+  ): void {
+    const receiver = this.coerce(ctx, value, SCALAR_POINTER);
+    if (aggregate.kind === "array") {
+      const symbol = ARRAY_PRINT_SYMBOLS.get(aggregate.element);
+      if (symbol === undefined) {
+        throw new BackendLoweringError(
+          `x64 backend cannot print an array of ${aggregate.element}`,
+        );
+      }
+      ctx.external(symbol);
+      ctx.emitCall(
+        symbol,
+        [receiver, this.loadNumber(ctx, terminator, SCALAR_INT32)],
+        null,
+      );
+      return;
+    }
+    this.emitPrintText(ctx, OBJECT_OPEN_TEXT, NO_TERMINATOR);
+    aggregate.fields.forEach((field, index) => {
+      if (index > 0) this.emitPrintText(ctx, AGGREGATE_SEPARATOR_TEXT, NO_TERMINATOR);
+      this.emitPrintText(ctx, `${field.name}: `, NO_TERMINATOR);
+      const inline = field.scalar === SCALAR_TEXT;
+      const scalar = inline ? SCALAR_STRING : field.scalar;
+      const slot = ctx.tempIn(X64_GPR, 8);
+      if (inline) {
+        ctx.emit(
+          instruction("leaq", [
+            writeOf(slot),
+            mem(8, { base: readOf(receiver), displacement: field.offset }),
+          ]),
+        );
+        this.selectPrintValue(ctx, slot, scalar, NO_TERMINATOR);
+        return;
+      }
+      const loaded = ctx.temp(scalar);
+      ctx.emit(
+        instruction(this.moveFor(writeOf(loaded)), [
+          writeOf(loaded),
+          mem(scalarWidth(scalar), {
+            base: readOf(receiver),
+            displacement: field.offset,
+          }),
+        ]),
+      );
+      this.selectPrintValue(ctx, loaded, scalar, NO_TERMINATOR);
+    });
+    this.emitPrintText(ctx, OBJECT_CLOSE_TEXT, terminator);
+  }
+
   private selectPrint(ctx: SelectionContext): void {
     const arity = ctx.node.inputs.length;
     ctx.node.inputs.forEach((value, index) => {
+      const terminator = printTerminatorAt(index, arity);
       const scalar = ctx.scalarOf(value);
-      const symbol = PRINT_ROUTINES.get(scalar);
-      if (symbol === undefined) {
-        throw new BackendLoweringError(`x64 backend cannot print a ${scalar} value`);
+      const aggregate =
+        scalar === SCALAR_POINTER ? ctx.legality.aggregateOf(value) : null;
+      if (aggregate !== null) {
+        this.selectPrintAggregate(ctx, value, aggregate, terminator);
+        return;
       }
-      const operand = this.coerce(ctx, value, scalar);
-      const terminator = this.loadNumber(
-        ctx,
-        printTerminatorAt(index, arity),
-        SCALAR_INT32,
-      );
-      ctx.external(symbol);
-      ctx.emitCall(symbol, [operand, terminator], null);
+      this.selectPrintValue(ctx, this.coerce(ctx, value, scalar), scalar, terminator);
     });
   }
 

@@ -293,8 +293,8 @@ describe("AOT legality builtins", () => {
   });
 
   it("names a builtin outside the shared subset", () => {
-    expect(reasonOf(builtinCall("string.trim", ["string", "int"]))).toContain(
-      "unsupported builtin string.trim",
+    expect(reasonOf(builtinCall("string.pad_start", ["string", "int"]))).toContain(
+      "unsupported builtin string.pad_start",
     );
   });
 

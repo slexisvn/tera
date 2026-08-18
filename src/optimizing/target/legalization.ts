@@ -5,6 +5,7 @@ import { dominanceAnalysisId } from "../analyses/dominance.js";
 import { loopForestAnalysisId } from "../analyses/loops.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
 import { lowerArrayAccess, shapeArrayAllocations } from "../passes/array-shapes.js";
+import { lowerArrayMethods } from "../passes/array-methods.js";
 import { lowerBooleanText } from "../passes/boolean-text.js";
 import { lowerBuiltinMethods } from "../passes/builtin-method-lowering.js";
 import {
@@ -52,7 +53,10 @@ export function targetLegalizationPipeline(
     {
       name: "global-builtin-lowering",
       preserves: preservesControlFlow,
-      run: (graph) => ({ changed: lowerGlobalBuiltins(graph) > 0 }),
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerGlobalBuiltins(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
     },
     {
       name: "builtin-method-lowering",
@@ -109,6 +113,14 @@ export function targetLegalizationPipeline(
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
       run: (graph, analyses) => ({
         changed: lowerIterators(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "array-method-lowering",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerArrayMethods(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
     {

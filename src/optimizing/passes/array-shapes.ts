@@ -69,7 +69,7 @@ const PUSH_MEMBER = "push";
 const ONE_ELEMENT = 1;
 const CALLEE_AND_RECEIVER = 2;
 
-type Stamp = (node: CFGInstruction) => CFGInstruction;
+export type Stamp = (node: CFGInstruction) => CFGInstruction;
 
 const READS_ELEMENT: ReadonlySet<string> = new Set<string>([
   IR_LOAD_ELEMENT,
@@ -81,7 +81,7 @@ const WRITES_ELEMENT: ReadonlySet<string> = new Set<string>([
   IR_GENERIC_SET_INDEX,
 ]);
 
-function memberCalled(node: CFGInstruction, member: string): CFGInstruction | null {
+export function memberCalled(node: CFGInstruction, member: string): CFGInstruction | null {
   if (node.type !== IR_GENERIC_CALL || node.props.isMethod !== true) return null;
   const callee = node.inputs[0];
   if (callee?.type !== IR_GENERIC_GET_PROP) return null;
@@ -179,7 +179,7 @@ function fits(value: AotScalar, element: AotScalar): boolean {
     : isNumericScalar(value);
 }
 
-interface ArrayModel {
+export interface ArrayModel {
   readonly shape: ClassShape;
   readonly buffer: ClassShape;
   readonly element: AotScalar;
@@ -234,7 +234,7 @@ function receivedArray(
   return carried === null ? null : modelOf(classes.defineArray(carried), classes);
 }
 
-function arrayModelOf(
+export function arrayModelOf(
   array: CFGInstruction | undefined,
   graph: CFGFunction,
   classes: ClassTable,
@@ -270,7 +270,7 @@ function allocateObject(
   return allocation;
 }
 
-function storeCount(
+export function storeCount(
   editor: GraphEditor,
   before: CFGInstruction,
   array: CFGInstruction,
@@ -288,7 +288,7 @@ function storeCount(
   return store;
 }
 
-function loadCount(
+export function loadCount(
   editor: GraphEditor,
   before: CFGInstruction,
   array: CFGInstruction,
@@ -305,7 +305,7 @@ function loadCount(
   return load;
 }
 
-function loadBuffer(
+export function loadBuffer(
   editor: GraphEditor,
   before: CFGInstruction,
   array: CFGInstruction,
@@ -322,7 +322,7 @@ function loadBuffer(
   return load;
 }
 
-function constantAt(
+export function constantAt(
   editor: GraphEditor,
   before: CFGInstruction,
   value: number,
@@ -393,19 +393,26 @@ function replaceLength(
   editor.remove(node);
 }
 
-function elementAccess(
+export function describeElement(
+  access: CFGInstruction,
+  model: ArrayModel,
+): CFGInstruction {
+  access.props[ARRAY_ELEMENT_SCALAR_PROP] = model.element;
+  access.props.offset = BUFFER_ELEMENTS_OFFSET;
+  access.props[CLASS_ID_PROP] = model.buffer.id;
+  access.props[FIELD_SCALAR_PROP] = model.element;
+  access.props[FIELD_TYPE_PROP] = model.declaredType;
+  return access;
+}
+
+export function elementAccess(
   editor: GraphEditor,
   before: CFGInstruction,
   access: CFGInstruction,
   model: ArrayModel,
   stamp: Stamp,
 ): CFGInstruction {
-  const stamped = stamp(access);
-  stamped.props[ARRAY_ELEMENT_SCALAR_PROP] = model.element;
-  stamped.props.offset = BUFFER_ELEMENTS_OFFSET;
-  stamped.props[CLASS_ID_PROP] = model.buffer.id;
-  stamped.props[FIELD_SCALAR_PROP] = model.element;
-  stamped.props[FIELD_TYPE_PROP] = model.declaredType;
+  const stamped = describeElement(stamp(access), model);
   stamped.frameState = before.frameState;
   editor.insertBefore(before, stamped);
   return stamped;

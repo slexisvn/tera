@@ -282,10 +282,10 @@ describe("emitNumericFunction builtin methods", () => {
   });
 
   it("bails on a builtin the backend has no helper for", () => {
-    const result = emitNumericFunction(codeAtGraph("unknown", "string.trim"));
+    const result = emitNumericFunction(codeAtGraph("unknown", "string.pad_start"));
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("unsupported builtin string.trim");
+    if (!result.ok) expect(result.reason).toContain("unsupported builtin string.pad_start");
   });
 
   it("bails on a builtin whose receiver is not a string", () => {

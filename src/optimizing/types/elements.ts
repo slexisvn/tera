@@ -7,14 +7,19 @@ import {
   anyType,
   doubleType,
   smiType,
+  stringType,
   TypeKind,
   type LatticeType,
 } from "./lattice.js";
 
 export const ELEMENT_REP_INT32 = "int32";
 export const ELEMENT_REP_FLOAT64 = "float64";
+export const ELEMENT_REP_STRING = "string";
 
-export type ElementRep = typeof ELEMENT_REP_INT32 | typeof ELEMENT_REP_FLOAT64;
+export type ElementRep =
+  | typeof ELEMENT_REP_INT32
+  | typeof ELEMENT_REP_FLOAT64
+  | typeof ELEMENT_REP_STRING;
 
 const KIND_BY_TYPE = new Map<string, string>([
   [TypeKind.Smi, PACKED_SMI],
@@ -30,6 +35,7 @@ const TYPE_BY_KIND = new Map<string, LatticeType>([
 const TYPE_BY_REP = new Map<string, LatticeType>([
   [ELEMENT_REP_INT32, smiType()],
   [ELEMENT_REP_FLOAT64, doubleType()],
+  [ELEMENT_REP_STRING, stringType()],
 ]);
 
 const REP_BY_KIND = new Map<string, ElementRep>([

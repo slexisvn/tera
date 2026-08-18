@@ -44,6 +44,7 @@ const TRANSFERRED = "rax";
 const READ_BLOCK = "read";
 const TRIM_BLOCK = "trim";
 const TERMINATE_BLOCK = "terminate";
+const SILENT_BLOCK = "silent";
 const MEASURE_BLOCK = "measure";
 const MEASURED_BLOCK = "measured";
 
@@ -137,9 +138,13 @@ function captureTerminator(builder: MachineRoutineBuilder, terminator: string): 
 
 function writeTerminator(builder: MachineRoutineBuilder, platform: PlatformIo): void {
   builder
+    .emit("movzbl", builder.write(TRANSFERRED, 4), terminatorSlot(builder))
+    .emit("testl", builder.read(TRANSFERRED, 4), builder.read(TRANSFERRED, 4))
+    .to("je", SILENT_BLOCK)
     .emit("leaq", builder.write(TEXT, 8), terminatorSlot(builder))
     .emit("movl", builder.write(LENGTH, 4), imm(TERMINATOR_BYTES));
   platform.write(builder, TEXT, LENGTH, STANDARD_OUTPUT_STREAM);
+  builder.at(SILENT_BLOCK);
 }
 
 function writeLine(builder: MachineRoutineBuilder, platform: PlatformIo): void {

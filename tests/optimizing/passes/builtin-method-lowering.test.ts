@@ -98,7 +98,7 @@ describe("lowerBuiltinMethods", () => {
   });
 
   it("leaves a method that the registry does not declare alone", () => {
-    const graph = stringReceiverGraph("trim", []);
+    const graph = stringReceiverGraph("pad_start", []);
 
     expect(lower(graph)).toBe(0);
     expect(nodesOf(graph).map((node) => node.type)).toContain(IR_GENERIC_CALL);

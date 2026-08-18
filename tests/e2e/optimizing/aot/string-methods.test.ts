@@ -1,0 +1,159 @@
+import { describe, expect, it } from "vitest";
+import { nodeEngine } from "../../../helpers/engine.js";
+import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
+import { cSource, itNative, runCStringFunction } from "../../../helpers/c-executor.js";
+import { TEXT_STORAGE_BYTES } from "../../../../src/optimizing/types/scalar.js";
+
+const src = (...lines: string[]) => lines.join("\n");
+
+function interpreted(source: string): string {
+  const stream: string[] = [];
+  nodeEngine({ typecheck: "off", output: (text) => stream.push(`${text}\n`) }).run(
+    `${source}\n`,
+  );
+  return stream.join("");
+}
+
+function image(source: string): Uint8Array {
+  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
+    backend: "x64-windows",
+    format: "executable",
+  });
+  expect(program.skipped).toEqual([]);
+  return program.files[0]!.contents as Uint8Array;
+}
+
+function agrees(source: string): void {
+  const run = runPe(image(source));
+
+  expect(run.status).toBe(0);
+  expect(run.stdout).toBe(interpreted(source));
+}
+
+function returnsText(body: string, expected: string): void {
+  const program = nodeEngine({ typecheck: "off" }).compileAot(
+    src("fn f() -> string:", `  return ${body}`, ""),
+  );
+
+  expect(program.skipped).toEqual([]);
+  expect(runCStringFunction(cSource(program), "f", [])).toBe(expected);
+}
+
+const AGREEING_PROGRAMS: readonly (readonly [string, string])[] = [
+  ["upper-cases ascii", 'print("aBc 1!".to_upper_case())'],
+  ["lower-cases ascii", 'print("AbC 1!".to_lower_case())'],
+  ["trims both ends", 'print("[" + "  ab  ".trim() + "]")'],
+  ["trims the leading end", 'print("[" + "  ab  ".trim_start() + "]")'],
+  ["trims the trailing end", 'print("[" + "  ab  ".trim_end() + "]")'],
+  ["trims a string that is all blanks", 'print("[" + "   ".trim() + "]")'],
+  ["slices a range", 'print("abcdef".slice(1, 3))'],
+  ["slices to the end when the end is omitted", 'print("abcdef".slice(2))'],
+  ["slices from a negative start", 'print("abcdef".slice(-2))'],
+  ["slices to a negative end", 'print("abcdef".slice(1, -1))'],
+  ["slices an inverted range to nothing", 'print("[" + "abc".slice(2, 1) + "]")'],
+  ["slices past the end", 'print("abc".slice(1, 99))'],
+  ["repeats a string", 'print("ab".repeat(3))'],
+  ["repeats zero times", 'print("[" + "ab".repeat(0) + "]")'],
+  ["replaces the first match only", 'print("a-b-c".replace("-", "+"))'],
+  ["replaces every match", 'print("a-b-c".replace_all("-", "+"))'],
+  ["replaces nothing when there is no match", 'print("abc".replace("z", "+"))'],
+  ["replaces with a longer string", 'print("aXa".replace_all("X", "YYY"))'],
+  ["replaces with an empty string", 'print("XXab".replace_all("X", ""))'],
+  ["replaces overlapping-looking matches left to right", 'print("the cat sat".replace_all("at", "og"))'],
+  ["finds a substring", 'print("abcd".index_of("cd"))'],
+  ["reports a missing substring as -1", 'print("abcd".index_of("zz"))'],
+  ["finds the first of several matches", 'print("abab".index_of("ab"))'],
+  ["finds the empty substring at zero", 'print("abcd".index_of(""))'],
+  ["tells that a substring is present", 'print("abcd".includes("bc"))'],
+  ["tells that a substring is absent", 'print("abcd".includes("zz"))'],
+  ["tests a prefix", 'print("abcd".starts_with("ab"))'],
+  ["rejects a non-prefix", 'print("abcd".starts_with("bc"))'],
+  ["tests a suffix", 'print("abcd".ends_with("cd"))'],
+  ["rejects a non-suffix", 'print("abcd".ends_with("ab"))'],
+  ["rejects a suffix longer than the string", 'print("ab".ends_with("xxxx"))'],
+  [
+    "chains several methods on a constant",
+    'print("  Hello World  ".trim().to_upper_case().slice(0, 5))',
+  ],
+  [
+    "chains several methods on a variable",
+    src('raw = "  Hello World  "', "print(raw.trim().to_upper_case().slice(0, 5))"),
+  ],
+  [
+    "chains a method onto a method that returns int",
+    src('raw = "  hello  "', "print(raw.trim().index_of(\"ll\"))"),
+  ],
+  [
+    "calls a method on a built string",
+    src("name = \"bob\"", 'print(("hi " + name).to_upper_case())'),
+  ],
+  [
+    "calls a method in a loop",
+    src('word = "hey"', "for i of range(0, 2):", "  print(word.to_upper_case())"),
+  ],
+  [
+    "calls a method on a parameter",
+    src(
+      "fn shout(word: string) -> string:",
+      "  return word.to_upper_case()",
+      'print(shout("hey"))',
+    ),
+  ],
+];
+
+describe("string methods as compiled builtins", () => {
+  for (const [name, source] of AGREEING_PROGRAMS) {
+    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
+  }
+
+  itNative("routes each method through its own C helper", () => {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(
+      src(
+        "fn f(s: string) -> string:",
+        "  return s.trim().to_upper_case().to_lower_case().slice(0, 4).repeat(2).replace(\"a\", \"b\")",
+        "",
+      ),
+    );
+
+    expect(program.skipped).toEqual([]);
+    for (const helper of [
+      "tera_string_trim(",
+      "tera_string_upper(",
+      "tera_string_lower(",
+      "tera_string_slice(",
+      "tera_string_repeat(",
+      "tera_string_replace(",
+    ]) {
+      expect(cSource(program)).toContain(helper);
+    }
+  });
+
+  itNative("keeps the C backend in lockstep on one case per method", () => {
+    returnsText('"aBc".to_upper_case()', "ABC");
+    returnsText('"aBc".to_lower_case()', "abc");
+    returnsText('"  ab  ".trim()', "ab");
+    returnsText('"  ab  ".trim_start()', "ab  ");
+    returnsText('"  ab  ".trim_end()', "  ab");
+    returnsText('"abcdef".slice(1, 3)', "bc");
+    returnsText('"abcdef".slice(2)', "cdef");
+    returnsText('"ab".repeat(3)', "ababab");
+    returnsText('"a-b-c".replace("-", "+")', "a+b-c");
+    returnsText('"a-b-c".replace_all("-", "+")', "a+b+c");
+  });
+
+  itRunsPe("truncates at the buffer capacity instead of overrunning it", () => {
+    const run = runPe(image(src('print("ab".repeat(100000).length)')));
+
+    expect(run.status).toBe(0);
+    expect(Number(run.stdout.trim())).toBe(TEXT_STORAGE_BYTES - 1);
+  });
+
+  it("declines a method the backends have no routine for", () => {
+    expect(() =>
+      nodeEngine({ typecheck: "off" }).compileAot(
+        src('parts = "a,b".split(",")', "print(parts[0])", ""),
+        { backend: "x64-windows", format: "executable" },
+      ),
+    ).toThrow(/split/);
+  });
+});

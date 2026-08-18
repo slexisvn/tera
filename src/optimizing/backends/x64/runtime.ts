@@ -25,6 +25,8 @@ import {
   type ProgramStream,
 } from "./entry.js";
 import { x64FloatTextRoutines } from "./float-text.js";
+import { x64TextMethodRoutines } from "./text-methods.js";
+import { ARRAY_PRINT_SYMBOLS, x64ArrayPrintRoutine } from "./print-aggregate.js";
 import { x64HeapRoutines } from "./heap.js";
 import { x64IoRoutines } from "./io.js";
 import { X64_PROGRAM_ENTRY, X64_RUNTIME_SYMBOLS } from "./runtime-symbols.js";
@@ -468,6 +470,10 @@ export function x64RuntimeRoutines(
     [X64_RUNTIME_SYMBOLS.stringLength, stringLength(abi)],
     [X64_RUNTIME_SYMBOLS.stringCompare, stringCompare(abi)],
     ...x64FloatTextRoutines(abi),
+    ...x64TextMethodRoutines(abi),
+    ...[...ARRAY_PRINT_SYMBOLS].map(
+      ([element, symbol]) => [symbol, x64ArrayPrintRoutine(io, element)] as const,
+    ),
     ...x64HeapRoutines(abi, io),
   ];
   return new Map([
