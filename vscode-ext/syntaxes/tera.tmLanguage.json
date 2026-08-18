@@ -266,7 +266,7 @@
           }
         },
         {
-          "match": "(->)\\s*(?!(?:implements|instanceof|interface|protected|abstract|computed|continue|resource|default|extends|finally|private|delete|effect|import|public|return|signal|static|switch|typeof|async|await|break|catch|class|const|false|model|super|throw|while|yield|case|else|from|null|this|true|type|and|for|get|let|new|not|set|try|var|as|do|fn|if|in|of|or)\\b)([A-Za-z_$][A-Za-z0-9_$]*)",
+          "match": "(->)\\s*(?!(?:implements|instanceof|interface|protected|abstract|computed|continue|resource|default|extends|finally|private|delete|effect|import|public|return|signal|static|switch|typeof|async|await|break|catch|class|false|model|super|throw|while|yield|case|else|from|null|this|true|type|and|for|get|new|not|set|try|as|do|fn|if|in|of|or)\\b)([A-Za-z_$][A-Za-z0-9_$]*)",
           "captures": {
             "1": {
               "name": "keyword.operator.arrow.tera"
@@ -282,7 +282,7 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.tera",
-          "match": "(?<!\\.)\\b(?:implements|interface|protected|abstract|computed|resource|extends|private|import|public|signal|static|class|const|model|from|type|get|let|set|var|as|fn)\\b"
+          "match": "(?<!\\.)\\b(?:implements|interface|protected|abstract|computed|resource|extends|private|import|public|signal|static|class|model|from|type|get|set|as|fn)\\b"
         },
         {
           "name": "keyword.control.tera",

@@ -425,7 +425,7 @@ describe("checker pipeline", () => {
 
   it("keeps checker tolerant of runtime-only statements while still checking typed surface", () => {
     const source = [
-      "var legacy = 1",
+      "legacy = 1",
       "[a, b] = [1, 2]",
       "try:",
       "  throw \"boom\"",

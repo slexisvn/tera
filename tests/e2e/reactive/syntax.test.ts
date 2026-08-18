@@ -333,7 +333,7 @@ describe("Tera reactive syntax", () => {
     const ast = parse([
       "signal tally = 1",
       "fn read() -> int:",
-      "  let tally = 2",
+      "  tally: int = 2",
       "  return tally",
       "value = read()",
     ].join("\n"), { syntaxPlugins: [reactiveSyntaxPlugin()] });
@@ -347,7 +347,7 @@ describe("Tera reactive syntax", () => {
     expect(engine.runNative([
       "signal tally = 1",
       "fn read() -> int:",
-      "  let tally = 2",
+      "  tally: int = 2",
       "  return tally",
       "read()",
     ].join("\n"))).toBe(2);

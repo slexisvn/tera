@@ -168,7 +168,7 @@ describe("reactive Tera optimizer", () => {
     expect(engine.runNative([
       "signal count = 7",
       "fn read() -> int:",
-      "  let count = 2",
+      "  count: int = 2",
       "  return count",
       "read()",
       "read()",

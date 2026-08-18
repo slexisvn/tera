@@ -6,8 +6,6 @@ import {
   AsyncFunctionDeclaration,
   LazyFunctionDeclaration,
   LetDeclaration,
-  ConstDeclaration,
-  VarDeclaration,
   IfStatement,
   WhileStatement,
   ForStatement,
@@ -80,7 +78,7 @@ import {
 } from "../ast/index.js";
 
 import { CLASS_ABSTRACT_MODIFIER, CLASS_ASYNC_MODIFIER, CLASS_MEMBER_MODIFIER_KEYWORDS, CLASS_STATIC_MODIFIER, CLASS_VISIBILITY_KEYWORDS, DEFAULT_CLASS_VISIBILITY, classVisibilityOrDefault, isClassVisibility, type ClassVisibility } from "../../core/class-visibility.js";
-import { Lexer, TokenType, type Token, type TokenTypeName, type TokenValue } from "../lexer/index.js";
+import { Lexer, RESERVED_KEYWORDS, TokenType, type Token, type TokenTypeName, type TokenValue } from "../lexer/index.js";
 import { restParameterType, typeSourceFromTokens } from "../type-source.js";
 import { buildSyntaxPluginIndex, normalizeSyntaxPlugins, syntaxPluginsFor, type ParserCheckpoint, type ParserContext, type ParserSyntaxOptions, type StatementParseResult, type SyntaxPlugin, type SyntaxPluginIndex } from "./extensions.js";
 export { MODEL_MARKER } from "../model.js";
@@ -320,6 +318,18 @@ export class Parser {
     throw new SyntaxError(`[Parser] ${message} at ${tok.line}:${tok.column}`);
   }
 
+  isReservedKeyword(tok: ParserToken): boolean {
+    return tok.type === TokenType.Keyword && RESERVED_KEYWORDS.has(String(tok.value));
+  }
+
+  rejectReservedKeyword(tok: ParserToken): never {
+    this.error(
+      `'${String(tok.value)}' is not a tera keyword; declare a variable as ` +
+        `'name: type = value' or 'name = value'`,
+      tok,
+    );
+  }
+
   tokenString(tok: ParserToken, context = "token"): string {
     if (typeof tok.value !== "string") {
       this.error(`Expected string ${context}`, tok);
@@ -478,6 +488,7 @@ export class Parser {
     if (extension) return extension;
 
     if (tok.type === TokenType.Keyword) {
+      if (this.isReservedKeyword(tok)) this.rejectReservedKeyword(tok);
       switch (tok.value) {
         case "function":
           return this.parseFunctionDeclaration();
@@ -493,12 +504,6 @@ export class Parser {
             return this.parseFunctionDeclaration(true, String(this.peek().value));
           }
           break;
-        case "let":
-          return this.parseLetDeclaration();
-        case "const":
-          return this.parseConstDeclaration();
-        case "var":
-          return this.parseVarDeclaration();
         case "if":
           return this.parseIfStatement();
         case "while":
@@ -1057,63 +1062,6 @@ export class Parser {
     return withNameSpan(withSpan(node, start), nameToken);
   }
 
-  parseLetDeclaration(): ASTNode | ASTNode[] {
-    this.expect(TokenType.Keyword, "let");
-    return this._parseDeclarationBody("let");
-  }
-
-  parseConstDeclaration(): ASTNode | ASTNode[] {
-    this.expect(TokenType.Keyword, "const");
-    return this._parseDeclarationBody("const");
-  }
-
-  parseVarDeclaration(): ASTNode | ASTNode[] {
-    this.expect(TokenType.Keyword, "var");
-    return this._parseDeclarationBody("var");
-  }
-
-  _parseDeclarationBody(kind: "let" | "const" | "var"): ASTNode | ASTNode[] {
-    const declarations = [];
-    do {
-      if (this.check(TokenType.Punctuator, "{")) {
-        const pattern = this._parseObjectPattern();
-        this.expect(TokenType.Punctuator, "=");
-        const init = this.parseExpression();
-        declarations.push(ObjectDestructuring(pattern, init, kind));
-      } else if (this.check(TokenType.Punctuator, "[")) {
-        const pattern = this._parseArrayPattern();
-        this.expect(TokenType.Punctuator, "=");
-        const init = this.parseExpression();
-        declarations.push(ArrayDestructuring(pattern, init, kind));
-      } else {
-        const start = this.current();
-        const nameToken = this.expect(TokenType.Identifier);
-        const name = this.tokenString(nameToken, "identifier");
-        const declaredType = this.skipTypeAnnotation(new Set([",", "="]));
-
-        let init = null;
-        if (this.match(TokenType.Punctuator, "=")) {
-          init = this.parseExpression();
-        } else if (kind === "const") {
-          throw new Error(
-            `SyntaxError: Missing initializer in const declaration for '${name}'`,
-          );
-        }
-
-        const node = kind === "const"
-            ? ConstDeclaration(name, init)
-            : kind === "var"
-              ? VarDeclaration(name, init)
-              : LetDeclaration(name, init);
-        node.declaredType = declaredType;
-        declarations.push(withNameSpan(withSpan(node, start), nameToken));
-      }
-    } while (this.match(TokenType.Punctuator, ","));
-
-    this.consumeSemicolon();
-    return declarations.length === 1 ? declarations[0] : declarations;
-  }
-
   _parseBindingTarget(): BindingPattern {
     let target: BindingPattern;
     if (this.check(TokenType.Punctuator, "{")) {
@@ -1234,62 +1182,11 @@ export class Parser {
     }
     this.expect(TokenType.Punctuator, "(");
 
-    const declKeyword = this.current();
-    if (
-      declKeyword.type === TokenType.Keyword &&
-      (declKeyword.value === "let" ||
-        declKeyword.value === "const" ||
-        declKeyword.value === "var")
-    ) {
-      const savedPos = this.pos;
-      const declKind = declKeyword.value;
-      this.advance();
-      const isPatternStart =
-        this.check(TokenType.Identifier) ||
-        this.check(TokenType.Punctuator, "[") ||
-        this.check(TokenType.Punctuator, "{");
-      if (isPatternStart) {
-        let target = null;
-        try {
-          target = this._parseBindingTarget();
-        } catch (e) {
-          target = null;
-        }
-        if (
-          target &&
-          this.check(TokenType.Keyword) &&
-          (this.current().value === "in" || this.current().value === "of")
-        ) {
-          const kind = this.tokenString(this.advance(), "for-kind");
-          const binding = target;
-          const expr = this.parseExpression();
-          this.expect(TokenType.Punctuator, ")");
-          let body = this.parseStatementBody();
-          if (Array.isArray(body)) body = BlockStatement(body);
-          if (kind === "in") {
-            return withSpan(ForInStatement(binding, expr, body, declKind), start);
-          } else {
-            return withSpan(ForOfStatement(binding, expr, body, declKind), start);
-          }
-        }
-      }
-
-      this.pos = savedPos;
-    }
-
     let init = null;
-    if (this.check(TokenType.Keyword, "let")) {
-      init = this.parseLetDeclaration();
-    } else if (this.check(TokenType.Keyword, "const")) {
-      init = this.parseConstDeclaration();
-    } else if (this.check(TokenType.Keyword, "var")) {
-      init = this.parseVarDeclaration();
-    } else if (!this.check(TokenType.Punctuator, ";")) {
+    if (!this.check(TokenType.Punctuator, ";")) {
       init = ExpressionStatement(this.parseExpression());
-      this.consumeSemicolon();
-    } else {
-      this.consumeSemicolon();
     }
+    this.consumeSemicolon();
 
     let test = null;
     if (!this.check(TokenType.Punctuator, ";")) {
@@ -1759,6 +1656,7 @@ export class Parser {
       return withSpan(UnaryExpression("delete", argument), tok);
     }
 
+    if (this.isReservedKeyword(tok)) this.rejectReservedKeyword(tok);
     this.error(`Unexpected token '${tok.value}' (${tok.type})`, tok);
   }
 

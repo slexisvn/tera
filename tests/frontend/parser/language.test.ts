@@ -408,40 +408,18 @@ describe("Parser", () => {
   });
 
   describe("declarations", () => {
-    it("let/const/var declaration types", () => {
-      const cases = [
-        ["let x = 1", NodeType.LetDeclaration],
-        ["const y = 2", NodeType.ConstDeclaration],
-        ["var z = 3", NodeType.VarDeclaration],
-      ];
-      for (const [src, expectedType] of cases) {
-        expect(parseStmt(src).type).toBe(expectedType);
-      }
-    });
-
-    it("let without init", () => {
-      const stmt = parseStmt("let x");
-      expect(stmt.init).toBe(null);
-    });
-
-    it("const without init throws", () => {
-      expect(() => parse("const x")).toThrow(/Missing initializer/);
-    });
-
-    it("multiple declarations", () => {
-      const ast = parse("let a = 1, b = 2");
-      expect(ast.body).toHaveLength(2);
-      expect(ast.body[0].name).toBe("a");
-      expect(ast.body[1].name).toBe("b");
+    it("annotated declaration", () => {
+      const stmt = parseStmt("x: int = 1");
+      expect(stmt).toMatchObject({ type: NodeType.LetDeclaration, name: "x", declaredType: "int" });
     });
 
     it("object destructuring", () => {
-      const stmt = parseStmt("const { a, b } = obj");
+      const stmt = parseStmt("{ a, b } = obj");
       expect(stmt.type).toBe(NodeType.ObjectDestructuring);
     });
 
     it("object destructuring with alias", () => {
-      const stmt = parseStmt("const { a: x } = obj");
+      const stmt = parseStmt("{ a: x } = obj");
       expect(stmt.pattern.props[0]).toMatchObject({
         key: "a",
         value: { kind: "id", name: "x" },
@@ -449,7 +427,7 @@ describe("Parser", () => {
     });
 
     it("array destructuring", () => {
-      const stmt = parseStmt("const [a, b] = arr");
+      const stmt = parseStmt("[a, b] = arr");
       expect(stmt.type).toBe(NodeType.ArrayDestructuring);
       expect(stmt.pattern.elements).toEqual([
         { kind: "id", name: "a" },
@@ -458,7 +436,7 @@ describe("Parser", () => {
     });
 
     it("array destructuring with holes", () => {
-      const stmt = parseStmt("const [a, , b] = arr");
+      const stmt = parseStmt("[a, , b] = arr");
       expect(stmt.pattern.elements).toEqual([
         { kind: "id", name: "a" },
         null,
@@ -467,7 +445,7 @@ describe("Parser", () => {
     });
 
     it("array destructuring with rest and defaults", () => {
-      const stmt = parseStmt("const [a = 1, ...rest] = arr");
+      const stmt = parseStmt("[a = 1, ...rest] = arr");
       expect(stmt.pattern.elements[0]).toMatchObject({
         kind: "id",
         name: "a",
@@ -477,8 +455,41 @@ describe("Parser", () => {
     });
 
     it("nested object destructuring", () => {
-      const stmt = parseStmt("const { a: { b } } = obj");
+      const stmt = parseStmt("{ a: { b } } = obj");
       expect(stmt.pattern.props[0].value).toMatchObject({ kind: "object" });
+    });
+  });
+
+  describe("reserved declaration keywords", () => {
+    const rejected = /is not a tera keyword; declare a variable as 'name: type = value'/;
+
+    for (const keyword of ["let", "const", "var"]) {
+      it(`rejects '${keyword}' at statement position`, () => {
+        expect(() => parse(`${keyword} x = 1`)).toThrow(rejected);
+      });
+
+      it(`rejects '${keyword}' inside a function body`, () => {
+        expect(() => parse(`fn f():\n  ${keyword} y = 2\n  return y`)).toThrow(rejected);
+      });
+
+      it(`rejects '${keyword}' in a for initializer`, () => {
+        expect(() => parse(`for (${keyword} i = 0; i < 3; i = i + 1):\n  print(i)`)).toThrow(rejected);
+      });
+
+      it(`rejects '${keyword}' in expression position`, () => {
+        expect(() => parse(`x = ${keyword}`)).toThrow(rejected);
+      });
+
+      it(`reports where '${keyword}' appears`, () => {
+        expect(() => parse(`x = 1\n${keyword} y = 2`)).toThrow(/at 2:1/);
+      });
+    }
+
+    it("leaves an identifier that merely starts with a reserved word alone", () => {
+      expect(parseStmt("lets: int = 4")).toMatchObject({
+        type: NodeType.LetDeclaration,
+        name: "lets",
+      });
     });
   });
 
@@ -578,19 +589,19 @@ describe("Parser", () => {
 
   describe("for statement", () => {
     it("basic for", () => {
-      const stmt = parseStmt("for (let i = 0; i < 10; i++) { x }");
+      const stmt = parseStmt("for (i = 0; i < 10; i++) { x }");
       expect(stmt.type).toBe(NodeType.ForStatement);
-      expect(stmt.init.type).toBe(NodeType.LetDeclaration);
+      expect(stmt.init.type).toBe(NodeType.ExpressionStatement);
     });
 
     it("for in", () => {
-      const stmt = parseStmt("for (let k in obj) { x }");
+      const stmt = parseStmt("for k in obj:\n  x");
       expect(stmt.type).toBe(NodeType.ForInStatement);
       expect(stmt.variable).toMatchObject({ kind: "id", name: "k" });
     });
 
     it("for of", () => {
-      const stmt = parseStmt("for (let v of arr) { x }");
+      const stmt = parseStmt("for v of arr:\n  x");
       expect(stmt.type).toBe(NodeType.ForOfStatement);
       expect(stmt.variable).toMatchObject({ kind: "id", name: "v" });
     });
@@ -830,7 +841,7 @@ describe("Parser", () => {
 
   describe("regex literal", () => {
     it("regex in expression", () => {
-      const ast = parse("let r = /abc/gi");
+      const ast = parse("r: regex = /abc/gi");
       expect(ast.body[0].init).toMatchObject({
         type: NodeType.Literal,
         kind: "regex",
@@ -869,7 +880,7 @@ describe("Parser", () => {
 
     it("for of with destructuring body", () => {
       const ast = parse(
-        "for item of items:\n  const { a, b } = item",
+        "for item of items:\n  { a, b } = item",
       );
       expect(ast.body[0].type).toBe(NodeType.ForOfStatement);
     });
@@ -877,7 +888,7 @@ describe("Parser", () => {
 
   describe("error handling", () => {
     it("unexpected token", () => {
-      expect(() => parse("let = 1")).toThrow();
+      expect(() => parse("= 1")).toThrow();
     });
 
     it("missing closing paren", () => {
@@ -885,7 +896,7 @@ describe("Parser", () => {
     });
 
     it("missing closing brace", () => {
-      expect(() => parse("{ let x = 1")).toThrow();
+      expect(() => parse("{ x: 1")).toThrow();
     });
 
     it("invalid assignment target", () => {
@@ -1007,7 +1018,7 @@ describe("Parser", () => {
     });
 
     it("skips nested generic type arguments", () => {
-      const stmt = parseStmt("let m: Map<string, Array<int>> = source");
+      const stmt = parseStmt("m: Map<string, Array<int>> = source");
       expect(stmt).toMatchObject({ type: NodeType.LetDeclaration, name: "m" });
       expect(stmt.init.type).toBe(NodeType.Identifier);
     });

@@ -27,7 +27,7 @@ function runWithCommands(
 describe("Tera debugger", () => {
   it("records source locations on emitted bytecode", () => {
     const compiled = new Engine({ typecheck: "off" }).compile(
-      "let x = 1\nx + 2",
+      "x: int = 1\nx + 2",
       { sourceName: SOURCE_NAME },
     );
     expect(compiled.sourceMap.some((entry) =>
@@ -42,7 +42,7 @@ describe("Tera debugger", () => {
 
   it("pauses on line breakpoints and snapshots locals", () => {
     const pauses = runWithCommands(
-      "let x = 1\nlet y = x + 2\ny + 3",
+      "x: int = 1\ny: int = x + 2\ny + 3",
       ["continue"],
       (controller) => controller.setBreakpoint({ sourceName: SOURCE_NAME, line: 2 }),
     );
@@ -69,10 +69,10 @@ describe("Tera debugger", () => {
     const pauses = runWithCommands(
       [
         "fn inc(v):",
-        "  let next = v + 1",
+        "  next: int = v + 1",
         "  return next",
-        "let x = 1",
-        "let y = inc(x)",
+        "x: int = 1",
+        "y: int = inc(x)",
         "y",
       ].join("\n"),
       ["stepOver", "continue"],
@@ -86,8 +86,8 @@ describe("Tera debugger", () => {
       [
         "fn inc(v):",
         "  return v + 1",
-        "let x = 1",
-        "let y = inc(x)",
+        "x: int = 1",
+        "y: int = inc(x)",
         "y",
       ].join("\n"),
       ["continue"],
@@ -102,7 +102,7 @@ describe("Tera debugger", () => {
       onPause: () => "continue",
     });
     session.controller.setBreakpoint({ sourceName: SOURCE_NAME, line: 1 });
-    expect(session.runNative("let x = 7\nx", { sourceName: SOURCE_NAME })).toBe(7);
+    expect(session.runNative("x: int = 7\nx", { sourceName: SOURCE_NAME })).toBe(7);
     expect(session.pauses).toHaveLength(1);
     session.dispose();
   });

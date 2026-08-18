@@ -32,10 +32,10 @@ export type Token = {
   column: number;
 };
 
+export const RESERVED_KEYWORDS = new Set(["let", "const", "var"]);
+
 export const KEYWORDS = new Set([
-  "let",
-  "const",
-  "var",
+  ...RESERVED_KEYWORDS,
   "function",
   "if",
   "else",
