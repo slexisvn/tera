@@ -645,3 +645,9 @@ export class RegisterCompiledFunction {
     return lines.join("\n");
   }
 }
+
+export function callConstructsCoroutine(
+  compiledFn: Pick<RegisterCompiledFunction, "isGenerator" | "isAsync">,
+): boolean {
+  return compiledFn.isGenerator || compiledFn.isAsync;
+}

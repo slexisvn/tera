@@ -27,7 +27,7 @@ type PromiseState =
 
 type PromiseReaction = (state: string, result: TaggedValue) => void;
 
-type InterpreterLike = {
+export type PromiseInterpreter = {
   microtaskQueue: MicrotaskQueue;
   callFunctionValue(
     fn: TaggedValue,
@@ -123,7 +123,7 @@ export class JSPromise {
 
 export class PromiseCapability {
   promise: JSPromise;
-  resolve: (value: TaggedValue, interpreter?: InterpreterLike | null) => void;
+  resolve: (value: TaggedValue, interpreter?: PromiseInterpreter | null) => void;
   reject: (reason: TaggedValue) => void;
 
   constructor(queue: MicrotaskQueue) {
@@ -141,7 +141,7 @@ export function mkPromiseCapability(queue: MicrotaskQueue) {
 export function promiseResolve(
   queue: MicrotaskQueue,
   value: TaggedValue,
-  interpreter: InterpreterLike | null = null,
+  interpreter: PromiseInterpreter | null = null,
 ): TaggedValue {
   if (isPromise(value)) return value;
   const { capability, value: promiseValue } = mkPromiseCapability(queue);
@@ -162,7 +162,7 @@ export function resolvePromise(
   queue: MicrotaskQueue,
   promise: JSPromise,
   value: TaggedValue,
-  interpreter: InterpreterLike | null = null,
+  interpreter: PromiseInterpreter | null = null,
 ): void {
   if (isPromise(value)) {
     const then = mkFunction({
@@ -203,7 +203,7 @@ export function resolvePromise(
 }
 
 export function promiseThen(
-  interpreter: InterpreterLike,
+  interpreter: PromiseInterpreter,
   receiver: TaggedValue,
   onFulfilled: TaggedValue,
   onRejected: TaggedValue,

@@ -1,46 +1,16 @@
 import {
-  isSmi,
-  isDouble,
   isNumber,
   isBool,
-  isArray,
   isString,
-  isRegex,
-  isGenerator,
-  mkSmi,
-  mkString,
-  mkUndefined,
   toNumber,
   abstractLooseEqual,
   abstractRelational,
   getPayload,
   strictEqual,
-  stringCharAt,
-  type GeneratorValue,
   type TaggedValue,
 } from "../core/value/index.js";
-import {
-  runtimeGetProperty as proxyRuntimeGetProperty,
-  type InterpreterLike as ProxyInterpreterLike,
-} from "../objects/exotic/proxy-ops.js";
-import { getRegexProperty } from "./intrinsics/regex-methods.js";
-import {
-  asGeneratorMemberInterpreter,
-  generatorMemberValue,
-} from "../bytecode/register/interpreter/generator-members.js";
-
-export type BuiltinPrototypeSet = {
-  arrayPrototype: TaggedValue;
-  stringPrototype: TaggedValue;
-  regexPrototype: TaggedValue;
-  numberPrototype: TaggedValue;
-  booleanPrototype: TaggedValue;
-};
-
-export type PropertyLookupInterpreter = ProxyInterpreterLike & {
-  builtinPrototypes?: BuiltinPrototypeSet;
-  _lookupBuiltinPrototype(proto: TaggedValue, propName: string): TaggedValue;
-};
+import { runtimeGetProperty as proxyRuntimeGetProperty } from "../objects/exotic/proxy-ops.js";
+import { memberLookupValue, type MemberLookupInterpreter } from "./member-lookup.js";
 
 export function taggedToNumber(v: TaggedValue) {
   if (!v) return 0;
@@ -71,71 +41,10 @@ export function compareValues(op: string, left: TaggedValue, right: TaggedValue)
 export function getRuntimeProperty(
   obj: TaggedValue,
   propName: string,
-  interpreter: PropertyLookupInterpreter | null = null,
+  interpreter: MemberLookupInterpreter | null = null,
 ): TaggedValue {
-  if (isArray(obj)) {
-    const arr = getPayload(obj);
-    if (propName === "length") return mkSmi(arr.getLength());
-    const idx = Number(propName);
-    if (Number.isInteger(idx)) {
-      const val = arr.getIndex(idx);
-      return val !== undefined ? val : mkUndefined();
-    }
-    const ownVal = arr.getProperty(propName);
-    if (ownVal !== undefined) return ownVal;
-    if (interpreter && interpreter.builtinPrototypes) {
-      return interpreter._lookupBuiltinPrototype(
-        interpreter.builtinPrototypes.arrayPrototype,
-        propName,
-      );
-    }
-  }
-  if (isString(obj)) {
-    if (propName === "length") return mkSmi(getPayload(obj).length);
-    const idx = Number(propName);
-    if (Number.isInteger(idx)) {
-      const ch = stringCharAt(getPayload(obj), idx);
-      return ch !== undefined ? mkString(ch) : mkUndefined();
-    }
-    if (interpreter && interpreter.builtinPrototypes) {
-      return interpreter._lookupBuiltinPrototype(
-        interpreter.builtinPrototypes.stringPrototype,
-        propName,
-      );
-    }
-  }
-  if (isRegex(obj)) {
-    const regexProp = getRegexProperty(propName, getPayload(obj));
-    if (regexProp !== null) return regexProp;
-    if (interpreter && interpreter.builtinPrototypes) {
-      return interpreter._lookupBuiltinPrototype(
-        interpreter.builtinPrototypes.regexPrototype,
-        propName,
-      );
-    }
-  }
-  if (isGenerator(obj)) {
-    const generatorInterpreter = asGeneratorMemberInterpreter(interpreter);
-    if (generatorInterpreter) {
-      return generatorMemberValue(generatorInterpreter, obj as GeneratorValue, propName);
-    }
-    return mkUndefined();
-  }
-  if (isSmi(obj) || isDouble(obj) || isNumber(obj)) {
-    if (interpreter && interpreter.builtinPrototypes) {
-      return interpreter._lookupBuiltinPrototype(
-        interpreter.builtinPrototypes.numberPrototype,
-        propName,
-      );
-    }
-  }
-  if (isBool(obj)) {
-    if (interpreter && interpreter.builtinPrototypes) {
-      return interpreter._lookupBuiltinPrototype(
-        interpreter.builtinPrototypes.booleanPrototype,
-        propName,
-      );
-    }
-  }
-  return proxyRuntimeGetProperty(obj, propName, interpreter);
+  const member = memberLookupValue(obj, propName, interpreter);
+  return member !== null
+    ? member
+    : proxyRuntimeGetProperty(obj, propName, interpreter);
 }

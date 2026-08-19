@@ -126,8 +126,8 @@ import {
   compareValues,
   getRuntimeProperty,
   taggedToNumber,
-  type BuiltinPrototypeSet,
 } from "../../../runtime/value-semantics.js";
+import type { BuiltinPrototypeSet } from "../../../runtime/member-lookup.js";
 
 export type RuntimeInterpreterLike = {
   builtinPrototypes?: BuiltinPrototypeSet;
@@ -135,7 +135,7 @@ export type RuntimeInterpreterLike = {
     get(name: string): { read(): TaggedValue } | undefined;
     write(name: string, value: TaggedValue): void;
   };
-  _lookupBuiltinPrototype(proto: TaggedValue, propName: string): TaggedValue;
+  _lookupBuiltinPrototype(proto: JSObject, propName: string): TaggedValue;
   toPrimitiveValue(value: TaggedValue, hint?: string): TaggedValue;
   callFunctionValue(
     callee: TaggedValue,

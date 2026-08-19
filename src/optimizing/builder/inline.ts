@@ -188,6 +188,7 @@ function canInlineTarget(
   if (!target) return false;
   if (target === compiledFn) return false;
   if (target.isClassConstructor) return false;
+  if (bytecode.callConstructsCoroutine(target)) return false;
   if (target.paramCount !== argCount) return false;
   if (referencesUpvalues(target)) return false;
   if (referencesThis(target)) return false;

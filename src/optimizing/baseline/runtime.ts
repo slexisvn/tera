@@ -52,7 +52,7 @@ import {
 } from "../../core/value/index.js";
 
 import { createJSObject, createJSArray } from "../../objects/heap/factory.js";
-import { AccessorPair } from "../../objects/heap/js-object.js";
+import { AccessorPair, type JSObject } from "../../objects/heap/js-object.js";
 import { Environment, UpvalueCell } from "../../runtime/intrinsics/environment.js";
 import {
   isJSProxyValue,
@@ -62,15 +62,7 @@ import {
   runtimeSetProperty,
 } from "../../objects/exotic/proxy-ops.js";
 import { functionMemberValue, setFunctionMember } from "../../objects/exotic/function-members.js";
-import {
-  asGeneratorMemberInterpreter,
-  generatorMemberValue,
-} from "../../bytecode/register/interpreter/generator-members.js";
-import {
-  asPromiseMemberInterpreter,
-  promiseMemberValue,
-} from "../../bytecode/register/interpreter/handlers.js";
-import { getRegexProperty } from "../../runtime/intrinsics/regex-methods.js";
+import { memberLookupValue, type BuiltinPrototypeSet } from "../../runtime/member-lookup.js";
 import { assertObjectMemberAccess } from "../../runtime/class-access.js";
 
 export type BaselineInterpreter = {
@@ -87,11 +79,8 @@ export type BaselineInterpreter = {
       lookupCall(callee: object, argc: number, receiver: number | null): void;
     };
   };
-  builtinPrototypes: Record<string, {
-    getProperty(name: string): TaggedValue | undefined;
-    lookupPrototypeChain(name: string): { found: boolean; value?: TaggedValue | AccessorPair };
-  }>;
-  _lookupBuiltinPrototype(proto: object, propName: string): TaggedValue;
+  builtinPrototypes: BuiltinPrototypeSet;
+  _lookupBuiltinPrototype(proto: JSObject, propName: string): TaggedValue;
   callFunctionValue(fn: TaggedValue, args: TaggedValue[], thisValue: TaggedValue): TaggedValue;
   callRuntimeIntrinsic(name: string, args: TaggedValue[]): TaggedValue;
   constructFunctionValue(fn: TaggedValue, args: TaggedValue[]): TaggedValue;
@@ -345,70 +334,8 @@ export class BaselineRuntime {
       if (result.hit && typeof result.value === "number") return result.value;
       return runtimeGetProperty(obj, propName, this.interp);
     }
-    if (isArray(obj)) {
-      const arr = getPayload(obj);
-      if (propName === "length") return mkSmi(arr.getLength());
-      const idx = Number(propName);
-      if (Number.isInteger(idx)) {
-        const val = arr.getIndex(idx);
-        return val !== undefined ? val : this.u;
-      }
-      const ownVal = arr.getProperty(propName);
-      if (ownVal !== undefined) return ownVal;
-      return this.interp._lookupBuiltinPrototype(
-        this.interp.builtinPrototypes.arrayPrototype,
-        propName,
-      );
-    }
-    if (isString(obj)) {
-      if (propName === "length") return mkSmi(getPayload(obj).length);
-      const idx = Number(propName);
-      if (Number.isInteger(idx)) {
-        const ch = stringCharAt(getPayload(obj), idx);
-        return ch !== undefined ? mkString(ch) : this.u;
-      }
-      return this.interp._lookupBuiltinPrototype(
-        this.interp.builtinPrototypes.stringPrototype,
-        propName,
-      );
-    }
-    if (isFunction(obj)) {
-      const member = functionMemberValue(obj, propName, this.interp);
-      return member !== null ? member : this.u;
-    }
-    if (isRegex(obj)) {
-      const member = getRegexProperty(propName, getPayload(obj));
-      return member !== null
-        ? member
-        : this.interp._lookupBuiltinPrototype(
-            this.interp.builtinPrototypes.regexPrototype,
-            propName,
-          );
-    }
-    if (isPromise(obj)) {
-      const settling = asPromiseMemberInterpreter(this.interp);
-      return settling === null
-        ? this.u
-        : promiseMemberValue(settling, obj as PromiseValue, propName);
-    }
-    if (isGenerator(obj)) {
-      const resuming = asGeneratorMemberInterpreter(this.interp);
-      return resuming === null
-        ? this.u
-        : generatorMemberValue(resuming, obj as GeneratorValue, propName);
-    }
-    if (isNumber(obj)) {
-      return this.interp._lookupBuiltinPrototype(
-        this.interp.builtinPrototypes.numberPrototype,
-        propName,
-      );
-    }
-    if (isBool(obj)) {
-      return this.interp._lookupBuiltinPrototype(
-        this.interp.builtinPrototypes.booleanPrototype,
-        propName,
-      );
-    }
+    const member = memberLookupValue(obj, propName, this.interp);
+    if (member !== null) return member;
     return this.u;
   }
 

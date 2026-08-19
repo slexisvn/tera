@@ -2,7 +2,6 @@ import {
   mkSmi,
   mkString,
   mkObject,
-  mkFunction,
   mkUndefined,
   mkBool,
   mkGenerator,
@@ -16,11 +15,7 @@ import {
   isFunction,
   isArray,
   isRegex,
-  isPromise,
-  isGenerator,
   isSymbol,
-  isBool,
-  isDouble,
   toNumber,
   toDisplayString,
   getPayload,
@@ -28,7 +23,6 @@ import {
   stringCharAt,
   type GeneratorValue,
   type RuntimeFunctionPayload,
-  type PromiseValue,
   type TaggedValue,
 } from "../../../core/value/index.js";
 
@@ -50,9 +44,6 @@ import {
   createJSArray,
 } from "../../../objects/heap/factory.js";
 import {
-  mkPromiseCapability,
-  promiseThen,
-  PROMISE_FULFILLED,
   PROMISE_REJECTED,
 } from "../../../runtime/async/promise.js";
 import { createIteratorResult } from "../../../runtime/iteration/iterator.js";
@@ -61,7 +52,7 @@ import {
   GEN_SUSPENDED,
   GEN_COMPLETED,
 } from "../../../runtime/iteration/generator.js";
-import { getRegexProperty } from "../../../runtime/intrinsics/regex-methods.js";
+import { memberLookupValue } from "../../../runtime/member-lookup.js";
 import { VMTypeError } from "../../../core/errors/index.js";
 import { indexValue } from "../../../runtime/indexing.js";
 import type { IndexDim } from "../../../core/indexing.js";
@@ -73,10 +64,9 @@ import {
   runtimeOwnKeys,
   runtimeHasProperty,
 } from "../../../objects/exotic/proxy-ops.js";
-import { defineFunctionAccessor, functionMemberValue, setFunctionMember } from "../../../objects/exotic/function-members.js";
+import { defineFunctionAccessor, setFunctionMember } from "../../../objects/exotic/function-members.js";
 import { assertConstructorAccess, assertObjectMemberAccess } from "../../../runtime/class-access.js";
 import { RegisterException, completeGenerator, runGeneratorFrame } from "./helpers.js";
-import { generatorMemberValue } from "./generator-members.js";
 import { RegisterFrame, type ResumeOwner } from "./frame.js";
 import { isNull, isUndefined as isUndefinedVal, typeOf } from "../../../core/value/index.js";
 import type { RegisterCompiledFunction } from "../ops/bytecode.js";
@@ -184,24 +174,6 @@ function throwIfNullishKey(
   }
 }
 
-function lookupStringMember(
-  interp: InterpreterLike,
-  obj: TaggedValue,
-  propName: string,
-): TaggedValue {
-  const text = getPayload(obj) as string;
-  if (propName === "length") return mkSmi(text.length);
-  const idx = Number(propName);
-  if (Number.isInteger(idx)) {
-    const ch = stringCharAt(text, idx);
-    return ch !== undefined ? mkString(ch) : mkUndefined();
-  }
-  return interp._lookupBuiltinPrototype(
-    interp.builtinPrototypes.stringPrototype,
-    propName,
-  );
-}
-
 export function handleLdaProp(
   interp: InterpreterLike,
   frame: RegisterFrame,
@@ -303,143 +275,18 @@ export function handleLdaProp(
         ? val
         : mkUndefined();
     }
-  } else if (isArray(obj)) {
-    if (propName === "length") {
-      const slot_arr = compiledFn.feedbackVector
-        ? compiledFn.feedbackVector.getSlot(fbSlotIdx)
-        : null;
-      if (slot_arr)
-        slot_arr.recordArrayLengthAccess(
-          true,
-          getPayload(obj).getElementsKind(),
-        );
-      return mkSmi(getPayload(obj).getLength());
-    } else {
-      const idx = Number(propName);
-      if (Number.isInteger(idx)) {
-        const val = getPayload(obj).getIndex(idx);
-        return val !== undefined ? val : mkUndefined();
-      } else {
-        const jsArr = getPayload(obj);
-        const ownVal = jsArr.getProperty(propName);
-        if (ownVal !== undefined) {
-          return ownVal;
-        } else {
-          return interp._lookupBuiltinPrototype(
-            interp.builtinPrototypes.arrayPrototype,
-            propName,
-          );
-        }
-      }
-    }
-  } else if (isString(obj)) {
-    return lookupStringMember(interp, obj, propName);
-  } else if (isRegex(obj)) {
-    const rv = getPayload(obj);
-    const regexProp = getRegexProperty(propName, rv);
-    if (regexProp !== null) {
-      return regexProp;
-    } else {
-      return interp._lookupBuiltinPrototype(
-        interp.builtinPrototypes.regexPrototype,
-        propName,
-      );
-    }
-  } else if (isGenerator(obj)) {
-    return generatorMemberValue(interp, obj, propName);
-  } else if (isPromise(obj)) {
-    return promiseMemberValue(interp, obj, propName);
-  } else if (isFunction(obj)) {
-    const member = functionMemberValue(obj, propName, interp);
-    return member !== null ? member : mkUndefined();
-  } else if (isSmi(obj) || isDouble(obj)) {
-    return interp._lookupBuiltinPrototype(
-      interp.builtinPrototypes.numberPrototype,
-      propName,
-    );
-  } else if (isBool(obj)) {
-    return interp._lookupBuiltinPrototype(
-      interp.builtinPrototypes.booleanPrototype,
-      propName,
-    );
-  } else {
-    return mkUndefined();
   }
-}
 
-
-/** The interpreter a promise member needs to settle on, where the caller only holds a narrower one. */
-export function asPromiseMemberInterpreter(interpreter: unknown): InterpreterLike | null {
-  const candidate = interpreter as InterpreterLike | null | undefined;
-  return candidate &&
-    typeof candidate.callFunctionValue === "function" &&
-    typeof candidate.exceptionToValue === "function" &&
-    candidate.microtaskQueue !== undefined
-    ? candidate
-    : null;
-}
-
-export function promiseMemberValue(
-  interp: InterpreterLike,
-  obj: PromiseValue,
-  propName: string,
-): TaggedValue {
-  const p = getPayload(obj);
-  if (propName === "then") {
-    return mkFunction({
-      name: "Promise.prototype.then",
-      call: (args: TaggedValue[], receiver: TaggedValue | null | undefined, interpreter: InterpreterLike) => {
-        return promiseThen(
-          interpreter,
-          receiver || obj,
-          (args[0] === undefined ? mkUndefined() : args[0]),
-          (args[1] === undefined ? mkUndefined() : args[1]),
-        );
-      },
-      compiled: null,
-    });
-  } else if (propName === "catch") {
-    return mkFunction({
-      name: "Promise.prototype.catch",
-      call: (args: TaggedValue[], receiver: TaggedValue | null | undefined, interpreter: InterpreterLike) => {
-        return promiseThen(
-          interpreter,
-          receiver || obj,
-          mkUndefined(),
-          (args[0] === undefined ? mkUndefined() : args[0]),
-        );
-      },
-      compiled: null,
-    });
-  } else if (propName === "finally") {
-    return mkFunction({
-      name: "Promise.prototype.finally",
-      call: (args: TaggedValue[], receiver: TaggedValue | null | undefined, interpreter: InterpreterLike) => {
-        const { capability, value } = mkPromiseCapability(
-          interpreter.microtaskQueue,
-        );
-        const callback = args[0];
-        p.addReaction((state: string, result: TaggedValue) => {
-          try {
-            if (isFunction(callback))
-              interpreter.callFunctionValue(callback, [], mkUndefined());
-            if (state === PROMISE_FULFILLED) capability.resolve(result);
-            else capability.reject(result);
-          } catch (e) {
-            const thrown = e instanceof Error ? e : String(e);
-            capability.reject(interpreter.exceptionToValue(thrown));
-          }
-        });
-        return value;
-      },
-      compiled: null,
-    });
-  } else if (propName === "state") {
-    return mkString(p.state);
-  } else {
-    return mkUndefined();
+  if (isArray(obj) && propName === "length" && compiledFn.feedbackVector) {
+    compiledFn.feedbackVector
+      .getSlot(fbSlotIdx)
+      ?.recordArrayLengthAccess(true, getPayload(obj).getElementsKind());
   }
+
+  const member = memberLookupValue(obj, propName, interp);
+  return member !== null ? member : mkUndefined();
 }
+
 
 export function handleStaProp(
   interp: InterpreterLike,
@@ -576,7 +423,8 @@ export function handleLdaIndex(
       return ch !== undefined ? mkString(ch) : mkUndefined();
     }
     const key = isString(index) ? getPayload(index) : toDisplayString(index);
-    return lookupStringMember(interp, obj, key);
+    const member = memberLookupValue(obj, key, interp);
+    return member !== null ? member : mkUndefined();
   } else if (isObject(obj)) {
     const key = isString(index) ? getPayload(index) : toDisplayString(index);
     return runtimeGetProperty(obj, key, interp);
