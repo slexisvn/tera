@@ -288,16 +288,14 @@ describe("the AOT string ceiling", () => {
     );
   });
 
-  it("declines returning a string without declaring a string return type", () => {
-    bothDecline(
-      src("fn f(a: string, b: string):", "  return a + b"),
-      "function returns a string but its return type is not a string",
-    );
+  it("takes the string return type from the body when the source left it out", () => {
+    bothAdmit(src("fn f(a: string, b: string):", "  return a + b"));
+    bothAdmit(src("fn f():", '  return "hi"'));
   });
 
-  it("declines returning a string constant without declaring a string return type", () => {
+  it("declines when the declared return type disagrees with the string returned", () => {
     bothDecline(
-      src("fn f():", '  return "hi"'),
+      src("fn f(a: string, b: string) -> int:", "  return a + b"),
       "function returns a string but its return type is not a string",
     );
   });

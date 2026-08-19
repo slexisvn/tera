@@ -27,6 +27,12 @@ export const FLOAT64_DECIMAL_BYTES =
   FLOAT64_SIGNIFICANT_DIGITS +
   1;
 
+/**
+ * `null` where a number is expected. A quiet NaN with a payload no computation
+ * produces, so a value that is absent stays apart from one that is not a number.
+ */
+export const FLOAT64_NULL_BITS = 0x7ff8_0000_0000_0001n;
+
 export const FLOAT64_BIGNUM_LENGTH_BYTES = 8;
 export const FLOAT64_BIGNUM_BYTES =
   FLOAT64_BIGNUM_LENGTH_BYTES + FLOAT64_LIMBS * FLOAT64_LIMB_BYTES;

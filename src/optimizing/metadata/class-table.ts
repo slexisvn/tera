@@ -14,6 +14,7 @@ import {
   declaredAcceptsNull,
   declaredNameOf,
   latticeFromDeclaredType,
+  presentTypeName,
   type NominalTypes,
 } from "../types/declared.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
@@ -23,6 +24,7 @@ import {
   isStorableScalar,
   scalarAlignment,
   scalarWidth,
+  SCALAR_FLOAT64,
   SCALAR_INT32,
   SCALAR_POINTER,
   SCALAR_STRING,
@@ -252,12 +254,42 @@ function alignUp(value: number, alignment: number): number {
   return alignment <= 1 ? value : Math.ceil(value / alignment) * alignment;
 }
 
+/**
+ * A field that can be absent keeps a reference, whose null is a null pointer, or
+ * a number, whose null is a payload the arithmetic never produces.
+ */
+export function nullableScalarOf(
+  declaredType: string,
+  nominal: NominalTypes | null,
+): AotScalar | null {
+  const present = presentTypeName(declaredType);
+  if (present.length === 0) return SCALAR_FLOAT64;
+  const scalar = isStorableScalar(
+    aotScalarOf(latticeFromDeclaredType(present, builtinTypeEnv(), nominal ?? undefined)),
+  );
+  if (scalar === null) return null;
+  return isReferenceScalar(scalar) ? scalar : SCALAR_FLOAT64;
+}
+
+/** How a declared type is held, whether or not it can be absent. */
+export function declaredAotScalar(
+  declared: string | null | undefined,
+  nominal: NominalTypes | null,
+): AotScalar | null {
+  if (declared === null || declared === undefined) return null;
+  return declaredAcceptsNull(declared)
+    ? nullableScalarOf(declared, nominal)
+    : aotScalarOf(latticeFromDeclaredType(declared, builtinTypeEnv(), nominal ?? undefined));
+}
+
 function fieldScalarOf(declaredType: string, nominal: NominalTypes): AotScalar | null {
   const type = latticeFromDeclaredType(declaredType, builtinTypeEnv(), nominal);
+  if (declaredAcceptsNull(declaredType) || type.kind === TypeKind.Nullish) {
+    return nullableScalarOf(declaredType, nominal);
+  }
   if (type.kind === TypeKind.Any) return null;
   const scalar = isStorableScalar(aotScalarOf(type));
   if (scalar === null) return null;
-  if (declaredAcceptsNull(declaredType) && !isReferenceScalar(scalar)) return null;
   return scalar === SCALAR_STRING ? SCALAR_TEXT : scalar;
 }
 

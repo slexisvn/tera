@@ -37,6 +37,22 @@ describe("AOT boolean text", () => {
     ).toBe("true\ntrue\nfalse\n");
   });
 
+  itNative("spells a boolean handed to String out as words", () => {
+    expect(ran(["b = 1 < 2", "print(String(b))", "print(String(2 < 1))"]).stdout).toBe(
+      ["true", "false", ""].join("\n"),
+    );
+  });
+
+  itNative("spells String of a boolean out inside a loop", () => {
+    expect(
+      ran(["i = 0", "while i < 3:", "  print(String(i < 2))", "  i += 1"]).stdout,
+    ).toBe(["true", "true", "false", ""].join("\n"));
+  });
+
+  itNative("keeps String of a number numeric", () => {
+    expect(ran(["print(String(42), String(1.5))"]).stdout).toBe(["42 1.5", ""].join("\n"));
+  });
+
   itNative("keeps a boolean numeric where it is not read as text", () => {
     expect(
       ran([

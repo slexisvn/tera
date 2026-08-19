@@ -1,7 +1,9 @@
 import {
+  type CFGBlock,
   type CFGFunction,
   type CFGInstruction,
   IR_GENERIC_CALL,
+  IR_GENERIC_GET_INDEX,
   IR_GENERIC_GET_PROP,
   IR_NEW_ARRAY,
   irCallBuiltin,
@@ -14,10 +16,15 @@ import {
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
+import { boundedIndex, measuredAlready, type Stamp } from "./guards.js";
+import { DominatorTree } from "../analyses/dominance.js";
 import type { TypeInference } from "../analyses/type-inference.js";
-import type { DeclaredDefault, DeclaredSignature } from "../types/signature.js";
-import { nominalLatticeType, type NominalTypes } from "../types/declared.js";
-import { TypeKind, type LatticeType } from "../types/lattice.js";
+import type { DeclaredDefault } from "../types/signature.js";
+import { type NominalTypes } from "../types/declared.js";
+import { producedType } from "../metadata/produced-type.js";
+import { TypeKind } from "../types/lattice.js";
+import type { TargetModel } from "../target/model.js";
+
 import {
   builtinMethodCallMetadata,
   builtinMethodIntrinsicFor,
@@ -28,6 +35,19 @@ import {
 import { IR_LOAD_GLOBAL } from "../ir/index.js";
 
 const ARRAY_LENGTH = "length";
+const INDEXED_CHARACTER = "char_at";
+const COUNTED_CHARACTERS = "length";
+const OUT_OF_RANGE = "string index is out of range";
+const RECEIVER = 0;
+const SUBSCRIPT = 1;
+
+const NUMERIC_KINDS: ReadonlySet<string> = new Set<string>([
+  TypeKind.Smi,
+  TypeKind.Double,
+  TypeKind.Number,
+]);
+const RECEIVER_AND_INDEX = 2;
+const TAGGED_VALUES = "tagged-values";
 
 type Lowering = {
   readonly node: CFGInstruction;
@@ -35,6 +55,8 @@ type Lowering = {
   readonly operands: CFGInstruction[];
   readonly intrinsic: BuiltinMethodIntrinsic;
   readonly guardPrimitive: string | null;
+  /** Reports the length a subscript is resolved and bounds-checked against. */
+  readonly countedBy?: BuiltinMethodIntrinsic;
 };
 
 type Resolution = {
@@ -46,18 +68,6 @@ function observedPrimitive(site: CFGInstruction): string | null {
   const observed = site.props.receiverPrimitive;
   if (typeof observed !== "string" || !isGuardablePrimitive(observed)) return null;
   return observed;
-}
-
-function producedType(
-  value: CFGInstruction,
-  types: TypeInference,
-  classes: NominalTypes | null,
-): LatticeType {
-  const inferred = types.typeOf(value);
-  if (inferred.kind !== TypeKind.Never) return inferred;
-  const target = value.props.target as { declaredSignature?: DeclaredSignature } | undefined;
-  const returns = target?.declaredSignature?.returns;
-  return returns === undefined ? inferred : nominalLatticeType(returns, classes);
 }
 
 function resolve(
@@ -106,6 +116,35 @@ function callLowering(
   return { node, callee, operands: node.inputs.slice(1), ...resolved };
 }
 
+/**
+ * `s[i]` reads the character `s.char_at(i)` does, but only once the index has been
+ * resolved against the length: `char_at` counts from the front and answers the empty
+ * string off either end, where the source counts a negative index back from the end
+ * and has no character at all beyond them. A target that still carries tagged values
+ * keeps reading the index through the runtime, which already resolves it.
+ */
+function indexLowering(
+  node: CFGInstruction,
+  types: TypeInference,
+  classes: NominalTypes | null,
+): Lowering | null {
+  if (node.inputs.length !== RECEIVER_AND_INDEX) return null;
+  const [receiver, index] = node.inputs;
+  if (!NUMERIC_KINDS.has(producedType(index!, types, classes).kind)) return null;
+  const received = producedType(receiver!, types, classes);
+  const intrinsic = builtinMethodIntrinsicFor(received, INDEXED_CHARACTER);
+  const countedBy = builtinMethodIntrinsicFor(received, COUNTED_CHARACTERS);
+  if (intrinsic === null || countedBy === null) return null;
+  return {
+    node,
+    callee: null,
+    operands: [...node.inputs],
+    intrinsic,
+    guardPrimitive: null,
+    countedBy,
+  };
+}
+
 function namespaceLowering(node: CFGInstruction): Lowering | null {
   const callee = node.inputs[0];
   if (callee === undefined || callee.type !== IR_GENERIC_GET_PROP) return null;
@@ -125,8 +164,12 @@ function loweringFor(
   node: CFGInstruction,
   types: TypeInference,
   classes: NominalTypes | null,
+  frontIndexed: boolean,
 ): Lowering | null {
   if (node.type === IR_GENERIC_GET_PROP) return getterLowering(node, types, classes);
+  if (node.type === IR_GENERIC_GET_INDEX) {
+    return frontIndexed ? indexLowering(node, types, classes) : null;
+  }
   if (node.type === IR_GENERIC_CALL) {
     return callLowering(node, types, classes) ?? namespaceLowering(node);
   }
@@ -139,8 +182,6 @@ function allocatedArrayLength(node: CFGInstruction): CFGInstruction | null {
   return receiver !== undefined && receiver.type === IR_NEW_ARRAY ? receiver : null;
 }
 
-type Stamp = (node: CFGInstruction) => CFGInstruction;
-
 function omittedArgumentsOf(
   intrinsic: BuiltinIntrinsic,
   supplied: number,
@@ -150,8 +191,29 @@ function omittedArgumentsOf(
   return supplied >= argCount ? [] : defaults.slice(Math.max(0, supplied - first));
 }
 
-function applyLowering(editor: GraphEditor, lowering: Lowering, stamp: Stamp): void {
-  const { node, callee, operands, intrinsic, guardPrimitive } = lowering;
+function calledAt(
+  editor: GraphEditor,
+  node: CFGInstruction,
+  intrinsic: BuiltinMethodIntrinsic,
+  args: readonly CFGInstruction[],
+  stamp: Stamp,
+): CFGInstruction {
+  const call = stamp(
+    irCallBuiltin(intrinsic.qualifiedName, [...args], builtinMethodCallMetadata(intrinsic)),
+  );
+  if (irRequiresFrameState(call)) call.frameState = node.frameState;
+  editor.insertBefore(node, call);
+  return call;
+}
+
+function applyLowering(
+  graph: CFGFunction,
+  editor: GraphEditor,
+  lowering: Lowering,
+  reaching: DominatorTree,
+  stamp: Stamp,
+): void {
+  const { node, callee, operands, intrinsic, guardPrimitive, countedBy } = lowering;
   const arguments_ = [...operands];
   for (const omitted of omittedArgumentsOf(intrinsic, arguments_.length)) {
     const supplied = stamp(irConstant(omitted));
@@ -164,21 +226,50 @@ function applyLowering(editor: GraphEditor, lowering: Lowering, stamp: Stamp): v
     editor.insertBefore(node, guard);
     arguments_[0] = guard;
   }
-  const replacement = stamp(
-    irCallBuiltin(intrinsic.qualifiedName, arguments_, builtinMethodCallMetadata(intrinsic)),
-  );
-  if (irRequiresFrameState(replacement)) replacement.frameState = node.frameState;
-  editor.insertBefore(node, replacement);
+  if (countedBy !== undefined) {
+    const receiver = arguments_[RECEIVER]!;
+    arguments_[SUBSCRIPT] = boundedIndex(
+      graph,
+      editor,
+      node,
+      arguments_[SUBSCRIPT]!,
+      measuredAlready(node, countedBy.qualifiedName, receiver, reaching) ??
+        calledAt(editor, node, countedBy, [receiver], stamp),
+      OUT_OF_RANGE,
+      stamp,
+    );
+  }
+  const replacement = calledAt(editor, node, intrinsic, arguments_, stamp);
   editor.replaceAllUses(node, replacement);
   editor.remove(node);
   if (callee !== null && callee.uses.length === 0) editor.remove(callee);
 }
 
-export function lowerBuiltinMethods(graph: CFGFunction, types: TypeInference): number {
+/**
+ * Lowers along the dominator tree so a member reaches the values its guard wants to
+ * reuse, with any block a guard splits off picked up behind the walk.
+ */
+function blocksInDominanceOrder(graph: CFGFunction, reaching: DominatorTree): CFGBlock[] {
+  const ordered = [...reaching.reversePostorder()];
+  const reachable = new Set(ordered);
+  for (const block of graph.blocks) if (!reachable.has(block)) ordered.push(block);
+  return ordered;
+}
+
+export function lowerBuiltinMethods(
+  graph: CFGFunction,
+  types: TypeInference,
+  target: TargetModel | null = null,
+): number {
+  const frontIndexed = target !== null && !target.capabilities.has(TAGGED_VALUES);
   const editor = new GraphEditor(graph);
   const stamp = nodeIdStamper(graph);
+  const reaching = new DominatorTree(graph);
+  const ordered = blocksInDominanceOrder(graph, reaching);
+  let discovered = graph.blocks.length;
   let count = 0;
-  for (const block of graph.blocks) {
+  for (let index = 0; index < ordered.length; index++) {
+    const block = ordered[index]!;
     for (const node of [...block.nodes]) {
       if (node.block !== block) continue;
       const allocated = allocatedArrayLength(node);
@@ -190,11 +281,12 @@ export function lowerBuiltinMethods(graph: CFGFunction, types: TypeInference): n
         count++;
         continue;
       }
-      const lowering = loweringFor(node, types, graph.classes);
+      const lowering = loweringFor(node, types, graph.classes, frontIndexed);
       if (lowering === null) continue;
-      applyLowering(editor, lowering, stamp);
+      applyLowering(graph, editor, lowering, reaching, stamp);
       count++;
     }
+    for (; discovered < graph.blocks.length; discovered++) ordered.push(graph.blocks[discovered]!);
   }
   if (count > 0) graph.rebuildUses();
   return count;

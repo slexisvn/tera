@@ -4,6 +4,7 @@ import {
   cleanType,
   createTypeEnv,
   isTupleType,
+  removeNullish,
   tupleTypes,
   unionParts,
   type TypeEnv,
@@ -120,6 +121,15 @@ export function declaredAcceptsNull(
   const parts = unionParts(cleaned, env);
   if (parts.length < 2) return false;
   return parts.some((part) => PRIMITIVE_TYPES.get(part)?.kind === TypeKind.Nullish);
+}
+
+/** What a declared type holds once null is set aside; empty when it holds only null. */
+export function presentTypeName(
+  source: string | null | undefined,
+  env: TypeEnv = builtinTypeEnv(),
+): string {
+  if (source === null || source === undefined) return "";
+  return removeNullish(cleanType(source), env);
 }
 
 export function nominalLatticeType(

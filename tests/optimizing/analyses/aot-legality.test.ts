@@ -248,9 +248,16 @@ describe("AOT legality arrays", () => {
     expect(reasonOf(graph)).toContain("cannot see the elements of");
   });
 
-  it("rejects an index that is not an integer", () => {
-    expect(reasonOf(elementAccess("floating", SCALAR_FLOAT64, "float"))).toContain(
-      "indexed by a value that is not an integer",
+  it("admits a fractional index, which the backend narrows on the way in", () => {
+    const graph = elementAccess("floating", SCALAR_FLOAT64, "float");
+    const loaded = graph.blocks[0]!.nodes.find((node) => node.type === IR_LOAD_ELEMENT)!;
+
+    expect(admitted(graph).scalarOf(loaded)).toBe(SCALAR_FLOAT64);
+  });
+
+  it("rejects an index that is not a number", () => {
+    expect(reasonOf(elementAccess("textual", SCALAR_FLOAT64, "string"))).toContain(
+      "indexed by a value that is not a number",
     );
   });
 

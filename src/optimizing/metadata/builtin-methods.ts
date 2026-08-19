@@ -81,6 +81,7 @@ export const THROW_BUILTIN = "throw";
 export const PARSE_INT_BUILTIN = "parse_int";
 export const PARSE_FLOAT_BUILTIN = "parse_float";
 export const STRING_BUILTIN = "String";
+export const NUMBER_BUILTIN = "Number";
 export const TO_STRING_MEMBER = "to_string";
 
 const PRINT_ARGUMENT_SEPARATOR = " ".codePointAt(0)!;
@@ -92,6 +93,14 @@ export const OBJECT_OPEN_TEXT = "{ ";
 export const OBJECT_CLOSE_TEXT = " }";
 export const AGGREGATE_SEPARATOR_TEXT = ", ";
 export const NO_TERMINATOR = 0;
+
+/** Set on a print the compiler built, whose terminator does not follow from position. */
+export const PRINT_TERMINATOR_PROP = "printTerminator";
+
+export function printTerminatorOf(node: ir.CFGInstruction, index: number, arity: number): number {
+  const explicit = node.props[PRINT_TERMINATOR_PROP];
+  return typeof explicit === "number" ? explicit : printTerminatorAt(index, arity);
+}
 
 export function printTerminatorAt(index: number, arity: number): number {
   return index + 1 < arity ? PRINT_ARGUMENT_SEPARATOR : PRINT_LINE_TERMINATOR;

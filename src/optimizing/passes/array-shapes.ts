@@ -22,6 +22,7 @@ import {
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
+import { boundedIndex, constantAt, type Stamp } from "./guards.js";
 import {
   arrayBufferBytes,
   bufferElementOffset,
@@ -69,8 +70,7 @@ const PUSH_MEMBER = "push";
 const ONE_ELEMENT = 1;
 const EMPTY_LENGTH = 0;
 const CALLEE_AND_RECEIVER = 2;
-
-export type Stamp = (node: CFGInstruction) => CFGInstruction;
+const OUT_OF_RANGE = "array index is out of range";
 
 const READS_ELEMENT: ReadonlySet<string> = new Set<string>([
   IR_LOAD_ELEMENT,
@@ -79,6 +79,12 @@ const READS_ELEMENT: ReadonlySet<string> = new Set<string>([
 
 const WRITES_ELEMENT: ReadonlySet<string> = new Set<string>([
   IR_STORE_ELEMENT,
+  IR_GENERIC_SET_INDEX,
+]);
+
+/** The subscripts a program wrote, as opposed to cursors a pass already holds within the length. */
+const SUBSCRIPTS: ReadonlySet<string> = new Set<string>([
+  IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
 ]);
 
@@ -245,6 +251,32 @@ export function arrayModelOf(
   return shapedArray(array, classes) ?? receivedArray(array, graph, classes, types);
 }
 
+/** The array a declared type such as `int[]` describes. */
+export function arrayModelForDeclaredType(
+  declared: string | null | undefined,
+  classes: ClassTable,
+): ArrayModel | null {
+  if (typeof declared !== "string") return null;
+  const element = arrayElementType(declared);
+  return element === null
+    ? null
+    : modelOf(classes.defineArray(nominalLatticeType(element, classes)), classes);
+}
+
+/** Names the element type of an array a value stands for, literals included. */
+export function arrayElementNameOf(
+  array: CFGInstruction | undefined,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  const model = arrayModelOf(array, graph, classes, types);
+  if (model !== null) return model.declaredType;
+  if (array === undefined || array.type !== IR_NEW_ARRAY) return null;
+  const element = elementTypeOf(array, classes, types);
+  return element === null ? null : declaredTypeOf(element, classes);
+}
+
 export function arrayElementShapeOf(
   array: CFGInstruction | undefined,
   graph: CFGFunction,
@@ -321,17 +353,6 @@ export function loadBuffer(
   load.frameState = before.frameState;
   editor.insertBefore(before, load);
   return load;
-}
-
-export function constantAt(
-  editor: GraphEditor,
-  before: CFGInstruction,
-  value: number,
-  stamp: Stamp,
-): CFGInstruction {
-  const constant = stamp(irConstant(value));
-  editor.insertBefore(before, constant);
-  return constant;
 }
 
 function allocate(
@@ -420,13 +441,24 @@ export function elementAccess(
 }
 
 function replaceElement(
+  graph: CFGFunction,
   editor: GraphEditor,
   node: CFGInstruction,
   model: ArrayModel,
   stamp: Stamp,
 ): void {
+  const index = SUBSCRIPTS.has(node.type)
+    ? boundedIndex(
+        graph,
+        editor,
+        node,
+        node.inputs[1]!,
+        loadCount(editor, node, node.inputs[0]!, ARRAY_LENGTH_OFFSET, model, stamp),
+        OUT_OF_RANGE,
+        stamp,
+      )
+    : node.inputs[1]!;
   const buffer = loadBuffer(editor, node, node.inputs[0]!, model, stamp);
-  const index = node.inputs[1]!;
   const access = elementAccess(
     editor,
     node,
@@ -540,7 +572,8 @@ export function lowerArrayAccess(graph: CFGFunction, types: TypeInference): numb
   const stamp = nodeIdStamper(graph);
   let changed = 0;
 
-  for (const block of graph.blocks) {
+  for (let index = 0; index < graph.blocks.length; index++) {
+    const block = graph.blocks[index]!;
     for (const node of [...block.nodes]) {
       if (node.block !== block) continue;
       const push = memberCalled(node, PUSH_MEMBER);
@@ -557,7 +590,7 @@ export function lowerArrayAccess(graph: CFGFunction, types: TypeInference): numb
       if (model === null) continue;
       changed++;
       if (reads) replaceLength(editor, node, model, stamp);
-      else replaceElement(editor, node, model, stamp);
+      else replaceElement(graph, editor, node, model, stamp);
     }
   }
   if (changed > 0) graph.rebuildUses();

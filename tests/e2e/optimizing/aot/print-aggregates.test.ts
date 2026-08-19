@@ -46,6 +46,21 @@ const PROGRAMS: readonly (readonly [string, string])[] = [
   ["an empty array", src("xs: int[] = []", "print(xs)")],
   ["a single-element array", src("xs: int[] = [7]", "print(xs)")],
   ["an array grown at runtime", src("xs: int[] = []", "for i of range(0, 4):", "  xs.push(i)", "print(xs)")],
+  ["a bool array", src("xs: bool[] = [true, false]", "print(xs)")],
+  ["a bool array built from comparisons", src("xs = [1 < 2, 2 < 1]", "print(xs)")],
+  ["an instance with a bool field", src(
+    "class P:",
+    "  public constructor(f: bool):",
+    "    this.f = f",
+    "print(P(true), P(false))",
+  )],
+  ["an instance mixing bool and int fields", src(
+    "class P:",
+    "  public constructor(n: int, f: bool):",
+    "    this.n = n",
+    "    this.f = f",
+    "print(P(1, true))",
+  )],
   ["an object literal", src('o = { a: 1, b: "x" }', "print(o)")],
   ["a nested-free object literal", src("o = { a: 1, b: 2.5 }", "print(o)")],
   [
@@ -69,13 +84,13 @@ describe("printing aggregates", () => {
     itNative(`prints ${name} the same way through the C backend`, () => agreesInC(source));
   }
 
-  it("declines an array whose elements are themselves arrays", () => {
+  it("declines a print of a value it cannot format", () => {
     expect(() =>
-      nodeEngine({ typecheck: "off" }).compileAot(
-        src("xs: int[][] = [[1, 2], [3]]", "print(xs)", ""),
-        { backend: "x64-windows", format: "executable" },
-      ),
-    ).toThrow(/cannot format a pointer value/);
+      nodeEngine({ typecheck: "off" }).compileAot(src('x = print("hi")', "print(x)", ""), {
+        backend: "x64-windows",
+        format: "executable",
+      }),
+    ).toThrow(/cannot format a void value/);
   });
 
   itRunsPe("keeps a plain value printing unchanged next to an aggregate", () => {

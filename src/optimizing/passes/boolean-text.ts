@@ -5,6 +5,7 @@ import {
   IR_GENERIC_ADD,
   IR_GENERIC_CALL,
   IR_GENERIC_GET_PROP,
+  IR_LOAD_GLOBAL,
   irBranch,
   irConstant,
   irJump,
@@ -12,12 +13,13 @@ import {
 import { addPhi, connect, link, splitBlockBefore } from "../ir/cfg-edit.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
-import { PRINT_BUILTIN, TO_STRING_MEMBER } from "../metadata/builtin-methods.js";
+import { PRINT_BUILTIN, STRING_BUILTIN, TO_STRING_MEMBER } from "../metadata/builtin-methods.js";
+import { BOOLEAN_TEXT } from "../metadata/printed-values.js";
 import { TypeKind } from "../types/lattice.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 
-const BOOLEAN_TEXT = ["false", "true"] as const;
 const RECEIVER_ONLY = 2;
+const RENDERED_ONLY = 2;
 
 type Stamp = (node: CFGInstruction) => CFGInstruction;
 
@@ -30,14 +32,27 @@ function readsText(node: CFGInstruction, types: TypeInference): boolean {
   return node.type === IR_GENERIC_ADD && types.typeOf(node).kind === TypeKind.String;
 }
 
-function spelledBoolean(node: CFGInstruction, types: TypeInference): CFGInstruction | null {
-  if (node.type !== IR_GENERIC_CALL || node.props.isMethod !== true) return null;
-  if (node.inputs.length !== RECEIVER_ONLY) return null;
+function spelledMethod(node: CFGInstruction): CFGInstruction | null {
+  if (node.props.isMethod !== true || node.inputs.length !== RECEIVER_ONLY) return null;
   const callee = node.inputs[0]!;
   const receiver = node.inputs[1]!;
   if (callee.type !== IR_GENERIC_GET_PROP || callee.inputs[0] !== receiver) return null;
-  if (String(callee.props.propName) !== TO_STRING_MEMBER) return null;
-  return isBoolean(receiver, types) ? receiver : null;
+  return String(callee.props.propName) === TO_STRING_MEMBER ? receiver : null;
+}
+
+function renderedGlobal(node: CFGInstruction): CFGInstruction | null {
+  if (node.props.isMethod === true || node.inputs.length !== RENDERED_ONLY) return null;
+  const callee = node.inputs[0]!;
+  if (callee.type !== IR_LOAD_GLOBAL || String(callee.props.name) !== STRING_BUILTIN) return null;
+  return node.inputs[1]!;
+}
+
+/** Both `b.to_string()` and `String(b)` ask for a boolean to be spelled out. */
+function spelledBoolean(node: CFGInstruction, types: TypeInference): CFGInstruction | null {
+  if (node.type !== IR_GENERIC_CALL) return null;
+  const rendered = spelledMethod(node) ?? renderedGlobal(node);
+  if (rendered === null) return null;
+  return isBoolean(rendered, types) ? rendered : null;
 }
 
 export function lowerBooleanText(graph: CFGFunction, types: TypeInference): number {

@@ -3,14 +3,10 @@ import {
   CFGFunction,
   CFGInstruction,
   IR_CALL_KNOWN_FUNCTION,
-  IR_CONSTANT,
   IR_GENERIC_CALL,
-  IR_LOAD_GLOBAL,
-  IR_STORE_GLOBAL,
 } from "../ir/index.js";
 import { cloneGraph } from "../ir/clone.js";
-import { compiledFunctionConstant } from "../ir/compiled-function.js";
-import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
+import { ModuleFunctions } from "../metadata/module-functions.js";
 import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
 import { calleeSymbolName } from "../analyses/aot-legality.js";
 import { genericCalleeName } from "../metadata/call-signatures.js";
@@ -54,7 +50,7 @@ function calledParametersOf(graph: CFGFunction): readonly number[] {
   return called;
 }
 
-function adoptWrittenTypes(target: CFGFunction, written: DeclaredSignature): boolean {
+export function adoptWrittenTypes(target: CFGFunction, written: DeclaredSignature): boolean {
   const declared = target.declaredSignature;
   const params = target.parameters.map((parameter, index) => {
     const own = declared?.params[index] ?? null;
@@ -137,28 +133,10 @@ function unitOf(graph: CFGFunction): CompilationUnit {
 class Specializer {
   private readonly added: CompilationUnit[] = [];
   private readonly retired = new Set<string>();
-  private readonly unitsByTarget = new Map<RegisterCompiledFunction, CFGFunction>();
-  private readonly unitOfGraph = new Map<CFGFunction, CompilationUnit>();
-  private readonly byName = new Map<string, CFGFunction>();
-  private readonly reassigned = new Set<string>();
+  private readonly functions: ModuleFunctions;
 
   constructor(private readonly module: ModuleIR) {
-    for (const unit of module.units) {
-      this.unitOfGraph.set(unit.graph, unit);
-      this.byName.set(unit.graph.name, unit.graph);
-      if (unit.compiledFunction !== null) {
-        this.unitsByTarget.set(unit.compiledFunction, unit.graph);
-      }
-    }
-    for (const unit of module.units) {
-      for (const block of unit.graph.blocks) {
-        for (const node of block.nodes) {
-          if (node.type !== IR_STORE_GLOBAL) continue;
-          const name = node.props.name;
-          if (typeof name === "string") this.reassigned.add(name);
-        }
-      }
-    }
+    this.functions = new ModuleFunctions(module);
   }
 
   run(): Specialization {
@@ -167,21 +145,8 @@ class Specializer {
   }
 
   private handoffAt(site: CallSite, index: number): Handoff | null {
-    const argument = site.node.inputs[site.firstArgument + index];
-    if (argument === undefined) return null;
-    const target = this.targetOf(argument);
+    const target = this.functions.referenced(site.node.inputs[site.firstArgument + index]);
     return target === null ? null : { index, name: target.name, target };
-  }
-
-  private targetOf(argument: CFGInstruction): CFGFunction | null {
-    if (argument.type === IR_CONSTANT) {
-      const compiled = compiledFunctionConstant(argument.props.value);
-      return compiled === null ? null : this.unitsByTarget.get(compiled) ?? null;
-    }
-    if (argument.type !== IR_LOAD_GLOBAL) return null;
-    const name = argument.props.name;
-    if (typeof name !== "string" || this.reassigned.has(name)) return null;
-    return this.byName.get(name) ?? null;
   }
 
   private callSitesOf(name: string): readonly CallSite[] {
@@ -228,7 +193,7 @@ class Specializer {
       for (const chosen of handoffsByIndex) {
         const handoff = chosen.get(index)!;
         if (!adoptWrittenTypes(handoff.target, written)) return;
-        this.unitOfGraph.get(handoff.target)?.analyses?.invalidate(typeInferenceAnalysisId);
+        this.functions.unitOf(handoff.target)?.analyses?.invalidate(typeInferenceAnalysisId);
       }
     }
 

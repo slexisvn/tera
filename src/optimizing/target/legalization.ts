@@ -7,6 +7,7 @@ import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
 import { lowerArrayAccess, shapeArrayAllocations } from "../passes/array-shapes.js";
 import { lowerArrayMethods } from "../passes/array-methods.js";
 import { lowerBooleanText } from "../passes/boolean-text.js";
+import { expandAggregatePrints } from "../passes/print-expansion.js";
 import { lowerBuiltinMethods } from "../passes/builtin-method-lowering.js";
 import {
   lowerClassMembers,
@@ -21,7 +22,10 @@ import { lowerNamedArguments } from "../passes/named-argument-lowering.js";
 import { shapeObjectLiterals } from "../passes/object-literal-shapes.js";
 import { representationSelection } from "../passes/repr-selection.js";
 import { speculationLowering } from "../passes/speculation-lowering.js";
+import { typeNarrowing } from "../passes/type-narrowing.js";
 import { coerceStringOperands } from "../passes/string-coercion.js";
+import { faultOnZeroDivisor } from "../passes/zero-divisor.js";
+import { faultOutsideBuiltinDomains } from "../passes/builtin-domains.js";
 import { validateRepresentations } from "../validation/graph-validator.js";
 import type { TargetModel } from "./model.js";
 
@@ -51,7 +55,33 @@ const representationCheckPass: TransformPass<CFGFunction> = {
 export function targetLegalizationPipeline(
   target: TargetModel,
 ): ReadonlyArray<TransformPass<CFGFunction>> {
+  const tagged = target.capabilities.has("tagged-values");
   return [
+    {
+      name: "type-narrowing",
+      preserves: preservesControlFlow,
+      requires: [
+        dominanceAnalysisId as AnalysisId<unknown>,
+        typeInferenceAnalysisId as AnalysisId<unknown>,
+      ],
+      run: (graph, analyses) => ({
+        changed:
+          typeNarrowing(
+            graph,
+            analyses.get(dominanceAnalysisId),
+            analyses.get(typeInferenceAnalysisId),
+          ) > 0,
+      }),
+    },
+    ...(tagged
+      ? []
+      : [
+          {
+            name: "zero-divisor",
+            preserves: { kind: "none" },
+            run: (graph: CFGFunction) => ({ changed: faultOnZeroDivisor(graph) > 0 }),
+          } as TransformPass<CFGFunction>,
+        ]),
     {
       name: "iterator-lowering",
       preserves: preservesControlFlow,
@@ -66,14 +96,6 @@ export function targetLegalizationPipeline(
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
       run: (graph, analyses) => ({
         changed: lowerGlobalBuiltins(graph, analyses.get(typeInferenceAnalysisId)) > 0,
-      }),
-    },
-    {
-      name: "builtin-method-lowering",
-      preserves: preservesControlFlow,
-      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
-      run: (graph, analyses) => ({
-        changed: lowerBuiltinMethods(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
     {
@@ -118,6 +140,25 @@ export function targetLegalizationPipeline(
       }),
     },
     {
+      name: "builtin-method-lowering",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerBuiltinMethods(graph, analyses.get(typeInferenceAnalysisId), target) > 0,
+      }),
+    },
+    ...(tagged
+      ? []
+      : [
+          {
+            name: "builtin-domains",
+            preserves: { kind: "none" },
+            run: (graph: CFGFunction) => ({
+              changed: faultOutsideBuiltinDomains(graph) > 0,
+            }),
+          } as TransformPass<CFGFunction>,
+        ]),
+    {
       name: "heap-iterator-lowering",
       preserves: preservesControlFlow,
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
@@ -135,10 +176,18 @@ export function targetLegalizationPipeline(
     },
     {
       name: "array-access-lowering",
-      preserves: preservesControlFlow,
+      preserves: { kind: "none" },
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
       run: (graph, analyses) => ({
         changed: lowerArrayAccess(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "print-expansion",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: expandAggregatePrints(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
     {
@@ -162,9 +211,7 @@ export function targetLegalizationPipeline(
       preserves: preservesControlFlow,
       run: (graph) => ({ changed: lowerNamedArguments(graph) > 0 }),
     },
-    ...(target.capabilities.has("tagged-values")
-      ? [representationSelectionPass, representationCheckPass]
-      : []),
+    ...(tagged ? [representationSelectionPass, representationCheckPass] : []),
     {
       name: "frame-state-elision",
       preserves: { kind: "all" },

@@ -52,6 +52,11 @@ import {
   heapElementScalarOf,
 } from "../ir/index.js";
 import { compiledFunctionConstant } from "../ir/compiled-function.js";
+import { declaredAotScalar, FIELD_SCALAR_PROP } from "../metadata/class-table.js";
+
+export function isAbsenceConstant(value: CFGInstruction | undefined): boolean {
+  return value !== undefined && value.type === IR_CONSTANT && value.props.value === null;
+}
 import { analysisId, type AnalysisPass } from "../infra/analysis-manager.js";
 import { computeValueLiveness } from "./value-liveness.js";
 import type { CallReachability } from "../metadata/call-graph.js";
@@ -60,6 +65,7 @@ import { declaredAcceptsNull, nominalLatticeType } from "../types/declared.js";
 import {
   aotElementScalarOf,
   aotScalarOf,
+  isNumericScalar,
   isReferenceScalar,
   isStorableScalar,
   SCALAR_FLOAT64,
@@ -69,10 +75,11 @@ import {
   SCALAR_TEXT,
   SCALAR_VOID,
   TEXT_STORAGE_BYTES,
+  VALUE_SCALAR_PROP,
   type AotScalar,
 } from "../types/scalar.js";
 import { anyType, joinTypes, TypeKind, type LatticeType } from "../types/lattice.js";
-import type { DeclaredSignature } from "../types/signature.js";
+import { isUnwritten, type DeclaredSignature } from "../types/signature.js";
 import {
   ANY_SCALAR,
   builtinAcceptsArity,
@@ -225,8 +232,9 @@ function isStatement(node: CFGInstruction): boolean {
 const MEMBER_REASONS: ReadonlyMap<string, string> = new Map<string, string>([
   [
     "find",
-    "find answers undefined when no element matches, which has no compiled " +
-      "representation; use find_index and read the element, or keep this part interpreted",
+    "find answers undefined when no element matches, and undefined is not a value " +
+      "the compiler tells apart from null; use find_index and read the element, or " +
+      "keep this part interpreted",
   ],
   [
     "sort",
@@ -481,16 +489,6 @@ export function summarizeStringEscapes(
   return model;
 }
 
-export interface PrintableField {
-  readonly name: string;
-  readonly offset: number;
-  readonly scalar: AotScalar;
-}
-
-export type PrintableAggregate =
-  | { readonly kind: "array"; readonly element: AotScalar }
-  | { readonly kind: "object"; readonly fields: readonly PrintableField[] };
-
 export interface AotLegality {
   readonly returnScalar: AotScalar;
   readonly declaredReturn: boolean;
@@ -498,8 +496,9 @@ export interface AotLegality {
   readonly constants: readonly CFGInstruction[];
   readonly stringBuffers: readonly AotStringBuffer[];
   scalarOf(value: CFGInstruction): AotScalar;
+  absenceComparesAsNumber(node: CFGInstruction): boolean;
+  comparesReferences(node: CFGInstruction): boolean;
   stringBufferOf(value: CFGInstruction): AotStringBuffer | null;
-  aggregateOf(value: CFGInstruction): PrintableAggregate | null;
 }
 
 export type AotLegalityResult =
@@ -560,7 +559,7 @@ class LegalityAnalyzer implements AotLegality {
     if (entry !== this.graph.blocks[0]) return this.bail("entry is not the first block");
     if (entry.phis.length > 0) return this.bail("entry block has phis");
 
-    this.voidReturn = aotScalarOf(this.returnedType() ?? anyType()) === SCALAR_VOID;
+    this.voidReturn = this.inferVoidReturn();
     this.collectStringBuffers();
     if (this.failure !== null) return this.bail(this.failure);
     this.collectConstants();
@@ -585,26 +584,6 @@ class LegalityAnalyzer implements AotLegality {
     return this.bufferByValue.get(value) ?? null;
   }
 
-  aggregateOf(value: CFGInstruction): PrintableAggregate | null {
-    const classes = this.graph.classes;
-    const type = this.types.typeOf(value);
-    if (classes === null || type.kind !== TypeKind.Object || type.map === null) return null;
-    const shape = classes.shapeById(Number(type.map));
-    if (shape === null) return null;
-    const layout = classes.arrayLayoutOf(shape);
-    if (layout !== null) {
-      return AOT_PRINTABLE.has(layout.element)
-        ? { kind: "array", element: layout.element }
-        : null;
-    }
-    const fields: PrintableField[] = [];
-    for (const field of shape.fields.values()) {
-      if (!AOT_PRINTABLE.has(field.scalar) && field.scalar !== SCALAR_TEXT) return null;
-      fields.push({ name: field.name, offset: field.offset, scalar: field.scalar });
-    }
-    return { kind: "object", fields };
-  }
-
   private fail(reason: string): void {
     if (this.failure === null) this.failure = reason;
   }
@@ -613,11 +592,26 @@ class LegalityAnalyzer implements AotLegality {
     return { ok: false, reason };
   }
 
+  /** A field read, or a value a pass built, carries the representation it is held in. */
+  private laidOutScalarOf(value: CFGInstruction): AotScalar | null {
+    const built = value.props[VALUE_SCALAR_PROP];
+    if (typeof built === "string") return built as AotScalar;
+    if (value.type !== IR_LOAD_FIELD) return null;
+    const carried = value.props[FIELD_SCALAR_PROP];
+    return typeof carried === "string" && carried !== SCALAR_TEXT
+      ? (carried as AotScalar)
+      : null;
+  }
+
   private require(value: CFGInstruction, context: string): AotScalar | null {
     const cached = this.scalars.get(value);
     if (cached !== undefined) return cached;
     const scalar =
-      value.type === IR_RUNTIME_BASE ? SCALAR_POINTER : aotScalarOf(this.types.typeOf(value));
+      value.type === IR_RUNTIME_BASE
+        ? SCALAR_POINTER
+        : this.laidOutScalarOf(value) ??
+          this.answeredScalarOf(value) ??
+          aotScalarOf(this.types.typeOf(value));
     if (scalar === null) {
       this.fail(`value has an unsupported type in ${context}`);
       return null;
@@ -783,6 +777,57 @@ class LegalityAnalyzer implements AotLegality {
     return true;
   }
 
+  /** A written `null` takes its representation from whatever reads it. */
+  private absenceScalarOf(node: CFGInstruction): AotScalar {
+    for (const use of node.uses) {
+      if (this.readsAbsenceAsNumber(use, node)) return SCALAR_FLOAT64;
+    }
+    return SCALAR_POINTER;
+  }
+
+  private readsAbsenceAsNumber(use: CFGInstruction, absence: CFGInstruction): boolean {
+    if (use.type === IR_STORE_FIELD) return use.props[FIELD_SCALAR_PROP] === SCALAR_FLOAT64;
+    if (use.type === IR_STORE_ELEMENT) return heapElementScalarOf(use) === SCALAR_FLOAT64;
+    if (use.type === IR_RETURN) return this.declaredReturnScalar() === SCALAR_FLOAT64;
+    return use.inputs.some((input) => {
+      if (input === absence) return false;
+      const scalar = this.numericScalarOf(input);
+      return scalar !== null && isNumericScalar(scalar);
+    });
+  }
+
+  private numericScalarOf(value: CFGInstruction): AotScalar | null {
+    if (isAbsenceConstant(value)) return null;
+    return (
+      this.laidOutScalarOf(value) ??
+      this.answeredScalarOf(value) ??
+      aotScalarOf(this.types.typeOf(value))
+    );
+  }
+
+  /** A written return type settles whether a function answers anything at all. */
+  private inferVoidReturn(): boolean {
+    const declared = this.graph.declaredSignature?.returns;
+    if (!isUnwritten(declared)) return this.declaredReturnScalar() === SCALAR_VOID;
+    return aotScalarOf(this.returnedType() ?? anyType()) === SCALAR_VOID;
+  }
+
+  absenceComparesAsNumber(node: CFGInstruction): boolean {
+    const present = node.inputs.find((input) => !isAbsenceConstant(input));
+    return present !== undefined && this.comparedScalarOf(present) === SCALAR_FLOAT64;
+  }
+
+  private declaredReturnScalar(): AotScalar | null {
+    return declaredAotScalar(this.graph.declaredSignature?.returns, this.graph.classes);
+  }
+
+  /** A call answers what its callee declared, absence included. */
+  private answeredScalarOf(value: CFGInstruction): AotScalar | null {
+    const returns = calleeDeclaredSignature(value)?.returns;
+    if (returns === undefined || returns === null || !declaredAcceptsNull(returns)) return null;
+    return declaredAotScalar(returns, this.graph.classes);
+  }
+
   private collectConstants(): void {
     const visit = (value: CFGInstruction | undefined): void => {
       if (value === undefined || value.type !== IR_CONSTANT) return;
@@ -818,7 +863,7 @@ class LegalityAnalyzer implements AotLegality {
       return;
     }
     if (value === null) {
-      this.scalars.set(node, SCALAR_POINTER);
+      this.scalars.set(node, this.absenceScalarOf(node));
       return;
     }
     const compiled = compiledFunctionConstant(value);
@@ -930,8 +975,10 @@ class LegalityAnalyzer implements AotLegality {
 
   private checkHeapElement(node: CFGInstruction, element: AotScalar): void {
     this.scalars.set(node.inputs[0]!, SCALAR_POINTER);
-    if (this.require(node.inputs[1]!, node.type) !== SCALAR_INT32) {
-      this.fail(`${node.type} is indexed by a value that is not an integer`);
+    const index = this.require(node.inputs[1]!, node.type);
+    if (index === null) return;
+    if (!isNumericScalar(index)) {
+      this.fail(`${node.type} is indexed by a value that is not a number`);
       return;
     }
     const stored = node.inputs[2];
@@ -947,19 +994,49 @@ class LegalityAnalyzer implements AotLegality {
   }
 
   private comparedScalarOf(value: CFGInstruction): AotScalar | null {
-    return this.scalars.get(value) ?? aotScalarOf(this.types.typeOf(value));
+    return (
+      this.scalars.get(value) ??
+      this.laidOutScalarOf(value) ??
+      this.answeredScalarOf(value) ??
+      aotScalarOf(this.types.typeOf(value))
+    );
   }
 
   comparesReferences(node: CFGInstruction): boolean {
     return node.inputs.every((input) => this.comparedScalarOf(input) === SCALAR_POINTER);
   }
 
+  /** `x == null` on a number reads the payload that stands for absence. */
+  comparesAbsentNumber(node: CFGInstruction): boolean {
+    if (!EQUALITY_OPERATORS.has(String(node.props.op))) return false;
+    if (!node.inputs.some((input) => isAbsenceConstant(input))) return false;
+    return node.inputs.every((input) => this.comparedScalarOf(input) === SCALAR_FLOAT64);
+  }
+
+  /** `s == null` reads whether a reference is there at all, text or object alike. */
+  comparesAbsentReference(node: CFGInstruction): boolean {
+    if (!EQUALITY_OPERATORS.has(String(node.props.op))) return false;
+    const absent = node.inputs.find((input) => isAbsenceConstant(input));
+    if (absent === undefined) return false;
+    const present = node.inputs.find((input) => input !== absent);
+    const scalar = present === undefined ? null : this.comparedScalarOf(present);
+    return scalar !== null && isReferenceScalar(scalar);
+  }
+
   private checkStringCompare(node: CFGInstruction): boolean {
+    if (this.comparesAbsentReference(node)) {
+      this.scalars.set(node, SCALAR_INT32);
+      return true;
+    }
     const strings = node.inputs.every(
       (input) => this.comparedScalarOf(input) === SCALAR_STRING,
     );
     if (strings) return true;
     if (this.comparesReferences(node) && EQUALITY_OPERATORS.has(String(node.props.op))) {
+      this.scalars.set(node, SCALAR_INT32);
+      return true;
+    }
+    if (this.comparesAbsentNumber(node)) {
       this.scalars.set(node, SCALAR_INT32);
       return true;
     }
@@ -987,9 +1064,6 @@ class LegalityAnalyzer implements AotLegality {
       if (actual === null) return;
       if (declared === ANY_SCALAR) {
         if (name === PRINT_BUILTIN && !AOT_PRINTABLE.has(actual)) {
-          if (actual === SCALAR_POINTER && this.aggregateOf(node.inputs[index]!) !== null) {
-            continue;
-          }
           this.fail(`${name} cannot format a ${actual} value`);
           return;
         }
@@ -1029,12 +1103,17 @@ class LegalityAnalyzer implements AotLegality {
     if (returned.type === IR_CONSTANT) {
       const value = returned.props.value;
       if (typeof value === "string") return SCALAR_STRING;
-      if (value === null) {
-        return isReferenceScalar(this.returnScalar) ? null : SCALAR_POINTER;
-      }
+      if (value === null) return null;
       return value === 0 ? null : SCALAR_FLOAT64;
     }
     return this.scalars.get(returned) ?? aotScalarOf(this.types.typeOf(returned));
+  }
+
+  private answersAbsenceUndeclared(returned: CFGInstruction): boolean {
+    if (!isAbsenceConstant(returned)) return false;
+    const declared = this.graph.declaredSignature?.returns;
+    if (isUnwritten(declared) || declaredAcceptsNull(declared)) return false;
+    return !isReferenceScalar(this.returnScalar);
   }
 
   private checkReturnScalarAgreement(): void {
@@ -1043,6 +1122,13 @@ class LegalityAnalyzer implements AotLegality {
         if (node.type !== IR_RETURN || isPendingThrowReturn(node)) continue;
         const returned = node.inputs[0];
         if (returned === undefined) continue;
+        if (this.answersAbsenceUndeclared(returned)) {
+          this.fail(
+            `function answers null where its return type has no null; declare the ` +
+              `return type as one that can be null, or keep this part interpreted`,
+          );
+          return;
+        }
         const scalar = this.returnedScalarOf(returned);
         if (scalar === null || scalar === this.returnScalar) continue;
         if (!isReferenceScalar(scalar) && !isReferenceScalar(this.returnScalar)) continue;
@@ -1073,11 +1159,12 @@ class LegalityAnalyzer implements AotLegality {
     const returned = this.returnedType();
     const declared = this.graph.declaredSignature?.returns;
     if (declared !== null && declared !== undefined) {
-      const scalar = aotScalarOf(nominalLatticeType(declared, this.graph.classes));
-      if (scalar !== null && declaredAcceptsNull(declared) && !isReferenceScalar(scalar)) {
+      const nullable = declaredAcceptsNull(declared);
+      const scalar = this.declaredReturnScalar();
+      if (nullable && scalar === null) {
         this.fail(
-          `${declared} is a number that can also be null, which has no compiled ` +
-            `representation; return a reference type or a plain number, or keep this ` +
+          `${declared} is a string that can also be null, which has no compiled ` +
+            `representation; return a reference type or a plain string, or keep this ` +
             `part interpreted`,
         );
         return null;

@@ -18,6 +18,9 @@ export type AotScalar =
 
 export const TEXT_STORAGE_BYTES = 1024;
 
+/** Set by a pass that knows how a value it built is held, when its type cannot say. */
+export const VALUE_SCALAR_PROP = "valueScalar";
+
 const SCALAR_BY_KIND = new Map<string, AotScalar>([
   [TypeKind.Smi, SCALAR_INT32],
   [TypeKind.Boolean, SCALAR_INT32],

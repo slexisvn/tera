@@ -19,6 +19,7 @@ import {
   type PlatformIo,
 } from "./entry.js";
 import { printTerminatorAt } from "../../metadata/builtin-methods.js";
+import { NULL_TEXT } from "../../metadata/printed-values.js";
 import {
   TERA_EXIT_UNCAUGHT_THROW,
   TERA_UNCAUGHT_PREFIX,
@@ -30,6 +31,7 @@ const UNCAUGHT_PREFIX_KEY = "x64:uncaught-prefix";
 const NEWLINE_KEY = "x64:newline";
 const DIGITS_KEY = "x64:digits";
 const FLOAT_TEXT_KEY = "x64:float-text";
+const ABSENT_KEY = "x64:absent-text";
 const TERMINATOR_BYTES = 1;
 const LINE_FEED = 10;
 const CARRIAGE_RETURN = 13;
@@ -47,6 +49,7 @@ const TERMINATE_BLOCK = "terminate";
 const SILENT_BLOCK = "silent";
 const MEASURE_BLOCK = "measure";
 const MEASURED_BLOCK = "measured";
+const PRESENT_BLOCK = "present";
 
 function enter(builder: MachineRoutineBuilder, platform: PlatformIo): void {
   for (const name of SAVED_REGISTERS) builder.emit("pushq", builder.read(name, 8));
@@ -157,8 +160,14 @@ function printString(platform: PlatformIo) {
   const [value, terminator] = x64IntegerArgumentNames(platform.abi);
   return (builder: MachineRoutineBuilder): void => {
     enter(builder, platform);
+    const absent = builder.data(ABSENT_KEY, 1, [asciiData(NULL_TEXT)], false);
     captureTerminator(builder, terminator!);
-    builder.emit("movq", builder.write(TEXT, 8), builder.read(value!, 8));
+    builder
+      .emit("movq", builder.write(TEXT, 8), builder.read(value!, 8))
+      .emit("testq", builder.read(TEXT, 8), builder.read(TEXT, 8))
+      .to("jne", PRESENT_BLOCK)
+      .emit("leaq", builder.write(TEXT, 8), mem(1, { symbol: absent.label }))
+      .at(PRESENT_BLOCK);
     writeLine(builder, platform);
     leave(builder, platform);
   };

@@ -41,6 +41,11 @@ function agreesInC(source: string): void {
 
 const PROGRAMS: readonly (readonly [string, string])[] = [
   ["finds an int", src("xs: int[] = [1, 2, 3]", "print(xs.index_of(3))")],
+  ["finds the last of several matches", src("xs: int[] = [1, 2, 1]", "print(xs.last_index_of(1))")],
+  ["reports a missing last match as -1", src("xs: int[] = [1, 2]", "print(xs.last_index_of(9))")],
+  ["searches an empty array for a last match", src("xs: int[] = []", "print(xs.last_index_of(1))")],
+  ["finds the last matching string", src('xs: string[] = ["a", "b", "a"]', 'print(xs.last_index_of("a"))')],
+  ["finds the last matching float", src("xs: float[] = [1.5, 2.5, 1.5]", "print(xs.last_index_of(1.5))")],
   ["reports a missing int as -1", src("xs: int[] = [1, 2, 3]", "print(xs.index_of(9))")],
   ["reports the first of several matches", src("xs: int[] = [5, 5]", "print(xs.index_of(5))")],
   ["searches at the front", src("xs: int[] = [7, 8]", "print(xs.index_of(7))")],
@@ -190,9 +195,74 @@ const CALLBACK_PROGRAMS: readonly (readonly [string, string])[] = [
     "xs: int[] = [10, 20, 30]",
     "print(xs.reduce(weighted, 0))",
   )],
+  ["maps with an inline callback whose parameter is bare", src(
+    "xs: int[] = [1, 2, 3]",
+    "print(xs.map(v => v * 2))",
+  )],
+  ["filters with an inline callback whose parameter is bare", src(
+    "xs: int[] = [1, 2, 3, 4]",
+    "print(xs.filter(v => v % 2 == 0))",
+  )],
+  ["answers some and every from inline callbacks", src(
+    "xs: int[] = [1, 2]",
+    "print(xs.some(v => v > 1), xs.every(v => v > 0))",
+  )],
+  ["finds an index with an inline callback", src(
+    "xs: int[] = [1, 2, 3]",
+    "print(xs.find_index(v => v > 1))",
+  )],
+  ["maps bare parameters over strings", src(
+    'xs: string[] = ["ab", "c"]',
+    "print(xs.map(v => v.length))",
+  )],
+  ["maps bare parameters over floats", src(
+    "xs: float[] = [1.5, 2.5]",
+    "print(xs.map(v => v * 2.0))",
+  )],
+  ["keeps two inline callbacks apart in one chain", src(
+    "xs: int[] = [1, 2, 3]",
+    "print(xs.map(v => v * 2).filter(v => v > 2))",
+  )],
+  ["keeps two inline callbacks apart across statements", src(
+    "xs: int[] = [1, 2, 3]",
+    "ys = xs.map(v => v * 2)",
+    "zs = xs.map(v => v + 100)",
+    "print(ys, zs)",
+  )],
+  ["folds with an inline callback", src(
+    "xs: int[] = [1, 2, 3]",
+    "print(xs.reduce((acc, v) => acc + v, 0))",
+  )],
+  ["sorts with an inline comparator", src(
+    "xs: int[] = [3, 1, 2]",
+    "print(xs.sort((a, b) => a - b))",
+  )],
+];
+
+const SLICE_PROGRAMS: readonly (readonly [string, string])[] = [
+  ["takes a middle range", src("xs: int[] = [1, 2, 3, 4]", "print(xs.slice(1, 3))")],
+  ["takes everything from an index on", src("xs: int[] = [1, 2, 3, 4]", "print(xs.slice(1))")],
+  ["copies the whole array", src("xs: int[] = [1, 2, 3]", "print(xs.slice())")],
+  ["counts a negative start back from the end", src("xs: int[] = [1, 2, 3, 4]", "print(xs.slice(-2))")],
+  ["counts a negative end back from the end", src("xs: int[] = [1, 2, 3, 4]", "print(xs.slice(0, -1))")],
+  ["answers nothing for a range past the end", src("xs: int[] = [1, 2]", "print(xs.slice(5, 9))")],
+  ["clamps an end past the last element", src("xs: int[] = [1, 2]", "print(xs.slice(0, 99))")],
+  ["clamps a start before the first element", src("xs: int[] = [1, 2]", "print(xs.slice(-99, 99))")],
+  ["slices an empty array", src("xs: int[] = []", "print(xs.slice(0, 1))")],
+  ["slices strings", src('xs: string[] = ["a", "b", "c"]', "print(xs.slice(1))")],
+  ["slices floats", src("xs: float[] = [1.5, 2.5, 3.5]", "print(xs.slice(0, 2))")],
+  ["leaves the array it sliced alone", src("xs: int[] = [1, 2, 3]", "ys = xs.slice(1)", "print(xs, ys)")],
+  ["reports the length of a slice", src("xs: int[] = [1, 2, 3, 4]", "print(xs.slice(1, 3).length)")],
+  ["slices an array it just mapped", src("xs: int[] = [1, 2, 3]", "print(xs.map(v => v * 2).slice(1))")],
 ];
 
 const MUTATION_PROGRAMS: readonly (readonly [string, string])[] = [
+  ["takes the first element off", src("xs: int[] = [1, 2, 3]", "print(xs.shift())", "print(xs)")],
+  ["shortens the array it shifted from", src("xs: int[] = [7]", "print(xs.shift())", "print(xs.length)")],
+  ["shifts twice", src("xs: int[] = [1, 2, 3]", "print(xs.shift(), xs.shift())", "print(xs)")],
+  ["shifts a string", src('xs: string[] = ["a", "bb"]', "print(xs.shift())", "print(xs)")],
+  ["shifts a float", src("xs: float[] = [1.5, 2.5]", "print(xs.shift())", "print(xs)")],
+  ["pushes onto an array it shifted", src("xs: int[] = [1, 2]", "xs.shift()", "xs.push(9)", "print(xs)")],
   ["takes the last element off", src("xs: int[] = [1, 2, 3]", "print(xs.pop())", "print(xs)")],
   ["shortens the array it popped from", src("xs: int[] = [1, 2]", "xs.pop()", "print(xs.length)")],
   ["pops down to one element", src("xs: int[] = [1, 2]", "print(xs.pop(), xs.pop())", "print(xs.length)")],
@@ -281,14 +351,6 @@ describe("array callback methods", () => {
     );
   });
 
-  it("declines a callback the compiler cannot name", () => {
-    const program = nodeEngine({ typecheck: "off" }).compileAot(
-      src("xs: int[] = [1, 2]", "print(xs.find_index(v => v > 1))", ""),
-    );
-
-    expect(program.skipped.map((entry) => entry.reason).join("; ")).toContain("find_index");
-  });
-
   it("declines a reduce that has no initial value", () => {
     const program = nodeEngine({ typecheck: "off" }).compileAot(
       src(...ADD, "xs: int[] = [1, 2]", "print(xs.reduce(add))", ""),
@@ -327,9 +389,16 @@ describe("array search methods", () => {
   it("still declines a member no backend lowers", () => {
     expect(() =>
       nodeEngine({ typecheck: "off" }).compileAot(
-        src("xs: int[] = [1]", "print(xs.last_index_of(1))", ""),
+        src("xs: int[] = [1]", "ys: int[] = [2]", "print(xs.concat(ys))", ""),
         { backend: "x64-windows", format: "executable" },
       ),
-    ).toThrow(/last_index_of/);
+    ).toThrow(/concat/);
   });
+});
+
+describe("array slicing", () => {
+  for (const [name, source] of SLICE_PROGRAMS) {
+    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
+    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+  }
 });

@@ -147,11 +147,17 @@ describe("AOT static typing", () => {
     expect(body.indexOf("tera_string_length(p0)")).toBeLessThan(body.indexOf("L1:"));
   });
 
-  itNative("returns zero for a negative index", () => {
+  itNative("faults on an index with no character code, where the interpreter answers NaN", () => {
     const program = compile(`fn code_at(s: string, i: int) -> int:\n  return s.char_code_at(i)\n`);
 
     expect(program.skipped).toEqual([]);
-    expect(runCFunction(cSource(program), "code_at", ["Hi", -1])).toBe(0);
+    expect(runCFunction(cSource(program), "code_at", ["Hi", 1])).toBe("i".charCodeAt(0));
+    expect(() => runCFunction(cSource(program), "code_at", ["Hi", -1])).toThrow(
+      "no character code at that index",
+    );
+    expect(() => runCFunction(cSource(program), "code_at", ["Hi", 2])).toThrow(
+      "no character code at that index",
+    );
   });
 
   it("declines a builtin method call on a receiver that is not declared", () => {

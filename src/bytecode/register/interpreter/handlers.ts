@@ -348,7 +348,7 @@ export function handleLdaProp(
   } else if (isGenerator(obj)) {
     return generatorMemberValue(interp, obj, propName);
   } else if (isPromise(obj)) {
-    return handlePromiseProp(interp, obj, propName);
+    return promiseMemberValue(interp, obj, propName);
   } else if (isFunction(obj)) {
     const member = functionMemberValue(obj, propName, interp);
     return member !== null ? member : mkUndefined();
@@ -368,7 +368,18 @@ export function handleLdaProp(
 }
 
 
-function handlePromiseProp(
+/** The interpreter a promise member needs to settle on, where the caller only holds a narrower one. */
+export function asPromiseMemberInterpreter(interpreter: unknown): InterpreterLike | null {
+  const candidate = interpreter as InterpreterLike | null | undefined;
+  return candidate &&
+    typeof candidate.callFunctionValue === "function" &&
+    typeof candidate.exceptionToValue === "function" &&
+    candidate.microtaskQueue !== undefined
+    ? candidate
+    : null;
+}
+
+export function promiseMemberValue(
   interp: InterpreterLike,
   obj: PromiseValue,
   propName: string,

@@ -23,6 +23,7 @@ import {
 } from "../ir/index.js";
 import { addPhi, connect, link, splitBlockBefore } from "../ir/cfg-edit.js";
 import { compiledFunctionConstant } from "../ir/compiled-function.js";
+import { functionTargetOf } from "../metadata/module-functions.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
 import type { TypeInference } from "../analyses/type-inference.js";
@@ -31,7 +32,6 @@ import { nominalLatticeType } from "../types/declared.js";
 import {
   arrayModelForElement,
   arrayModelOf,
-  constantAt,
   elementAccess,
   emptyArray,
   pushElement,
@@ -41,14 +41,12 @@ import {
   loadCount,
   memberCalled,
   type ArrayModel,
-  type Stamp,
 } from "./array-shapes.js";
+import { append, constantAt, faultWhen, type Stamp } from "./guards.js";
 import { ARRAY_LENGTH_OFFSET } from "../metadata/class-table.js";
 import {
-  builtinGlobalIntrinsicByName,
   builtinMethodCallMetadata,
   builtinMethodIntrinsicFor,
-  THROW_BUILTIN,
   TO_STRING_MEMBER,
 } from "../metadata/builtin-methods.js";
 import { doubleType, smiType, stringType, type LatticeType } from "../types/lattice.js";
@@ -76,6 +74,7 @@ const ACCUMULATOR_ELEMENT_AND_INDEX = 3;
 const NO_ARGUMENTS = 0;
 const EMPTY_LENGTH = 0;
 const EMPTY_POP = "cannot pop an empty array";
+const EMPTY_SHIFT = "cannot shift an empty array";
 const ORDERED_PAIR = 2;
 const EMPTY_TEXT = "";
 const DEFAULT_SEPARATOR = ",";
@@ -130,18 +129,13 @@ function comparison(
   return irGenericCompare(EQUALS, left, right);
 }
 
-function append(block: CFGBlock, node: CFGInstruction, stamp: Stamp): CFGInstruction {
-  stamp(node);
-  node.block = block;
-  block.nodes.push(node);
-  return node;
-}
-
 function argumentsOf(node: CFGInstruction): CFGInstruction[] {
   return node.inputs.slice(CALLEE_AND_RECEIVER);
 }
 
 function calledFunctionName(source: CFGInstruction): string | null {
+  const stamped = functionTargetOf(source);
+  if (stamped !== null) return stamped;
   if (source.type === IR_LOAD_GLOBAL) {
     const name = source.props.name;
     return typeof name === "string" ? name : null;
@@ -188,18 +182,21 @@ function invoke(
   return append(block, call, site.stamp);
 }
 
-function openScan(site: Site, boundOf: ((length: CFGInstruction) => CFGInstruction) | null = null): Scan {
+type Bound = (length: CFGInstruction) => CFGInstruction;
+
+function openScan(site: Site, boundOf: Bound | null = null, originOf: Bound | null = null): Scan {
   const { graph, editor, node, model, stamp } = site;
-  const entry = node.block!;
   const array = node.inputs[1]!;
 
   const counted = loadCount(editor, node, array, ARRAY_LENGTH_OFFSET, model, stamp);
   const length = boundOf === null ? counted : boundOf(counted);
   const buffer = loadBuffer(editor, node, array, model, stamp);
-  const start = constantAt(editor, node, FIRST_INDEX, stamp);
+  const start =
+    originOf === null ? constantAt(editor, node, FIRST_INDEX, stamp) : originOf(counted);
   const step = constantAt(editor, node, STEP, stamp);
   const missing = constantAt(editor, node, NOT_FOUND, stamp);
 
+  const entry = node.block!;
   const after = splitBlockBefore(graph, entry, node);
   const header = graph.addBlock();
   const body = graph.addBlock();
@@ -406,38 +403,57 @@ function describedLoad(
   return load;
 }
 
-function faultingBlock(site: Site, target: CFGBlock, message: string): CFGBlock {
-  const block = site.graph.addBlock();
-  const text = append(block, irConstant(message), site.stamp);
-  const intrinsic = builtinGlobalIntrinsicByName(THROW_BUILTIN)!;
-  const raised = append(
-    block,
-    irCallBuiltin(THROW_BUILTIN, [text], builtinMethodCallMetadata(intrinsic)),
-    site.stamp,
-  );
-  raised.frameState = site.node.frameState;
-  append(block, irJump(target), site.stamp);
-  link(block, target);
-  return block;
+/** Guards a member that has nothing to answer on an empty array. */
+function faultWhenEmpty(site: Site, message: string): CFGInstruction {
+  const { graph, editor, node, model, stamp } = site;
+  const array = node.inputs[1]!;
+  const length = loadCount(editor, node, array, ARRAY_LENGTH_OFFSET, model, stamp);
+  const none = constantAt(editor, node, EMPTY_LENGTH, stamp);
+  const drained = stamp(irInt32Compare(EQUALS, length, none));
+  editor.insertBefore(node, drained);
+  faultWhen(graph, node, drained, message, stamp);
+  return length;
+}
+
+function shortenedBy(site: Site, length: CFGInstruction, step: CFGInstruction): CFGInstruction {
+  const shorter = site.stamp(irInt32Sub(length, step));
+  shorter.props.noOverflow = true;
+  site.editor.insertBefore(site.node, shorter);
+  return shorter;
+}
+
+function lowerShift(site: Site): boolean {
+  if (argumentsOf(site.node).length !== NO_ARGUMENTS) return false;
+  const { editor, node, model, stamp } = site;
+  const array = node.inputs[1]!;
+
+  const length = faultWhenEmpty(site, EMPTY_SHIFT);
+  const step = constantAt(editor, node, STEP, stamp);
+  const front = constantAt(editor, node, FIRST_INDEX, stamp);
+  const taken = describedLoad(site, node, loadBuffer(editor, node, array, model, stamp), front);
+  const shorter = shortenedBy(site, length, step);
+
+  const scan = openScan(site, () => shorter);
+  const following = offsetBy(site, scan.body, scan.cursor, step, true);
+  const moved = appendLoad(site, scan.body, scan.buffer, following);
+  appendStore(site, scan.body, scan.buffer, scan.cursor, moved);
+  append(scan.body, irJump(scan.advance), stamp);
+  link(scan.body, scan.advance);
+  append(scan.exhausted, irJump(scan.after), stamp);
+  connect(scan.exhausted, scan.after);
+
+  storeCount(editor, node, array, ARRAY_LENGTH_OFFSET, shorter, model, stamp);
+  replaceWith(site, taken, []);
+  return true;
 }
 
 function lowerPop(site: Site): boolean {
   if (argumentsOf(site.node).length !== NO_ARGUMENTS) return false;
-  const { graph, editor, node, model, stamp } = site;
-  const entry = node.block!;
+  const { editor, node, model, stamp } = site;
   const array = node.inputs[1]!;
 
-  const length = loadCount(editor, node, array, ARRAY_LENGTH_OFFSET, model, stamp);
-  const none = constantAt(editor, node, EMPTY_LENGTH, stamp);
+  const length = faultWhenEmpty(site, EMPTY_POP);
   const step = constantAt(editor, node, STEP, stamp);
-  const drained = stamp(irInt32Compare(EQUALS, length, none));
-  editor.insertBefore(node, drained);
-
-  const take = splitBlockBefore(graph, entry, node);
-  const empty = faultingBlock(site, take, EMPTY_POP);
-  append(entry, irBranch(drained, empty, take), stamp);
-  link(entry, empty);
-  link(entry, take);
 
   const last = stamp(irInt32Sub(length, step));
   last.props.noOverflow = true;
@@ -642,6 +658,118 @@ function lowerSort(site: Site): boolean {
   return true;
 }
 
+/** Builds `test ? whenTrue : whenFalse` as a diamond in front of the lowered call. */
+function chooseAt(
+  site: Site,
+  test: CFGInstruction,
+  whenTrue: CFGInstruction,
+  whenFalse: CFGInstruction,
+): CFGInstruction {
+  const { graph, node, stamp } = site;
+  const entry = node.block!;
+  const after = splitBlockBefore(graph, entry, node);
+  const chosen = stamp(addPhi(after));
+  const [otherwise, taken] = [whenFalse, whenTrue].map((value) => {
+    const arm = graph.addBlock();
+    append(arm, irJump(after), stamp);
+    connect(arm, after, [value]);
+    return arm;
+  });
+  append(entry, irBranch(test, taken!, otherwise!), stamp);
+  link(entry, taken!);
+  link(entry, otherwise!);
+  return chosen;
+}
+
+function comparedAt(
+  site: Site,
+  operator: string,
+  left: CFGInstruction,
+  right: CFGInstruction,
+): CFGInstruction {
+  const test = site.stamp(irInt32Compare(operator, left, right));
+  site.editor.insertBefore(site.node, test);
+  return test;
+}
+
+function summedAt(site: Site, left: CFGInstruction, right: CFGInstruction): CFGInstruction {
+  const sum = site.stamp(irInt32Add(left, right));
+  sum.props.noOverflow = true;
+  site.editor.insertBefore(site.node, sum);
+  return sum;
+}
+
+/** Reads a slice bound the way the interpreter does: negatives count back from the end. */
+function sliceBound(
+  site: Site,
+  index: CFGInstruction,
+  length: CFGInstruction,
+  clamp: (bound: CFGInstruction) => CFGInstruction,
+): CFGInstruction {
+  const origin = constantAt(site.editor, site.node, FIRST_INDEX, site.stamp);
+  const behind = comparedAt(site, LESS_THAN, index, origin);
+  return clamp(chooseAt(site, behind, summedAt(site, index, length), index));
+}
+
+function lowerSlice(site: Site): boolean {
+  const args = argumentsOf(site.node);
+  if (args.length > ORDERED_PAIR) return false;
+  const [from, until] = args;
+
+  const result = emptyArray(site.editor, site.node, site.model, site.stamp);
+  const scan = openScan(
+    site,
+    (length) =>
+      until === undefined
+        ? length
+        : sliceBound(site, until, length, (bound) =>
+            chooseAt(site, comparedAt(site, GREATER_THAN, bound, length), length, bound),
+          ),
+    (length) =>
+      from === undefined
+        ? constantAt(site.editor, site.node, FIRST_INDEX, site.stamp)
+        : sliceBound(site, from, length, (bound) => {
+            const origin = constantAt(site.editor, site.node, FIRST_INDEX, site.stamp);
+            return chooseAt(site, comparedAt(site, LESS_THAN, bound, origin), origin, bound);
+          }),
+  );
+
+  const element = appendLoad(site, scan.body, scan.buffer, scan.cursor);
+  collectedInto(site, scan, scan.body, result, element, site.model);
+  append(scan.exhausted, irJump(scan.after), site.stamp);
+  connect(scan.exhausted, scan.after);
+
+  replaceWith(site, result, []);
+  return true;
+}
+
+/** Scans the whole array and keeps the position of the last match. */
+function lowerLastSearch(site: Site): boolean {
+  const wanted = argumentsOf(site.node);
+  if (wanted.length !== ONE_ARGUMENT) return false;
+
+  const scan = openScan(site);
+  const carried = site.stamp(addPhi(scan.header, [scan.missing]));
+  const element = appendLoad(site, scan.body, scan.buffer, scan.cursor);
+  const same = append(scan.body, comparison(site.model.element, element, wanted[0]!), site.stamp);
+  const hit = site.graph.addBlock();
+  append(scan.body, irBranch(same, hit, scan.advance), site.stamp);
+  link(scan.body, hit);
+  link(scan.body, scan.advance);
+  append(hit, irJump(scan.advance), site.stamp);
+
+  const latest = site.stamp(addPhi(scan.advance));
+  connect(scan.body, scan.advance, [carried]);
+  connect(hit, scan.advance, [scan.cursor]);
+  carried.addInput(latest);
+
+  append(scan.exhausted, irJump(scan.after), site.stamp);
+  connect(scan.exhausted, scan.after);
+
+  replaceWith(site, carried, []);
+  return true;
+}
+
 function collectedInto(
   site: Site,
   scan: Scan,
@@ -715,12 +843,15 @@ function lowerFilter(site: Site): boolean {
 
 const LOWERINGS: ReadonlyMap<string, Lowering> = new Map<string, Lowering>([
   ["index_of", (site) => lowerSearch(site, { asBoolean: false })],
+  ["last_index_of", lowerLastSearch],
   ["includes", (site) => lowerSearch(site, { asBoolean: true })],
+  ["slice", lowerSlice],
   ["find_index", (site) => lowerPredicate(site, { stopsWhenTrue: true, comparison: null })],
   ["some", (site) => lowerPredicate(site, { stopsWhenTrue: true, comparison: GREATER_THAN })],
   ["every", (site) => lowerPredicate(site, { stopsWhenTrue: false, comparison: EQUALS })],
   ["map", lowerMap],
   ["pop", lowerPop],
+  ["shift", lowerShift],
   ["reverse", lowerReverse],
   ["sort", lowerSort],
   ["join", lowerJoin],

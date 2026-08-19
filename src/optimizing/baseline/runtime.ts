@@ -26,6 +26,11 @@ import {
   isString,
   isObject,
   isFunction,
+  isGenerator,
+  isPromise,
+  isRegex,
+  type GeneratorValue,
+  type PromiseValue,
   isArray,
   isSymbol,
   isUndefined,
@@ -57,6 +62,15 @@ import {
   runtimeSetProperty,
 } from "../../objects/exotic/proxy-ops.js";
 import { functionMemberValue, setFunctionMember } from "../../objects/exotic/function-members.js";
+import {
+  asGeneratorMemberInterpreter,
+  generatorMemberValue,
+} from "../../bytecode/register/interpreter/generator-members.js";
+import {
+  asPromiseMemberInterpreter,
+  promiseMemberValue,
+} from "../../bytecode/register/interpreter/handlers.js";
+import { getRegexProperty } from "../../runtime/intrinsics/regex-methods.js";
 import { assertObjectMemberAccess } from "../../runtime/class-access.js";
 
 export type BaselineInterpreter = {
@@ -361,6 +375,27 @@ export class BaselineRuntime {
     if (isFunction(obj)) {
       const member = functionMemberValue(obj, propName, this.interp);
       return member !== null ? member : this.u;
+    }
+    if (isRegex(obj)) {
+      const member = getRegexProperty(propName, getPayload(obj));
+      return member !== null
+        ? member
+        : this.interp._lookupBuiltinPrototype(
+            this.interp.builtinPrototypes.regexPrototype,
+            propName,
+          );
+    }
+    if (isPromise(obj)) {
+      const settling = asPromiseMemberInterpreter(this.interp);
+      return settling === null
+        ? this.u
+        : promiseMemberValue(settling, obj as PromiseValue, propName);
+    }
+    if (isGenerator(obj)) {
+      const resuming = asGeneratorMemberInterpreter(this.interp);
+      return resuming === null
+        ? this.u
+        : generatorMemberValue(resuming, obj as GeneratorValue, propName);
     }
     if (isNumber(obj)) {
       return this.interp._lookupBuiltinPrototype(

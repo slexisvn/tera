@@ -664,9 +664,25 @@ function storedValue(node: EscapeNode): EscapeNode | null {
   return null;
 }
 
+/**
+ * The slot a subscript names. A negative index counts back from the elements the literal
+ * was built with, so `xs[-1]` shares a slot with `xs[2]` instead of naming one that
+ * nothing ever stored and reading back as undefined. Null where no slot can be named,
+ * which is what keeps the allocation out of this pass entirely.
+ */
+function slotOf(node: EscapeNode): number | null {
+  const value = node.inputs[1]?.props.value;
+  if (typeof value !== "number" || !Number.isInteger(value)) return null;
+  if (value >= 0) return value;
+  const root = receiverRoot(node.inputs[0]);
+  if (!root || root.type !== ir.IR_NEW_ARRAY) return null;
+  const counted = root.inputs.length + value;
+  return counted >= 0 ? counted : null;
+}
+
 function elementKey(node: EscapeNode): string {
   if (node.props.index !== undefined) return "i" + String(node.props.index);
-  return "i" + String(node.inputs[1]?.props.value);
+  return "i" + String(slotOf(node));
 }
 
 function hasDynamicElementIndex(safeUses: ReadonlySet<EscapeNode>): boolean {
@@ -675,6 +691,7 @@ function hasDynamicElementIndex(safeUses: ReadonlySet<EscapeNode>): boolean {
     if (use.props.index !== undefined) continue;
     const index = use.inputs[1];
     if (!index || index.type !== ir.IR_CONSTANT) return true;
+    if (slotOf(use) === null) return true;
   }
   return false;
 }

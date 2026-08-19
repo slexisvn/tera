@@ -6,7 +6,7 @@ import {
   type CFGFunction,
   type CFGInstruction,
 } from "../ir/index.js";
-import type { DeclaredSignature } from "../types/signature.js";
+import { isUnwritten, type DeclaredSignature } from "../types/signature.js";
 import type { ClassShape, ClassTable } from "../metadata/class-table.js";
 import { genericCalleeName, stampCalleeSignatures } from "../metadata/call-signatures.js";
 import {
@@ -18,6 +18,7 @@ import { AWAITED_CALL_PROP } from "../builder/ir-builder.js";
 import { isPendingThrowReturn } from "../builder/throw-recovery.js";
 import { callReachability, markReentrantFunctions } from "../metadata/call-graph.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
+import { inferredReturnName } from "../analyses/returned-type.js";
 import type { AotBackend, LinkableFunction } from "../target/backend.js";
 import type {
   AotOutputFile,
@@ -34,8 +35,8 @@ import { compilerOptions, type CompilerOptions } from "../options.js";
 import { cfgPassTracer, maintainGraph } from "../pipeline.js";
 import { createAnalysisRegistry } from "../analyses/index.js";
 import { elideAwaits } from "../passes/await-elision.js";
-import { literalReturnShapeOf, shapeObjectLiterals } from "../passes/object-literal-shapes.js";
 import { specializeFunctionArguments } from "../passes/function-argument-specialization.js";
+import { adoptInferredTypes } from "../passes/inferred-types.js";
 import { lowerPromiseSurface } from "../passes/promise-surface.js";
 import {
   buildDispatch,
@@ -148,20 +149,6 @@ function uniquifyGraphNames(module: ModuleIR): void {
     while (taken.has(`${graph.name}${ordinal}`)) ordinal++;
     graph.name = `${graph.name}${ordinal}`;
     taken.add(graph.name);
-  }
-}
-
-function adoptLiteralShapes(module: ModuleIR): void {
-  for (const unit of module.units) {
-    const graph = unit.graph;
-    if (graph.classes === null) continue;
-    const analyses =
-      unit.analyses ?? new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
-    if (shapeObjectLiterals(graph, analyses.get(typeInferenceAnalysisId)) === 0) continue;
-    analyses.invalidate(typeInferenceAnalysisId);
-    const returns = literalReturnShapeOf(graph);
-    if (returns === null) continue;
-    graph.declaredSignature = { params: graph.declaredSignature?.params ?? [], returns };
   }
 }
 
@@ -381,7 +368,7 @@ export function compileModule(
       ],
     };
   }
-  adoptLiteralShapes(module);
+  adoptInferredTypes(module, classes);
 
   const plan = planCoroutines(module, classes);
   const failures = [...plan.failures];

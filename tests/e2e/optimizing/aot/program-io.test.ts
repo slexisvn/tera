@@ -68,10 +68,10 @@ describe("print and input as compiled builtins", () => {
     agrees(src('print("count:", 2, 5)', 'print("only")'), []);
   });
 
-  it("declines a print it has no way to format", () => {
+  it("prints an array of arrays the way the interpreter does", () => {
     const program = compile(src("xs: int[][] = [[1, 2], [3]]", "print(xs)"));
 
-    expect(program.skipped.map((fn) => fn.name)).toEqual(["tera_program"]);
+    expect(program.skipped).toEqual([]);
   });
 
   itRunsPe("prints an array natively the way the interpreter does", () => {

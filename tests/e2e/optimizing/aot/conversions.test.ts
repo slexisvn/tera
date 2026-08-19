@@ -85,14 +85,18 @@ describe("string to number conversions", () => {
   itRunsPe("renders with String inside a concatenation", () =>
     agrees(src("n = 7", 'print("n=" + String(n))')));
 
-  it("declines Number, whose semantics differ from parse_float", () => {
-    expect(() =>
-      nodeEngine({ typecheck: "off" }).compileAot(src('print(Number("1"))', ""), {
-        backend: "x64-windows",
-        format: "executable",
-      }),
-    ).toThrow(/cannot convert string to float64/);
-  });
+  itRunsPe("reads a number out of text with Number", () => agrees('print(Number("42"))'));
+
+  itRunsPe("reads a fraction out of text with Number", () => agrees('print(Number("3.5"))'));
+
+  itRunsPe("hands a number Number was given straight back", () =>
+    agrees(src("print(Number(42), Number(1.5))")));
+
+  itRunsPe("counts a boolean Number was given", () =>
+    agrees(src("b = 1 < 2", "print(Number(b), Number(2 < 1))")));
+
+  itRunsPe("reads a number from stdin through Number", () =>
+    agrees(src('n = Number(input(""))', "print(n * 2.0)"), ["21"]));
 
   itRunsPe("reads a number from stdin and computes with it", () =>
     agrees(src('n = parse_int(input("n: "))', "print(n + 1)"), ["5"]));

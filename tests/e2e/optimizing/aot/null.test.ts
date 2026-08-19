@@ -161,6 +161,107 @@ const PROGRAMS: readonly (readonly [string, string])[] = [
   )],
 ];
 
+const FIND = [
+  "fn find(xs: int[], t: int) -> int | null:",
+  "  i: int = 0",
+  "  while i < xs.length:",
+  "    if xs[i] == t:",
+  "      return xs[i]",
+  "    i = i + 1",
+  "  return null",
+];
+
+const BOX = [
+  "class Box:",
+  "  public v: int | null = null",
+  "  public constructor(n: int):",
+  "    this.n = n",
+];
+
+const ABSENT_NUMBER_PROGRAMS: readonly (readonly [string, string])[] = [
+  ["answers the number it found", src(...FIND, "print(find([1, 2, 3], 2))")],
+  ["answers null when it found nothing", src(...FIND, "print(find([1, 2, 3], 9))")],
+  ["compares a miss with null", src(...FIND, "print(find([1, 2], 9) == null)")],
+  ["compares a hit with null", src(...FIND, "print(find([1, 2], 2) == null)")],
+  ["branches on a miss", src(
+    ...FIND,
+    "if find([1, 2], 9) == null:",
+    '  print("missing")',
+    "else:",
+    '  print("found")',
+  )],
+  ["answers a fraction or null", src(
+    "fn half(t: bool) -> float | null:",
+    "  if t:",
+    "    return 1.5",
+    "  return null",
+    "print(half(true), half(false))",
+  )],
+  ["starts a declared number field as null", src(...BOX, "print(Box(1).v)")],
+  ["reports an unset number field as null", src(...BOX, "print(Box(1).v == null)")],
+  ["reports an assigned number field as present", src(
+    ...BOX,
+    "b = Box(1)",
+    "b.v = 5",
+    "print(b.v, b.v == null)",
+  )],
+  ["keeps zero apart from absence", src(...BOX, "b = Box(1)", "b.v = 0", "print(b.v, b.v == null)")],
+  ["keeps a number that is not a number apart from absence", src(
+    'n = parse_int("abc")',
+    "print(n, n == null)",
+  )],
+  ["starts an unannotated field as null", src(
+    "class Empty:",
+    "  public constructor():",
+    "    this.v = null",
+    "print(Empty().v == null)",
+  )],
+  ["prints an object holding an absent number", src(...BOX, "print(Box(2))")],
+];
+
+const USER = [
+  "class User:",
+  "  public nick: string | null = null",
+  "  public constructor(name: string):",
+  "    this.name = name",
+];
+
+const PICK = [
+  "fn pick(f: bool) -> string | null:",
+  "  if f:",
+  '    return "yes"',
+  "  return null",
+];
+
+const ABSENT_TEXT_PROGRAMS: readonly (readonly [string, string])[] = [
+  ["starts a declared text field as null", src(...USER, 'print(User("ann").nick)')],
+  ["reports an unset text field as null", src(...USER, 'print(User("ann").nick == null)')],
+  ["reports an assigned text field as present", src(
+    ...USER,
+    'u = User("ann")',
+    'u.nick = "a"',
+    "print(u.nick, u.nick == null)",
+  )],
+  ["prints an object holding absent text", src(...USER, 'print(User("ann"))')],
+  ["answers the text it has", src(...PICK, "print(pick(true))")],
+  ["answers null when it has no text", src(...PICK, "print(pick(false))")],
+  ["compares answered text with null", src(...PICK, "print(pick(false) == null, pick(true) == null)")],
+];
+
+describe("AOT numbers that can be absent", () => {
+  for (const [name, source] of ABSENT_NUMBER_PROGRAMS) {
+    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
+    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+  }
+});
+
+describe("AOT text that can be absent", () => {
+  for (const [name, source] of ABSENT_TEXT_PROGRAMS) {
+    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
+    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+  }
+});
+
 describe("AOT nullable references", () => {
   for (const [name, source] of PROGRAMS) {
     itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
@@ -173,30 +274,9 @@ describe("AOT nullable references", () => {
     expect(run.stdout).toBe("true 1\n");
   });
 
-  it("declines a number that can also be null", () => {
-    expect(
-      declined(src("fn pick(f: bool) -> int | null:", "  if f:", "    return 1", "  return null")),
-    ).toContain("number that can also be null");
-  });
-
-  it("declines a field that holds a number or null", () => {
-    expect(
-      declined(
-        src(
-          "class Box:",
-          "  public size: int | null = null",
-          "  public constructor(v: int):",
-          "    this.v = v",
-          "b = Box(1)",
-          "print(b.v)",
-        ),
-      ),
-    ).toContain("GenericSetProp");
-  });
-
   it("declines returning null where a number is declared", () => {
     expect(
       declined(src("fn pick(f: bool) -> int:", "  if f:", "    return 1", "  return null")),
-    ).toContain("does not match its return type");
+    ).toContain("answers null where its return type has no null");
   });
 });

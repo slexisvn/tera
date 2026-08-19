@@ -106,6 +106,65 @@ const AGREEING_PROGRAMS: readonly (readonly [string, string])[] = [
       'print(shout("hey"))',
     ),
   ],
+  [
+    "calls a method on a string held in a field",
+    src(
+      "class P:",
+      "  public constructor(n: string):",
+      "    this.n = n",
+      'print(P("bob").n.to_upper_case())',
+    ),
+  ],
+  [
+    "reads the length of a string held in a field",
+    src(
+      "class P:",
+      "  public constructor(n: string):",
+      "    this.n = n",
+      'print(P("bob").n.length)',
+    ),
+  ],
+  [
+    "calls a method on a string a field was declared with",
+    src(
+      "class P:",
+      '  public n: string = "bob"',
+      "  public constructor():",
+      "    this.v = 1",
+      "print(P().n.to_upper_case())",
+    ),
+  ],
+  [
+    "calls a method on the string a function returned",
+    src("fn name() -> string:", '  return "bob"', "print(name().to_upper_case())"),
+  ],
+  [
+    "reads the length of the string a function returned",
+    src("fn name() -> string:", '  return "bob"', "print(name().length)"),
+  ],
+  [
+    "chains methods on the string a function returned",
+    src("fn name() -> string:", '  return "  Bob  "', "print(name().trim().to_lower_case())"),
+  ],
+  ["indexes a literal", 'print("abc"[0], "abc"[2])'],
+  [
+    "indexes a string in a loop",
+    src('s = "abc"', "i: int = 0", "while i < s.length:", "  print(s[i])", "  i = i + 1"),
+  ],
+  [
+    "indexes a string held in a field",
+    src(
+      "class P:",
+      "  public constructor(n: string):",
+      "    this.n = n",
+      'print(P("bob").n[1])',
+    ),
+  ],
+  [
+    "indexes a parameter",
+    src("fn first(s: string) -> string:", "  return s[0]", 'print(first("xyz"))'),
+  ],
+  ["compares an indexed character", src('s = "abc"', 'print(s[0] == "a", s[1] == "a")')],
 ];
 
 describe("string methods as compiled builtins", () => {

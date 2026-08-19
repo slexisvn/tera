@@ -429,6 +429,8 @@ function newArrayTransfer(node: TransferNode, context: TypeContext): LatticeType
 }
 
 function loadElementTransfer(node: TransferNode, context: TypeContext): LatticeType {
+  const named = fieldTypeTransfer(node, context);
+  if (named.kind !== TypeKind.Any) return named;
   const declared = latticeFromElementRep(node.props.elementRep);
   if (declared !== null) return declared;
   const container = inputType(node, 0, context);

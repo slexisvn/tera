@@ -1,6 +1,7 @@
 import type { AotLegality } from "../analyses/aot-legality.js";
 import { BackendLoweringError } from "../target/errors.js";
-import { nominalLatticeType, type NominalTypes } from "../types/declared.js";
+import type { NominalTypes } from "../types/declared.js";
+import { declaredAotScalar } from "../metadata/class-table.js";
 import {
   aotScalarOf,
   isStorableScalar,
@@ -14,7 +15,7 @@ export function nativeArgumentScalar(
   declared: string | null,
   nominal: NominalTypes | null = null,
 ): AotScalar {
-  return isStorableScalar(aotScalarOf(nominalLatticeType(declared, nominal))) ?? SCALAR_FLOAT64;
+  return isStorableScalar(declaredAotScalar(declared, nominal)) ?? SCALAR_FLOAT64;
 }
 
 export function nativeReturnScalar(legality: AotLegality): AotScalar {

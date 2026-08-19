@@ -214,7 +214,9 @@ describe("x64 native execution matches the interpreter", () => {
   itAssembles("reads a character code from a string parameter", () => {
     const source = src("fn code_at(s: string, i: int) -> int:", "  return s.char_code_at(i)");
     expect(runNativeFunction(compile(source), "code_at", ["Hi", 1])).toBe(105);
-    expect(runNativeFunction(compile(source), "code_at", ["Hi", -1])).toBe(0);
+    expect(() => runNativeFunction(compile(source), "code_at", ["Hi", -1])).toThrow(
+      "no character code at that index",
+    );
   });
 
   itAssembles("emits addressing modes rather than address arithmetic", () => {
@@ -273,8 +275,10 @@ describe("x64 register pressure", () => {
   itAssembles("matches the C backend on integer remainder edge cases", () => {
     const source = src("fn rem(a: int, b: int) -> int:", "  return (a % b) + 0");
     matchesCBackend(source, "rem", [17, 5]);
-    matchesCBackend(source, "rem", [17, 0]);
     matchesCBackend(source, "rem", [-2147483648, -1]);
+    expect(() => runNativeFunction(compile(source), "rem", [17, 0])).toThrow(
+      "cannot take the remainder by zero",
+    );
   });
 
   itAssembles("matches the C backend on int32 wraparound and shifts", () => {

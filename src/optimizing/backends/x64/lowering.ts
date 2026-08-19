@@ -52,11 +52,12 @@ import {
   AOT_INT_TO_STRING,
   calleeSymbolName,
   type AotStringBuffer,
-  type PrintableAggregate,
+  isAbsenceConstant,
 } from "../../analyses/aot-legality.js";
+import { FLOAT64_NULL_BITS } from "../../target/float64.js";
+import { isReferenceScalar } from "../../types/scalar.js";
 import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
 import { asciiData, integerData, zeroFilledBuffer } from "../../machine/data.js";
-import { ARRAY_PRINT_SYMBOLS } from "./print-aggregate.js";
 import type { FrameLayout, SavedRegister } from "../../machine/frame.js";
 import { latticeFromDeclaredType } from "../../types/declared.js";
 import type { DeclaredSignature } from "../../types/signature.js";
@@ -82,7 +83,7 @@ import {
   PARSE_FLOAT_BUILTIN,
   PARSE_INT_BUILTIN,
   PRINT_BUILTIN,
-  printTerminatorAt,
+  printTerminatorOf,
   qualifiedMethodName,
   THROW_BUILTIN,
 } from "../../metadata/builtin-methods.js";
@@ -326,6 +327,9 @@ export class X64Lowering implements MachineLowering {
       );
       return destination;
     }
+    if (value === null && scalar === SCALAR_FLOAT64) {
+      return this.loadDoubleBits(ctx, FLOAT64_NULL_BITS, ctx.temp(scalar));
+    }
     return this.loadNumber(ctx, Number(value), scalar);
   }
 
@@ -488,10 +492,38 @@ export class X64Lowering implements MachineLowering {
       ctx.emit(instruction("movabsq", [writeOf(into), imm(value)]));
       return into;
     }
-    const bits = doubleBits(value);
+    return this.loadDoubleBits(ctx, doubleBits(value), into);
+  }
+
+  private loadDoubleBits(
+    ctx: SelectionContext,
+    bits: bigint,
+    into: VirtualRegister,
+  ): VirtualRegister {
     const datum = ctx.data.intern(`double:${bits}`, 8, [integerData(bits, 8)]);
     ctx.emit(instruction("movsd", [writeOf(into), mem(8, { symbol: datum.label })]));
     return into;
+  }
+
+  /** Reads a float64 as the bits it is made of, so absence compares exactly. */
+  private bitsOf(ctx: SelectionContext, value: CFGInstruction): VirtualRegister {
+    const bits = ctx.tempIn(X64_GPR, 8);
+    ctx.emit(instruction("movq", [writeOf(bits), readOf(this.coerce(ctx, value, SCALAR_FLOAT64))]));
+    return bits;
+  }
+
+  private selectAbsenceCompare(ctx: SelectionContext): void {
+    const operation = String(ctx.node.props.op);
+    const code = INT_CONDITIONS.get(operation);
+    if (code === undefined) {
+      throw new BackendLoweringError(`unsupported comparison ${operation}`);
+    }
+    const left = this.bitsOf(ctx, ctx.node.inputs[0]!);
+    const right = this.bitsOf(ctx, ctx.node.inputs[1]!);
+    ctx.emit(instruction("cmpq", [use(left, 8), use(right, 8)]));
+    const result = this.destination(ctx, SCALAR_INT32);
+    this.emitSetCondition(ctx, code, result);
+    this.produce(ctx, result, SCALAR_INT32);
   }
 
   convert(
@@ -501,6 +533,7 @@ export class X64Lowering implements MachineLowering {
     to: AotScalar,
   ): VirtualRegister {
     if (from === to) return source;
+    if (isReferenceScalar(from) && isReferenceScalar(to)) return source;
     if (from === SCALAR_STRING || to === SCALAR_STRING) {
       throw new BackendLoweringError(`cannot convert ${from} to ${to}`);
     }
@@ -787,6 +820,11 @@ export class X64Lowering implements MachineLowering {
   private selectStringCompare(ctx: SelectionContext): void {
     if (ctx.node.inputs.every((input) => ctx.scalarOf(input) === SCALAR_POINTER)) {
       this.selectReferenceCompare(ctx);
+      return;
+    }
+    if (ctx.node.inputs.some(isAbsenceConstant)) {
+      if (ctx.legality.absenceComparesAsNumber(ctx.node)) this.selectAbsenceCompare(ctx);
+      else this.selectReferenceCompare(ctx);
       return;
     }
     const left = ctx.registerOf(ctx.node.inputs[0]!);
@@ -1118,18 +1156,6 @@ export class X64Lowering implements MachineLowering {
     this.produce(ctx, result, SCALAR_STRING);
   }
 
-  private emitPrintText(ctx: SelectionContext, text: string, terminator: number): void {
-    const datum = ctx.data.intern(`aggregate:${text}`, 1, [asciiData(text)], ".LS");
-    const address = ctx.tempIn(X64_GPR, 8);
-    ctx.emit(instruction("leaq", [writeOf(address), mem(8, { symbol: datum.label })]));
-    ctx.external(X64_RUNTIME_SYMBOLS.printString);
-    ctx.emitCall(
-      X64_RUNTIME_SYMBOLS.printString,
-      [address, this.loadNumber(ctx, terminator, SCALAR_INT32)],
-      null,
-    );
-  }
-
   private selectPrintValue(
     ctx: SelectionContext,
     operand: VirtualRegister,
@@ -1144,71 +1170,11 @@ export class X64Lowering implements MachineLowering {
     ctx.emitCall(symbol, [operand, this.loadNumber(ctx, terminator, SCALAR_INT32)], null);
   }
 
-  private selectPrintAggregate(
-    ctx: SelectionContext,
-    value: CFGInstruction,
-    aggregate: PrintableAggregate,
-    terminator: number,
-  ): void {
-    const receiver = this.coerce(ctx, value, SCALAR_POINTER);
-    if (aggregate.kind === "array") {
-      const symbol = ARRAY_PRINT_SYMBOLS.get(aggregate.element);
-      if (symbol === undefined) {
-        throw new BackendLoweringError(
-          `x64 backend cannot print an array of ${aggregate.element}`,
-        );
-      }
-      ctx.external(symbol);
-      ctx.emitCall(
-        symbol,
-        [receiver, this.loadNumber(ctx, terminator, SCALAR_INT32)],
-        null,
-      );
-      return;
-    }
-    this.emitPrintText(ctx, OBJECT_OPEN_TEXT, NO_TERMINATOR);
-    aggregate.fields.forEach((field, index) => {
-      if (index > 0) this.emitPrintText(ctx, AGGREGATE_SEPARATOR_TEXT, NO_TERMINATOR);
-      this.emitPrintText(ctx, `${field.name}: `, NO_TERMINATOR);
-      const inline = field.scalar === SCALAR_TEXT;
-      const scalar = inline ? SCALAR_STRING : field.scalar;
-      const slot = ctx.tempIn(X64_GPR, 8);
-      if (inline) {
-        ctx.emit(
-          instruction("leaq", [
-            writeOf(slot),
-            mem(8, { base: readOf(receiver), displacement: field.offset }),
-          ]),
-        );
-        this.selectPrintValue(ctx, slot, scalar, NO_TERMINATOR);
-        return;
-      }
-      const loaded = ctx.temp(scalar);
-      ctx.emit(
-        instruction(this.moveFor(writeOf(loaded)), [
-          writeOf(loaded),
-          mem(scalarWidth(scalar), {
-            base: readOf(receiver),
-            displacement: field.offset,
-          }),
-        ]),
-      );
-      this.selectPrintValue(ctx, loaded, scalar, NO_TERMINATOR);
-    });
-    this.emitPrintText(ctx, OBJECT_CLOSE_TEXT, terminator);
-  }
-
   private selectPrint(ctx: SelectionContext): void {
     const arity = ctx.node.inputs.length;
     ctx.node.inputs.forEach((value, index) => {
-      const terminator = printTerminatorAt(index, arity);
+      const terminator = printTerminatorOf(ctx.node, index, arity);
       const scalar = ctx.scalarOf(value);
-      const aggregate =
-        scalar === SCALAR_POINTER ? ctx.legality.aggregateOf(value) : null;
-      if (aggregate !== null) {
-        this.selectPrintAggregate(ctx, value, aggregate, terminator);
-        return;
-      }
       this.selectPrintValue(ctx, this.coerce(ctx, value, scalar), scalar, terminator);
     });
   }

@@ -103,12 +103,10 @@ import {
   AOT_INT_TO_STRING,
   type AotLegality,
   type AotStringBuffer,
-  type PrintableAggregate,
 } from "../../analyses/aot-legality.js";
 import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
 import {
   AGGREGATE_CLOSE_TEXT,
-  AGGREGATE_OPEN_TEXT,
   builtinIntrinsicByName,
   NO_TERMINATOR,
   OBJECT_CLOSE_TEXT,
@@ -118,7 +116,7 @@ import {
   builtinParameterAt,
   INPUT_BUILTIN,
   PRINT_BUILTIN,
-  printTerminatorAt,
+  printTerminatorOf,
   qualifiedMethodName,
   THROW_BUILTIN,
 } from "../../metadata/builtin-methods.js";
@@ -133,8 +131,11 @@ import {
   type AotScalar,
 } from "../../types/scalar.js";
 import { INT32_DECIMAL_BYTES } from "../../machine/data.js";
+import { isAbsenceConstant } from "../../analyses/aot-legality.js";
+import { NULL_TEXT } from "../../metadata/printed-values.js";
 import {
   FLOAT64_DECIMAL_BYTES,
+  FLOAT64_NULL_BITS,
   FLOAT64_EXPONENT_BIAS,
   FLOAT64_EXPONENT_DIGITS,
   FLOAT64_EXPONENT_MASK,
@@ -176,7 +177,7 @@ const C_PRINT_HELPERS = new Map<AotScalar, CBuiltinMethod>([
     {
       helper: "tera_print_str",
       definition: `static inline void tera_print_str(const char *value, int32_t terminator) {
-  printf("%s", value);
+  printf("%s", value == 0 ? "${NULL_TEXT}" : value);
   if (terminator) printf("%c", terminator);
 }`,
     },
@@ -382,6 +383,10 @@ static char *tera_f64_to_str(char *dst, int32_t cap, double value) {
   }
   uint64_t bits;
   memcpy(&bits, &value, sizeof bits);
+  if (bits == ${FLOAT64_NULL_BITS}ull) {
+    dst[tera_str_put(dst, 0, "${NULL_TEXT}")] = '\\0';
+    return dst;
+  }
   int32_t negative = (int32_t)(bits >> ${FLOAT64_SIGN_SHIFT});
   int32_t biased = (int32_t)((bits >> ${FLOAT64_MANTISSA_BITS}) & 0x${FLOAT64_EXPONENT_MASK.toString(16)}u);
   uint64_t mantissa = bits & 0x${FLOAT64_MANTISSA_MASK.toString(16)}ull;
@@ -566,6 +571,22 @@ static inline double tera_text_number(const char *text, int32_t integral) {
   return stop == at ? (0.0 / 0.0) : value;
 }
 
+static inline int32_t tera_text_put(char *dst, int32_t cap, int32_t at, const char *text) {
+  for (int32_t k = 0; text[k] != '\\0' && at + 1 < cap; k++) dst[at++] = text[k];
+  return at;
+}
+
+static inline char *tera_string_replace_gaps(char *dst, int32_t cap, const char *src, const char *fresh, int32_t all) {
+  int32_t size = tera_text_size(src);
+  int32_t at = all ? 0 : tera_text_put(dst, cap, 0, fresh);
+  for (int32_t index = 0; index < size; index++) {
+    if (all && index > 0) at = tera_text_put(dst, cap, at, fresh);
+    if (at + 1 < cap) dst[at++] = src[index];
+  }
+  dst[at] = '\\0';
+  return dst;
+}
+
 static inline char *tera_string_replace_range(char *dst, int32_t cap, const char *src, const char *old, const char *fresh, int32_t all) {
   int32_t at = 0;
   int32_t index = 0;
@@ -573,9 +594,10 @@ static inline char *tera_string_replace_range(char *dst, int32_t cap, const char
   int32_t width = tera_text_size(old);
   int32_t done = 0;
   if (cap <= 0) return dst;
+  if (width == 0) return tera_string_replace_gaps(dst, cap, src, fresh, all);
   while (index < size) {
-    if (!done && width > 0 && index + width <= size && tera_text_match(src, index, old)) {
-      for (int32_t k = 0; fresh[k] != '\\0' && at + 1 < cap; k++) dst[at++] = fresh[k];
+    if (!done && index + width <= size && tera_text_match(src, index, old)) {
+      at = tera_text_put(dst, cap, at, fresh);
       index += width;
       if (!all) done = 1;
       continue;
@@ -1182,29 +1204,25 @@ static inline unsigned char *${C_ARRAY_RESERVE}(unsigned char *array, int32_t sh
   return fresh;
 }`;
 
-const AGGREGATE_OPEN = AGGREGATE_OPEN_TEXT.codePointAt(0)!;
+const C_ABSENT_NUMBER = `tera_f64_of_bits(${FLOAT64_NULL_BITS}ull)`;
 const EMPTY_TERMINATOR = NO_TERMINATOR;
 
-const C_AGGREGATE_SUPPORT = `static inline void tera_print_open(int32_t bracket) {
-  printf("%c", bracket);
+const C_ABSENCE_SUPPORT = `static inline double tera_f64_of_bits(uint64_t bits) {
+  double value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
 }
 
-static inline void tera_print_gap(int32_t index) {
-  if (index > 0) printf(", ");
-}
-
-static inline int32_t tera_array_size(const unsigned char *array) {
-  return *(const int32_t *)(array + ${ARRAY_LENGTH_OFFSET});
-}
-
-static inline const unsigned char *tera_array_data(const unsigned char *array) {
-  return *(const unsigned char *const *)(array + ${ARRAY_ELEMENTS_OFFSET}) + ${BUFFER_ELEMENTS_OFFSET};
+static inline uint64_t tera_f64_bits(double value) {
+  uint64_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return bits;
 }`;
 
 const C_BUILTIN_SUPPORT = [
   C_FLOAT_SUPPORT,
   C_STRING_SUPPORT,
-  C_AGGREGATE_SUPPORT,
+  C_ABSENCE_SUPPORT,
   ...[...C_BUILTIN_METHODS.values(), ...C_PRINT_HELPERS.values()]
     .map((method) => method.definition)
     .filter((definition) => definition.length > 0),
@@ -1517,8 +1535,10 @@ class CFunctionEmitter {
         continue;
       }
       if (value === null) {
+        const absent =
+          this.legality.scalarOf(constant) === SCALAR_FLOAT64 ? C_ABSENT_NUMBER : "0";
         this.constantDeclarations.push(
-          `${declarationOf(this.typeNameOf(constant), name)} = 0;`,
+          `${declarationOf(this.typeNameOf(constant), name)} = ${absent};`,
         );
         continue;
       }
@@ -1635,54 +1655,11 @@ class CFunctionEmitter {
     return method.helper;
   }
 
-  private emitPrintAggregate(
-    ctx: EmitContext,
-    value: CFGInstruction,
-    aggregate: PrintableAggregate,
-    terminator: number,
-  ): void {
-    const name = this.nameOf(value);
-    if (aggregate.kind === "array") {
-      const cursor = `at_${ctx.node.id}`;
-      const printer = this.printerFor(aggregate.element);
-      const cast = cTypeOf(aggregate.element);
-      ctx.emit(`tera_print_open(${AGGREGATE_OPEN});`);
-      ctx.emit(
-        `for (int32_t ${cursor} = 0; ${cursor} < tera_array_size(${name}); ${cursor}++) {`,
-      );
-      ctx.emit(`  tera_print_gap(${cursor});`);
-      ctx.emit(
-        `  ${printer}(((const ${cast} *)tera_array_data(${name}))[${cursor}], ${EMPTY_TERMINATOR});`,
-      );
-      ctx.emit("}");
-      ctx.emit(`tera_print_str("${AGGREGATE_CLOSE_TEXT}", ${terminator});`);
-      return;
-    }
-    ctx.emit(`tera_print_str("${OBJECT_OPEN_TEXT}", ${EMPTY_TERMINATOR});`);
-    aggregate.fields.forEach((field, index) => {
-      if (index > 0) ctx.emit(`tera_print_str(", ", ${EMPTY_TERMINATOR});`);
-      ctx.emit(`tera_print_str("${field.name}: ", ${EMPTY_TERMINATOR});`);
-      const read =
-        field.scalar === SCALAR_TEXT
-          ? `((const char *)(${name} + ${field.offset}))`
-          : `(*(const ${cTypeOf(field.scalar)} *)(${name} + ${field.offset}))`;
-      const printer = this.printerFor(field.scalar === SCALAR_TEXT ? SCALAR_STRING : field.scalar);
-      ctx.emit(`${printer}(${read}, ${EMPTY_TERMINATOR});`);
-    });
-    ctx.emit(`tera_print_str("${OBJECT_CLOSE_TEXT}", ${terminator});`);
-  }
-
   private emitPrint(ctx: EmitContext): void {
     const arity = ctx.node.inputs.length;
     ctx.node.inputs.forEach((value, index) => {
-      const terminator = printTerminatorAt(index, arity);
-      const aggregate = this.legality.aggregateOf(value);
-      const scalar = this.legality.scalarOf(value);
-      if (scalar === SCALAR_POINTER && aggregate !== null) {
-        this.emitPrintAggregate(ctx, value, aggregate, terminator);
-        return;
-      }
-      ctx.emit(`${this.printerFor(scalar)}(${this.nameOf(value)}, ${terminator});`);
+      const terminator = printTerminatorOf(ctx.node, index, arity);
+      ctx.emit(`${this.printerFor(this.legality.scalarOf(value))}(${this.nameOf(value)}, ${terminator});`);
     });
   }
 
@@ -1836,6 +1813,15 @@ class CFunctionEmitter {
     const right = this.nameOf(ctx.node.inputs[1]!);
     if (this.comparesReferences(ctx.node)) {
       this.define(ctx, `${left} ${operator} ${right}`);
+      return;
+    }
+    if (ctx.node.inputs.some(isAbsenceConstant)) {
+      this.define(
+        ctx,
+        this.legality.absenceComparesAsNumber(ctx.node)
+          ? `tera_f64_bits(${left}) ${operator} tera_f64_bits(${right})`
+          : `(const void *)${left} ${operator} (const void *)${right}`,
+      );
       return;
     }
     this.define(ctx, `strcmp(${left}, ${right}) ${operator} 0`);

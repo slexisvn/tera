@@ -5,6 +5,8 @@ import {
   IR_LOAD_GLOBAL,
   irCallBuiltin,
   irConstant,
+  irGenericCall,
+  irGenericGetProp,
   irRequiresFrameState,
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
@@ -13,32 +15,118 @@ import {
   builtinGlobalIntrinsicByName,
   builtinMethodCallMetadata,
   builtinMethodIntrinsicByName,
+  builtinNamespaceIntrinsic,
   qualifiedMethodName,
+  BUILTIN_NAMESPACE,
+  NUMBER_BUILTIN,
+  PARSE_FLOAT_BUILTIN,
   STRING_BUILTIN,
   TO_STRING_MEMBER,
   type BuiltinIntrinsic,
 } from "../metadata/builtin-methods.js";
 import type { TypeInference } from "../analyses/type-inference.js";
+import { producedType } from "../metadata/produced-type.js";
+import { TypeKind } from "../types/lattice.js";
+import type { NominalTypes } from "../types/declared.js";
 import {
   aotScalarOf,
+  isNumericScalar,
   SCALAR_FLOAT64,
   SCALAR_INT32,
   SCALAR_STRING,
 } from "../types/scalar.js";
 
 const OMITTED_STRING = "";
+const RENDERED_ONLY = 2;
+const ONE_OPERAND = 1;
+const TRUNCATED_MEMBER = "trunc";
 
 const RENDERED_BY_SCALAR = new Map<string, string>([
   [SCALAR_INT32, qualifiedMethodName("int", TO_STRING_MEMBER)],
   [SCALAR_FLOAT64, qualifiedMethodName("float", TO_STRING_MEMBER)],
 ]);
 
-function renderLowering(node: CFGInstruction, types: TypeInference): Lowering | null {
+function convertedValue(node: CFGInstruction, builtin: string): CFGInstruction | null {
   const callee = node.inputs[0];
   const value = node.inputs[1];
-  if (callee === undefined || value === undefined || node.inputs.length !== 2) return null;
-  if (callee.type !== IR_LOAD_GLOBAL || String(callee.props.name) !== STRING_BUILTIN) return null;
-  const scalar = aotScalarOf(types.typeOf(value));
+  if (callee === undefined || value === undefined || node.inputs.length !== RENDERED_ONLY) {
+    return null;
+  }
+  if (callee.type !== IR_LOAD_GLOBAL || String(callee.props.name) !== builtin) return null;
+  return value;
+}
+
+function renderedValue(node: CFGInstruction): CFGInstruction | null {
+  return convertedValue(node, STRING_BUILTIN);
+}
+
+/** `Number(s)` reads the same value `parse_float(s)` does. */
+function parseLowering(
+  node: CFGInstruction,
+  types: TypeInference,
+  classes: NominalTypes | null,
+): Lowering | null {
+  const value = convertedValue(node, NUMBER_BUILTIN);
+  if (value === null || aotScalarOf(producedType(value, types, classes)) !== SCALAR_STRING) {
+    return null;
+  }
+  const intrinsic = builtinGlobalIntrinsicByName(PARSE_FLOAT_BUILTIN);
+  if (intrinsic === null) return null;
+  return { node, callee: node.inputs[0]!, operands: [value], defaults: 0, intrinsic };
+}
+
+function alreadyNumeric(
+  node: CFGInstruction,
+  types: TypeInference,
+  classes: NominalTypes | null,
+): CFGInstruction | null {
+  const value = convertedValue(node, NUMBER_BUILTIN);
+  if (value === null) return null;
+  const type = producedType(value, types, classes);
+  if (type.kind === TypeKind.Boolean) return null;
+  const scalar = aotScalarOf(type);
+  return scalar !== null && isNumericScalar(scalar) ? value : null;
+}
+
+/** `Number(b)` on a boolean asks for its 1 or 0, which truncation already answers. */
+function countedLowering(
+  node: CFGInstruction,
+  types: TypeInference,
+  classes: NominalTypes | null,
+): Lowering | null {
+  const value = convertedValue(node, NUMBER_BUILTIN);
+  if (value === null || producedType(value, types, classes).kind !== TypeKind.Boolean) return null;
+  const intrinsic = builtinNamespaceIntrinsic(BUILTIN_NAMESPACE, TRUNCATED_MEMBER, ONE_OPERAND);
+  if (intrinsic === null) return null;
+  return { node, callee: node.inputs[0]!, operands: [value], defaults: 0, intrinsic };
+}
+
+/**
+ * `String(b)` on a boolean asks for the same spelling as `b.to_string()`, which
+ * the boolean-text pass builds once the branch it needs is legal to add.
+ */
+function spellsBoolean(
+  node: CFGInstruction,
+  types: TypeInference,
+  classes: NominalTypes | null,
+): CFGInstruction | null {
+  if (node.type !== IR_GENERIC_CALL || node.props.isMethod === true) return null;
+  const value = renderedValue(node);
+  if (value === null) return null;
+  return producedType(value, types, classes).kind === TypeKind.Boolean ? value : null;
+}
+
+function renderLowering(
+  node: CFGInstruction,
+  types: TypeInference,
+  classes: NominalTypes | null,
+): Lowering | null {
+  const value = renderedValue(node);
+  if (value === null) return null;
+  const callee = node.inputs[0]!;
+  const type = producedType(value, types, classes);
+  if (type.kind === TypeKind.Boolean) return null;
+  const scalar = aotScalarOf(type);
   if (scalar === null) return null;
   const rendered = RENDERED_BY_SCALAR.get(scalar);
   if (rendered === undefined) return null;
@@ -47,12 +135,32 @@ function renderLowering(node: CFGInstruction, types: TypeInference): Lowering | 
   return { node, callee, operands: [value], defaults: 0, intrinsic };
 }
 
-function alreadyText(node: CFGInstruction, types: TypeInference): CFGInstruction | null {
-  const callee = node.inputs[0];
-  const value = node.inputs[1];
-  if (callee === undefined || value === undefined || node.inputs.length !== 2) return null;
-  if (callee.type !== IR_LOAD_GLOBAL || String(callee.props.name) !== STRING_BUILTIN) return null;
-  return aotScalarOf(types.typeOf(value)) === SCALAR_STRING ? value : null;
+function alreadyText(
+  node: CFGInstruction,
+  types: TypeInference,
+  classes: NominalTypes | null,
+): CFGInstruction | null {
+  const value = renderedValue(node);
+  if (value === null) return null;
+  return aotScalarOf(producedType(value, types, classes)) === SCALAR_STRING ? value : null;
+}
+
+function spellLater(
+  editor: GraphEditor,
+  node: CFGInstruction,
+  value: CFGInstruction,
+  stamp: Stamp,
+): void {
+  const callee = node.inputs[0]!;
+  const member = stamp(irGenericGetProp(value, TO_STRING_MEMBER));
+  const spelled = stamp(irGenericCall(member, [value]));
+  spelled.props.isMethod = true;
+  spelled.frameState = node.frameState;
+  editor.insertBefore(node, member);
+  editor.insertBefore(node, spelled);
+  editor.replaceAllUses(node, spelled);
+  editor.remove(node);
+  if (callee.uses.length === 0) editor.remove(callee);
 }
 
 type Lowering = {
@@ -95,6 +203,7 @@ function applyLowering(editor: GraphEditor, lowering: Lowering, stamp: Stamp): v
 }
 
 export function lowerGlobalBuiltins(graph: CFGFunction, types: TypeInference): number {
+  const classes = graph.classes;
   const editor = new GraphEditor(graph);
   const stamp = nodeIdStamper(graph);
   let count = 0;
@@ -102,17 +211,27 @@ export function lowerGlobalBuiltins(graph: CFGFunction, types: TypeInference): n
     for (const node of [...block.nodes]) {
       if (node.block !== block) continue;
       if (node.type === IR_GENERIC_CALL && node.props.isMethod !== true) {
-        const text = alreadyText(node, types);
-        if (text !== null) {
+        const kept = alreadyText(node, types, classes) ?? alreadyNumeric(node, types, classes);
+        if (kept !== null) {
           const callee = node.inputs[0]!;
-          editor.replaceAllUses(node, text);
+          editor.replaceAllUses(node, kept);
           editor.remove(node);
           if (callee.uses.length === 0) editor.remove(callee);
           count++;
           continue;
         }
       }
-      const lowering = loweringFor(node) ?? renderLowering(node, types);
+      const spelled = spellsBoolean(node, types, classes);
+      if (spelled !== null) {
+        spellLater(editor, node, spelled, stamp);
+        count++;
+        continue;
+      }
+      const lowering =
+        loweringFor(node) ??
+        renderLowering(node, types, classes) ??
+        parseLowering(node, types, classes) ??
+        countedLowering(node, types, classes);
       if (lowering === null) continue;
       applyLowering(editor, lowering, stamp);
       count++;

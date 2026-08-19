@@ -304,6 +304,41 @@ function stringReplace(abi: RuntimeAbi, all: boolean): Emit {
       ["r9", 8],
       ["rcx", 8],
     ]);
+
+    /** Copies the replacement out of `rcx`, leaving for `next` once it is spent. */
+    const putFresh = (label: string, next: string): void => {
+      builder
+        .emit("xorl", builder.write("rbx", 4), builder.read("rbx", 4))
+        .at(label)
+        .emit(
+          "movzbl",
+          builder.write("r12", 4),
+          mem(1, { base: builder.read("rcx", 8), index: builder.read("rbx", 8), scale: 1 }),
+        )
+        .emit("testb", builder.read("r12", 1), builder.read("r12", 1))
+        .to("je", next)
+        .emit("testl", builder.read(CAPACITY, 4), builder.read(CAPACITY, 4))
+        .to("jle", "terminate")
+        .emit("movb", mem(1, { base: builder.read("rdx", 8) }), builder.read("r12", 1))
+        .emit("incq", builder.write("rdx", 8))
+        .emit("incq", builder.write("rbx", 8))
+        .emit("decl", builder.write(CAPACITY, 4))
+        .to("jmp", label);
+    };
+
+    /** Copies one source byte out of `r8`, leaving for `next` once it is written. */
+    const putSource = (next: string): void => {
+      builder
+        .emit("testl", builder.read(CAPACITY, 4), builder.read(CAPACITY, 4))
+        .to("jle", "terminate")
+        .emit("movzbl", builder.write("r12", 4), mem(1, { base: builder.read("r8", 8) }))
+        .emit("movb", mem(1, { base: builder.read("rdx", 8) }), builder.read("r12", 1))
+        .emit("incq", builder.write("rdx", 8))
+        .emit("incq", builder.write("r8", 8))
+        .emit("decl", builder.write(CAPACITY, 4))
+        .to("jmp", next);
+    };
+
     builder
       .emit("pushq", builder.read("rbx", 8))
       .emit("pushq", builder.read("r12", 8))
@@ -312,6 +347,8 @@ function stringReplace(abi: RuntimeAbi, all: boolean): Emit {
       .emit("testl", builder.read(CAPACITY, 4), builder.read(CAPACITY, 4))
       .to("jle", "done")
       .emit("decl", builder.write(CAPACITY, 4))
+      .emit("cmpb", mem(1, { base: builder.read("r9", 8) }), imm(0))
+      .to("je", "gaps")
       .at("scan")
       .emit("cmpb", mem(1, { base: builder.read("r8", 8) }), imm(0))
       .to("je", "terminate")
@@ -334,23 +371,9 @@ function stringReplace(abi: RuntimeAbi, all: boolean): Emit {
       .to("jne", "keep")
       .emit("incq", builder.write("rbx", 8))
       .to("jmp", "match")
-      .at("matched")
-      .emit("xorl", builder.write("rbx", 4), builder.read("rbx", 4))
-      .at("put")
-      .emit(
-        "movzbl",
-        builder.write("r12", 4),
-        mem(1, { base: builder.read("rcx", 8), index: builder.read("rbx", 8), scale: 1 }),
-      )
-      .emit("testb", builder.read("r12", 1), builder.read("r12", 1))
-      .to("je", "advance")
-      .emit("testl", builder.read(CAPACITY, 4), builder.read(CAPACITY, 4))
-      .to("jle", "terminate")
-      .emit("movb", mem(1, { base: builder.read("rdx", 8) }), builder.read("r12", 1))
-      .emit("incq", builder.write("rdx", 8))
-      .emit("incq", builder.write("rbx", 8))
-      .emit("decl", builder.write(CAPACITY, 4))
-      .to("jmp", "put")
+      .at("matched");
+    putFresh("put", "advance");
+    builder
       .at("advance")
       .emit("xorl", builder.write("rbx", 4), builder.read("rbx", 4))
       .at("skip")
@@ -367,17 +390,27 @@ function stringReplace(abi: RuntimeAbi, all: boolean): Emit {
     if (!all) {
       builder.emit("addq", builder.write("r9", 8), builder.read("rbx", 8));
     }
+    builder.to("jmp", "scan").at("keep");
+    putSource("scan");
+
+    // An empty needle matches in the gaps: once before the text for `replace`, and
+    // between the characters for `replace_all`, which reads as splitting and rejoining.
+    builder.at("gaps");
+    if (!all) putFresh("lead", "gapscan");
     builder
-      .to("jmp", "scan")
-      .at("keep")
-      .emit("testl", builder.read(CAPACITY, 4), builder.read(CAPACITY, 4))
-      .to("jle", "terminate")
-      .emit("movzbl", builder.write("r12", 4), mem(1, { base: builder.read("r8", 8) }))
-      .emit("movb", mem(1, { base: builder.read("rdx", 8) }), builder.read("r12", 1))
-      .emit("incq", builder.write("rdx", 8))
-      .emit("incq", builder.write("r8", 8))
-      .emit("decl", builder.write(CAPACITY, 4))
-      .to("jmp", "scan")
+      .at("gapscan")
+      .emit("cmpb", mem(1, { base: builder.read("r8", 8) }), imm(0))
+      .to("je", "terminate");
+    if (all) {
+      builder
+        .emit("cmpq", builder.read("r8", 8), builder.read(SOURCE, 8))
+        .to("je", "gapput");
+      putFresh("separate", "gapput");
+    }
+    builder.at("gapput");
+    putSource("gapscan");
+
+    builder
       .at("terminate")
       .emit("movb", mem(1, { base: builder.read("rdx", 8) }), imm(0))
       .at("done")

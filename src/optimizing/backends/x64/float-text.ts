@@ -15,6 +15,7 @@ import {
   FLOAT64_MANTISSA_BITS,
   FLOAT64_MANTISSA_MASK,
   FLOAT64_MIN_EXPONENT,
+  FLOAT64_NULL_BITS,
   FLOAT64_SIGN_SHIFT,
   FLOAT64_SIGNIFICANT_DIGITS,
 } from "../../target/float64.js";
@@ -33,6 +34,7 @@ import {
   NEGATIVE_FLAG,
   NEGATIVE_INFINITY_TEXT,
   NOT_A_NUMBER_TEXT,
+  NULL_TEXT,
   PLUS_SIGN,
   RADIX,
   STATE_BYTES,
@@ -62,6 +64,7 @@ const STATE_KEY = KEYS.state;
 const DIGITS_KEY = KEYS.digits;
 const EXPONENT_KEY = KEYS.exponent;
 const NOT_A_NUMBER_KEY = KEYS.notANumber;
+const ABSENT_KEY = KEYS.absent;
 const INFINITY_KEY = KEYS.infinity;
 const NEGATIVE_INFINITY_KEY = KEYS.negativeInfinity;
 
@@ -563,6 +566,13 @@ function emitDecode(context: DriverContext, abi: RuntimeAbi): void {
     .to("jmp", "return")
     .at("decode")
     .emit("movq", w(DIGIT, 8), r(value))
+    .emit("movabsq", w("rdx", 8), imm(FLOAT64_NULL_BITS))
+    .emit("cmpq", r(DIGIT, 8), r("rdx", 8))
+    .to("jne", "present");
+  copyText(context, ABSENT_KEY, NULL_TEXT, "absent.text");
+  builder
+    .to("jmp", "terminate")
+    .at("present")
     .emit("movq", w("rax", 8), r(DIGIT))
     .emit("shrq", w("rax", 8), imm(FLOAT64_SIGN_SHIFT))
     .emit("movl", w(FLAGS), r("rax", 4))
