@@ -478,6 +478,10 @@ export class RiscvLowering implements MachineLowering {
       ctx.emit(instruction("li", [writeOf(into), imm(value | 0)]));
       return into;
     }
+    if (scalar === SCALAR_POINTER) {
+      ctx.emit(instruction("li", [writeOf(into), imm(value)]));
+      return into;
+    }
     const bits = doubleBits(value);
     const datum = ctx.data.intern(`double:${bits}`, 8, [integerData(bits, 8)]);
     const address = ctx.tempIn(RISCV_GPR, 8);
@@ -624,6 +628,15 @@ export class RiscvLowering implements MachineLowering {
   }
 
   private selectStringCompare(ctx: SelectionContext): void {
+    if (ctx.node.inputs.every((input) => ctx.scalarOf(input) === SCALAR_POINTER)) {
+      this.emitIntCondition(
+        ctx,
+        String(ctx.node.props.op),
+        ctx.registerOf(ctx.node.inputs[0]!),
+        ctx.registerOf(ctx.node.inputs[1]!),
+      );
+      return;
+    }
     const left = ctx.registerOf(ctx.node.inputs[0]!);
     const right = ctx.registerOf(ctx.node.inputs[1]!);
     const ordering = ctx.temp(SCALAR_INT32);
@@ -683,6 +696,15 @@ export class RiscvLowering implements MachineLowering {
   }
 
   private selectFloatCompare(ctx: SelectionContext): void {
+    if (ctx.node.inputs.every((input) => ctx.scalarOf(input) === SCALAR_POINTER)) {
+      this.emitIntCondition(
+        ctx,
+        String(ctx.node.props.op),
+        ctx.registerOf(ctx.node.inputs[0]!),
+        ctx.registerOf(ctx.node.inputs[1]!),
+      );
+      return;
+    }
     const left = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_FLOAT64);
     const right = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_FLOAT64);
     const result = this.destination(ctx, SCALAR_INT32);

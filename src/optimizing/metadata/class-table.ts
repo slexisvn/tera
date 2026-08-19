@@ -11,6 +11,7 @@ import {
 } from "../target/runtime-layout.js";
 import {
   builtinTypeEnv,
+  declaredAcceptsNull,
   declaredNameOf,
   latticeFromDeclaredType,
   type NominalTypes,
@@ -18,6 +19,7 @@ import {
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 import {
   aotScalarOf,
+  isReferenceScalar,
   isStorableScalar,
   scalarAlignment,
   scalarWidth,
@@ -254,6 +256,8 @@ function fieldScalarOf(declaredType: string, nominal: NominalTypes): AotScalar |
   const type = latticeFromDeclaredType(declaredType, builtinTypeEnv(), nominal);
   if (type.kind === TypeKind.Any) return null;
   const scalar = isStorableScalar(aotScalarOf(type));
+  if (scalar === null) return null;
+  if (declaredAcceptsNull(declaredType) && !isReferenceScalar(scalar)) return null;
   return scalar === SCALAR_STRING ? SCALAR_TEXT : scalar;
 }
 

@@ -6,6 +6,7 @@ import type { TypeInference } from "../analyses/type-inference.js";
 import {
   excludeType,
   narrowType,
+  acceptsNull,
   numberType,
   objectType,
   smiType,
@@ -188,7 +189,9 @@ class Narrower {
     if (left === undefined || right === undefined) return null;
     const value = isNullishConstant(right) ? left : isNullishConstant(left) ? right : null;
     if (value === null) return null;
-    return DEFINED_KINDS.has(this.typeAt(value).kind) ? result : null;
+    const type = this.typeAt(value);
+    if (acceptsNull(type)) return null;
+    return DEFINED_KINDS.has(type.kind) ? result : null;
   }
 
   private foldDefinedComparison(node: ir.CFGInstruction): boolean {

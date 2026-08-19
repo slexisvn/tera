@@ -9,7 +9,9 @@ import {
   IR_GENERIC_GET_PROP,
   IR_GENERIC_SET_PROP,
   IR_LOAD_ELEMENT,
+  IR_LOAD_FIELD,
   IR_NEW_OBJECT,
+  IR_PHI,
   irBranch,
   irCallKnownFunction,
   irConstant,
@@ -48,6 +50,7 @@ import {
 } from "../metadata/class-table.js";
 import { arrayElementShapeOf } from "./array-shapes.js";
 import { TypeKind } from "../types/lattice.js";
+import { nominalLatticeType } from "../types/declared.js";
 import { scalarWidth, SCALAR_INT32, SCALAR_TEXT } from "../types/scalar.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import type { DeclaredSignature } from "../types/signature.js";
@@ -89,6 +92,45 @@ function allocatesReceiver(receiver: CFGInstruction): boolean {
   return receiver.type === IR_NEW_OBJECT || receiver.type === IR_GENERIC_CALL;
 }
 
+function shapeOfValue(
+  value: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): ClassShape | null {
+  const carried = value.props[VALUE_CLASS_PROP];
+  if (typeof carried === "number") return classes.shapeById(carried);
+  const type = types.typeOf(value);
+  if (type.kind === TypeKind.Object && typeof type.map === "number") {
+    return classes.shapeById(type.map);
+  }
+  return constructedShapeOf(value, classes) ?? elementShapeOf(value, graph, classes, types);
+}
+
+function readsFrom(value: CFGInstruction, receiver: CFGInstruction): boolean {
+  return (
+    (value.type === IR_GENERIC_GET_PROP || value.type === IR_LOAD_FIELD) &&
+    value.inputs[0] === receiver
+  );
+}
+
+function loopReceiverShape(
+  phi: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): ClassShape | null {
+  if (phi.type !== IR_PHI) return null;
+  let agreed: ClassShape | null = null;
+  for (const input of phi.inputs) {
+    if (readsFrom(input, phi)) continue;
+    const shape = shapeOfValue(input, graph, classes, types);
+    if (shape === null || (agreed !== null && agreed !== shape)) return null;
+    agreed = shape;
+  }
+  return agreed;
+}
+
 function shapeOfReceiver(
   receiver: CFGInstruction | undefined,
   graph: CFGFunction,
@@ -96,14 +138,9 @@ function shapeOfReceiver(
   types: TypeInference,
 ): ClassShape | null {
   if (receiver === undefined) return null;
-  const carried = receiver.props[VALUE_CLASS_PROP];
-  if (typeof carried === "number") return classes.shapeById(carried);
-  const type = types.typeOf(receiver);
-  if (type.kind === TypeKind.Object && typeof type.map === "number") {
-    return classes.shapeById(type.map);
-  }
   return (
-    constructedShapeOf(receiver, classes) ?? elementShapeOf(receiver, graph, classes, types)
+    shapeOfValue(receiver, graph, classes, types) ??
+    loopReceiverShape(receiver, graph, classes, types)
   );
 }
 
@@ -115,8 +152,15 @@ function shapeOfClassValue(
   return name === null ? null : classes.shapeOf(name);
 }
 
+function declaredShapeId(declaredType: string, classes: ClassTable): number | null {
+  const named = classes.shapeIdOf(declaredType);
+  if (named !== null) return named;
+  const type = nominalLatticeType(declaredType, classes);
+  return type.kind === TypeKind.Object && typeof type.map === "number" ? type.map : null;
+}
+
 function carryValueClass(node: CFGInstruction, declaredType: string, classes: ClassTable): void {
-  const shapeId = classes.shapeIdOf(declaredType);
+  const shapeId = declaredShapeId(declaredType, classes);
   if (shapeId !== null) node.props[VALUE_CLASS_PROP] = shapeId;
 }
 
@@ -532,9 +576,11 @@ export function resolveCalleeSignatures(graph: CFGFunction, types: TypeInference
   return resolved;
 }
 
-export function lowerClassMembers(graph: CFGFunction, types: TypeInference): number {
-  const classes = graph.classes;
-  if (classes === null) return 0;
+function lowerMemberRound(
+  graph: CFGFunction,
+  types: TypeInference,
+  classes: ClassTable,
+): number {
 
   const editor = new GraphEditor(graph);
   const stamp = nodeIdStamper(graph);
@@ -568,4 +614,10 @@ export function lowerClassMembers(graph: CFGFunction, types: TypeInference): num
   }
   if (count > 0) graph.rebuildUses();
   return count;
+}
+
+export function lowerClassMembers(graph: CFGFunction, types: TypeInference): number {
+  const classes = graph.classes;
+  if (classes === null) return 0;
+  return lowerMemberRound(graph, types, classes);
 }

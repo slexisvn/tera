@@ -1516,6 +1516,12 @@ class CFunctionEmitter {
         );
         continue;
       }
+      if (value === null) {
+        this.constantDeclarations.push(
+          `${declarationOf(this.typeNameOf(constant), name)} = 0;`,
+        );
+        continue;
+      }
       const expression =
         typeof value === "boolean"
           ? value
@@ -1802,6 +1808,10 @@ class CFunctionEmitter {
   }
 
   private emitCompare(ctx: EmitContext, asDouble: boolean): void {
+    if (asDouble && this.comparesReferences(ctx.node)) {
+      this.emitStringCompare(ctx);
+      return;
+    }
     const operator = COMPARE_OPERATORS.get(String(ctx.node.props.op));
     if (operator === undefined) {
       throw new Error(`C backend has no lowering for comparison ${String(ctx.node.props.op)}`);
@@ -1813,6 +1823,10 @@ class CFunctionEmitter {
     this.define(ctx, `${lhs} ${operator} ${rhs}`);
   }
 
+  private comparesReferences(node: CFGInstruction): boolean {
+    return node.inputs.every((input) => this.legality.scalarOf(input) === SCALAR_POINTER);
+  }
+
   private emitStringCompare(ctx: EmitContext): void {
     const operator = COMPARE_OPERATORS.get(String(ctx.node.props.op));
     if (operator === undefined) {
@@ -1820,6 +1834,10 @@ class CFunctionEmitter {
     }
     const left = this.nameOf(ctx.node.inputs[0]!);
     const right = this.nameOf(ctx.node.inputs[1]!);
+    if (this.comparesReferences(ctx.node)) {
+      this.define(ctx, `${left} ${operator} ${right}`);
+      return;
+    }
     this.define(ctx, `strcmp(${left}, ${right}) ${operator} 0`);
   }
 

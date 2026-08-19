@@ -484,6 +484,10 @@ export class X64Lowering implements MachineLowering {
       ctx.emit(instruction("movl", [writeOf(into), imm(value | 0)]));
       return into;
     }
+    if (scalar === SCALAR_POINTER) {
+      ctx.emit(instruction("movabsq", [writeOf(into), imm(value)]));
+      return into;
+    }
     const bits = doubleBits(value);
     const datum = ctx.data.intern(`double:${bits}`, 8, [integerData(bits, 8)]);
     ctx.emit(instruction("movsd", [writeOf(into), mem(8, { symbol: datum.label })]));
@@ -762,6 +766,10 @@ export class X64Lowering implements MachineLowering {
   }
 
   private selectCompare(ctx: SelectionContext, float: boolean): void {
+    if (float && ctx.node.inputs.every((input) => ctx.scalarOf(input) === SCALAR_POINTER)) {
+      this.selectReferenceCompare(ctx);
+      return;
+    }
     const operation = String(ctx.node.props.op);
     const scalar = float ? SCALAR_FLOAT64 : SCALAR_INT32;
     const left = this.coerce(ctx, ctx.node.inputs[0]!, scalar);
@@ -777,6 +785,10 @@ export class X64Lowering implements MachineLowering {
   }
 
   private selectStringCompare(ctx: SelectionContext): void {
+    if (ctx.node.inputs.every((input) => ctx.scalarOf(input) === SCALAR_POINTER)) {
+      this.selectReferenceCompare(ctx);
+      return;
+    }
     const left = ctx.registerOf(ctx.node.inputs[0]!);
     const right = ctx.registerOf(ctx.node.inputs[1]!);
     const ordering = ctx.temp(SCALAR_INT32);
@@ -785,6 +797,20 @@ export class X64Lowering implements MachineLowering {
     const zero = this.loadNumber(ctx, 0, SCALAR_INT32);
     const result = this.destination(ctx, SCALAR_INT32);
     const code = this.emitIntComparison(ctx, String(ctx.node.props.op), ordering, zero);
+    this.emitSetCondition(ctx, code, result);
+    this.produce(ctx, result, SCALAR_INT32);
+  }
+
+  private selectReferenceCompare(ctx: SelectionContext): void {
+    const operation = String(ctx.node.props.op);
+    const code = INT_CONDITIONS.get(operation);
+    if (code === undefined) {
+      throw new BackendLoweringError(`unsupported comparison ${operation}`);
+    }
+    const left = ctx.registerOf(ctx.node.inputs[0]!);
+    const right = ctx.registerOf(ctx.node.inputs[1]!);
+    ctx.emit(instruction("cmpq", [use(left, 8), use(right, 8)]));
+    const result = this.destination(ctx, SCALAR_INT32);
     this.emitSetCondition(ctx, code, result);
     this.produce(ctx, result, SCALAR_INT32);
   }

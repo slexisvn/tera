@@ -51,11 +51,12 @@ import {
   IR_LOAD_GLOBAL,
   heapElementScalarOf,
 } from "../ir/index.js";
+import { compiledFunctionConstant } from "../ir/compiled-function.js";
 import { analysisId, type AnalysisPass } from "../infra/analysis-manager.js";
 import { computeValueLiveness } from "./value-liveness.js";
 import type { CallReachability } from "../metadata/call-graph.js";
 import { NAMED_ARGUMENTS_PROP } from "../metadata/call-signatures.js";
-import { nominalLatticeType } from "../types/declared.js";
+import { declaredAcceptsNull, nominalLatticeType } from "../types/declared.js";
 import {
   aotElementScalarOf,
   aotScalarOf,
@@ -193,15 +194,55 @@ function globalValueReason(node: CFGInstruction): string {
   );
 }
 
+function memberCalledWith(node: CFGInstruction): string | null {
+  const call = node.uses.find((use) => use.type === IR_GENERIC_CALL);
+  const callee = call?.inputs[0];
+  if (callee?.type !== IR_GENERIC_GET_PROP) return null;
+  const member = callee.props.propName;
+  return typeof member === "string" ? member : null;
+}
+
+function functionValueReason(node: CFGInstruction, passed: string): string {
+  const member = memberCalledWith(node);
+  if (member === null) {
+    return `${passed} is used as a value, which the compiler cannot represent`;
+  }
+  const known = MEMBER_REASONS.get(member);
+  if (known !== undefined) return known;
+  return (
+    `${member} is called with ${passed}, which the compiler could not lower into a loop; ` +
+    `pass a function declared at the top level whose parameters the member can fill, or ` +
+    `keep this part interpreted`
+  );
+}
+
 function isStatement(node: CFGInstruction): boolean {
   if (STATEMENT_WHEN_UNUSED.has(node.type)) return true;
   if (node.type !== IR_CALL_BUILTIN) return false;
   return builtinIntrinsicByName(String(node.props.name))?.pure === false;
 }
 
+const MEMBER_REASONS: ReadonlyMap<string, string> = new Map<string, string>([
+  [
+    "find",
+    "find answers undefined when no element matches, which has no compiled " +
+      "representation; use find_index and read the element, or keep this part interpreted",
+  ],
+  [
+    "sort",
+    "sort without a comparator orders elements as text; pass a comparator that returns " +
+      "a number, or keep this part interpreted",
+  ],
+]);
+
 const REJECTIONS = new Map<string, (node: CFGInstruction) => string>([
   [IR_NEW_ARRAY, () => "array has an unsupported element type"],
-  [IR_GENERIC_GET_PROP, (node) => `unsupported property ${String(node.props.propName)}`],
+  [
+    IR_GENERIC_GET_PROP,
+    (node) =>
+      MEMBER_REASONS.get(String(node.props.propName)) ??
+      `unsupported property ${String(node.props.propName)}`,
+  ],
   [IR_GENERIC_CALL, () => "unsupported generic call"],
 ]);
 
@@ -209,6 +250,13 @@ export const AOT_PRINTABLE: ReadonlySet<AotScalar> = new Set<AotScalar>([
   SCALAR_INT32,
   SCALAR_FLOAT64,
   SCALAR_STRING,
+]);
+
+const EQUALITY_OPERATORS: ReadonlySet<string> = new Set<string>([
+  "==",
+  "!=",
+  "loose==",
+  "loose!=",
 ]);
 
 const ASCII_LIMIT = 0x7f;
@@ -769,6 +817,15 @@ class LegalityAnalyzer implements AotLegality {
       }
       return;
     }
+    if (value === null) {
+      this.scalars.set(node, SCALAR_POINTER);
+      return;
+    }
+    const compiled = compiledFunctionConstant(value);
+    if (compiled !== null) {
+      this.fail(functionValueReason(node, compiled.name ?? "a function"));
+      return;
+    }
     const scalar = this.require(node, node.type);
     if (scalar === null || scalar === SCALAR_VOID) return;
     if (typeof value === "boolean") return;
@@ -839,6 +896,13 @@ class LegalityAnalyzer implements AotLegality {
       if (this.failure !== null) return;
     }
     if (node.type === IR_GENERIC_COMPARE && !this.checkStringCompare(node)) return;
+    if (node.type === IR_FLOAT64_COMPARE && this.comparesReferences(node)) {
+      if (!EQUALITY_OPERATORS.has(String(node.props.op))) {
+        this.fail("references can only be compared for equality");
+        return;
+      }
+      this.scalars.set(node, SCALAR_INT32);
+    }
     if (node.type === IR_RETURN && node.inputs[0] === undefined) {
       this.fail("return without a value");
       return;
@@ -882,11 +946,23 @@ class LegalityAnalyzer implements AotLegality {
     this.scalars.set(node, element);
   }
 
+  private comparedScalarOf(value: CFGInstruction): AotScalar | null {
+    return this.scalars.get(value) ?? aotScalarOf(this.types.typeOf(value));
+  }
+
+  comparesReferences(node: CFGInstruction): boolean {
+    return node.inputs.every((input) => this.comparedScalarOf(input) === SCALAR_POINTER);
+  }
+
   private checkStringCompare(node: CFGInstruction): boolean {
     const strings = node.inputs.every(
-      (input) => aotScalarOf(this.types.typeOf(input)) === SCALAR_STRING,
+      (input) => this.comparedScalarOf(input) === SCALAR_STRING,
     );
     if (strings) return true;
+    if (this.comparesReferences(node) && EQUALITY_OPERATORS.has(String(node.props.op))) {
+      this.scalars.set(node, SCALAR_INT32);
+      return true;
+    }
     this.fail(
       `${node.type} compares values the compiler cannot compare natively; annotate the ` +
         `operands, or keep this part interpreted`,
@@ -953,6 +1029,9 @@ class LegalityAnalyzer implements AotLegality {
     if (returned.type === IR_CONSTANT) {
       const value = returned.props.value;
       if (typeof value === "string") return SCALAR_STRING;
+      if (value === null) {
+        return isReferenceScalar(this.returnScalar) ? null : SCALAR_POINTER;
+      }
       return value === 0 ? null : SCALAR_FLOAT64;
     }
     return this.scalars.get(returned) ?? aotScalarOf(this.types.typeOf(returned));
@@ -995,6 +1074,14 @@ class LegalityAnalyzer implements AotLegality {
     const declared = this.graph.declaredSignature?.returns;
     if (declared !== null && declared !== undefined) {
       const scalar = aotScalarOf(nominalLatticeType(declared, this.graph.classes));
+      if (scalar !== null && declaredAcceptsNull(declared) && !isReferenceScalar(scalar)) {
+        this.fail(
+          `${declared} is a number that can also be null, which has no compiled ` +
+            `representation; return a reference type or a plain number, or keep this ` +
+            `part interpreted`,
+        );
+        return null;
+      }
       if (scalar !== null) {
         this.declaredReturn = true;
         return scalar;

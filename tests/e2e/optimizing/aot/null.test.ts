@@ -1,0 +1,202 @@
+import { describe, expect, it } from "vitest";
+import { nodeEngine } from "../../../helpers/engine.js";
+import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
+import { cSource, itNative, runCProgram } from "../../../helpers/c-executor.js";
+
+const src = (...lines: string[]) => lines.join("\n");
+
+function interpreted(source: string): string {
+  const stream: string[] = [];
+  nodeEngine({ typecheck: "off", output: (text) => stream.push(`${text}\n`) }).run(
+    `${source}\n`,
+  );
+  return stream.join("");
+}
+
+function image(source: string): Uint8Array {
+  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
+    backend: "x64-windows",
+    format: "executable",
+  });
+  expect(program.skipped).toEqual([]);
+  return program.files[0]!.contents as Uint8Array;
+}
+
+function agrees(source: string): void {
+  const run = runPe(image(source));
+
+  expect(run.status).toBe(0);
+  expect(run.stdout).toBe(interpreted(source));
+}
+
+function agreesInC(source: string): void {
+  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
+    backend: "c",
+    format: "assembly",
+  });
+
+  expect(program.skipped).toEqual([]);
+  expect(runCProgram(cSource(program)).stdout).toBe(interpreted(source));
+}
+
+function declined(source: string): string {
+  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`);
+  return program.skipped.map((entry) => entry.reason).join("; ");
+}
+
+const NODE = [
+  "class Node:",
+  "  public next: Node | null = null",
+  "  public constructor(v: int):",
+  "    this.v = v",
+];
+
+const PROGRAMS: readonly (readonly [string, string])[] = [
+  ["starts a declared reference field as null", src(...NODE, "n = Node(1)", "print(n.next == null)")],
+  ["reports a field holding an object as not null", src(
+    ...NODE,
+    "a = Node(1)",
+    "a.next = Node(2)",
+    "print(a.next == null)",
+  )],
+  ["compares the other way round", src(...NODE, "a = Node(1)", "print(a.next != null)")],
+  ["reads through a field that holds an object", src(
+    ...NODE,
+    "a = Node(1)",
+    "a.next = Node(2)",
+    "print(a.next.v)",
+  )],
+  ["walks a linked list to its end", src(
+    ...NODE,
+    "a = Node(1)",
+    "b = Node(2)",
+    "c = Node(3)",
+    "a.next = b",
+    "b.next = c",
+    "walker = a",
+    "total = 0",
+    "while walker != null:",
+    "  total = total + walker.v",
+    "  walker = walker.next",
+    "print(total)",
+  )],
+  ["counts the links of a list", src(
+    ...NODE,
+    "a = Node(1)",
+    "a.next = Node(2)",
+    "walker = a",
+    "links = 0",
+    "while walker.next != null:",
+    "  links = links + 1",
+    "  walker = walker.next",
+    "print(links)",
+  )],
+  ["returns null from a declared nullable return", src(
+    ...NODE,
+    "fn pick(f: bool) -> Node | null:",
+    "  if f:",
+    "    return Node(7)",
+    "  return null",
+    "print(pick(false) == null)",
+  )],
+  ["returns an object from a declared nullable return", src(
+    ...NODE,
+    "fn pick(f: bool) -> Node | null:",
+    "  if f:",
+    "    return Node(7)",
+    "  return null",
+    "print(pick(true) == null)",
+  )],
+  ["reads a field off a nullable return", src(
+    ...NODE,
+    "fn pick(f: bool) -> Node | null:",
+    "  if f:",
+    "    return Node(7)",
+    "  return null",
+    "found = pick(true)",
+    "if found != null:",
+    "  print(found.v)",
+  )],
+  ["takes null as an argument", src(
+    ...NODE,
+    "fn empty(n: Node | null) -> bool:",
+    "  return n == null",
+    "print(empty(null))",
+  )],
+  ["takes an object where null is allowed", src(
+    ...NODE,
+    "fn empty(n: Node | null) -> bool:",
+    "  return n == null",
+    "print(empty(Node(1)))",
+  )],
+  ["clears a field back to null", src(
+    ...NODE,
+    "a = Node(1)",
+    "a.next = Node(2)",
+    "a.next = null",
+    "print(a.next == null)",
+  )],
+  ["compares two objects for identity", src(
+    ...NODE,
+    "a = Node(1)",
+    "b = Node(2)",
+    "print(a == b)",
+  )],
+  ["compares an object with itself", src(...NODE, "a = Node(1)", "b = a", "print(a == b)")],
+  ["builds a two-level tree", src(
+    "class Branch:",
+    "  public left: Branch | null = null",
+    "  public right: Branch | null = null",
+    "  public constructor(v: int):",
+    "    this.v = v",
+    "root = Branch(1)",
+    "root.left = Branch(2)",
+    "root.right = Branch(3)",
+    "sum = root.v",
+    "if root.left != null:",
+    "  sum = sum + root.left.v",
+    "if root.right != null:",
+    "  sum = sum + root.right.v",
+    "print(sum)",
+  )],
+];
+
+describe("AOT nullable references", () => {
+  for (const [name, source] of PROGRAMS) {
+    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
+    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+  }
+
+  itRunsPe("stores the null pointer for a field that was never assigned", () => {
+    const run = runPe(image(src(...NODE, "n = Node(1)", "print(n.next == null, n.v)")));
+
+    expect(run.stdout).toBe("true 1\n");
+  });
+
+  it("declines a number that can also be null", () => {
+    expect(
+      declined(src("fn pick(f: bool) -> int | null:", "  if f:", "    return 1", "  return null")),
+    ).toContain("number that can also be null");
+  });
+
+  it("declines a field that holds a number or null", () => {
+    expect(
+      declined(
+        src(
+          "class Box:",
+          "  public size: int | null = null",
+          "  public constructor(v: int):",
+          "    this.v = v",
+          "b = Box(1)",
+          "print(b.v)",
+        ),
+      ),
+    ).toContain("GenericSetProp");
+  });
+
+  it("declines returning null where a number is declared", () => {
+    expect(
+      declined(src("fn pick(f: bool) -> int:", "  if f:", "    return 1", "  return null")),
+    ).toContain("does not match its return type");
+  });
+});

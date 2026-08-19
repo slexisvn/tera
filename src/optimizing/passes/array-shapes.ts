@@ -67,6 +67,7 @@ const COUNT_TYPE = "int";
 const LENGTH_MEMBER = "length";
 const PUSH_MEMBER = "push";
 const ONE_ELEMENT = 1;
+const EMPTY_LENGTH = 0;
 const CALLEE_AND_RECEIVER = 2;
 
 export type Stamp = (node: CFGInstruction) => CFGInstruction;
@@ -439,6 +440,64 @@ function replaceElement(
   editor.remove(node);
 }
 
+export function arrayModelForElement(
+  classes: ClassTable,
+  element: LatticeType,
+): ArrayModel | null {
+  return modelOf(classes.defineArray(element), classes);
+}
+
+export function emptyArray(
+  editor: GraphEditor,
+  before: CFGInstruction,
+  model: ArrayModel,
+  stamp: Stamp,
+): CFGInstruction {
+  const buffer = allocateObject(
+    editor,
+    before,
+    model.buffer,
+    arrayBufferBytes(model.element, EMPTY_LENGTH),
+    stamp,
+  );
+  const array = allocateObject(editor, before, model.shape, model.shape.size, stamp);
+  const empty = constantAt(editor, before, EMPTY_LENGTH, stamp);
+  storeCount(editor, before, array, ARRAY_LENGTH_OFFSET, empty, model, stamp);
+  storeCount(editor, before, array, ARRAY_CAPACITY_OFFSET, empty, model, stamp);
+  const elements = stamp(irStoreField(array, ARRAY_ELEMENTS_OFFSET, buffer));
+  elements.props[CLASS_ID_PROP] = model.shape.id;
+  elements.props[FIELD_SCALAR_PROP] = SCALAR_POINTER;
+  elements.props[FIELD_TYPE_PROP] = model.buffer.name;
+  editor.insertBefore(before, elements);
+  return array;
+}
+
+export function pushElement(
+  editor: GraphEditor,
+  before: CFGInstruction,
+  array: CFGInstruction,
+  value: CFGInstruction,
+  model: ArrayModel,
+  stamp: Stamp,
+): CFGInstruction {
+  const buffer = stamp(
+    irArrayReserve(array, model.buffer.id, scalarWidth(model.element)),
+  );
+  buffer.props[VALUE_CLASS_PROP] = model.buffer.id;
+  buffer.frameState = before.frameState;
+  editor.insertBefore(before, buffer);
+
+  const length = loadCount(editor, before, array, ARRAY_LENGTH_OFFSET, model, stamp);
+  elementAccess(editor, before, irStoreElement(buffer, length, value), model, stamp);
+
+  const step = constantAt(editor, before, ONE_ELEMENT, stamp);
+  const grown = stamp(irInt32Add(length, step));
+  grown.props.noOverflow = true;
+  editor.insertBefore(before, grown);
+  storeCount(editor, before, array, ARRAY_LENGTH_OFFSET, grown, model, stamp);
+  return grown;
+}
+
 function replacePush(
   editor: GraphEditor,
   node: CFGInstruction,
@@ -446,23 +505,7 @@ function replacePush(
   model: ArrayModel,
   stamp: Stamp,
 ): void {
-  const array = node.inputs[1]!;
-  const buffer = stamp(
-    irArrayReserve(array, model.buffer.id, scalarWidth(model.element)),
-  );
-  buffer.props[VALUE_CLASS_PROP] = model.buffer.id;
-  buffer.frameState = node.frameState;
-  editor.insertBefore(node, buffer);
-
-  const length = loadCount(editor, node, array, ARRAY_LENGTH_OFFSET, model, stamp);
-  elementAccess(editor, node, irStoreElement(buffer, length, node.inputs[2]!), model, stamp);
-
-  const step = constantAt(editor, node, ONE_ELEMENT, stamp);
-  const grown = stamp(irInt32Add(length, step));
-  grown.props.noOverflow = true;
-  editor.insertBefore(node, grown);
-  storeCount(editor, node, array, ARRAY_LENGTH_OFFSET, grown, model, stamp);
-
+  const grown = pushElement(editor, node, node.inputs[1]!, node.inputs[2]!, model, stamp);
   editor.replaceAllUses(node, grown);
   editor.remove(node);
   if (callee.uses.length === 0) editor.remove(callee);

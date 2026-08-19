@@ -110,6 +110,18 @@ export function latticeFromDeclaredType(
   return result;
 }
 
+export function declaredAcceptsNull(
+  source: string | null | undefined,
+  env: TypeEnv = builtinTypeEnv(),
+): boolean {
+  if (source === null || source === undefined) return false;
+  const cleaned = cleanType(source);
+  if (cleaned.length === 0) return false;
+  const parts = unionParts(cleaned, env);
+  if (parts.length < 2) return false;
+  return parts.some((part) => PRIMITIVE_TYPES.get(part)?.kind === TypeKind.Nullish);
+}
+
 export function nominalLatticeType(
   source: string | null | undefined,
   nominal: NominalTypes | null,

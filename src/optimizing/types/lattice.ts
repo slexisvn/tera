@@ -29,6 +29,7 @@ export type SingletonType = Readonly<{
 export type ObjectType = Readonly<{
   kind: typeof TypeKind.Object;
   map: IRMetadataValue | null;
+  nullable: boolean;
 }>;
 
 export type ArrayType = Readonly<{
@@ -91,8 +92,23 @@ export function neverType(): SingletonType {
   return singleton(TypeKind.Never);
 }
 
-export function objectType(map: IRMetadataValue | null = null): ObjectType {
-  return Object.freeze({ kind: TypeKind.Object, map });
+export function objectType(
+  map: IRMetadataValue | null = null,
+  nullable = false,
+): ObjectType {
+  return Object.freeze({ kind: TypeKind.Object, map, nullable });
+}
+
+export function nullableObjectType(map: IRMetadataValue | null): ObjectType {
+  return objectType(map, true);
+}
+
+export function withoutNull(type: LatticeType): LatticeType {
+  return type.kind === TypeKind.Object && type.nullable ? objectType(type.map) : type;
+}
+
+export function acceptsNull(type: LatticeType): boolean {
+  return type.kind === TypeKind.Nullish || (type.kind === TypeKind.Object && type.nullable);
 }
 
 export function arrayType(elementsKind: IRMetadataValue | null = null): ArrayType {
@@ -103,7 +119,7 @@ export function typeEquals(left: NullableType, right: NullableType): boolean {
   if (!left || !right) return false;
   if (left.kind !== right.kind) return false;
   if (left.kind === TypeKind.Object && right.kind === TypeKind.Object) {
-    return left.map === right.map;
+    return left.map === right.map && left.nullable === right.nullable;
   }
   if (left.kind === TypeKind.Array && right.kind === TypeKind.Array) {
     return left.elementsKind === right.elementsKind;
@@ -124,8 +140,10 @@ export function isSubtype(
     return subtype.kind === TypeKind.Smi || subtype.kind === TypeKind.Double;
   }
   if (supertype.kind === TypeKind.Object) {
+    if (subtype.kind === TypeKind.Nullish) return supertype.nullable;
     if (subtype.kind === TypeKind.Array) return supertype.map === null;
     if (subtype.kind !== TypeKind.Object) return false;
+    if (subtype.nullable && !supertype.nullable) return false;
     return supertype.map === null || subtype.map === supertype.map;
   }
   if (supertype.kind === TypeKind.Array) {
@@ -158,8 +176,14 @@ export function joinTypes(
   ) {
     return numberType();
   }
+  if (left.kind === TypeKind.Object && right.kind === TypeKind.Nullish) {
+    return nullableObjectType(left.map);
+  }
+  if (left.kind === TypeKind.Nullish && right.kind === TypeKind.Object) {
+    return nullableObjectType(right.map);
+  }
   if (left.kind === TypeKind.Object && right.kind === TypeKind.Object) {
-    return objectType();
+    return objectType(null, left.nullable || right.nullable);
   }
   if (left.kind === TypeKind.Array && right.kind === TypeKind.Array) {
     return arrayType();
