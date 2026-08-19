@@ -2,7 +2,14 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   GraphValidationError,
   validateOptimizedGraph,
+  validateRepresentations,
 } from "../../../src/optimizing/validation/graph-validator.js";
+import {
+  REP_BOOL,
+  REP_FLOAT64,
+  REP_HANDLE,
+  REP_INT32,
+} from "../../../src/optimizing/types/representation.js";
 import {
   CFGFunction,
   irConstant,
@@ -240,6 +247,74 @@ describe("validateOptimizedGraph", () => {
 
     expect(() => validateOptimizedGraph(graph)).toThrow(
       /no operation spec for NotAnOperation/,
+    );
+  });
+});
+
+describe("validateRepresentations", () => {
+  const twoReturns = (left: string, right: string) => {
+    const graph = new CFGFunction("test");
+    const entry = graph.addBlock();
+    const first = graph.addBlock();
+    const second = graph.addBlock();
+
+    const cond = irConstant(true);
+    cond.props._rep = REP_BOOL;
+    entry.addNode(cond);
+    link(entry, first);
+    link(entry, second);
+    entry.addNode(irBranch(cond, first, second));
+
+    const a = irConstant(1);
+    a.props._rep = left;
+    first.addNode(a);
+    first.addNode(irReturn(a));
+
+    const b = irConstant(2);
+    b.props._rep = right;
+    second.addNode(b);
+    second.addNode(irReturn(b));
+
+    return graph;
+  };
+
+  it("passes when every return matches the declared representation", () => {
+    const graph = twoReturns(REP_INT32, REP_FLOAT64);
+    graph.returnRepresentation = REP_FLOAT64;
+
+    expect(validateRepresentations(graph)).toBe(true);
+  });
+
+  it("rejects a return whose abi representation differs from the declared one", () => {
+    const graph = twoReturns(REP_INT32, REP_HANDLE);
+    graph.returnRepresentation = REP_INT32;
+
+    expect(() => validateRepresentations(graph)).toThrow(
+      /returns handle but the graph declares tagged-number/,
+    );
+  });
+
+  it("rejects a value-producing node the legalizer never stamped", () => {
+    const graph = twoReturns(REP_INT32, REP_INT32);
+    graph.returnRepresentation = REP_INT32;
+    const stray = irConstant(9);
+    stray.props._rep = REP_INT32;
+    graph.blocks[1].nodes.unshift(stray);
+    stray.block = graph.blocks[1];
+    expect(validateRepresentations(graph)).toBe(true);
+
+    delete stray.props._rep;
+
+    expect(() => validateRepresentations(graph)).toThrow(
+      /v\d+ Constant has no representation/,
+    );
+  });
+
+  it("rejects a graph that never declared a return representation", () => {
+    const graph = twoReturns(REP_INT32, REP_INT32);
+
+    expect(() => validateRepresentations(graph)).toThrow(
+      /no return representation/,
     );
   });
 });

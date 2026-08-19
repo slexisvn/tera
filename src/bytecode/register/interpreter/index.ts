@@ -83,6 +83,7 @@ import {
   FEEDBACK_BINARY_OP,
   FEEDBACK_UNARY_OP,
   FEEDBACK_CALL,
+  FEEDBACK_BRANCH,
 } from "../../../feedback/vector/index.js";
 import { tracer } from "../../../core/tracing/index.js";
 import { builtins, installBuiltinEntries, ERROR_CONSTRUCTOR_NAMES } from "../../../runtime/builtins/index.js";
@@ -885,6 +886,16 @@ export class RegisterInterpreter {
             const slotIndex = operands.length >= 4 ? numericOperand(operands[3]) : null;
             if (slotIndex !== null && slotIndex < fv.slots.length) {
               fv.initSlot(slotIndex, FEEDBACK_CALL);
+            }
+          }
+          break;
+
+        case bytecode.ROP_JUMP_IF_FALSE:
+        case bytecode.ROP_JUMP_IF_TRUE:
+          {
+            const slotIndex = operands.length >= 2 ? numericOperand(operands[1]) : null;
+            if (slotIndex !== null && slotIndex < fv.slots.length) {
+              fv.initSlot(slotIndex, FEEDBACK_BRANCH);
             }
           }
           break;

@@ -582,7 +582,10 @@ function allocation(arity: Arity, result: ResultClass, transfer: Transfer): Oper
   return memoryOp(ALLOCATES, arity, result, transfer, false);
 }
 
-function terminator(arity: Arity): OperationSpec {
+function terminator(
+  arity: Arity,
+  operands: ResultClass = RESULT_NONE,
+): OperationSpec {
   return {
     effects: CONTROL,
     terminator: true,
@@ -591,7 +594,7 @@ function terminator(arity: Arity): OperationSpec {
     forwardsPointerIdentity: false,
     arity,
     result: RESULT_NONE,
-    operands: RESULT_NONE,
+    operands,
     overload: OVERLOAD_NONE,
     access: ACCESS_NONE,
     opaqueMemory: false,
@@ -854,9 +857,9 @@ export const OPERATIONS = {
   [IR_NEW_REGEX]: allocation(NO_INPUTS, RESULT_HANDLE, constant(objectType())),
   [IR_MAKE_CLOSURE]: { ...allocation(NO_INPUTS, RESULT_HANDLE, constant(objectType())), opaqueMemory: true },
 
-  [IR_BRANCH]: terminator(ONE_INPUT),
+  [IR_BRANCH]: terminator(ONE_INPUT, RESULT_BOOL),
   [IR_JUMP]: terminator(NO_INPUTS),
-  [IR_RETURN]: terminator(ONE_INPUT),
+  [IR_RETURN]: terminator(ONE_INPUT, RESULT_CONTEXTUAL),
   [IR_DEOPTIMIZE]: { ...terminator(NO_INPUTS), effects: CONTROL_GUARD },
 } as const satisfies Record<Opcode, OperationSpec>;
 

@@ -804,10 +804,10 @@ export class BaselineRuntime {
     }
   }
 
-  branch(fbSlot: number, taken: TaggedValue) {
+  branch(fbSlot: number, taken: boolean) {
     if (fbSlot >= 0 && this.fv) {
       const slot = this.fv.getSlot(fbSlot);
-      if (slot) slot.recordBranch(toBool(taken));
+      if (slot) slot.recordBranch(taken);
     }
   }
 

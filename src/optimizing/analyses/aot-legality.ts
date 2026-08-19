@@ -935,11 +935,9 @@ class LegalityAnalyzer implements AotLegality {
       this.fail("function has an unsupported return type");
       return;
     }
-    if (returnScalar !== SCALAR_STRING && this.returnsAString()) {
-      this.fail("function returns a string but its return type is not a string");
-      return;
-    }
     this.returnScalar = returnScalar;
+    this.checkReturnScalarAgreement();
+    if (this.failure !== null) return;
     for (const param of this.graph.parameters) {
       const scalar = isStorableScalar(aotScalarOf(this.types.typeOf(param)));
       if (scalar === null) {
@@ -951,15 +949,32 @@ class LegalityAnalyzer implements AotLegality {
     }
   }
 
-  private returnsAString(): boolean {
+  private returnedScalarOf(returned: CFGInstruction): AotScalar | null {
+    if (returned.type === IR_CONSTANT) {
+      const value = returned.props.value;
+      if (typeof value === "string") return SCALAR_STRING;
+      return value === 0 ? null : SCALAR_FLOAT64;
+    }
+    return this.scalars.get(returned) ?? aotScalarOf(this.types.typeOf(returned));
+  }
+
+  private checkReturnScalarAgreement(): void {
     for (const block of this.graph.blocks) {
       for (const node of block.nodes) {
-        if (node.type !== IR_RETURN) continue;
+        if (node.type !== IR_RETURN || isPendingThrowReturn(node)) continue;
         const returned = node.inputs[0];
-        if (returned !== undefined && this.isStringValue(returned)) return true;
+        if (returned === undefined) continue;
+        const scalar = this.returnedScalarOf(returned);
+        if (scalar === null || scalar === this.returnScalar) continue;
+        if (!isReferenceScalar(scalar) && !isReferenceScalar(this.returnScalar)) continue;
+        this.fail(
+          scalar === SCALAR_STRING
+            ? "function returns a string but its return type is not a string"
+            : "function returns a value that does not match its return type",
+        );
+        return;
       }
     }
-    return false;
   }
 
   private returnedType(): LatticeType | null {

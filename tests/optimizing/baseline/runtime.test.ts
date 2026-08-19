@@ -23,6 +23,7 @@ import {
 } from "../../../src/core/value/index.js";
 import { createJSObject, createJSArray } from "../../../src/objects/heap/factory.js";
 import { Engine } from "../../../src/api/engine.js";
+import { FeedbackVector, FEEDBACK_BRANCH } from "../../../src/feedback/vector/index.js";
 
 function makeRuntime() {
   const fn = new RegisterCompiledFunction("test", 0);
@@ -74,6 +75,41 @@ describe("BaselineRuntime", () => {
       expect(getPayload(rt.wc(1))).toBe(2147483648);
       expect(getPayload(rt.wc(2))).toBe(4294967295);
       expect(getPayload(rt.wc(3))).toBe(-2147483649);
+    });
+  });
+
+  describe("branch feedback", () => {
+    const biased = (record: (runtime: ReturnType<typeof makeRuntime>) => void) => {
+      const runtime = makeRuntime();
+      const vector = new FeedbackVector(1);
+      vector.initSlot(0, FEEDBACK_BRANCH);
+      (runtime as unknown as { cf: { feedbackVector: FeedbackVector } }).cf.feedbackVector = vector;
+      record(runtime);
+      return vector.getSlot(0)!.getBranchBias();
+    };
+
+    it("records a not-taken branch as not taken", () => {
+      expect(biased((runtime) => runtime.branch(0, false))).toBe("likely-false");
+    });
+
+    it("records a taken branch as taken", () => {
+      expect(biased((runtime) => runtime.branch(0, true))).toBe("likely-true");
+    });
+
+    it("reports an evenly split branch as mixed", () => {
+      expect(
+        biased((runtime) => {
+          for (let i = 0; i < 10; i++) {
+            runtime.branch(0, true);
+            runtime.branch(0, false);
+          }
+        }),
+      ).toBe("mixed");
+    });
+
+    it("ignores an unallocated slot", () => {
+      const runtime = makeRuntime();
+      expect(() => runtime.branch(-1, true)).not.toThrow();
     });
   });
 

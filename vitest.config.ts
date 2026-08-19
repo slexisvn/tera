@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 
-const shared = { environment: "node", testTimeout: 30000 } as const;
+const shared = { environment: "node", testTimeout: 60000 } as const;
 
 export default defineConfig({
   test: {

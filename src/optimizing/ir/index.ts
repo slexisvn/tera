@@ -1,5 +1,6 @@
 import type { RuntimeValue } from "../../core/value/index.js";
 import type { DeclaredSignature } from "../types/signature.js";
+import type { Representation } from "../types/representation.js";
 import type { ClassTable } from "../metadata/class-table.js";
 import type { StringEscapeModel } from "../analyses/aot-legality.js";
 import type { AotScalar } from "../types/scalar.js";
@@ -221,6 +222,7 @@ export class CFGFunction {
   osrCandidates: Map<number, OsrCandidate>;
   osrParamSlots: number[] | null;
   declaredSignature: DeclaredSignature | null;
+  returnRepresentation: Representation | null;
   classes: ClassTable | null;
   classOwner: string | null;
   calleeSignatures: ReadonlyMap<string, DeclaredSignature> | null;
@@ -247,6 +249,7 @@ export class CFGFunction {
     this.osrCandidates = new Map();
     this.osrParamSlots = null;
     this.declaredSignature = null;
+    this.returnRepresentation = null;
     this.classes = null;
     this.classOwner = null;
     this.calleeSignatures = null;

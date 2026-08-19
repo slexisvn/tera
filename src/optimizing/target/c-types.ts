@@ -1,4 +1,5 @@
 import {
+  isReferenceScalar,
   SCALAR_FLOAT64,
   SCALAR_INT32,
   SCALAR_POINTER,
@@ -20,8 +21,6 @@ export type CScalarType =
   | typeof C_POINTER
   | typeof C_VOID;
 
-const C_POINTER_TYPES: ReadonlySet<CScalarType> = new Set<CScalarType>([C_STRING, C_POINTER]);
-
 const C_BY_SCALAR = new Map<AotScalar, CScalarType>([
   [SCALAR_INT32, C_INT32],
   [SCALAR_FLOAT64, C_DOUBLE],
@@ -29,6 +28,12 @@ const C_BY_SCALAR = new Map<AotScalar, CScalarType>([
   [SCALAR_POINTER, C_POINTER],
   [SCALAR_VOID, C_VOID],
 ]);
+
+const C_POINTER_TYPES: ReadonlySet<CScalarType> = new Set<CScalarType>(
+  [...C_BY_SCALAR]
+    .filter(([scalar]) => isReferenceScalar(scalar))
+    .map(([, type]) => type),
+);
 
 export function cTypeOf(scalar: AotScalar): CScalarType {
   const type = C_BY_SCALAR.get(scalar);

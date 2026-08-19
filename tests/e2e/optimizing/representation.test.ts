@@ -202,10 +202,34 @@ describe("optimized return values keep their representation", () => {
     expect(step?.optimizedCode).toBeTruthy();
   });
 
-  it("still optimizes a function that returns a string from one branch and a number from another", () => {
+  const mixedReturn = (cold: string) =>
+    stepping(["fn step(a,i):", "  if i == 40000:", `    ${cold}`, "  return a + 1"], guarded, 60000);
+
+  const declines = (source: string) => {
+    const engine = withJit();
+    expect(engine.runNative(source)).toEqual(withoutJit().runNative(source));
+    const step = engine.collectFunctions().find((fn) => fn.name === "step");
+    expect(step?.optimizedCode).toBeFalsy();
+    expect(step?.lastCompileFailureReason).toContain("boxes a numeric return into a handle on a hot path");
+    return step;
+  };
+
+  it("declines a hot numeric return that a string return forces into a handle", () => {
+    declines(mixedReturn('return "x"'));
+  });
+
+  it("declines a hot numeric return that an object return forces into a handle", () => {
+    declines(mixedReturn("return {v: 1}"));
+  });
+
+  it("declines a hot numeric return that a boolean return forces into a handle", () => {
+    declines(mixedReturn("return true"));
+  });
+
+  it("still optimizes when the boxed numeric return is the cold path", () => {
     const source = stepping(
-      ["fn step(a,i):", "  if i == 40000:", '    return "x"', "  return a + 1"],
-      guarded,
+      ["fn step(a,i):", "  if i == 40000:", "    return a + 1", '  return "x"'],
+      ["    if i == 40000:", "      acc = v"],
       60000,
     );
     const engine = withJit();
@@ -215,30 +239,24 @@ describe("optimized return values keep their representation", () => {
     expect(step?.lastCompileFailureReason ?? null).toBeNull();
   });
 
-  it("still optimizes a function that returns an object from one branch and a number from another", () => {
-    const source = stepping(
-      ["fn step(a,i):", "  if i == 40000:", "    return {v: 1}", "  return a + 1"],
-      guarded,
-      60000,
+  it("keeps an unguarded field return a handle", () => {
+    const source = src(
+      'g = {x: "hello"}',
+      "fn step(i):",
+      "  return g.x",
+      "fn run(n):",
+      "  i = 0",
+      "  last = 0",
+      "  while i < n:",
+      "    last = step(i)",
+      "    i = i + 1",
+      '  return "" + last',
+      "run(200)",
     );
     const engine = withJit();
     expect(engine.runNative(source)).toEqual(withoutJit().runNative(source));
     const step = engine.collectFunctions().find((fn) => fn.name === "step");
     expect(step?.optimizedCode).toBeTruthy();
-    expect(step?.lastCompileFailureReason ?? null).toBeNull();
-  });
-
-  it("still optimizes a function that returns a boolean from one branch and a number from another", () => {
-    const source = stepping(
-      ["fn step(a,i):", "  if i == 40000:", "    return true", "  return a + 1"],
-      guarded,
-      60000,
-    );
-    const engine = withJit();
-    expect(engine.runNative(source)).toEqual(withoutJit().runNative(source));
-    const step = engine.collectFunctions().find((fn) => fn.name === "step");
-    expect(step?.optimizedCode).toBeTruthy();
-    expect(step?.lastCompileFailureReason ?? null).toBeNull();
   });
 
   it("stops retrying a function the wasm backend cannot compile", () => {

@@ -298,7 +298,7 @@ export const statementMethods: StatementMethodMap = {
 
   compileIfStatement(node) {
     this.compileExpression(expressionNode(node.test, "if test"));
-    const jumpToElse = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0);
+    const jumpToElse = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0, this.func.allocFeedbackSlot());
     this.compileStatement(singleStatement(node.consequent, "if consequent"));
 
     if (node.alternate) {
@@ -368,7 +368,7 @@ export const statementMethods: StatementMethodMap = {
 
     const loopStart = this.func.instructions.length;
     this.compileExpression(expressionNode(node.test, "while test"));
-    const jumpToEnd = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0);
+    const jumpToEnd = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0, this.func.allocFeedbackSlot());
     this.compileStatement(body);
 
     const continueTarget = this.func.instructions.length;
@@ -420,7 +420,7 @@ export const statementMethods: StatementMethodMap = {
     } else {
       this.func.emit(bytecode.ROP_LDA_TRUE);
     }
-    const jumpToEnd = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0);
+    const jumpToEnd = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0, this.func.allocFeedbackSlot());
 
     this.compileStatement(body);
 
@@ -507,7 +507,7 @@ export const statementMethods: StatementMethodMap = {
       this.func.emit(bytecode.ROP_LDA_REG, discReg);
       this.func.emit(bytecode.ROP_EQ, tmpReg, this.func.allocFeedbackSlot());
       this.temps.free(tmpReg);
-      bodyDispatch[i] = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0);
+      bodyDispatch[i] = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0, this.func.allocFeedbackSlot());
     }
     const dispatchToDefault = this.func.emit(bytecode.ROP_JUMP, 0);
 
@@ -642,7 +642,7 @@ export const statementMethods: StatementMethodMap = {
     this.compileStatement(singleStatement(node.body, "do-while body"));
     const continueTarget = this.func.instructions.length;
     this.compileExpression(expressionNode(node.test, "do-while test"));
-    this.func.emit(bytecode.ROP_JUMP_IF_TRUE, loopStart);
+    this.func.emit(bytecode.ROP_JUMP_IF_TRUE, loopStart, this.func.allocFeedbackSlot());
     const endTarget = this.func.instructions.length;
     for (const j of breakJumps) this.func.patchJump(j, endTarget);
     for (const j of continueJumps) this.func.patchJump(j, continueTarget);

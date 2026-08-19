@@ -430,11 +430,11 @@ export const expressionMethods: ExpressionMethodMap = {
     this.compileExpression(node.left);
 
     if (node.op === "&&") {
-      const jumpToEnd = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0);
+      const jumpToEnd = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0, this.func.allocFeedbackSlot());
       this.compileExpression(node.right);
       this.func.patchJump(jumpToEnd, this.func.instructions.length);
     } else if (node.op === "||") {
-      const jumpToEnd = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0);
+      const jumpToEnd = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0, this.func.allocFeedbackSlot());
       this.compileExpression(node.right);
       this.func.patchJump(jumpToEnd, this.func.instructions.length);
     } else {
@@ -640,7 +640,7 @@ export const expressionMethods: ExpressionMethodMap = {
         this.func.emit(bytecode.ROP_STAR, recvReg);
         if (calleeIsOptional) {
           this.func.emit(bytecode.ROP_IS_NULLISH);
-          optionalPatch = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0);
+          optionalPatch = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0, this.func.allocFeedbackSlot());
         }
       }
 
@@ -947,7 +947,7 @@ export const expressionMethods: ExpressionMethodMap = {
 
   compileConditionalExpression(node: CompilerNode) {
     this.compileExpression(node.test);
-    const jumpToElse = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0);
+    const jumpToElse = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0, this.func.allocFeedbackSlot());
     this.compileExpression(node.consequent);
     const jumpToEnd = this.func.emit(bytecode.ROP_JUMP, 0);
     this.func.patchJump(jumpToElse, this.func.instructions.length);
@@ -1025,7 +1025,7 @@ export const expressionMethods: ExpressionMethodMap = {
     const leftReg = this.temps.alloc();
     this.func.emit(bytecode.ROP_STAR, leftReg);
     this.func.emit(bytecode.ROP_IS_NULLISH);
-    const jumpToRight = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0);
+    const jumpToRight = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0, this.func.allocFeedbackSlot());
     this.func.emit(bytecode.ROP_LDA_REG, leftReg);
     const jumpToEnd = this.func.emit(bytecode.ROP_JUMP, 0);
     this.func.patchJump(jumpToRight, this.func.instructions.length);
@@ -1039,7 +1039,7 @@ export const expressionMethods: ExpressionMethodMap = {
     const objReg = this.temps.alloc();
     this.func.emit(bytecode.ROP_STAR, objReg);
     this.func.emit(bytecode.ROP_IS_NULLISH);
-    const jumpToUndef = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0);
+    const jumpToUndef = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0, this.func.allocFeedbackSlot());
     this.func.emit(bytecode.ROP_LDA_REG, objReg);
     if (typeof node.property === "string") {
       const propIdx = this.func.addConstant(node.property);
@@ -1077,7 +1077,7 @@ export const expressionMethods: ExpressionMethodMap = {
       this.func.emit(bytecode.ROP_STAR, recvReg);
       if (receiverIsOptional) {
         this.func.emit(bytecode.ROP_IS_NULLISH);
-        shortCircuits.push(this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0));
+        shortCircuits.push(this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0, this.func.allocFeedbackSlot()));
       }
       if (callee.computed || typeof callee.property !== "string") {
         this.compileExpression(
@@ -1100,7 +1100,7 @@ export const expressionMethods: ExpressionMethodMap = {
     const calleeReg = this.temps.alloc();
     this.func.emit(bytecode.ROP_STAR, calleeReg);
     this.func.emit(bytecode.ROP_IS_NULLISH);
-    shortCircuits.push(this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0));
+    shortCircuits.push(this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0, this.func.allocFeedbackSlot()));
 
     const argCount = node.args.length;
     const firstArgReg = argCount > 0 ? this.temps.allocContiguous(argCount) : 0;

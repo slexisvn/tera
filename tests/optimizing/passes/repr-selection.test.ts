@@ -377,6 +377,7 @@ describe("representationSelection", () => {
 
       const insertCount = representationSelection(graph);
 
+      expect(graph.returnRepresentation).toBe(REP_HANDLE);
       expect(insertCount).toBe(1);
       const boxNodes = numeric.nodes.filter((node) => node.type === IR_BOX);
       expect(boxNodes).toHaveLength(1);
@@ -418,6 +419,7 @@ describe("representationSelection", () => {
       const insertCount = representationSelection(graph);
       const nodes = graph.blocks.flatMap((block) => block.nodes);
 
+      expect(graph.returnRepresentation).toBe(REP_INT32);
       expect(insertCount).toBe(0);
       expect(nodes.filter((node) => node.type === IR_BOX)).toHaveLength(0);
       expect(nodes.filter((node) => node.type === IR_UNBOX)).toHaveLength(0);

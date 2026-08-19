@@ -193,6 +193,20 @@ type FrameStateList = FrameState[];
 type RegisterInstructionLike = bytecode.RegisterInstruction;
 type ConstructorLayoutEntry = { field: SimpleConstructorField; offset: number };
 
+function hotSuccessorOf(
+  feedback: FeedbackLike,
+  operands: readonly number[],
+  op: number,
+): "true" | "false" | null {
+  const slot = operands.length > 1 ? operands[1] : -1;
+  if (slot < 0) return null;
+  const bias = feedback.branch(slot).bias;
+  if (bias !== "likely-true" && bias !== "likely-false") return null;
+  const jumpTaken = op === bytecode.ROP_JUMP_IF_FALSE ? "false" : "true";
+  const notTaken = jumpTaken === "true" ? "false" : "true";
+  return bias === "likely-true" ? jumpTaken : notTaken;
+}
+
 function upvalueSlot(upvalue: bytecode.UpvalueDescriptor | undefined): number | null {
   if (!upvalue) return null;
   const slot = upvalue.outerSlot ?? upvalue.index;
@@ -1445,6 +1459,8 @@ function compileInstruction(
           op === bytecode.ROP_JUMP_IF_FALSE
             ? ir.irBranch(condition, trueBlock, falseBlock)
             : ir.irBranch(condition, falseBlock, trueBlock);
+        const hot = hotSuccessorOf(feedback, operands, op);
+        if (hot !== null) branch.props.hotSuccessor = hot;
         block.addNode(branch);
         link(block, trueBlock);
         link(block, falseBlock);

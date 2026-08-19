@@ -31,6 +31,8 @@ const isInt32Consumer = (opcode: string): boolean =>
   ir.operandClassOf(opcode) === ir.RESULT_INT32;
 const isFloat64Consumer = (opcode: string): boolean =>
   ir.operandClassOf(opcode) === ir.RESULT_FLOAT64;
+const isBoolConsumer = (opcode: string): boolean =>
+  ir.operandClassOf(opcode) === ir.RESULT_BOOL;
 const isNumericUnlessOverloaded = (opcode: string): boolean =>
   ir.overloadOf(opcode) === ir.OVERLOAD_NUMERIC;
 const isOverloadableArithmetic = (opcode: string): boolean =>
@@ -381,7 +383,10 @@ export function representationSelection(graph: ReprGraph): number {
         returnedValues.push(node.inputs[0]);
     }
   }
-  const returnRep = joinIncomingReps(returnedValues, true) as Representation;
+  graph.returnRepresentation = joinIncomingReps(
+    returnedValues,
+    true,
+  ) as Representation;
 
   let insertCount = 0;
 
@@ -391,10 +396,10 @@ export function representationSelection(graph: ReprGraph): number {
   ): Representation | null => {
     if (isInt32Consumer(consumer.type)) return REP_INT32;
     if (isFloat64Consumer(consumer.type)) return REP_FLOAT64;
-    if (consumer.type === ir.IR_RETURN) return returnRep;
+    if (isBoolConsumer(consumer.type)) return REP_BOOL;
+    if (consumer.type === ir.IR_RETURN) return graph.returnRepresentation;
     if (consumer.type === ir.IR_CHECK_SMI) return REP_INT32;
     if (consumer.type === ir.IR_CHECK_NUMBER) return REP_FLOAT64;
-    if (consumer.type === ir.IR_BRANCH) return REP_BOOL;
     if (
       consumer.type === ir.IR_STORE_FIELD ||
       consumer.type === ir.IR_STORE_ELEMENT

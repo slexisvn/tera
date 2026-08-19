@@ -655,7 +655,7 @@ export const functionMethods: FunctionMethodMap = {
       } else if (record?.default) {
         innerFunc.emit(bytecode.ROP_LDA_REG, slot);
         innerFunc.emit(bytecode.ROP_IS_NULLISH);
-        const jumpPastDefault = innerFunc.emit(bytecode.ROP_JUMP_IF_FALSE, 0);
+        const jumpPastDefault = innerFunc.emit(bytecode.ROP_JUMP_IF_FALSE, 0, innerFunc.allocFeedbackSlot());
         this.compileExpression(record.default);
         innerFunc.emit(bytecode.ROP_STAR, slot);
         innerFunc.patchJump(jumpPastDefault, innerFunc.instructions.length);
@@ -1231,7 +1231,7 @@ export const functionMethods: FunctionMethodMap = {
     this.func.emit(bytecode.ROP_LDA_REG, iSlot);
     const fbSlot = this.func.allocFeedbackSlot();
     this.func.emit(bytecode.ROP_LT, lenSlot, fbSlot);
-    const exitJump = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0);
+    const exitJump = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0, this.func.allocFeedbackSlot());
 
     this.func.emit(bytecode.ROP_LDA_INDEX, keysSlot, iSlot);
     if (isPattern) {
@@ -1329,7 +1329,7 @@ export const functionMethods: FunctionMethodMap = {
 
     this.func.emit(bytecode.ROP_LDA_REG, iterResultSlot);
     this.func.emit(bytecode.ROP_ITER_DONE);
-    const exitJump = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0);
+    const exitJump = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0, this.func.allocFeedbackSlot());
 
     this.func.emit(bytecode.ROP_LDA_REG, iterResultSlot);
     this.func.emit(bytecode.ROP_ITER_VALUE);
@@ -1397,7 +1397,7 @@ export const functionMethods: FunctionMethodMap = {
     this.func.emit(bytecode.ROP_STAR, undefReg);
     this.func.emit(bytecode.ROP_LDA_REG, srcReg);
     this.func.emit(bytecode.ROP_EQ, undefReg, this.func.allocFeedbackSlot());
-    const skip = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0);
+    const skip = this.func.emit(bytecode.ROP_JUMP_IF_FALSE, 0, this.func.allocFeedbackSlot());
     this.compileExpression(target.default);
     this.func.emit(bytecode.ROP_STAR, srcReg);
     this.func.patchJump(skip, this.func.instructions.length);

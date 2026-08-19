@@ -7,9 +7,12 @@ import {
   REP_HANDLE,
   REP_BOOL,
   REP_TAGGED,
+  abiRepresentationOf,
+  representationFrom,
   type Representation,
 } from "../../types/representation.js";
 import { wasmTarget } from "./target.js";
+import { computeDominators, dominates } from "../../analyses/dominance-core.js";
 import type { CompileRejection } from "../../target/jit.js";
 import {
   TYPE_I32,
@@ -64,15 +67,6 @@ type AnyNode = ir.CFGInstruction;
 type AnyBlock = ir.CFGBlock;
 type AnyGraph = ir.CFGFunction;
 type WasmRep = Representation;
-
-const REPRESENTATIONS = new Set<string>([
-  REP_INT32,
-  REP_FLOAT64,
-  REP_TAGGED_NUMBER,
-  REP_HANDLE,
-  REP_TAGGED,
-  REP_BOOL,
-]);
 
 export const RUNTIME_STUB_NODES = new Set([
   ir.IR_GENERIC_ADD,
@@ -274,20 +268,11 @@ export const FIXED_INPUT_COUNTS = new Map([
 ]);
 
 export function repForNode(node: AnyNode | null | undefined): WasmRep {
-  const rep = node?.props?._rep;
-  return typeof rep === "string" && REPRESENTATIONS.has(rep)
-    ? (rep as Representation)
-    : REP_HANDLE;
+  return representationFrom(node?.props?._rep);
 }
 
 export function wasmTypeForRep(rep: WasmRep): number {
   return wasmTarget.machineReprOf(rep) === "float64" ? TYPE_F64 : TYPE_I32;
-}
-
-export function valueRepForRep(rep: WasmRep): WasmRep {
-  if (rep === REP_HANDLE) return REP_HANDLE;
-  if (rep === REP_BOOL) return REP_BOOL;
-  return REP_TAGGED_NUMBER;
 }
 
 export function unsupported(reason: string): CompileRejection {
@@ -734,3 +719,50 @@ export type RuntimeStubEntry = {
   outputRep: WasmRep;
 };
 
+
+function boxedNumericReturns(graph: AnyGraph): AnyNode[] {
+  const boxed: AnyNode[] = [];
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      if (node.type !== ir.IR_RETURN) continue;
+      const returned = node.inputs[0];
+      if (!returned || returned.type !== ir.IR_BOX) continue;
+      if (repForNode(returned) !== REP_HANDLE) continue;
+      if (abiRepresentationOf(repForNode(returned.inputs[0])) === REP_HANDLE) continue;
+      boxed.push(node);
+    }
+  }
+  return boxed;
+}
+
+function hotBlocks(graph: AnyGraph): Set<AnyBlock> {
+  const hot = new Set<AnyBlock>();
+  for (const block of graph.blocks) {
+    const terminator = block.getTerminator();
+    if (!terminator || terminator.type !== ir.IR_BRANCH) continue;
+    const bias = terminator.props.hotSuccessor;
+    if (bias !== "true" && bias !== "false") continue;
+    const hotId = bias === "true" ? terminator.props.trueBlock : terminator.props.falseBlock;
+    const hotBlock = block.successors.find((successor) => successor.id === hotId);
+    if (hotBlock) hot.add(hotBlock);
+  }
+  return hot;
+}
+
+export function hotBoxedReturnRejection(graph: AnyGraph): CompileRejection | null {
+  const boxed = boxedNumericReturns(graph);
+  if (boxed.length === 0) return null;
+  const hot = hotBlocks(graph);
+  if (hot.size === 0) return null;
+  const idom = computeDominators(graph);
+  for (const node of boxed) {
+    const block = node.block;
+    if (!block) continue;
+    for (const hotBlock of hot) {
+      if (dominates(idom, hotBlock, block)) {
+        return speculation("boxes a numeric return into a handle on a hot path");
+      }
+    }
+  }
+  return null;
+}

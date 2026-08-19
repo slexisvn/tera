@@ -22,6 +22,7 @@ import { shapeObjectLiterals } from "../passes/object-literal-shapes.js";
 import { representationSelection } from "../passes/repr-selection.js";
 import { speculationLowering } from "../passes/speculation-lowering.js";
 import { coerceStringOperands } from "../passes/string-coercion.js";
+import { validateRepresentations } from "../validation/graph-validator.js";
 import type { TargetModel } from "./model.js";
 
 const preservesControlFlow = {
@@ -36,6 +37,15 @@ const representationSelectionPass: TransformPass<CFGFunction> = {
   name: "representation-selection",
   preserves: preservesControlFlow,
   run: (graph) => ({ changed: representationSelection(graph) > 0 }),
+};
+
+const representationCheckPass: TransformPass<CFGFunction> = {
+  name: "representation-check",
+  preserves: { kind: "all" },
+  run: (graph) => {
+    validateRepresentations(graph);
+    return { changed: false };
+  },
 };
 
 export function targetLegalizationPipeline(
@@ -152,7 +162,9 @@ export function targetLegalizationPipeline(
       preserves: preservesControlFlow,
       run: (graph) => ({ changed: lowerNamedArguments(graph) > 0 }),
     },
-    ...(target.capabilities.has("tagged-values") ? [representationSelectionPass] : []),
+    ...(target.capabilities.has("tagged-values")
+      ? [representationSelectionPass, representationCheckPass]
+      : []),
     {
       name: "frame-state-elision",
       preserves: { kind: "all" },

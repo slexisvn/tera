@@ -9,6 +9,8 @@ import {
   IR_JUMP,
   IR_PARAMETER,
   IR_RETURN,
+  RESULT_NONE,
+  resultClassOf,
   CFGInstruction,
   type CFGBlock,
   type CFGFunction,
@@ -20,6 +22,10 @@ import {
 } from "../analyses/dominance-core.js";
 import type { FrameState, FrameValue } from "../../deopt/frame-state.js";
 import { sunkAllocationIds } from "../ir/frame-state-values.js";
+import {
+  abiRepresentationOf,
+  representationFrom,
+} from "../types/representation.js";
 
 type ValidationNode = CFGInstruction;
 type ValidationBlock = CFGBlock;
@@ -40,6 +46,45 @@ export class GraphValidationError extends Error {
     this.name = "GraphValidationError";
     this.errors = errors;
   }
+}
+
+export function validateRepresentations(graph: ValidationGraph): true {
+  const errors: string[] = [];
+  for (const parameter of graph.parameters) validateStamp(parameter, null, errors);
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) validateStamp(node, block, errors);
+  }
+  const declared = graph.returnRepresentation;
+  if (declared === null) {
+    errors.push("graph has no return representation");
+  } else {
+    const declaredAbi = abiRepresentationOf(declared);
+    for (const block of graph.blocks) {
+      for (const node of block.nodes) {
+        if (node.type !== IR_RETURN) continue;
+        const returned = node.inputs[0];
+        if (!returned) continue;
+        const abi = abiRepresentationOf(representationFrom(returned.props._rep));
+        if (abi === declaredAbi) continue;
+        errors.push(
+          `B${block.id} v${node.id} returns ${abi} but the graph declares ${declaredAbi}`,
+        );
+      }
+    }
+  }
+  if (errors.length > 0) throw new GraphValidationError(errors);
+  return true;
+}
+
+function validateStamp(
+  node: ValidationNode,
+  block: ValidationBlock | null,
+  errors: string[],
+): void {
+  if (resultClassOf(node.type) === RESULT_NONE) return;
+  if (typeof node.props._rep === "string") return;
+  const where = block === null ? "parameter" : `B${block.id}`;
+  errors.push(`${where} v${node.id} ${node.type} has no representation`);
 }
 
 export function validateOptimizedGraph(

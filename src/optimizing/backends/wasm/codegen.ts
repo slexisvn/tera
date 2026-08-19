@@ -71,6 +71,7 @@ import {
   REP_HANDLE,
   REP_TAGGED,
   REP_BOOL,
+  abiRepresentationOf,
 } from "../../types/representation.js";
 import type { CompileRejection } from "../../target/jit.js";
 import {
@@ -116,8 +117,8 @@ import {
   RuntimeStubTable,
   repForNode,
   wasmTypeForRep,
-  valueRepForRep,
   compileRejectionForNode,
+  hotBoxedReturnRejection,
   malformed,
   speculation,
   unsupported,
@@ -474,11 +475,11 @@ export class WasmCodegen {
           node.type === ir.IR_PHI &&
           (node.uses.length > 0 || observedFrameStateValues.has(node.id))
         ) {
-          const paramRep = valueRepForRep(repForNode(node));
+          const paramRep = abiRepresentationOf(repForNode(node));
           for (const incoming of node.inputs) {
-            if (valueRepForRep(repForNode(incoming)) === paramRep) continue;
+            if (abiRepresentationOf(repForNode(incoming)) === paramRep) continue;
             return unsupported(
-              `block parameter is ${paramRep} but an incoming value is ${valueRepForRep(repForNode(incoming))}`,
+              `block parameter is ${paramRep} but an incoming value is ${abiRepresentationOf(repForNode(incoming))}`,
             );
           }
         }
@@ -497,7 +498,7 @@ export class WasmCodegen {
     if (forest.irreducible) {
       return unsupported("irreducible control flow");
     }
-    return null;
+    return hotBoxedReturnRejection(graph);
   }
 
   canCompile(graph: AnyGraph, forest: LoopForest): boolean {
@@ -513,7 +514,7 @@ export class WasmCodegen {
     const runtimeStubTable = new RuntimeStubTable();
 
     const valueRepOf = (node: AnyNode): WasmValueRep =>
-      nodeValueRep.get(node.id) || valueRepForRep(repForNode(node));
+      nodeValueRep.get(node.id) || abiRepresentationOf(repForNode(node));
 
     let needsMemory = false;
     let needsDeoptImport = false;
@@ -623,7 +624,7 @@ export class WasmCodegen {
     for (const block of graph.blocks) {
       for (const node of block.nodes) {
         if (VALUE_PRODUCING.has(node.type)) {
-          nodeValueRep.set(node.id, valueRepForRep(repForNode(node)));
+          nodeValueRep.set(node.id, abiRepresentationOf(repForNode(node)));
         }
         if (
           node.type === ir.IR_NEW_OBJECT &&
@@ -983,7 +984,7 @@ export class WasmCodegen {
       }
       if (type === null) type = wasmTypeForRep(repForNode(param));
       nodeWasmType.set(param.id, type);
-      nodeValueRep.set(param.id, valueRepForRep(repForNode(param)));
+      nodeValueRep.set(param.id, abiRepresentationOf(repForNode(param)));
       if (type === wasmFormat.TYPE_F64 && param.uses?.some((u) => mathCallIntrinsics.has(u.id))) {
         nodeValueRep.set(param.id, REP_FLOAT64);
       }
@@ -1038,7 +1039,7 @@ export class WasmCodegen {
       if (!inPlaceEnabled) break;
       const idx = metadataNumber(param.props.index);
       if (idx === null || paramFieldExtents[idx] == null) continue;
-      if (valueRepForRep(repForNode(param)) !== REP_HANDLE) continue;
+      if (abiRepresentationOf(repForNode(param)) !== REP_HANDLE) continue;
       const fieldLoads: AnyNode[] = [];
       const mapChecks: AnyNode[] = [];
       let eligible = true;
@@ -1399,18 +1400,13 @@ export class WasmCodegen {
     }
 
     let resultType: WasmType | null = null;
-    let resultValueRep: WasmValueRep | null = null;
+    const resultValueRep: WasmValueRep = abiRepresentationOf(
+      graph.returnRepresentation ?? REP_HANDLE,
+    );
     for (const block of graph.blocks) {
       for (const node of block.nodes) {
         if (node.type !== ir.IR_RETURN || !node.inputs[0]) continue;
-        const returned = node.inputs[0];
-        const rep = valueRepOf(returned);
-        if (resultValueRep !== null && resultValueRep !== rep) {
-          this.lastAnalysisFailure = `returns disagree on value representation (${resultValueRep} vs ${rep})`;
-          return null;
-        }
-        resultValueRep = rep;
-        const rt = nodeWasmType.get(returned.id);
+        const rt = nodeWasmType.get(node.inputs[0].id);
         if (rt) {
           resultType =
             resultType === wasmFormat.TYPE_F64 || rt === wasmFormat.TYPE_F64
@@ -1422,11 +1418,10 @@ export class WasmCodegen {
     if (resultType === null) resultType = wasmFormat.TYPE_I32;
 
     if (hasSelfRecursion) {
-      const returnedRep = resultValueRep ?? REP_TAGGED_NUMBER;
       for (const node of selfRecursiveDirectNodeList) {
         if (!selfRecursiveDirectNodes.has(node.id)) continue;
         const callRep = valueRepOf(node);
-        if (returnedRep !== REP_HANDLE && callRep === returnedRep) continue;
+        if (resultValueRep !== REP_HANDLE && callRep === resultValueRep) continue;
         selfRecursiveDirectNodes.delete(node.id);
         registerRuntimeStubNode(node);
       }
