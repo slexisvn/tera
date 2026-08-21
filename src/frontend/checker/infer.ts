@@ -22,7 +22,6 @@ import {
   shapeType,
   signature,
   signatureType,
-  splitTopLevel,
   substituteType,
   tupleTypes,
   unionParts,

@@ -18,7 +18,7 @@ function extractIdentifier(message: string): string | null {
   return null;
 }
 
-function errorMessage(error: unknown): string {
+export function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   const message = (error as { message?: unknown })?.message;
   return typeof message === "string" ? message : String(error);

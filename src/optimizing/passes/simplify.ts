@@ -2,6 +2,7 @@ import * as ir from "../ir/index.js";
 
 import { tracer } from "../../core/tracing/index.js";
 import { detachInputs, replaceValueUses, retainNodes } from "../ir/graph-edit.js";
+import { INT32_SHIFT_MASK } from "../target/integer.js";
 
 type SimplifyNode = ir.CFGInstruction;
 type SimplifyBlock = ir.CFGBlock;
@@ -158,7 +159,7 @@ export function strengthReduction(graph: SimplifyGraph): number {
 
           if (isPowerOf2(c)) {
             const shift = log2(c);
-            if (shift > 0 && shift < 31) {
+            if (shift > 0 && shift < INT32_SHIFT_MASK) {
               const shlNode = ir.irInt32Shl(otherInput, ir.irConstant(shift));
               shlNode.frameState = node.frameState;
               replaceInPlace(node, shlNode, block, i);
@@ -172,7 +173,7 @@ export function strengthReduction(graph: SimplifyGraph): number {
           }
 
           const decomp = decomposeMultiplier(c);
-          if (decomp && decomp.shift > 0 && decomp.shift < 31) {
+          if (decomp && decomp.shift > 0 && decomp.shift < INT32_SHIFT_MASK) {
             const shifted = ir.irInt32Shl(otherInput, ir.irConstant(decomp.shift));
             let result: SimplifyNode;
             if (decomp.op === "add") {

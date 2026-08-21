@@ -60,7 +60,6 @@ function renderedValue(node: CFGInstruction): CFGInstruction | null {
   return convertedValue(node, STRING_BUILTIN);
 }
 
-/** `Number(s)` reads the same value `parse_float(s)` does. */
 function parseLowering(
   node: CFGInstruction,
   types: TypeInference,
@@ -88,7 +87,6 @@ function alreadyNumeric(
   return scalar !== null && isNumericScalar(scalar) ? value : null;
 }
 
-/** `Number(b)` on a boolean asks for its 1 or 0, which truncation already answers. */
 function countedLowering(
   node: CFGInstruction,
   types: TypeInference,
@@ -101,10 +99,6 @@ function countedLowering(
   return { node, callee: node.inputs[0]!, operands: [value], defaults: 0, intrinsic };
 }
 
-/**
- * `String(b)` on a boolean asks for the same spelling as `b.to_string()`, which
- * the boolean-text pass builds once the branch it needs is legal to add.
- */
 function spellsBoolean(
   node: CFGInstruction,
   types: TypeInference,

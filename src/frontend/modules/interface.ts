@@ -123,7 +123,10 @@ function classSurfaceOf(
 function interfaceSurfaceOf(bound: BoundProgram, name: string): ClassSurface {
   const members: ClassMemberSurface[] = [];
   for (const member of shapeMembers(bound, name, name, false)) {
-    if (parseFunctionType(member.declaredType) === null) continue;
+    if (parseFunctionType(member.declaredType) === null) {
+      members.push({ ...member, member: CLASS_DATA_MEMBER });
+      continue;
+    }
     members.push({ ...member, member: "method", abstract: true });
   }
   return {

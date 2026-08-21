@@ -21,6 +21,7 @@ export function cloneGraph(source: CFGFunction, name: string): GraphClone {
   graph.calleeSignatures = source.calleeSignatures;
   graph.declaredSignature = source.declaredSignature;
   graph.isAsync = source.isAsync;
+  graph.isGenerator = source.isGenerator;
   graph.receiver = source.receiver;
   graph.internal = source.internal;
   graph.recoversThrows = source.recoversThrows;

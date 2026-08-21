@@ -1,4 +1,4 @@
-import { RegisterFile } from "../../target/registers.js";
+import { allocationOrder, RegisterFile } from "../../target/registers.js";
 
 export const RISCV_GPR = "gpr";
 export const RISCV_FPR = "fpr";
@@ -39,16 +39,6 @@ const ALLOCATABLE_FPR: readonly string[] = [
   ...TEMP_FPR.filter((name) => !RISCV_FPR_SCRATCH.includes(name)),
   ...SAVED_FPR,
 ];
-
-function allocationOrder(
-  candidates: readonly string[],
-  callerSaved: ReadonlySet<string>,
-): readonly string[] {
-  return [
-    ...candidates.filter((name) => callerSaved.has(name)),
-    ...candidates.filter((name) => !callerSaved.has(name)),
-  ];
-}
 
 export function riscvRegisterFile(): RegisterFile {
   const volatiles = new Set(RISCV_CALLER_SAVED);

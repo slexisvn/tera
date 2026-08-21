@@ -154,16 +154,71 @@ describe("AOT arrays of spelled-out strings", () => {
     );
   });
 
-  it("still declines an array holding a string the program builds", () => {
-    expect(
-      declined(
-        src(
-          "fn f(i: int, s: string) -> string:",
-          '  names = ["H", "O"]',
-          '  names[i] = s + "!"',
-          "  return names[i]",
-        ),
+  itNative("keeps a string the program builds into an array", () => {
+    matchesInterpreter(
+      src(
+        "fn f(i: int) -> int:",
+        '  names = ["H", "O"]',
+        '  names[i] = "N" + "!"',
+        '  if names[i] == "N!":',
+        "    return 1",
+        "  return 0",
       ),
-    ).toContain("stores it in an array");
+      "f",
+      [1],
+    );
+  });
+
+  itNative("reads a field a constant key names", () => {
+    matchesInterpreter(
+      src("fn f(n: int) -> int:", "  o = { a: n, b: 2 }", "  return o[\"a\"] + o[\"b\"]"),
+      "f",
+      [5],
+    );
+  });
+
+  itNative("writes a field a constant key names", () => {
+    matchesInterpreter(
+      src("fn f(n: int) -> int:", "  o = { a: 1 }", "  o[\"a\"] = n", "  return o.a"),
+      "f",
+      [9],
+    );
+  });
+
+  itNative("answers membership from the shape the literal has", () => {
+    matchesInterpreter(
+      src(
+        "fn f(n: int) -> int:",
+        "  o = { a: n }",
+        "  present = \"a\" in o",
+        "  missing = \"z\" in o",
+        "  if present and not missing:",
+        "    return n",
+        "  return 0",
+      ),
+      "f",
+      [3],
+    );
+  });
+  itNative("counts the keys a literal declares", () => {
+    matchesInterpreter(
+      src("fn f(n: int) -> int:", "  o = { a: n, b: 2, c: 3 }", "  return Object.keys(o).length"),
+      "f",
+      [1],
+    );
+  });
+
+  itNative("folds the values a literal holds", () => {
+    matchesInterpreter(
+      src(
+        "fn add(a: int, b: int) -> int:",
+        "  return a + b",
+        "fn f(n: int) -> int:",
+        "  o = { a: n, b: 2, c: 3 }",
+        "  return Object.values(o).reduce(add, 0)",
+      ),
+      "f",
+      [4],
+    );
   });
 });

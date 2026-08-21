@@ -9,11 +9,6 @@ import { compiledFunctionConstant } from "../ir/compiled-function.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
 
-/**
- * Records which module function a value stands for. Graph names are made unique
- * across the module, but the compiled function a constant carries keeps the name
- * its source gave it, so two `<arrow>` callbacks would otherwise resolve to one.
- */
 export const FUNCTION_TARGET_PROP = "functionTarget";
 
 export function functionTargetOf(value: CFGInstruction): string | null {
@@ -21,7 +16,6 @@ export function functionTargetOf(value: CFGInstruction): string | null {
   return typeof name === "string" ? name : null;
 }
 
-/** Resolves the values that name a function in the module being compiled. */
 export class ModuleFunctions {
   private readonly byTarget = new Map<RegisterCompiledFunction, CFGFunction>();
   private readonly byName = new Map<string, CFGFunction>();
@@ -53,7 +47,6 @@ export class ModuleFunctions {
     return this.byName.get(name) ?? null;
   }
 
-  /** The function a value stands for, once it is clear the name cannot be rebound. */
   referenced(value: CFGInstruction | undefined): CFGFunction | null {
     if (value === undefined) return null;
     if (value.type === IR_CONSTANT) {

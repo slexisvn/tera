@@ -279,4 +279,31 @@ describe("AOT nullable references", () => {
       declined(src("fn pick(f: bool) -> int:", "  if f:", "    return 1", "  return null")),
     ).toContain("answers null where its return type has no null");
   });
+  itRunsPe("short-circuits an optional field read to null", () => {
+    agrees(
+      src(
+        "class P:",
+        "  public constructor(name: string):",
+        "    this.name = name",
+        "fn label(p: P | null) -> string:",
+        "  return p?.name ?? \"none\"",
+        "print(label(null))",
+        "print(label(P(\"ann\")))",
+      ),
+    );
+  });
+
+  itRunsPe("answers null from a find that matches nothing", () => {
+    agrees(
+      src(
+        "names: string[] = [\"ann\", \"bobby\"]",
+        "print(names.find(n => n.length > 4))",
+        "print(names.find(n => n.length > 9))",
+      ),
+    );
+  });
+
+  itRunsPe("answers null from a find over numbers", () => {
+    agrees(src("xs: int[] = [1, 2, 3]", "print(xs.find(v => v > 1))", "print(xs.find(v => v > 9))"));
+  });
 });

@@ -1,6 +1,7 @@
 import { Lexer, TokenType, type Token } from "../../frontend/index.js";
 import { INDENT_UNIT } from "./config.js";
-import { increaseIndent, indentString, lastNonBlankLine, leadingSpaces } from "./text.js";
+import { increaseIndent, indentString, lastNonBlankLine } from "./text.js";
+import { leadingSpaces } from "../../frontend/lexer/offside.js";
 
 export type Completeness = { complete: boolean; indent: string };
 

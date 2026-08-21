@@ -186,6 +186,8 @@ const PRECEDENCE: Record<string, number> = {
   "**": 11,
 };
 
+const POSTFIX_PRECEDENCE = Math.max(...Object.values(PRECEDENCE)) + 1;
+
 const LOGICAL_OPS = new Set(["&&", "||"]);
 
 function canonicalOperator(op: string): string {
@@ -1344,12 +1346,12 @@ export class Parser {
       const tok = this.current();
 
       if (tok.type === TokenType.Punctuator) {
-        if (tok.value === "<" && minPrec <= 12 && this.isGenericCallAhead()) {
+        if (tok.value === "<" && minPrec <= POSTFIX_PRECEDENCE && this.isGenericCallAhead()) {
           left = copySpan({ ...left, typeArgs: this.parseGenericArguments() } as ASTNode, left);
           continue;
         }
 
-        if (tok.value === "." && minPrec <= 12) {
+        if (tok.value === "." && minPrec <= POSTFIX_PRECEDENCE) {
           this.advance();
           const prop =
             this.check(TokenType.Identifier) || this.check(TokenType.Keyword)
@@ -1359,7 +1361,7 @@ export class Parser {
           continue;
         }
 
-        if (tok.value === "?." && minPrec <= 12) {
+        if (tok.value === "?." && minPrec <= POSTFIX_PRECEDENCE) {
           this.advance();
           if (this.check(TokenType.Punctuator, "(")) {
             this.advance();
@@ -1380,20 +1382,20 @@ export class Parser {
           continue;
         }
 
-        if (tok.value === "(" && minPrec <= 12) {
+        if (tok.value === "(" && minPrec <= POSTFIX_PRECEDENCE) {
           this.advance();
           const args = this.parseArguments(")");
           left = copySpan(CallExpression(left, args), left);
           continue;
         }
 
-        if (tok.value === "[" && minPrec <= 12) {
+        if (tok.value === "[" && minPrec <= POSTFIX_PRECEDENCE) {
           this.advance();
           left = copySpan(this.parseIndexAccess(left), left);
           continue;
         }
 
-        if ((tok.value === "++" || tok.value === "--") && minPrec <= 12) {
+        if ((tok.value === "++" || tok.value === "--") && minPrec <= POSTFIX_PRECEDENCE) {
           if (
             left.type !== NodeType.Identifier &&
             left.type !== NodeType.MemberExpression

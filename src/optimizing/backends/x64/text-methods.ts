@@ -305,7 +305,6 @@ function stringReplace(abi: RuntimeAbi, all: boolean): Emit {
       ["rcx", 8],
     ]);
 
-    /** Copies the replacement out of `rcx`, leaving for `next` once it is spent. */
     const putFresh = (label: string, next: string): void => {
       builder
         .emit("xorl", builder.write("rbx", 4), builder.read("rbx", 4))
@@ -326,7 +325,6 @@ function stringReplace(abi: RuntimeAbi, all: boolean): Emit {
         .to("jmp", label);
     };
 
-    /** Copies one source byte out of `r8`, leaving for `next` once it is written. */
     const putSource = (next: string): void => {
       builder
         .emit("testl", builder.read(CAPACITY, 4), builder.read(CAPACITY, 4))
@@ -393,8 +391,6 @@ function stringReplace(abi: RuntimeAbi, all: boolean): Emit {
     builder.to("jmp", "scan").at("keep");
     putSource("scan");
 
-    // An empty needle matches in the gaps: once before the text for `replace`, and
-    // between the characters for `replace_all`, which reads as splitting and rejoining.
     builder.at("gaps");
     if (!all) putFresh("lead", "gapscan");
     builder

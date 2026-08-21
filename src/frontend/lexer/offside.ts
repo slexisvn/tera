@@ -1,17 +1,17 @@
 import { Lexer, TokenType, type Token, type TokenValue } from "../lexer/index.js";
 
+export function leadingSpaces(line: string): number {
+  let count = 0;
+  while (count < line.length && line[count] === " ") count++;
+  return count;
+}
+
 function token(type: Token["type"], value: TokenValue, line: number, column: number): Token {
   return { type, value, line, column };
 }
 
 function layout(type: typeof TokenType.Newline | typeof TokenType.Indent | typeof TokenType.Dedent, line: number, column: number): Token {
   return { type, value: "", line, column };
-}
-
-function leadingSpaces(line: string): number {
-  let count = 0;
-  while (count < line.length && line[count] === " ") count++;
-  return count;
 }
 
 function isBlankOrComment(line: string): boolean {

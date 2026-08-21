@@ -1,4 +1,4 @@
-import { NodeType, type ASTNode } from "../ast/index.js";
+import { astChildren, NodeType, type ASTNode } from "../ast/index.js";
 import { TERA_ASYNC_DOMAIN_TYPES, TERA_BUILTINS, TERA_CHART_METHODS, TERA_RESULT_FIELD_TYPES } from "../../../data/tera-language-spec.js";
 import { runtimeBuiltinMetadataFromSpec } from "../../utils/language-spec-runtime.js";
 
@@ -41,18 +41,6 @@ const BINDING_TYPES = new Set<string>([
 
 function isFunctionNode(node: ASTNode): node is FunctionNode {
   return FUNCTION_TYPES.has(node.type);
-}
-
-function children(node: ASTNode): ASTNode[] {
-  const out: ASTNode[] = [];
-  for (const value of Object.values(node)) {
-    if (Array.isArray(value)) {
-      for (const item of value) if (item && typeof item === "object" && "type" in item) out.push(item as ASTNode);
-    } else if (value && typeof value === "object" && "type" in value) {
-      out.push(value as ASTNode);
-    }
-  }
-  return out;
 }
 
 function calleeName(callee: ASTNode): string | null {
@@ -209,7 +197,7 @@ class EffectAnalyzer {
       }
     }
 
-    for (const child of children(node)) this.walk(child, unit, types);
+    for (const child of astChildren(node)) this.walk(child, unit, types);
   }
 
   private closuresOf(node: ASTNode): Set<Unit> | null {

@@ -58,7 +58,7 @@ function field(owner: string, name: string, declaredType: string): ClassMemberSu
   };
 }
 
-function surface(
+export function syntheticSurface(
   name: string,
   parent: string | null,
   fields: ReadonlyArray<readonly [string, string]>,
@@ -75,14 +75,14 @@ function surface(
 
 export function coroutineBaseShapes(classes: ClassTable): void {
   classes.defineSynthetic(
-    surface(CORO_FRAME_BASE, null, [
+    syntheticSurface(CORO_FRAME_BASE, null, [
       [CORO_ROUTINE_FIELD, "int"],
       [CORO_STATE_FIELD, "int"],
       [CORO_NEXT_FIELD, CORO_FRAME_BASE],
     ]),
   );
   classes.defineSynthetic(
-    surface(CORO_PROMISE_BASE, null, [
+    syntheticSurface(CORO_PROMISE_BASE, null, [
       [CORO_STATE_FIELD, "int"],
       [CORO_WAITING_FIELD, "int"],
       [CORO_WAITER_FIELD, CORO_FRAME_BASE],
@@ -99,7 +99,7 @@ export function coroutinePromiseShape(
   returns: string,
 ): ClassShape {
   return classes.defineSynthetic(
-    surface(coroutinePromiseName(fn), CORO_PROMISE_BASE, [[CORO_VALUE_FIELD, returns]]),
+    syntheticSurface(coroutinePromiseName(fn), CORO_PROMISE_BASE, [[CORO_VALUE_FIELD, returns]]),
   );
 }
 
@@ -118,7 +118,7 @@ export function coroutineFrameShape(
   slots: readonly CoroutineSlot[],
 ): ClassShape {
   return classes.defineSynthetic(
-    surface(coroutineFrameName(fn), CORO_FRAME_BASE, [
+    syntheticSurface(coroutineFrameName(fn), CORO_FRAME_BASE, [
       [CORO_RESULT_FIELD, coroutinePromiseName(fn)],
       ...slots.map((slot) => [slot.name, slot.declaredType] as const),
     ]),

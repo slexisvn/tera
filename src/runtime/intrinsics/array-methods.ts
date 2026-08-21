@@ -1,6 +1,7 @@
 import {
   mkSmi,
   mkBool,
+  mkNull,
   mkString,
   mkUndefined,
   mkArray,
@@ -183,7 +184,7 @@ export const ARRAY_METHODS = {
       const elem = at(i);
       if (toBool(invoke(elem, mkSmi(i)))) return elem;
     }
-    return mkUndefined();
+    return mkNull();
   }),
 
   findLast: callbackMethod("Array.prototype.findLast", ({ arr, at, invoke }) => {
@@ -191,7 +192,7 @@ export const ARRAY_METHODS = {
       const elem = at(i);
       if (toBool(invoke(elem, mkSmi(i)))) return elem;
     }
-    return mkUndefined();
+    return mkNull();
   }),
 
   findLastIndex: callbackMethod("Array.prototype.findLastIndex", ({ arr, at, invoke }) => {

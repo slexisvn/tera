@@ -98,7 +98,7 @@ describe("deopt from a no-frameState stub resumes at entry, not a stale offset",
     ).toEqual([undefined]);
   }, 30000);
 
-  it("still short-circuits the optional chain to undefined when its result is used", () => {
+  it("still short-circuits the optional chain to null when its result is used", () => {
     expect(
       differential(
         src(
@@ -118,7 +118,7 @@ describe("deopt from a no-frameState stub resumes at entry, not a stale offset",
           "[r0]",
         ),
       ),
-    ).toEqual([undefined]);
+    ).toEqual([null]);
   }, 30000);
 });
 

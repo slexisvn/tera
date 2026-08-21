@@ -13,11 +13,6 @@ function declaredReturnOf(value: CFGInstruction): string | null {
   return target?.declaredSignature?.returns ?? null;
 }
 
-/**
- * The type a value carries, falling back to what its callee declares. A pass that
- * rewrites calls leaves the inferred types behind for the nodes it just made, so
- * a later rewrite in the same sweep has only the declaration to go on.
- */
 export function producedType(
   value: CFGInstruction,
   types: TypeInference,

@@ -60,7 +60,7 @@ export function isAbsenceConstant(value: CFGInstruction | undefined): boolean {
 import { analysisId, type AnalysisPass } from "../infra/analysis-manager.js";
 import { computeValueLiveness } from "./value-liveness.js";
 import type { CallReachability } from "../metadata/call-graph.js";
-import { NAMED_ARGUMENTS_PROP } from "../metadata/call-signatures.js";
+import { calleeSymbolName, NAMED_ARGUMENTS_PROP } from "../metadata/call-signatures.js";
 import { declaredAcceptsNull, nominalLatticeType } from "../types/declared.js";
 import {
   aotElementScalarOf,
@@ -184,6 +184,28 @@ function keepsString(use: CFGInstruction): string {
   return `keeps it in ${use.type}`;
 }
 
+function allocated(value: CFGInstruction | undefined): boolean {
+  return value !== undefined && value.type === IR_NEW_OBJECT;
+}
+
+const TOUCHES_TEXT: ReadonlySet<string> = new Set<string>([IR_LOAD_TEXT, IR_STORE_TEXT]);
+
+function privateStorage(origin: CFGInstruction): boolean {
+  if (origin.type !== IR_LOAD_TEXT) return false;
+  const held = origin.inputs[0];
+  if (!allocated(held)) return false;
+  return held!.uses.every((use) => TOUCHES_TEXT.has(use.type) && use.inputs[0] === held);
+}
+
+function writesElsewhere(store: CFGInstruction, origin: CFGInstruction): boolean {
+  const written = store.inputs[0];
+  if (written === undefined) return false;
+  const borrowed = origin.type === IR_LOAD_TEXT ? origin.inputs[0] : null;
+  if (borrowed === null || borrowed === undefined) return allocated(written);
+  if (written === borrowed) return store.props.offset !== origin.props.offset;
+  return allocated(written) && allocated(borrowed);
+}
+
 function isConstantText(value: CFGInstruction | undefined): boolean {
   return value?.type === IR_CONSTANT && typeof value.props.value === "string";
 }
@@ -229,18 +251,25 @@ function isStatement(node: CFGInstruction): boolean {
   return builtinIntrinsicByName(String(node.props.name))?.pure === false;
 }
 
+const NEEDS_A_HASH_TABLE =
+  "is a hash table the compiler has no native shape for; use an object with the keys " +
+  "spelled out, an array, or keep this part interpreted";
+
 const MEMBER_REASONS: ReadonlyMap<string, string> = new Map<string, string>([
-  [
-    "find",
-    "find answers undefined when no element matches, and undefined is not a value " +
-      "the compiler tells apart from null; use find_index and read the element, or " +
-      "keep this part interpreted",
-  ],
   [
     "sort",
     "sort without a comparator orders elements as text; pass a comparator that returns " +
       "a number, or keep this part interpreted",
   ],
+  [
+    "split",
+    "split compiles when its separator is one spelled-out character; pass a literal " +
+      "such as \",\", or keep this part interpreted",
+  ],
+  ["set", `set ${NEEDS_A_HASH_TABLE}`],
+  ["add", `add ${NEEDS_A_HASH_TABLE}`],
+  ["get", `get ${NEEDS_A_HASH_TABLE}`],
+  ["has", `has ${NEEDS_A_HASH_TABLE}`],
 ]);
 
 const REJECTIONS = new Map<string, (node: CFGInstruction) => string>([
@@ -334,7 +363,9 @@ export class StringBufferRules {
   }
 
   copiesString(node: CFGInstruction, value: CFGInstruction): boolean {
-    return node.type === IR_STORE_TEXT && node.inputs[1] === value;
+    if (node.type === IR_STORE_TEXT) return node.inputs[1] === value;
+    if (node.type !== IR_STORE_ELEMENT && node.type !== IR_GENERIC_SET_INDEX) return false;
+    return node.inputs[2] === value && heapElementScalarOf(node) === SCALAR_TEXT;
   }
 
   lendsString(node: CFGInstruction, value: CFGInstruction): boolean {
@@ -505,9 +536,10 @@ export type AotLegalityResult =
   | { readonly ok: true; readonly legality: AotLegality }
   | { readonly ok: false; readonly reason: string };
 
-export function calleeSymbolName(node: CFGInstruction): string | null {
-  const target = node.props.target as { name?: unknown } | undefined;
-  return typeof target?.name === "string" ? target.name : null;
+export function isRootedPointer(legality: AotLegality, value: CFGInstruction): boolean {
+  if (value.type === IR_RUNTIME_BASE) return false;
+  if (value.uses.length === 0) return false;
+  return legality.scalarOf(value) === SCALAR_POINTER;
 }
 
 export function calleeDeclaredSignature(node: CFGInstruction): DeclaredSignature | null {
@@ -532,6 +564,7 @@ class LegalityAnalyzer implements AotLegality {
   private readonly scalars = new Map<CFGInstruction, AotScalar>();
   private readonly bufferByValue = new Map<CFGInstruction, AotStringBuffer>();
   private readonly borrowedFrom = new Map<CFGInstruction, CFGInstruction>();
+  private readonly privateStorage = new Map<CFGInstruction, boolean>();
   private readonly rules: StringBufferRules;
   private readonly seenConstants = new Set<CFGInstruction>();
   readonly constants: CFGInstruction[] = [];
@@ -592,7 +625,6 @@ class LegalityAnalyzer implements AotLegality {
     return { ok: false, reason };
   }
 
-  /** A field read, or a value a pass built, carries the representation it is held in. */
   private laidOutScalarOf(value: CFGInstruction): AotScalar | null {
     const built = value.props[VALUE_SCALAR_PROP];
     if (typeof built === "string") return built as AotScalar;
@@ -707,10 +739,20 @@ class LegalityAnalyzer implements AotLegality {
     }
   }
 
+  private borrowsPrivateStorage(origin: CFGInstruction): boolean {
+    let held = this.privateStorage.get(origin);
+    if (held === undefined) {
+      held = privateStorage(origin);
+      this.privateStorage.set(origin, held);
+    }
+    return held;
+  }
+
   private invalidates(node: CFGInstruction, origin: CFGInstruction): string | null {
     const model = this.graph.stringEscapes;
-    if (model === null) return null;
+    if (model === null || this.borrowsPrivateStorage(origin)) return null;
     if (node.type === IR_STORE_TEXT) {
+      if (writesElsewhere(node, origin)) return null;
       const field = node.props.propName;
       return typeof field === "string" ? `a write to ${field}` : "a write to a field";
     }
@@ -777,7 +819,6 @@ class LegalityAnalyzer implements AotLegality {
     return true;
   }
 
-  /** A written `null` takes its representation from whatever reads it. */
   private absenceScalarOf(node: CFGInstruction): AotScalar {
     for (const use of node.uses) {
       if (this.readsAbsenceAsNumber(use, node)) return SCALAR_FLOAT64;
@@ -805,7 +846,6 @@ class LegalityAnalyzer implements AotLegality {
     );
   }
 
-  /** A written return type settles whether a function answers anything at all. */
   private inferVoidReturn(): boolean {
     const declared = this.graph.declaredSignature?.returns;
     if (!isUnwritten(declared)) return this.declaredReturnScalar() === SCALAR_VOID;
@@ -821,7 +861,6 @@ class LegalityAnalyzer implements AotLegality {
     return declaredAotScalar(this.graph.declaredSignature?.returns, this.graph.classes);
   }
 
-  /** A call answers what its callee declared, absence included. */
   private answeredScalarOf(value: CFGInstruction): AotScalar | null {
     const returns = calleeDeclaredSignature(value)?.returns;
     if (returns === undefined || returns === null || !declaredAcceptsNull(returns)) return null;
@@ -985,12 +1024,13 @@ class LegalityAnalyzer implements AotLegality {
     if (stored !== undefined) {
       const value = this.require(stored, node.type);
       if (value === null) return;
-      if (value !== element && (isReferenceScalar(value) || isReferenceScalar(element))) {
+      const copiesText = element === SCALAR_TEXT && value === SCALAR_STRING;
+      if (!copiesText && value !== element && (isReferenceScalar(value) || isReferenceScalar(element))) {
         this.fail("array has an unsupported element type");
         return;
       }
     }
-    this.scalars.set(node, element);
+    this.scalars.set(node, element === SCALAR_TEXT ? SCALAR_STRING : element);
   }
 
   private comparedScalarOf(value: CFGInstruction): AotScalar | null {
@@ -1006,14 +1046,12 @@ class LegalityAnalyzer implements AotLegality {
     return node.inputs.every((input) => this.comparedScalarOf(input) === SCALAR_POINTER);
   }
 
-  /** `x == null` on a number reads the payload that stands for absence. */
   comparesAbsentNumber(node: CFGInstruction): boolean {
     if (!EQUALITY_OPERATORS.has(String(node.props.op))) return false;
     if (!node.inputs.some((input) => isAbsenceConstant(input))) return false;
     return node.inputs.every((input) => this.comparedScalarOf(input) === SCALAR_FLOAT64);
   }
 
-  /** `s == null` reads whether a reference is there at all, text or object alike. */
   comparesAbsentReference(node: CFGInstruction): boolean {
     if (!EQUALITY_OPERATORS.has(String(node.props.op))) return false;
     const absent = node.inputs.find((input) => isAbsenceConstant(input));
@@ -1063,7 +1101,15 @@ class LegalityAnalyzer implements AotLegality {
       const actual = this.require(node.inputs[index]!, node.type);
       if (actual === null) return;
       if (declared === ANY_SCALAR) {
-        if (name === PRINT_BUILTIN && !AOT_PRINTABLE.has(actual)) {
+        if (name !== PRINT_BUILTIN) continue;
+        if (this.types.typeOf(node.inputs[index]!).kind === TypeKind.Any) {
+          this.fail(
+            `${name} is given a value whose type the compiler cannot tell; annotate the ` +
+              `function it comes from, or keep this part interpreted`,
+          );
+          return;
+        }
+        if (!AOT_PRINTABLE.has(actual)) {
           this.fail(`${name} cannot format a ${actual} value`);
           return;
         }

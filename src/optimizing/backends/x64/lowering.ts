@@ -50,11 +50,11 @@ import {
   AOT_CHAR_AT,
   AOT_FLOAT_TO_STRING,
   AOT_INT_TO_STRING,
-  calleeSymbolName,
   type AotStringBuffer,
   isAbsenceConstant,
 } from "../../analyses/aot-legality.js";
-import { FLOAT64_NULL_BITS } from "../../target/float64.js";
+import { calleeSymbolName } from "../../metadata/call-signatures.js";
+import { doubleBits, FLOAT64_NULL_BITS } from "../../target/float64.js";
 import { isReferenceScalar } from "../../types/scalar.js";
 import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
 import { asciiData, integerData, zeroFilledBuffer } from "../../machine/data.js";
@@ -69,6 +69,7 @@ import {
   SCALAR_STRING,
   SCALAR_TEXT,
   SCALAR_VOID,
+  scalarStride,
   scalarWidth,
   type AotScalar,
 } from "../../types/scalar.js";
@@ -105,11 +106,8 @@ import {
   type StackSlot,
   type VirtualRegister,
 } from "../../machine/ir.js";
-import type {
-  MachineLowering,
-  SelectionContext,
-  SelectionHandler,
-} from "../../machine/lowering.js";
+import type { SelectionContext, SelectionHandler } from "../../machine/lowering.js";
+import { MachineLoweringBase, readOf, writeOf } from "../../machine/lowering-base.js";
 import { fusedConditionOf } from "../../machine/select.js";
 import { nativeArgumentScalar, nativeReturnScalar } from "../../machine/signature.js";
 import { X64_FPR, X64_GPR } from "./registers.js";
@@ -241,12 +239,6 @@ const PRINT_ROUTINES = new Map<AotScalar, string>([
 
 const SHIFT_MASK = INT32_SHIFT_MASK;
 
-function doubleBits(value: number): bigint {
-  const view = new DataView(new ArrayBuffer(8));
-  view.setFloat64(0, value);
-  return view.getBigUint64(0);
-}
-
 function calleeSignature(node: CFGInstruction): DeclaredSignature | null {
   const target = node.props.target as { declaredSignature?: DeclaredSignature } | undefined;
   return target?.declaredSignature ?? null;
@@ -255,59 +247,38 @@ function calleeSignature(node: CFGInstruction): DeclaredSignature | null {
 const POINTER_WIDTH = TERA_POINTER_BYTES;
 const SHAPE_ID_WIDTH = TERA_COUNT_BYTES;
 
-function readOf(register: VirtualRegister): RegisterOperand {
-  return use(register, register.width);
-}
-
-function writeOf(register: VirtualRegister): RegisterOperand {
-  return def(register, register.width);
-}
-
-export class X64Lowering implements MachineLowering {
-  constructor(readonly target: X64TargetModel) {}
+export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
 
   rules(): Iterable<readonly [string, SelectionHandler]> {
-    const entries: Array<readonly [string, SelectionHandler]> = [
-      [IR_LOAD_GLOBAL, () => undefined],
-      [IR_RETURN, (ctx) => this.selectReturn(ctx)],
-      [IR_JUMP, (ctx) => void ctx.emit(this.jump(ctx.successorFor("targetBlock")))],
-      [IR_BRANCH, (ctx) => this.selectBranch(ctx)],
-      [IR_INT32_ADD, (ctx) => this.selectIntAdd(ctx)],
-      [IR_INT32_SUB, (ctx) => this.selectIntSub(ctx)],
-      [IR_INT32_NOT, (ctx) => this.selectIntNot(ctx)],
-      [IR_INT32_COMPARE, (ctx) => this.selectCompare(ctx, false)],
-      [IR_FLOAT64_COMPARE, (ctx) => this.selectCompare(ctx, true)],
-      [IR_NEG, (ctx) => this.selectNegate(ctx)],
-      [IR_NOT, (ctx) => this.selectLogicalNot(ctx)],
-      [IR_NEW_OBJECT, (ctx) => this.selectNewObject(ctx)],
-      [IR_ARRAY_RESERVE, (ctx) => this.selectArrayReserve(ctx)],
-      [IR_RUNTIME_BASE, (ctx) => this.selectRuntimeBase(ctx)],
-      [IR_LOAD_FIELD, (ctx) => this.selectLoadField(ctx)],
-      [IR_STORE_FIELD, (ctx) => this.selectStoreField(ctx)],
-      [IR_LOAD_TEXT, (ctx) => this.selectLoadText(ctx)],
-      [IR_STORE_TEXT, (ctx) => this.selectStoreText(ctx)],
-      [IR_LOAD_ELEMENT, (ctx) => this.selectLoadElement(ctx)],
-      [IR_GENERIC_GET_INDEX, (ctx) => this.selectLoadElement(ctx)],
-      [IR_STORE_ELEMENT, (ctx) => this.selectStoreElement(ctx)],
-      [IR_GENERIC_SET_INDEX, (ctx) => this.selectStoreElement(ctx)],
-      [IR_CALL_KNOWN_FUNCTION, (ctx) => this.selectKnownCall(ctx)],
-      [IR_CALL_BUILTIN, (ctx) => this.selectBuiltin(ctx)],
-      [IR_GENERIC_ADD, (ctx) => this.selectStringConcat(ctx)],
-      [IR_GENERIC_COMPARE, (ctx) => this.selectStringCompare(ctx)],
+    return [
+      ...super.rules(),
+      [IR_INT32_ADD, (ctx) => this.selectIntAdd(ctx)] as const,
+      [IR_INT32_SUB, (ctx) => this.selectIntSub(ctx)] as const,
     ];
-    for (const [opcode, mnemonic] of FLOAT_BINARY) {
-      entries.push([opcode, (ctx) => this.selectFloatBinary(ctx, mnemonic)]);
-    }
-    for (const [opcode, mnemonic] of INT_BINARY) {
-      entries.push([opcode, (ctx) => this.selectIntBinary(ctx, mnemonic)]);
-    }
-    for (const [opcode, mnemonic] of INT_SHIFT) {
-      entries.push([opcode, (ctx) => this.selectShift(ctx, mnemonic)]);
-    }
-    for (const [opcode, symbol] of INT_HELPERS) {
-      entries.push([opcode, (ctx) => this.selectIntHelper(ctx, symbol)]);
-    }
-    return entries;
+  }
+
+  protected floatBinaryRules(): ReadonlyMap<string, string> {
+    return FLOAT_BINARY;
+  }
+
+  protected intBinaryRules(): ReadonlyMap<string, string> {
+    return INT_BINARY;
+  }
+
+  protected intShiftRules(): ReadonlyMap<string, string> {
+    return INT_SHIFT;
+  }
+
+  protected intHelperRules(): ReadonlyMap<string, string> {
+    return INT_HELPERS;
+  }
+
+  protected selectIntCompare(ctx: SelectionContext): void {
+    this.selectCompare(ctx, false);
+  }
+
+  protected selectFloatCompare(ctx: SelectionContext): void {
+    this.selectCompare(ctx, true);
   }
 
   materialize(ctx: SelectionContext, constant: CFGInstruction): VirtualRegister {
@@ -351,10 +322,6 @@ export class X64Lowering implements MachineLowering {
     ]);
   }
 
-  loadIncoming(destination: RegisterOperand, slot: StackSlot): MachineInstruction {
-    return this.reload(destination, slot);
-  }
-
   storeOutgoing(offset: number, source: RegisterOperand): MachineInstruction {
     return instruction(this.moveFor(source), [
       mem(source.width, { base: this.stackPointer(), displacement: offset }),
@@ -364,13 +331,6 @@ export class X64Lowering implements MachineLowering {
 
   jump(target: MachineBlock): MachineInstruction {
     return instruction("jmp", [label(target)], { terminator: true });
-  }
-
-  call(symbol: string, operands: MachineOperand[]): MachineInstruction {
-    return instruction("call", [sym(symbol), ...operands], {
-      call: true,
-      implicitFrom: 1,
-    });
   }
 
   storeRoot(
@@ -391,7 +351,7 @@ export class X64Lowering implements MachineLowering {
     ];
   }
 
-  private enterRoots(frame: FrameLayout): readonly MachineInstruction[] {
+  protected enterRoots(frame: FrameLayout): readonly MachineInstruction[] {
     if (frame.rootFrame === null) return [];
     return [
       instruction("movl", [
@@ -409,7 +369,7 @@ export class X64Lowering implements MachineLowering {
     ];
   }
 
-  private leaveRoots(frame: FrameLayout): readonly MachineInstruction[] {
+  protected leaveRoots(frame: FrameLayout): readonly MachineInstruction[] {
     if (frame.rootFrame === null) return [];
     const cursor = this.physical(ROOT_FRAME_REGISTER);
     const table = this.physical(ROOT_COUNT_REGISTER);
@@ -425,27 +385,7 @@ export class X64Lowering implements MachineLowering {
     ];
   }
 
-  private physical(name: string): PhysicalRegister {
-    return this.target.registers.register(name);
-  }
-
-  prologue(frame: FrameLayout): readonly MachineInstruction[] {
-    return [
-      ...this.adjustStack(-frame.frameSize),
-      ...frame.saved.map((saved) => this.frameSlotAccess(saved, true)),
-      ...this.enterRoots(frame),
-    ];
-  }
-
-  epilogue(frame: FrameLayout): readonly MachineInstruction[] {
-    return [
-      ...this.leaveRoots(frame),
-      ...frame.saved.map((saved) => this.frameSlotAccess(saved, false)),
-      ...this.adjustStack(frame.frameSize),
-    ];
-  }
-
-  private adjustStack(delta: number): MachineInstruction[] {
+  protected adjustStack(delta: number): MachineInstruction[] {
     if (delta === 0) return [];
     const pointer = this.target.abi.stackPointer;
     return [
@@ -457,7 +397,7 @@ export class X64Lowering implements MachineLowering {
     ];
   }
 
-  private frameSlotAccess(saved: SavedRegister, store: boolean): MachineInstruction {
+  protected frameSlotAccess(saved: SavedRegister, store: boolean): MachineInstruction {
     const width = this.target.registers.classOf(saved.register.classId).saveBytes;
     const mnemonic = saved.register.classId === X64_FPR ? "movups" : "movq";
     const location = mem(width, {
@@ -467,10 +407,6 @@ export class X64Lowering implements MachineLowering {
     return store
       ? instruction(mnemonic, [location, use(saved.register, width)])
       : instruction(mnemonic, [def(saved.register, width), location]);
-  }
-
-  private stackPointer(): RegisterOperand {
-    return use(this.target.abi.stackPointer, 8);
   }
 
   private moveFor(operand: RegisterOperand): string {
@@ -505,7 +441,6 @@ export class X64Lowering implements MachineLowering {
     return into;
   }
 
-  /** Reads a float64 as the bits it is made of, so absence compares exactly. */
   private bitsOf(ctx: SelectionContext, value: CFGInstruction): VirtualRegister {
     const bits = ctx.tempIn(X64_GPR, 8);
     ctx.emit(instruction("movq", [writeOf(bits), readOf(this.coerce(ctx, value, SCALAR_FLOAT64))]));
@@ -547,14 +482,6 @@ export class X64Lowering implements MachineLowering {
     return destination;
   }
 
-  private coerce(
-    ctx: SelectionContext,
-    value: CFGInstruction,
-    scalar: AotScalar,
-  ): VirtualRegister {
-    return this.convert(ctx, ctx.registerOf(value), ctx.scalarOf(value), scalar);
-  }
-
   private intConstantOf(ctx: SelectionContext, value: CFGInstruction): number | null {
     if (ctx.scalarOf(value) !== SCALAR_INT32) return null;
     const constant = ctx.constantOf(value);
@@ -570,7 +497,7 @@ export class X64Lowering implements MachineLowering {
     return wide;
   }
 
-  private selectFloatBinary(ctx: SelectionContext, mnemonic: string): void {
+  protected selectFloatBinary(ctx: SelectionContext, mnemonic: string): void {
     const left = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_FLOAT64);
     const right = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_FLOAT64);
     const result = this.destination(ctx, SCALAR_FLOAT64);
@@ -580,7 +507,7 @@ export class X64Lowering implements MachineLowering {
     this.produce(ctx, result, SCALAR_FLOAT64);
   }
 
-  private selectIntBinary(ctx: SelectionContext, mnemonic: string): void {
+  protected selectIntBinary(ctx: SelectionContext, mnemonic: string): void {
     const left = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
     const right = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_INT32);
     const result = this.destination(ctx, SCALAR_INT32);
@@ -640,14 +567,14 @@ export class X64Lowering implements MachineLowering {
     this.produce(ctx, result, SCALAR_INT32);
   }
 
-  private selectIntNot(ctx: SelectionContext): void {
+  protected selectIntNot(ctx: SelectionContext): void {
     const operand = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
     const result = this.destination(ctx, SCALAR_INT32);
     ctx.emit(instruction("notl", [writeOf(result), readOf(operand)], { tied: true }));
     this.produce(ctx, result, SCALAR_INT32);
   }
 
-  private selectShift(ctx: SelectionContext, mnemonic: string): void {
+  protected selectShift(ctx: SelectionContext, mnemonic: string): void {
     const value = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
     const amount = ctx.node.inputs[1]!;
     const constant = this.intConstantOf(ctx, amount);
@@ -684,16 +611,7 @@ export class X64Lowering implements MachineLowering {
     return this.target.registers.register("rcx");
   }
 
-  private selectIntHelper(ctx: SelectionContext, symbol: string): void {
-    const left = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
-    const right = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_INT32);
-    const result = this.destination(ctx, SCALAR_INT32);
-    ctx.external(symbol);
-    ctx.emitCall(symbol, [left, right], result);
-    this.produce(ctx, result, SCALAR_INT32);
-  }
-
-  private selectNegate(ctx: SelectionContext): void {
+  protected selectNegate(ctx: SelectionContext): void {
     const scalar = ctx.scalarOf(ctx.node);
     if (scalar === SCALAR_INT32) {
       const operand = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
@@ -715,7 +633,7 @@ export class X64Lowering implements MachineLowering {
     this.produce(ctx, result, SCALAR_FLOAT64);
   }
 
-  private selectLogicalNot(ctx: SelectionContext): void {
+  protected selectLogicalNot(ctx: SelectionContext): void {
     const operand = ctx.node.inputs[0]!;
     const scalar = ctx.scalarOf(operand);
     const result = this.destination(ctx, SCALAR_INT32);
@@ -817,7 +735,7 @@ export class X64Lowering implements MachineLowering {
     this.produce(ctx, result, SCALAR_INT32);
   }
 
-  private selectStringCompare(ctx: SelectionContext): void {
+  protected selectStringCompare(ctx: SelectionContext): void {
     if (ctx.node.inputs.every((input) => ctx.scalarOf(input) === SCALAR_POINTER)) {
       this.selectReferenceCompare(ctx);
       return;
@@ -853,7 +771,7 @@ export class X64Lowering implements MachineLowering {
     this.produce(ctx, result, SCALAR_INT32);
   }
 
-  private selectBranch(ctx: SelectionContext): void {
+  protected selectBranch(ctx: SelectionContext): void {
     const onTrue = ctx.successorFor("trueBlock");
     const onFalse = ctx.successorFor("falseBlock");
     const fused = fusedConditionOf(ctx);
@@ -885,27 +803,6 @@ export class X64Lowering implements MachineLowering {
     ctx.emit(this.jump(onFalse));
   }
 
-  private selectReturn(ctx: SelectionContext): void {
-    const scalar = nativeReturnScalar(ctx.legality);
-    if (scalar === SCALAR_VOID || isPendingThrowReturn(ctx.node)) {
-      ctx.emit(instruction("ret", [], { terminator: true, returns: true }));
-      return;
-    }
-    const value = this.coerce(ctx, ctx.node.inputs[0]!, scalar);
-    const width = ctx.widthOf(scalar);
-    const returned = this.target.abi.callingConvention.returnRegisters.get(
-      ctx.classOf(scalar),
-    )!;
-    ctx.emit(this.copy(def(returned, width), use(value, width)));
-    ctx.emit(
-      instruction("ret", [use(returned, width)], {
-        terminator: true,
-        returns: true,
-        implicitFrom: 0,
-      }),
-    );
-  }
-
   private elementAddress(
     ctx: SelectionContext,
     slot: StackSlot,
@@ -926,7 +823,7 @@ export class X64Lowering implements MachineLowering {
     return mem(width, { base: use(receiver, 8), displacement: offset });
   }
 
-  private selectNewObject(ctx: SelectionContext): void {
+  protected selectNewObject(ctx: SelectionContext): void {
     const shape = allocationShapeOf(ctx.node);
     const size = this.loadNumber(ctx, shape.size, SCALAR_INT32);
     const identity = this.loadNumber(ctx, shape.id, SCALAR_INT32);
@@ -970,7 +867,7 @@ export class X64Lowering implements MachineLowering {
     fork.enterRejoin();
   }
 
-  private selectArrayReserve(ctx: SelectionContext): void {
+  protected selectArrayReserve(ctx: SelectionContext): void {
     const growth = arrayReserveOf(ctx.node);
     const array = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_POINTER);
     const buffer = this.loadNumber(ctx, growth.buffer, SCALAR_INT32);
@@ -983,7 +880,7 @@ export class X64Lowering implements MachineLowering {
     );
   }
 
-  private selectRuntimeBase(ctx: SelectionContext): void {
+  protected selectRuntimeBase(ctx: SelectionContext): void {
     const base = ctx.resultRegister();
     ctx.emit(
       instruction("leaq", [
@@ -993,7 +890,7 @@ export class X64Lowering implements MachineLowering {
     );
   }
 
-  private selectLoadField(ctx: SelectionContext): void {
+  protected selectLoadField(ctx: SelectionContext): void {
     const scalar = fieldScalarOf(ctx.node);
     const width = ctx.widthOf(scalar);
     const receiver = ctx.registerOf(ctx.node.inputs[0]!);
@@ -1007,7 +904,7 @@ export class X64Lowering implements MachineLowering {
     this.produce(ctx, loaded, scalar);
   }
 
-  private selectStoreField(ctx: SelectionContext): void {
+  protected selectStoreField(ctx: SelectionContext): void {
     const scalar = fieldScalarOf(ctx.node);
     const width = ctx.widthOf(scalar);
     const receiver = ctx.registerOf(ctx.node.inputs[0]!);
@@ -1021,7 +918,7 @@ export class X64Lowering implements MachineLowering {
     if (ctx.node.uses.length > 0) this.produce(ctx, value, scalar);
   }
 
-  private textAddress(ctx: SelectionContext, destination: VirtualRegister): VirtualRegister {
+  protected textAddress(ctx: SelectionContext, destination: VirtualRegister): VirtualRegister {
     const receiver = ctx.registerOf(ctx.node.inputs[0]!);
     ctx.emit(
       instruction("leaq", [
@@ -1032,12 +929,7 @@ export class X64Lowering implements MachineLowering {
     return destination;
   }
 
-  private selectLoadText(ctx: SelectionContext): void {
-    const address = this.textAddress(ctx, this.destination(ctx, SCALAR_STRING));
-    this.produce(ctx, address, SCALAR_STRING);
-  }
-
-  private selectStoreText(ctx: SelectionContext): void {
+  protected selectStoreText(ctx: SelectionContext): void {
     const value = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_STRING);
     const destination = this.textAddress(ctx, ctx.tempIn(X64_GPR, POINTER_WIDTH));
     const capacity = this.loadNumber(ctx, textCapacityOf(ctx.node), SCALAR_INT32);
@@ -1061,7 +953,33 @@ export class X64Lowering implements MachineLowering {
     };
   }
 
-  private selectLoadElement(ctx: SelectionContext): void {
+  private elementTextAddress(
+    ctx: SelectionContext,
+    destination: VirtualRegister,
+  ): VirtualRegister {
+    const receiver = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_POINTER);
+    const index = this.index(ctx, ctx.node.inputs[1]!);
+    ctx.emit(instruction("shlq", [def(index, 8), imm(scalarStride(SCALAR_TEXT))]));
+    ctx.emit(
+      instruction("leaq", [
+        writeOf(destination),
+        mem(POINTER_WIDTH, {
+          base: use(receiver, POINTER_WIDTH),
+          index: use(index, POINTER_WIDTH),
+          scale: 1,
+          displacement: fieldOffsetOf(ctx.node),
+        }),
+      ]),
+    );
+    return destination;
+  }
+
+  protected selectLoadElement(ctx: SelectionContext): void {
+    if (heapElementScalarOf(ctx.node) === SCALAR_TEXT) {
+      const address = this.elementTextAddress(ctx, this.destination(ctx, SCALAR_STRING));
+      this.produce(ctx, address, SCALAR_STRING);
+      return;
+    }
     const { element, address } = this.elementPlace(ctx);
     const loaded = this.destination(ctx, element);
     ctx.emit(
@@ -1070,7 +988,15 @@ export class X64Lowering implements MachineLowering {
     this.produce(ctx, loaded, element);
   }
 
-  private selectStoreElement(ctx: SelectionContext): void {
+  protected selectStoreElement(ctx: SelectionContext): void {
+    if (heapElementScalarOf(ctx.node) === SCALAR_TEXT) {
+      const value = this.coerce(ctx, ctx.node.inputs[2]!, SCALAR_STRING);
+      const destination = this.elementTextAddress(ctx, ctx.tempIn(X64_GPR, POINTER_WIDTH));
+      const capacity = this.loadNumber(ctx, scalarWidth(SCALAR_TEXT), SCALAR_INT32);
+      ctx.external(X64_RUNTIME_SYMBOLS.stringSet);
+      ctx.emitCall(X64_RUNTIME_SYMBOLS.stringSet, [destination, capacity, value], null);
+      return;
+    }
     const { element, address } = this.elementPlace(ctx);
     const value = this.coerce(ctx, ctx.node.inputs[2]!, element);
     ctx.emit(
@@ -1079,7 +1005,7 @@ export class X64Lowering implements MachineLowering {
     if (ctx.node.uses.length > 0) this.produce(ctx, value, element);
   }
 
-  private selectKnownCall(ctx: SelectionContext): void {
+  protected selectKnownCall(ctx: SelectionContext): void {
     const name = calleeSymbolName(ctx.node)!;
     const symbol = this.target.symbolOf(name);
     const signature = calleeSignature(ctx.node);
@@ -1092,7 +1018,7 @@ export class X64Lowering implements MachineLowering {
     ctx.emitCall(symbol, args, used ? ctx.resultRegister() : null);
   }
 
-  private bufferAddress(ctx: SelectionContext, buffer: AotStringBuffer): VirtualRegister {
+  protected bufferAddress(ctx: SelectionContext, buffer: AotStringBuffer): VirtualRegister {
     const datum = ctx.data.intern(
       `string-buffer:${buffer.producer.id}`,
       1,
@@ -1105,7 +1031,7 @@ export class X64Lowering implements MachineLowering {
     return address;
   }
 
-  private emitBufferCall(
+  protected emitBufferCall(
     ctx: SelectionContext,
     symbol: string,
     buffer: AotStringBuffer,
@@ -1119,7 +1045,7 @@ export class X64Lowering implements MachineLowering {
     return result;
   }
 
-  private selectStringConcat(ctx: SelectionContext): void {
+  protected selectStringConcat(ctx: SelectionContext): void {
     const buffer = ctx.legality.stringBufferOf(ctx.node)!;
     const left = ctx.registerOf(ctx.node.inputs[0]!);
     const right = ctx.registerOf(ctx.node.inputs[1]!);
@@ -1138,22 +1064,6 @@ export class X64Lowering implements MachineLowering {
       [right],
     );
     this.produce(ctx, appended, SCALAR_STRING);
-  }
-
-  private selectStringBuffered(ctx: SelectionContext, symbol: string): void {
-    const buffer = ctx.legality.stringBufferOf(ctx.node)!;
-    const intrinsic = builtinIntrinsicByName(String(ctx.node.props.name))!;
-    const operands = ctx.node.inputs.map((input, index) =>
-      this.coerce(ctx, input, nativeArgumentScalar(builtinParameterAt(intrinsic, index), ctx.classes)),
-    );
-    const result = this.emitBufferCall(
-      ctx,
-      symbol,
-      buffer,
-      this.bufferAddress(ctx, buffer),
-      operands,
-    );
-    this.produce(ctx, result, SCALAR_STRING);
   }
 
   private selectPrintValue(
@@ -1185,7 +1095,7 @@ export class X64Lowering implements MachineLowering {
     ctx.emitCall(X64_RUNTIME_SYMBOLS.throwError, [message], null);
   }
 
-  private selectBuiltin(ctx: SelectionContext): void {
+  protected selectBuiltin(ctx: SelectionContext): void {
     const name = String(ctx.node.props.name);
     if (name === PRINT_BUILTIN) {
       this.selectPrint(ctx);
@@ -1276,30 +1186,4 @@ export class X64Lowering implements MachineLowering {
     this.produce(ctx, result, SCALAR_INT32);
   }
 
-  private emitLibraryCall(
-    ctx: SelectionContext,
-    symbol: string,
-    args: readonly VirtualRegister[],
-    scalar: AotScalar,
-  ): void {
-    ctx.external(symbol);
-    const result = this.destination(ctx, scalar);
-    ctx.emitCall(symbol, args, result);
-    this.produce(ctx, result, scalar);
-  }
-
-  private destination(ctx: SelectionContext, scalar: AotScalar): VirtualRegister {
-    return ctx.scalarOf(ctx.node) === scalar ? ctx.resultRegister() : ctx.temp(scalar);
-  }
-
-  private produce(
-    ctx: SelectionContext,
-    value: VirtualRegister,
-    scalar: AotScalar,
-  ): void {
-    const wanted = ctx.scalarOf(ctx.node);
-    if (scalar === wanted && value === ctx.resultRegister()) return;
-    const converted = this.convert(ctx, value, scalar, wanted);
-    ctx.emit(this.copy(ctx.resultOf(), readOf(converted)));
-  }
 }

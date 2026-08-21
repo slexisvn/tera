@@ -140,15 +140,13 @@ function protoChainMatches(
   return requireEnd ? current === null : true;
 }
 
-export class LoadFieldHandler {
-  type: "LoadField";
+abstract class FieldHandler {
   hiddenClassId: MapId;
   mapVersion: MapVersion;
   offset: PropertyOffset;
   propertyName: PropertyKey;
 
   constructor(hiddenClassId: MapId, mapVersion: MapVersion, offset: PropertyOffset, propertyName: PropertyKey) {
-    this.type = "LoadField";
     this.hiddenClassId = hiddenClassId;
     this.mapVersion = mapVersion;
     this.offset = offset;
@@ -162,6 +160,10 @@ export class LoadFieldHandler {
       !obj.hiddenClass.isDeprecated
     );
   }
+}
+
+export class LoadFieldHandler extends FieldHandler {
+  readonly type = "LoadField";
 
   execute(obj: ICObject): ICValue {
     return obj.getPropertyByOffset(this.offset);
@@ -228,28 +230,8 @@ export class ProtoLoadFieldHandler {
   }
 }
 
-export class StoreFieldHandler {
-  type: "StoreField";
-  hiddenClassId: MapId;
-  mapVersion: MapVersion;
-  offset: PropertyOffset;
-  propertyName: PropertyKey;
-
-  constructor(hiddenClassId: MapId, mapVersion: MapVersion, offset: PropertyOffset, propertyName: PropertyKey) {
-    this.type = "StoreField";
-    this.hiddenClassId = hiddenClassId;
-    this.mapVersion = mapVersion;
-    this.offset = offset;
-    this.propertyName = propertyName;
-  }
-
-  matches(obj: ICObject): boolean {
-    return (
-      obj.hiddenClass.id === this.hiddenClassId &&
-      obj.hiddenClass.version === this.mapVersion &&
-      !obj.hiddenClass.isDeprecated
-    );
-  }
+export class StoreFieldHandler extends FieldHandler {
+  readonly type = "StoreField";
 
   execute(obj: ICObject, value: TaggedValue): void {
     obj.setPropertyByOffset(this.offset, value);
@@ -411,6 +393,33 @@ abstract class SiteInlineCache<TEntry> {
     this.state = IC_UNINITIALIZED;
     this.entries = [];
     this.transitionCount++;
+  }
+}
+
+abstract class ElementSiteInlineCache<
+  THandler extends ElementHandler,
+> extends SiteInlineCache<ElementICEntry<THandler>> {
+  _addEntry(entry: ElementICEntry<THandler>, elementsKind: ElementsKind): void {
+    const prevState = this.state;
+    if (this.state === IC_UNINITIALIZED) {
+      this.state = IC_MONOMORPHIC;
+      this.entries = [entry];
+    } else if (this.state === IC_MONOMORPHIC) {
+      this.state = IC_POLYMORPHIC;
+      if (!this.entries) this.entries = [];
+      this.entries.push(entry);
+    } else if (
+      this.state === IC_POLYMORPHIC &&
+      this.entries &&
+      this.entries.length < MAX_ELEMENT_POLY_ENTRIES
+    ) {
+      this.entries.push(entry);
+    } else {
+      this.state = IC_MEGAMORPHIC;
+      this.entries = null;
+    }
+    this.transitionCount++;
+    tracer.icEvent(siteTraceId(this.siteId), prevState, this.state, kindTraceId(elementsKind), 0);
   }
 }
 
@@ -1035,7 +1044,7 @@ export class PropertyStoreIC extends PropertySiteInlineCache<ICEntry<StoreProper
   }
 }
 
-export class ElementLoadIC extends SiteInlineCache<ElementICEntry<LoadElementHandler>> {
+export class ElementLoadIC extends ElementSiteInlineCache<LoadElementHandler> {
   lookup(arrayObj: ICArray, index: number): LoadLookupResult {
     const elementsKind = arrayObj.getElementsKind();
 
@@ -1086,29 +1095,6 @@ export class ElementLoadIC extends SiteInlineCache<ElementICEntry<LoadElementHan
     return { hit: true, value: handler.execute(arrayObj, index) };
   }
 
-  _addEntry(entry: ElementICEntry<LoadElementHandler>, elementsKind: ElementsKind): void {
-    const prevState = this.state;
-    if (this.state === IC_UNINITIALIZED) {
-      this.state = IC_MONOMORPHIC;
-      this.entries = [entry];
-    } else if (this.state === IC_MONOMORPHIC) {
-      this.state = IC_POLYMORPHIC;
-      if (!this.entries) this.entries = [];
-      this.entries.push(entry);
-    } else if (
-      this.state === IC_POLYMORPHIC &&
-      this.entries &&
-      this.entries.length < MAX_ELEMENT_POLY_ENTRIES
-    ) {
-      this.entries.push(entry);
-    } else {
-      this.state = IC_MEGAMORPHIC;
-      this.entries = null;
-    }
-    this.transitionCount++;
-    tracer.icEvent(siteTraceId(this.siteId), prevState, this.state, kindTraceId(elementsKind), 0);
-  }
-
   getStats() {
     return {
       siteId: this.siteId,
@@ -1123,7 +1109,7 @@ export class ElementLoadIC extends SiteInlineCache<ElementICEntry<LoadElementHan
   }
 }
 
-export class ElementStoreIC extends SiteInlineCache<ElementICEntry<StoreElementHandler>> {
+export class ElementStoreIC extends ElementSiteInlineCache<StoreElementHandler> {
   store(arrayObj: ICArray, index: number, value: TaggedValue): boolean {
     const elementsKind = arrayObj.getElementsKind();
 
@@ -1196,29 +1182,6 @@ export class ElementStoreIC extends SiteInlineCache<ElementICEntry<StoreElementH
     }
   }
 
-  _addEntry(entry: ElementICEntry<StoreElementHandler>, elementsKind: ElementsKind): void {
-    const prevState = this.state;
-    if (this.state === IC_UNINITIALIZED) {
-      this.state = IC_MONOMORPHIC;
-      this.entries = [entry];
-    } else if (this.state === IC_MONOMORPHIC) {
-      this.state = IC_POLYMORPHIC;
-      if (!this.entries) this.entries = [];
-      this.entries.push(entry);
-    } else if (
-      this.state === IC_POLYMORPHIC &&
-      this.entries &&
-      this.entries.length < MAX_ELEMENT_POLY_ENTRIES
-    ) {
-      this.entries.push(entry);
-    } else {
-      this.state = IC_MEGAMORPHIC;
-      this.entries = null;
-    }
-    this.transitionCount++;
-    tracer.icEvent(siteTraceId(this.siteId), prevState, this.state, kindTraceId(elementsKind), 0);
-  }
-
   getStats() {
     return {
       siteId: this.siteId,
@@ -1233,22 +1196,7 @@ export class ElementStoreIC extends SiteInlineCache<ElementICEntry<StoreElementH
   }
 }
 
-export class CallIC {
-  siteId: SiteId;
-  state: ICState;
-  entries: CallICEntry[] | null;
-  hitCount: number;
-  missCount: number;
-  transitionCount: number;
-
-  constructor(siteId: SiteId) {
-    this.siteId = siteId;
-    this.state = IC_UNINITIALIZED;
-    this.entries = [];
-    this.hitCount = 0;
-    this.missCount = 0;
-    this.transitionCount = 0;
-  }
+export class CallIC extends SiteInlineCache<CallICEntry> {
 
   lookup(callee: ICCallee, argCount: number, receiver: TaggedValue | null = null) {
     const compiled = callee && callee.compiled ? callee.compiled : null;
@@ -1377,12 +1325,6 @@ export class CallIC {
       targetTraceId(targetId),
       entry.argCount,
     );
-  }
-
-  invalidate() {
-    this.state = IC_UNINITIALIZED;
-    this.entries = [];
-    this.transitionCount++;
   }
 
   getStats() {

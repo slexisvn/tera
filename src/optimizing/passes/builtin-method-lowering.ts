@@ -55,7 +55,6 @@ type Lowering = {
   readonly operands: CFGInstruction[];
   readonly intrinsic: BuiltinMethodIntrinsic;
   readonly guardPrimitive: string | null;
-  /** Reports the length a subscript is resolved and bounds-checked against. */
   readonly countedBy?: BuiltinMethodIntrinsic;
 };
 
@@ -116,13 +115,6 @@ function callLowering(
   return { node, callee, operands: node.inputs.slice(1), ...resolved };
 }
 
-/**
- * `s[i]` reads the character `s.char_at(i)` does, but only once the index has been
- * resolved against the length: `char_at` counts from the front and answers the empty
- * string off either end, where the source counts a negative index back from the end
- * and has no character at all beyond them. A target that still carries tagged values
- * keeps reading the index through the runtime, which already resolves it.
- */
 function indexLowering(
   node: CFGInstruction,
   types: TypeInference,
@@ -245,10 +237,6 @@ function applyLowering(
   if (callee !== null && callee.uses.length === 0) editor.remove(callee);
 }
 
-/**
- * Lowers along the dominator tree so a member reaches the values its guard wants to
- * reuse, with any block a guard splits off picked up behind the walk.
- */
 function blocksInDominanceOrder(graph: CFGFunction, reaching: DominatorTree): CFGBlock[] {
   const ordered = [...reaching.reversePostorder()];
   const reachable = new Set(ordered);

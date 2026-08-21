@@ -1,21 +1,28 @@
 import {
+  irCallKnownFunction,
   IR_AWAIT,
+  IR_CALL_BUILTIN,
   IR_CALL_KNOWN_FUNCTION,
   IR_GENERIC_CALL,
   IR_RETURN,
   type CFGFunction,
   type CFGInstruction,
 } from "../ir/index.js";
+import { nodeIdStamper } from "../ir/graph-edit.js";
 import { isUnwritten, type DeclaredSignature } from "../types/signature.js";
 import type { ClassShape, ClassTable } from "../metadata/class-table.js";
-import { genericCalleeName, stampCalleeSignatures } from "../metadata/call-signatures.js";
 import {
-  aotLegalityAnalysisId,
+  calleeNameOf,
   calleeSymbolName,
-  summarizeStringEscapes,
-} from "../analyses/aot-legality.js";
+  CALLEE_SYMBOL_PROP,
+  genericCalleeName,
+  stampCalleeSignatures,
+} from "../metadata/call-signatures.js";
+import { THROW_BUILTIN } from "../metadata/builtin-methods.js";
+import { ModuleFunctions } from "../metadata/module-functions.js";
+import { aotLegalityAnalysisId, summarizeStringEscapes } from "../analyses/aot-legality.js";
 import { AWAITED_CALL_PROP } from "../builder/ir-builder.js";
-import { isPendingThrowReturn } from "../builder/throw-recovery.js";
+import { forwardsPendingThrow, isPendingThrowReturn } from "../builder/throw-recovery.js";
 import { callReachability, markReentrantFunctions } from "../metadata/call-graph.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
 import { inferredReturnName } from "../analyses/returned-type.js";
@@ -49,7 +56,18 @@ import {
   typeAwaitedResults,
   type PromiseOf,
 } from "../passes/coroutines.js";
+import { generatorYieldType, splitGenerator } from "../passes/generators.js";
+import { lowerErrorSurface } from "../passes/error-surface.js";
+import { lowerGeneratorIteration } from "../passes/generator-iteration.js";
 import { coroutineBaseShapes, coroutinePromiseShape } from "../metadata/coroutines.js";
+import {
+  declareGlobalVariables,
+  dropFunctionBindings,
+  promoteRunOnceGlobals,
+} from "../metadata/global-variables.js";
+import { lowerModuleCaptures } from "../metadata/module-captures.js";
+import { convertClosures } from "../metadata/closure-conversion.js";
+import { PROGRAM_ENTRY_NAME } from "../target/program-entry.js";
 import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
 
 export interface AotProgram {
@@ -139,8 +157,8 @@ function moduleClasses(module: ModuleIR): ClassTable | null {
 
 function uniquifyGraphNames(module: ModuleIR): void {
   const taken = new Set<string>();
-  for (const unit of module.units) {
-    const graph = unit.graph;
+  for (let index = module.units.length - 1; index >= 0; index--) {
+    const graph = module.units[index]!.graph;
     if (!taken.has(graph.name)) {
       taken.add(graph.name);
       continue;
@@ -149,6 +167,70 @@ function uniquifyGraphNames(module: ModuleIR): void {
     while (taken.has(`${graph.name}${ordinal}`)) ordinal++;
     graph.name = `${graph.name}${ordinal}`;
     taken.add(graph.name);
+  }
+}
+
+function runOnceGraphs(
+  module: ModuleIR,
+  backend: AotBackend,
+  options: AotDriverOptions,
+): ReadonlySet<string> {
+  const inits = new Set(options.moduleInits ?? []);
+  const names = new Set<string>([PROGRAM_ENTRY_NAME]);
+  for (const unit of module.units) {
+    if (inits.has(backend.symbolOf(unit.graph.name))) names.add(unit.graph.name);
+  }
+  return names;
+}
+
+interface ModuleStart {
+  readonly started: boolean;
+  readonly refused: string | null;
+}
+
+function unitsByName(module: ModuleIR): ReadonlyMap<string, CompilationUnit> {
+  const units = new Map<string, CompilationUnit>();
+  for (const unit of module.units) units.set(unit.graph.name, unit);
+  return units;
+}
+
+function startModules(module: ModuleIR, inits: readonly string[]): ModuleStart {
+  const units = unitsByName(module);
+  const entry = units.get(PROGRAM_ENTRY_NAME);
+  if (entry === undefined || inits.length === 0) return { started: false, refused: null };
+  const graph = entry.graph;
+  const stamp = nodeIdStamper(graph);
+  const block = graph.entry!;
+  const calls: CFGInstruction[] = [];
+  for (const name of inits) {
+    const unit = units.get(name);
+    if (unit === undefined) continue;
+    if (canReject(unit.graph)) {
+      return {
+        started: false,
+        refused:
+          `module ${name} can throw while it loads, and the compiler cannot yet carry that ` +
+          `throw out of a module; keep this part interpreted`,
+      };
+    }
+    calls.push(stamp(irCallKnownFunction({ name } as never, [])));
+  }
+  for (const call of calls) call.block = block;
+  block.nodes.unshift(...calls);
+  graph.rebuildUses();
+  return { started: true, refused: null };
+}
+
+function nameCalleeConstants(module: ModuleIR): void {
+  const functions = new ModuleFunctions(module);
+  for (const unit of module.units) {
+    for (const block of unit.graph.blocks) {
+      for (const node of block.nodes) {
+        if (node.type !== IR_GENERIC_CALL) continue;
+        const target = functions.referenced(node.inputs[0]);
+        if (target !== null) node.props[CALLEE_SYMBOL_PROP] = target.name;
+      }
+    }
   }
 }
 
@@ -302,6 +384,90 @@ function planCoroutines(module: ModuleIR, classes: ClassTable | null): Coroutine
   return { asynchronous, suspending, promises, failures };
 }
 
+function raisesThrow(graph: CFGFunction, rejecting: ReadonlySet<string>): boolean {
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      if (node.type === IR_CALL_BUILTIN && node.props.name === THROW_BUILTIN) return true;
+      if (forwardsPendingThrow(node)) return true;
+      const callee = calleeNameOf(node);
+      if (callee !== null && rejecting.has(callee)) return true;
+    }
+  }
+  return false;
+}
+
+function rejectingGraphs(module: ModuleIR): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const unit of module.units) {
+    if (canReject(unit.graph)) names.add(unit.graph.name);
+  }
+  return names;
+}
+
+function splitGenerators(
+  module: ModuleIR,
+  classes: ClassTable,
+  signatures: Map<string, DeclaredSignature>,
+  failures: AotSkippedFunction[],
+): readonly CompilationUnit[] {
+  const added: CompilationUnit[] = [];
+  let pending = module.units.filter((unit) => unit.graph.isGenerator);
+  const refused = new Map<string, string>();
+  for (let progress = true; progress && pending.length > 0; ) {
+    progress = false;
+    const rejecting = rejectingGraphs(module);
+    const unresolved: CompilationUnit[] = [];
+    for (const unit of pending) {
+      const graph = unit.graph;
+      if (raisesThrow(graph, rejecting)) {
+        failures.push({
+          name: graph.name,
+          reason:
+            `${graph.name} can throw while it is generating, and the compiler cannot yet carry ` +
+            `that throw out of a generator; keep this part interpreted`,
+        });
+        continue;
+      }
+      if (graph.isAsync) {
+        failures.push({
+          name: graph.name,
+          reason:
+            `${graph.name} is an async generator, and the compiler has no shape for one; keep ` +
+            `this part interpreted`,
+        });
+        continue;
+      }
+      const rewrote = stampCalleeSignatures(graph, signatures) + lowerGeneratorIteration(graph);
+      if (rewrote > 0) unit.analyses?.invalidateAll();
+      const resolved = generatorYieldType(graph);
+      if (!("yields" in resolved)) {
+        refused.set(graph.name, resolved.reason);
+        unresolved.push(unit);
+        continue;
+      }
+      progress = true;
+      try {
+        const split = splitGenerator(graph, classes, resolved.yields);
+        unit.analyses?.invalidateAll();
+        signatures.set(graph.name, {
+          params: signatures.get(graph.name)?.params ?? [],
+          returns: split.frame.name,
+        });
+        signatures.set(split.resume.name, split.resume.declaredSignature!);
+        added.push(unitOf(split.resume));
+      } catch (error) {
+        if (!(error instanceof CoroutineSplitError)) throw error;
+        failures.push({ name: graph.name, reason: error.message });
+      }
+    }
+    pending = unresolved;
+  }
+  for (const unit of pending) {
+    failures.push({ name: unit.graph.name, reason: refused.get(unit.graph.name)! });
+  }
+  return added;
+}
+
 function splitCoroutines(
   module: ModuleIR,
   classes: ClassTable,
@@ -356,6 +522,14 @@ export function compileModule(
   const classes = moduleClasses(module);
 
   uniquifyGraphNames(module);
+  nameCalleeConstants(module);
+  lowerModuleCaptures(module, PROGRAM_ENTRY_NAME);
+  dropFunctionBindings(module);
+  lowerErrorSurface(module);
+  const start = startModules(module, options.moduleInits ?? []);
+  const started = start.started;
+  promoteRunOnceGlobals(module, runOnceGraphs(module, backend, options));
+  convertClosures(module, classes);
   const promises = lowerPromiseSurface(module);
   if (promises.length > 0) module = { ...module, units: [...module.units, ...promises] };
   const specialized = specializeFunctionArguments(module);
@@ -369,9 +543,13 @@ export function compileModule(
     };
   }
   adoptInferredTypes(module, classes);
+  if (classes !== null) declareGlobalVariables(module, classes);
 
   const plan = planCoroutines(module, classes);
   const failures = [...plan.failures];
+  if (start.refused !== null) {
+    failures.push({ name: PROGRAM_ENTRY_NAME, reason: start.refused });
+  }
   const declined = new Set(failures.map((failure) => failure.name));
   const promiseOf = (node: CFGInstruction): ClassShape | null => {
     const name = calleeOf(node);
@@ -381,6 +559,12 @@ export function compileModule(
   const signatures = moduleSignatures(module);
   for (const [name, shape] of plan.promises) {
     signatures.set(name, { params: signatures.get(name)?.params ?? [], returns: shape.name });
+  }
+
+  if (classes !== null) {
+    const generated = splitGenerators(module, classes, signatures, failures);
+    for (const failure of failures) declined.add(failure.name);
+    if (generated.length > 0) module = { ...module, units: [...module.units, ...generated] };
   }
 
   const lowered: Array<{
@@ -480,8 +664,8 @@ export function compileModule(
   }
 
   const linkable = dropUnresolvedCallers(compiled, skipped, (name) => backend.symbolOf(name));
-  const emitted = new Set(linkable.map((fn) => fn.emitted.symbol));
-  const moduleInits = (options.moduleInits ?? []).filter((symbol) => emitted.has(symbol));
+  const inits = options.moduleInits ?? [];
+  const moduleInits = started ? [] : inits.map((name) => backend.symbolOf(name));
   let files: readonly AotOutputFile[];
   try {
     files = backend.link(linkable, {

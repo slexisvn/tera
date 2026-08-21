@@ -35,6 +35,7 @@ import type { DeclaredSignature } from "../types/signature.js";
 import {
   classMemberSymbol,
   classStaticFieldSymbol,
+  globalVariableSymbol,
   memberSignature,
   type ClassMemberFunction,
 } from "./class-symbols.js";
@@ -180,6 +181,19 @@ export interface ClassStaticField {
   readonly scalar: AotScalar;
 }
 
+export interface GlobalVariable {
+  readonly name: string;
+  readonly declaredType: string;
+  readonly offset: number;
+  readonly scalar: AotScalar;
+}
+
+export interface GeneratorShape {
+  readonly frame: ClassShape;
+  readonly resume: string;
+  readonly yields: string;
+}
+
 export type ClassCallables = ReadonlyMap<ClassCallableKind, ReadonlyMap<string, ClassMethod>>;
 
 export interface ClassShape {
@@ -201,6 +215,11 @@ export interface ClassShape {
 
 export interface ClassTable extends NominalTypes {
   defineSynthetic(surface: ClassSurface): ClassShape;
+  declareGlobal(name: string, declaredType: string): GlobalVariable | null;
+  globalOf(name: string): GlobalVariable | null;
+  globals(): readonly GlobalVariable[];
+  declareGenerator(producer: string, generator: GeneratorShape): void;
+  generatorOf(producer: string): GeneratorShape | null;
   shapeOf(name: string): ClassShape | null;
   shapeById(id: number): ClassShape | null;
   shapes(): readonly ClassShape[];
@@ -254,10 +273,6 @@ function alignUp(value: number, alignment: number): number {
   return alignment <= 1 ? value : Math.ceil(value / alignment) * alignment;
 }
 
-/**
- * A field that can be absent keeps a reference, whose null is a null pointer, or
- * a number, whose null is a payload the arithmetic never produces.
- */
 export function nullableScalarOf(
   declaredType: string,
   nominal: NominalTypes | null,
@@ -271,7 +286,6 @@ export function nullableScalarOf(
   return isReferenceScalar(scalar) ? scalar : SCALAR_FLOAT64;
 }
 
-/** How a declared type is held, whether or not it can be absent. */
 export function declaredAotScalar(
   declared: string | null | undefined,
   nominal: NominalTypes | null,
@@ -367,6 +381,8 @@ class Table implements ClassTable {
   private readonly byMember = new Map<string, ClassShape[]>();
   private readonly staticOffsets = new Map<string, number>();
   private readonly arrays = new Map<string, ArrayLayout>();
+  private readonly globalVariables = new Map<string, GlobalVariable>();
+  private readonly generatorShapes = new Map<string, GeneratorShape>();
   private staticsSize = 0;
 
   constructor(surfaces: readonly ClassSurface[]) {
@@ -386,8 +402,9 @@ class Table implements ClassTable {
 
   defineArray(element: LatticeType): ClassShape | null {
     const declared = declaredTypeOf(element, this);
-    const scalar = isStorableScalar(aotScalarOf(element));
-    if (declared === null || scalar === null) return null;
+    const stored = isStorableScalar(aotScalarOf(element));
+    if (declared === null || stored === null) return null;
+    const scalar = stored === SCALAR_STRING ? SCALAR_TEXT : stored;
     const buffer = this.mint(arrayBufferName(scalar), (id, name) =>
       arrayBufferShape(id, name, scalar),
     );
@@ -453,6 +470,36 @@ class Table implements ClassTable {
       targets.push(target);
     }
     return targets;
+  }
+
+  declareGlobal(name: string, declaredType: string): GlobalVariable | null {
+    const existing = this.globalVariables.get(name);
+    if (existing !== undefined) {
+      return existing.declaredType === declaredType ? existing : null;
+    }
+    const scalar = fieldScalarOf(declaredType, this);
+    if (scalar === null) return null;
+    const offset = this.reserveStatic(globalVariableSymbol(name), scalar);
+    if (offset === null) return null;
+    const variable: GlobalVariable = { name, declaredType, offset, scalar };
+    this.globalVariables.set(name, variable);
+    return variable;
+  }
+
+  globalOf(name: string): GlobalVariable | null {
+    return this.globalVariables.get(name) ?? null;
+  }
+
+  globals(): readonly GlobalVariable[] {
+    return [...this.globalVariables.values()];
+  }
+
+  declareGenerator(producer: string, generator: GeneratorShape): void {
+    this.generatorShapes.set(producer, generator);
+  }
+
+  generatorOf(producer: string): GeneratorShape | null {
+    return this.generatorShapes.get(producer) ?? null;
   }
 
   private reserveStatic(symbol: string, scalar: AotScalar): number | null {

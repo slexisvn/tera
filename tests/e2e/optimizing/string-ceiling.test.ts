@@ -60,15 +60,14 @@ describe("the AOT string ceiling", () => {
     bothAdmit(src("fn f(i: int) -> string:", '  names = ["H", "O"]', "  return names[i]"));
   });
 
-  it("declines an array of strings the program builds, because buffers hold one each", () => {
-    bothDecline(
+  it("admits an array of strings the program builds, because elements hold text", () => {
+    bothAdmit(
       src(
         "fn f(i: int, s: string) -> string:",
         '  names = ["H", "O"]',
         '  names[i] = s + "!"',
         "  return names[i]",
       ),
-      "stores it in an array",
     );
   });
 
@@ -177,8 +176,8 @@ describe("the AOT string ceiling", () => {
     );
   });
 
-  it("declines keeping a returned string across a call that rebuilds it", () => {
-    bothDecline(
+  it("keeps two returned strings alive at once by copying each into storage of its own", () => {
+    bothAdmit(
       src(
         "fn build(n: int) -> string:",
         '  return "v" + n.to_string()',
@@ -189,7 +188,6 @@ describe("the AOT string ceiling", () => {
         "  print(b)",
         "  return 0",
       ),
-      "keeps the string build returned across a call to build",
     );
   });
 
@@ -206,8 +204,8 @@ describe("the AOT string ceiling", () => {
     );
   });
 
-  it("declines keeping a string a wrapper returned across a call that rebuilds it", () => {
-    bothDecline(
+  it("keeps a string a wrapper returned across a call that rebuilds the buffer behind it", () => {
+    bothAdmit(
       src(
         "fn build(n: int) -> string:",
         '  return "v" + n.to_string()',
@@ -219,7 +217,6 @@ describe("the AOT string ceiling", () => {
         "  print(a)",
         "  return 0",
       ),
-      "keeps the string wrap returned across a call to build",
     );
   });
 

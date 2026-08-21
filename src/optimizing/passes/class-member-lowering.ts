@@ -5,7 +5,10 @@ import {
   type CFGInstruction,
   IR_CALL_KNOWN_FUNCTION,
   IR_GENERIC_CALL,
+  IR_CONSTANT,
   IR_GENERIC_GET_INDEX,
+  IR_GENERIC_IN,
+  IR_GENERIC_SET_INDEX,
   IR_GENERIC_GET_PROP,
   IR_GENERIC_SET_PROP,
   IR_LOAD_ELEMENT,
@@ -15,6 +18,8 @@ import {
   irBranch,
   irCallKnownFunction,
   irConstant,
+  irGenericGetProp,
+  irGenericSetProp,
   irInt32Compare,
   irJump,
   irLoadField,
@@ -82,7 +87,7 @@ type DispatchArm = {
   readonly target: ClassMethod;
 };
 
-function constructedShapeOf(node: CFGInstruction, classes: ClassTable): ClassShape | null {
+export function constructedShapeOf(node: CFGInstruction, classes: ClassTable): ClassShape | null {
   if (node.type !== IR_GENERIC_CALL) return null;
   const name = genericCalleeName(node);
   return name === null ? null : classes.shapeOf(name);
@@ -159,9 +164,15 @@ function declaredShapeId(declaredType: string, classes: ClassTable): number | nu
   return type.kind === TypeKind.Object && typeof type.map === "number" ? type.map : null;
 }
 
-function carryValueClass(node: CFGInstruction, declaredType: string, classes: ClassTable): void {
+export function carryValueClass(
+  node: CFGInstruction,
+  declaredType: string,
+  classes: ClassTable,
+): boolean {
   const shapeId = declaredShapeId(declaredType, classes);
-  if (shapeId !== null) node.props[VALUE_CLASS_PROP] = shapeId;
+  if (shapeId === null || node.props[VALUE_CLASS_PROP] === shapeId) return false;
+  node.props[VALUE_CLASS_PROP] = shapeId;
+  return true;
 }
 
 function calleeResultClass(
@@ -177,21 +188,25 @@ function calleeResultClass(
     return target?.declaredSignature?.returns ?? null;
   }
   const call = memberCallFor(graph, node, classes, types);
-  if (call === null || call.targets.length > 1) return null;
-  return call.targets[0]!.signature.returns;
+  if (call === null) return null;
+  const answered = call.targets[0]?.signature.returns ?? null;
+  const agreed = call.targets.every((target) => target.signature.returns === answered);
+  return agreed ? answered : null;
 }
 
 function carryCalleeResultClasses(
   graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
-): void {
+): number {
+  let carried = 0;
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
       const returns = calleeResultClass(graph, node, classes, types);
-      if (returns !== null) carryValueClass(node, returns, classes);
+      if (returns !== null && carryValueClass(node, returns, classes)) carried += 1;
     }
   }
+  return carried;
 }
 
 function elementShapeOf(
@@ -243,6 +258,22 @@ function fieldAccessNode(
   return loads
     ? irLoadField(receiver, field.offset)
     : irStoreField(receiver, field.offset, node.inputs[1]!, field.name);
+}
+
+export function fieldLoadNode(
+  receiver: CFGInstruction,
+  field: ClassField,
+  classes: ClassTable,
+): CFGInstruction {
+  const load =
+    field.scalar === SCALAR_TEXT
+      ? irLoadText(receiver, field.offset, scalarWidth(SCALAR_TEXT), field.name)
+      : irLoadField(receiver, field.offset);
+  load.props[CLASS_ID_PROP] = classes.shapeIdOf(field.owner);
+  load.props[FIELD_TYPE_PROP] = field.declaredType;
+  load.props[FIELD_SCALAR_PROP] = field.scalar;
+  carryValueClass(load, field.declaredType, classes);
+  return load;
 }
 
 function applyFieldAccess(
@@ -423,7 +454,7 @@ function polymorphicShapeOf(call: MemberCall): ClassShape | null {
   return call.targets.length > 1 ? call.dispatchOn : null;
 }
 
-function constructedShape(node: CFGInstruction, classes: ClassTable): ClassShape | null {
+export function constructedShape(node: CFGInstruction, classes: ClassTable): ClassShape | null {
   if (node.type !== IR_CALL_KNOWN_FUNCTION) return null;
   if (node.props[INITIALIZES_PROP] === true) return null;
   const target = node.props.target as { name?: unknown } | undefined;
@@ -499,7 +530,11 @@ function applyDispatchLadder(
   const after = splitBlockAfter(graph, block, node);
   const merged = node.uses.length > 0 ? stamp(addPhi(after, [])) : null;
 
-  if (merged !== null) replaceValueUses(graph, node, merged);
+  if (merged !== null) {
+    const answered = node.props[VALUE_CLASS_PROP];
+    if (answered !== undefined) merged.props[VALUE_CLASS_PROP] = answered;
+    replaceValueUses(graph, node, merged);
+  }
   editor.remove(node);
   if (callee !== null && callee.uses.length === 0) editor.remove(callee);
 
@@ -572,8 +607,77 @@ export function memberCallTargets(
 export function resolveCalleeSignatures(graph: CFGFunction, types: TypeInference): number {
   if (graph.calleeSignatures === null) return 0;
   const resolved = stampCalleeSignatures(graph, graph.calleeSignatures);
-  if (graph.classes !== null) carryCalleeResultClasses(graph, graph.classes, types);
-  return resolved;
+  if (graph.classes === null) return resolved;
+  return resolved + carryCalleeResultClasses(graph, graph.classes, types);
+}
+
+const KEYED_ACCESS: ReadonlyMap<string, boolean> = new Map<string, boolean>([
+  [IR_GENERIC_GET_INDEX, true],
+  [IR_GENERIC_SET_INDEX, false],
+]);
+
+function constantKeyOf(node: CFGInstruction): string | null {
+  const key = node.inputs[1];
+  if (key === undefined || key.type !== IR_CONSTANT) return null;
+  const value = key.props.value;
+  return typeof value === "string" ? value : null;
+}
+
+function carriesMember(shape: ClassShape, name: string): boolean {
+  if (shape.fields.has(name)) return true;
+  for (const kind of shape.callables.keys()) {
+    if (shape.callables.get(kind)?.has(name) === true) return true;
+  }
+  return false;
+}
+
+function namedAccessFor(
+  node: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+  stamp: Stamp,
+): CFGInstruction | null {
+  const reading = KEYED_ACCESS.get(node.type);
+  if (reading === undefined) return null;
+  const name = constantKeyOf(node);
+  if (name === null) return null;
+  const shape = shapeOfReceiver(node.inputs[0], graph, classes, types);
+  if (shape === null || !shape.fields.has(name)) return null;
+  const receiver = node.inputs[0]!;
+  return stamp(
+    reading ? irGenericGetProp(receiver, name) : irGenericSetProp(receiver, name, node.inputs[2]!),
+  );
+}
+
+function membershipFor(
+  node: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+  stamp: Stamp,
+): CFGInstruction | null {
+  if (node.type !== IR_GENERIC_IN) return null;
+  const key = node.inputs[0];
+  if (key === undefined || key.type !== IR_CONSTANT) return null;
+  const name = key.props.value;
+  if (typeof name !== "string") return null;
+  const shape = shapeOfReceiver(node.inputs[1], graph, classes, types);
+  if (shape === null) return null;
+  const carried = carriesMember(shape, name);
+  if (!carried && shape.unsupported.length > 0) return null;
+  return stamp(irConstant(carried));
+}
+
+function replaceWithNode(
+  editor: GraphEditor,
+  node: CFGInstruction,
+  replacement: CFGInstruction,
+): void {
+  replacement.frameState = node.frameState;
+  editor.insertBefore(node, replacement);
+  editor.replaceAllUses(node, replacement);
+  editor.remove(node);
 }
 
 function lowerMemberRound(
@@ -588,6 +692,23 @@ function lowerMemberRound(
   for (const block of graph.blocks) {
     for (const node of [...block.nodes]) {
       if (node.block !== block) continue;
+      const named = namedAccessFor(node, graph, classes, types, stamp);
+      if (named !== null) {
+        replaceWithNode(editor, node, named);
+        count++;
+        const renamed = fieldAccessFor(named, graph, classes, types);
+        if (renamed !== null) {
+          applyFieldAccess(editor, renamed, classes, stamp);
+          count++;
+        }
+        continue;
+      }
+      const membership = membershipFor(node, graph, classes, types, stamp);
+      if (membership !== null) {
+        replaceWithNode(editor, node, membership);
+        count++;
+        continue;
+      }
       const shape = constructedShape(node, classes);
       if (shape !== null) {
         applyConstruction(editor, node, shape, stamp);

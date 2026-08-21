@@ -26,12 +26,13 @@ import {
   SCALAR_INT32,
 } from "../types/scalar.js";
 import type { TypeInference } from "../analyses/type-inference.js";
+import { arrayModelOf } from "./array-shapes.js";
+import { RANGE_BUILTIN } from "../metadata/builtin-methods.js";
 
 const BEFORE_FIRST = -1;
 const STEP = 1;
 const AT_END = ">=";
 const BELOW_END = "<=";
-const RANGE_BUILTIN = "range";
 const DEFAULT_START = 0;
 
 const ITERATOR_OPS: ReadonlySet<string> = new Set<string>([
@@ -111,7 +112,11 @@ function rangeBehind(call: CFGInstruction, types: TypeInference): Sequence | nul
   return { kind: "range", call, start, stop, step };
 }
 
-function sequenceBehind(node: CFGInstruction, types: TypeInference): Sequence | null {
+function sequenceBehind(
+  node: CFGInstruction,
+  graph: CFGFunction,
+  types: TypeInference,
+): Sequence | null {
   const iterable = iterableOf(node);
   if (iterable === null) return null;
   const allocation = reachedThrough(
@@ -126,6 +131,10 @@ function sequenceBehind(node: CFGInstruction, types: TypeInference): Sequence | 
     (candidate) => candidate.type === IR_GENERIC_CALL,
   );
   if (call !== null) return rangeBehind(call, types);
+  const classes = graph.classes;
+  if (classes !== null && arrayModelOf(iterable, graph, classes, types) !== null) {
+    return { kind: "elements", array: iterable };
+  }
   const element = aotElementScalarOf(types.typeOf(iterable));
   if (element === null || isReferenceScalar(element)) return null;
   return { kind: "elements", array: iterable };
@@ -209,7 +218,7 @@ export function lowerIterators(graph: CFGFunction, types: TypeInference): number
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
       if (!ITERATOR_OPS.has(node.type)) continue;
-      const sequence = sequenceBehind(node, types);
+      const sequence = sequenceBehind(node, graph, types);
       if (sequence !== null) sequences.set(node, sequence);
     }
   }

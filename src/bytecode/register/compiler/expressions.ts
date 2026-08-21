@@ -705,7 +705,7 @@ export const expressionMethods: ExpressionMethodMap = {
       if (optionalPatch >= 0) {
         const jumpToEnd = this.func.emit(bytecode.ROP_JUMP, 0);
         this.func.patchJump(optionalPatch, this.func.instructions.length);
-        this.func.emit(bytecode.ROP_LDA_UNDEFINED);
+        this.func.emit(bytecode.ROP_LDA_NULL);
         this.func.patchJump(jumpToEnd, this.func.instructions.length);
       }
 
@@ -1039,7 +1039,7 @@ export const expressionMethods: ExpressionMethodMap = {
     const objReg = this.temps.alloc();
     this.func.emit(bytecode.ROP_STAR, objReg);
     this.func.emit(bytecode.ROP_IS_NULLISH);
-    const jumpToUndef = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0, this.func.allocFeedbackSlot());
+    const jumpToAbsent = this.func.emit(bytecode.ROP_JUMP_IF_TRUE, 0, this.func.allocFeedbackSlot());
     this.func.emit(bytecode.ROP_LDA_REG, objReg);
     if (typeof node.property === "string") {
       const propIdx = this.func.addConstant(node.property);
@@ -1054,8 +1054,8 @@ export const expressionMethods: ExpressionMethodMap = {
       this.temps.free(idxReg);
     }
     const jumpToEnd = this.func.emit(bytecode.ROP_JUMP, 0);
-    this.func.patchJump(jumpToUndef, this.func.instructions.length);
-    this.func.emit(bytecode.ROP_LDA_UNDEFINED);
+    this.func.patchJump(jumpToAbsent, this.func.instructions.length);
+    this.func.emit(bytecode.ROP_LDA_NULL);
     this.func.patchJump(jumpToEnd, this.func.instructions.length);
     this.temps.free(objReg);
   },
@@ -1134,7 +1134,7 @@ export const expressionMethods: ExpressionMethodMap = {
     for (const patch of shortCircuits) {
       this.func.patchJump(patch, this.func.instructions.length);
     }
-    this.func.emit(bytecode.ROP_LDA_UNDEFINED);
+    this.func.emit(bytecode.ROP_LDA_NULL);
     this.func.patchJump(jumpToEnd, this.func.instructions.length);
     this.temps.free(calleeReg);
     if (recvReg >= 0) this.temps.free(recvReg);

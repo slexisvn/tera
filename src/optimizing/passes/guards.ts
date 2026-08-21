@@ -84,7 +84,6 @@ function faultingBlock(
   return block;
 }
 
-/** Diverts to a raised fault when `condition` holds, leaving `node` on the path that survives it. */
 export function faultWhen(
   graph: CFGFunction,
   node: CFGInstruction,
@@ -100,12 +99,6 @@ export function faultWhen(
   link(entry, take);
 }
 
-/**
- * A length the program already measured in a block strictly above this one, which keeps a
- * guarded call inside a loop from walking the text again on every turn. A measurement in
- * the node's own block is passed over: it may sit after the node, and ordering within a
- * block is not what the dominator tree answers.
- */
 export function measuredAlready(
   node: CFGInstruction,
   measure: string,
@@ -122,10 +115,6 @@ export function measuredAlready(
   return null;
 }
 
-/**
- * Tells whether `value` has left `[0, limit)`, or `[0, ∞)` where there is no limit.
- * Both ends are read off one sign bit, so the caller pays a single compare either way.
- */
 function crossedBound(
   editor: GraphEditor,
   node: CFGInstruction,
@@ -144,7 +133,6 @@ function crossedBound(
   return computed(editor, node, irInt32Compare(LESS_THAN, crossed, none), stamp);
 }
 
-/** Faults where `value` leaves `[0, limit)`, which a compiled call has no answer for. */
 export function faultOutsideRange(
   graph: CFGFunction,
   editor: GraphEditor,
@@ -157,7 +145,6 @@ export function faultOutsideRange(
   faultWhen(graph, node, crossedBound(editor, node, value, limit, stamp), message, stamp);
 }
 
-/** Faults where `value` is zero, which the arithmetic around it cannot answer for. */
 export function faultWhenZero(
   graph: CFGFunction,
   editor: GraphEditor,
@@ -171,11 +158,6 @@ export function faultWhenZero(
   faultWhen(graph, node, empty, message, stamp);
 }
 
-/**
- * Resolves a subscript the way the interpreter does: a negative index counts back from
- * the end of `length`, and anything still outside the string or array faults, because a
- * compiled program has no `undefined` to hand back for it.
- */
 export function boundedIndex(
   graph: CFGFunction,
   editor: GraphEditor,

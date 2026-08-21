@@ -11,6 +11,7 @@ import {
   IR_RUNTIME_BASE,
 } from "../ir/index.js";
 import { buildDispatch } from "../infra/dispatch.js";
+import { isRootedPointer } from "../analyses/aot-legality.js";
 import type { AotLegality } from "../analyses/aot-legality.js";
 import { SCALAR_POINTER, type AotScalar } from "../types/scalar.js";
 import { argumentLocations, outgoingArgumentBytes } from "../target/abi.js";
@@ -116,19 +117,13 @@ class Selector {
     }
   }
 
-  private rootValue(value: CFGInstruction): boolean {
-    if (value.type === IR_RUNTIME_BASE) return false;
-    if (value.uses.length === 0) return false;
-    return this.legality.scalarOf(value) === SCALAR_POINTER;
-  }
-
   private reserveRoots(): void {
     const values = [
       ...this.graph.parameters,
       ...this.layout.flatMap((block) => [...block.phis, ...block.nodes]),
     ];
     for (const value of values) {
-      if (this.rootValue(value)) this.rootSlots.set(value, this.rootSlots.size);
+      if (isRootedPointer(this.legality, value)) this.rootSlots.set(value, this.rootSlots.size);
     }
     if (this.rootSlots.size === 0) return;
     this.fn.roots = this.rootSlots.size;

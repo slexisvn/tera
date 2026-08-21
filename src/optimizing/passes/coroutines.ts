@@ -124,7 +124,7 @@ function fieldOf(shape: ClassShape, name: string) {
   return field;
 }
 
-class Emitter {
+export class Emitter {
   private cursor: number;
 
   constructor(
@@ -168,13 +168,12 @@ class Emitter {
     shape: ClassShape,
     name: string,
     value: CFGInstruction,
-  ): void {
+  ): CFGInstruction {
     const field = fieldOf(shape, name);
     if (field.scalar === SCALAR_TEXT) {
-      this.add(irStoreText(object, field.offset, value, scalarWidth(SCALAR_TEXT), name));
-      return;
+      return this.add(irStoreText(object, field.offset, value, scalarWidth(SCALAR_TEXT), name));
     }
-    this.add(
+    return this.add(
       typed(
         irStoreField(object, field.offset, value, name),
         field.declaredType,
@@ -227,7 +226,7 @@ function detach(node: CFGInstruction): void {
   node.uses = [];
 }
 
-function unlink(node: CFGInstruction): void {
+export function unlink(node: CFGInstruction): void {
   const block = node.block;
   if (block !== null) {
     const at = block.nodes.indexOf(node);
@@ -263,11 +262,11 @@ function replaceUses(value: CFGInstruction, replacement: CFGInstruction): void {
   }
 }
 
-function withFreshNodeIds<T>(graph: CFGFunction, rewrite: () => T): T {
+export function withFreshNodeIds<T>(graph: CFGFunction, rewrite: () => T): T {
   return withIRNodeIdAllocator(new IRNodeIdAllocator(maxNodeId(graph) + 1), rewrite);
 }
 
-function returnsOf(graph: CFGFunction): readonly CFGInstruction[] {
+export function returnsOf(graph: CFGFunction): readonly CFGInstruction[] {
   const found: CFGInstruction[] = [];
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
@@ -285,15 +284,18 @@ export interface CoroutineSplit {
 
 export type PromiseOf = (node: CFGInstruction) => ClassShape | null;
 
-interface SuspendPoint {
+export interface ResumePoint {
+  readonly resume: CFGBlock;
+}
+
+interface SuspendPoint extends ResumePoint {
   readonly state: number;
   readonly block: CFGBlock;
-  readonly resume: CFGBlock;
   readonly awaited: CFGInstruction;
   readonly promise: ClassShape | null;
 }
 
-function severAfter(graph: CFGFunction, block: CFGBlock, at: number): CFGBlock {
+export function severAfter(graph: CFGFunction, block: CFGBlock, at: number): CFGBlock {
   const tail = graph.addBlock();
   for (const node of block.nodes.splice(at + 1)) {
     node.block = tail;
@@ -416,7 +418,7 @@ function localizeInto(
   graph.rebuildUses();
 }
 
-function localizeRuntimeBases(graph: CFGFunction): void {
+export function localizeRuntimeBases(graph: CFGFunction): void {
   localizeInto(
     graph,
     (node) => node.type === IR_RUNTIME_BASE,
@@ -430,7 +432,7 @@ function rematerializable(node: CFGInstruction): boolean {
   return !node.uses.some((use) => ARRAY_WRITES.has(use.type) && use.inputs[0] === node);
 }
 
-function localizeConstantArrays(graph: CFGFunction): void {
+export function localizeConstantArrays(graph: CFGFunction): void {
   localizeInto(graph, rematerializable, (node) => {
     const copy = irNewArray(node.inputs);
     copy.props = { ...node.props };
@@ -455,7 +457,7 @@ function loadedElementType(value: CFGInstruction): string | null {
   return text ? SLOT_TYPES.get(TypeKind.String) ?? null : null;
 }
 
-class FrameSpills {
+export class FrameSpills {
   private readonly names = new Map<CFGInstruction, string>();
   private readonly reloads = new Map<string, CFGInstruction>();
   readonly slots: CoroutineSlot[] = [];
@@ -465,7 +467,7 @@ class FrameSpills {
   constructor(
     graph: CFGFunction,
     private readonly classes: ClassTable,
-    points: readonly SuspendPoint[],
+    points: readonly ResumePoint[],
   ) {
     const types = inferTypes(graph);
     const declare = (value: CFGInstruction, name: string): void => {
@@ -703,7 +705,7 @@ function settleAt(
   done.addNode(irReturn(new Emitter(classes, done).constant(RESUME_DONE)));
 }
 
-function dispatchStates(
+export function dispatchStates(
   resume: CFGFunction,
   classes: ClassTable,
   frame: ClassShape,

@@ -12,6 +12,7 @@ export class DominatorTree {
   private readonly idom: Map<CFGBlock, CFGBlock | null>;
   private readonly children: Map<CFGBlock, CFGBlock[]>;
   private readonly rpo: readonly CFGBlock[];
+  private frontiers: Map<CFGBlock, Set<CFGBlock>> | null = null;
 
   constructor(graph: CFGFunction) {
     const domGraph = graph as unknown as DominatorGraph;
@@ -45,6 +46,35 @@ export class DominatorTree {
     return this.rpo;
   }
 
+  frontierOf(block: CFGBlock): ReadonlySet<CFGBlock> {
+    this.frontiers ??= this.computeFrontiers();
+    return this.frontiers.get(block) ?? EMPTY_FRONTIER;
+  }
+
+  private computeFrontiers(): Map<CFGBlock, Set<CFGBlock>> {
+    const frontiers = new Map<CFGBlock, Set<CFGBlock>>();
+    const record = (owner: CFGBlock, join: CFGBlock): void => {
+      let blocks = frontiers.get(owner);
+      if (blocks === undefined) {
+        blocks = new Set<CFGBlock>();
+        frontiers.set(owner, blocks);
+      }
+      blocks.add(join);
+    };
+    for (const join of this.rpo) {
+      if (join.predecessors.length < 2) continue;
+      const boundary = this.idom.get(join) ?? null;
+      for (const predecessor of join.predecessors) {
+        let walk: CFGBlock | null = predecessor;
+        while (walk !== null && walk !== boundary) {
+          record(walk, join);
+          walk = this.idom.get(walk) ?? null;
+        }
+      }
+    }
+    return frontiers;
+  }
+
   private number(root: CFGBlock): void {
     let clock = 0;
     const stack: Array<{ block: CFGBlock; index: number }> = [{ block: root, index: 0 }];
@@ -63,6 +93,8 @@ export class DominatorTree {
     }
   }
 }
+
+const EMPTY_FRONTIER: ReadonlySet<CFGBlock> = new Set<CFGBlock>();
 
 export const dominanceAnalysisId = analysisId<DominatorTree>("dominance");
 

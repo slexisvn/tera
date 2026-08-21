@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import type { AotProgram } from "../../../../src/optimizing/drivers/aot.js";
 import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
+import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
 
 const roots: string[] = [];
 
@@ -238,5 +239,88 @@ describe("whole-program internalization", () => {
   itNative("still runs after internalization", () => {
     const program = compileWhole({ "main.tera": MAIN, "mathlib.tera": MATHLIB }, "total");
     expect(runCFunction(cSource(program), "total", [7])).toBe(50);
+  });
+});
+
+const NEWLINE = String.fromCharCode(10);
+
+describe("a name a program declares twice", () => {
+  function binaryOf(source: string): Uint8Array {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}${NEWLINE}`, {
+      backend: "x64-windows",
+      format: "executable",
+    });
+    expect(program.skipped).toEqual([]);
+    return program.files[0]!.contents as Uint8Array;
+  }
+
+  itRunsPe("calls the declaration that shadows the earlier one", () => {
+    const run = runPe(
+      binaryOf(
+        [
+          "fn speak() -> string:",
+          '  return "cow"',
+          "print(speak())",
+          "fn speak() -> string:",
+          '  return "elk"',
+          "print(speak())",
+        ].join(NEWLINE),
+      ),
+    );
+
+    expect([run.status, run.stdout]).toEqual([0, `elk${NEWLINE}elk${NEWLINE}`]);
+  });
+
+  itRunsPe("walks the generator that shadows the earlier one", () => {
+    const run = runPe(
+      binaryOf(
+        [
+          "fn* spoken():",
+          '  yield "cow"',
+          "for w of spoken():",
+          "  print(w)",
+          "fn* spoken():",
+          '  yield "elk"',
+          "for w of spoken():",
+          "  print(w)",
+        ].join(NEWLINE),
+      ),
+    );
+
+    expect([run.status, run.stdout]).toEqual([0, `elk${NEWLINE}elk${NEWLINE}`]);
+  });
+});
+
+describe("modules that do work when they load", () => {
+  const SIDE = ['print("module loaded")', "fn helper(n: int) -> int:", "  return n + 1", ""].join(
+    "\n",
+  );
+  const USES_SIDE = ["from side import helper", "print(helper(4))", ""].join("\n");
+
+  function binary(files: Record<string, string>): Uint8Array {
+    const root = project(files);
+    const program = nodeEngine({ typecheck: "off" }).compileAotModule(
+      path.join(root, "main.tera"),
+      { root, backend: "x64-windows", format: "executable" },
+    );
+    expect(program.moduleInits).toEqual([]);
+    return program.files[0]!.contents as Uint8Array;
+  }
+
+  itRunsPe("runs an imported module's top level before the program", () => {
+    const run = runPe(binary({ "main.tera": USES_SIDE, "side.tera": SIDE }));
+
+    expect([run.status, run.stdout]).toEqual([0, "module loaded\n5\n"]);
+  });
+
+  it("declines the program when a module's top level cannot be emitted", () => {
+    expect(() =>
+      binary({
+        "main.tera": USES_SIDE,
+        "side.tera": ["try:", '  throw "x"', "catch e:", "  print(e)", ...SIDE.split("\n")].join(
+          "\n",
+        ),
+      }),
+    ).toThrow(/cannot emit/);
   });
 });

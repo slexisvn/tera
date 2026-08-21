@@ -168,6 +168,9 @@ import {
 } from "./handlers.js";
 
 export { MAX_DEOPT_COUNT } from "./helpers.js";
+
+const MIN_HEAP_SWEEP_BYTES = 1 << 18;
+const HEAP_SWEEP_GROWTH = 4;
 export { RegisterFrame } from "./frame.js";
 
 export const CALL_INTERPRETED = 0;
@@ -676,7 +679,7 @@ export class RegisterInterpreter {
     this.suspendedFrames = new Map();
     this.transientRoots = [];
     this._sweepTick = 0;
-    this._heapSweepThreshold = 1 << 18;
+    this._heapSweepThreshold = MIN_HEAP_SWEEP_BYTES;
     this.icManager = new InlineCacheManager();
     this.debugger = null;
     this.runtimeIntrinsics = new Map();
@@ -1351,11 +1354,9 @@ export class RegisterInterpreter {
     );
     this.dropUnreachableSuspendedFrames(live);
     sweepHeapPayloads(live);
-    
-    
     this._heapSweepThreshold = Math.max(
-      1 << 18,
-      heapPayloadLiveBytesEstimate() * 4,
+      MIN_HEAP_SWEEP_BYTES,
+      heapPayloadLiveBytesEstimate() * HEAP_SWEEP_GROWTH,
     );
   }
 

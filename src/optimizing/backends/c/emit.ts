@@ -97,13 +97,13 @@ import {
 import {
   analyzeAotLegality,
   builtinOperandScalar,
-  calleeSymbolName,
   AOT_CHAR_AT,
   AOT_FLOAT_TO_STRING,
   AOT_INT_TO_STRING,
   type AotLegality,
   type AotStringBuffer,
 } from "../../analyses/aot-legality.js";
+import { calleeSymbolName } from "../../metadata/call-signatures.js";
 import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
 import {
   AGGREGATE_CLOSE_TEXT,
@@ -127,11 +127,12 @@ import {
   SCALAR_INT32,
   SCALAR_STRING,
   SCALAR_TEXT,
+  scalarWidth,
   SCALAR_VOID,
   type AotScalar,
 } from "../../types/scalar.js";
 import { INT32_DECIMAL_BYTES } from "../../machine/data.js";
-import { isAbsenceConstant } from "../../analyses/aot-legality.js";
+import { isAbsenceConstant, isRootedPointer } from "../../analyses/aot-legality.js";
 import { NULL_TEXT } from "../../metadata/printed-values.js";
 import {
   FLOAT64_DECIMAL_BYTES,
@@ -1427,14 +1428,8 @@ class CFunctionEmitter {
     return this.legality.scalarOf(value) === SCALAR_INT32;
   }
 
-  private pointerValued(value: CFGInstruction): boolean {
-    if (value.type === IR_RUNTIME_BASE) return false;
-    if (value.uses.length === 0) return false;
-    return this.legality.scalarOf(value) === SCALAR_POINTER;
-  }
-
   private reserveRoot(value: CFGInstruction): void {
-    if (!this.pointerValued(value)) return;
+    if (!isRootedPointer(this.legality, value)) return;
     this.rootSlots.set(value, this.rootSlots.size);
   }
 
@@ -1757,13 +1752,32 @@ class CFunctionEmitter {
     return `((${cTypeOf(scalar)} *)(${array} + ${fieldOffsetOf(node)}))[${index}]`;
   }
 
+  private elementTextAddress(node: CFGInstruction): string {
+    const array = this.nameOf(node.inputs[0]!);
+    const index = this.asInt32(node.inputs[1]!);
+    const stride = scalarWidth(SCALAR_TEXT);
+    return `(char *)(${array} + ${fieldOffsetOf(node)} + (size_t)(${index}) * ${stride})`;
+  }
+
   private emitLoadElement(ctx: EmitContext): void {
-    this.define(ctx, this.elementAccess(ctx.node, heapElementScalarOf(ctx.node)));
+    const scalar = heapElementScalarOf(ctx.node);
+    if (scalar === SCALAR_TEXT) {
+      this.define(ctx, this.elementTextAddress(ctx.node));
+      return;
+    }
+    this.define(ctx, this.elementAccess(ctx.node, scalar));
   }
 
   private emitStoreElement(ctx: EmitContext): void {
     const scalar = heapElementScalarOf(ctx.node);
     const value = ctx.node.inputs[2]!;
+    if (scalar === SCALAR_TEXT) {
+      const address = this.elementTextAddress(ctx.node);
+      ctx.emit(
+        `${C_STRING_SET}(${address}, ${scalarWidth(SCALAR_TEXT)}, ${this.nameOf(value)});`,
+      );
+      return;
+    }
     const stored = scalar === null ? this.nameOf(value) : this.asScalar(value, scalar);
     const store = `${this.elementAccess(ctx.node, scalar)} = ${stored}`;
     if (ctx.node.uses.length === 0) ctx.emit(`${store};`);

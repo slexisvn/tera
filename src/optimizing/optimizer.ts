@@ -128,6 +128,7 @@ export class Optimizer {
     let graph: OptimizedGraph = new IRGraph(functionName);
     graph.recoversThrows = recoversThrows;
     graph.isAsync = compiledFn.isAsync === true;
+    graph.isGenerator = compiledFn.isGenerator === true;
     graph.gatheredArguments = gatheredArguments;
     graph.classes = classes;
     graph.receiver = classes !== null && hasClassReceiver(compiledFn);

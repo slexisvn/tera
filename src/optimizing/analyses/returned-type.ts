@@ -1,7 +1,9 @@
 import { IR_RETURN, type CFGFunction } from "../ir/index.js";
 import { isPendingThrowReturn } from "../builder/throw-recovery.js";
 import { declaredTypeOf, type ClassTable } from "../metadata/class-table.js";
-import { nominalLatticeType } from "../types/declared.js";
+import { declaredNameOf, nominalLatticeType } from "../types/declared.js";
+import { latticeFromElementsKind } from "../types/elements.js";
+import { arrayOfType } from "../../frontend/checker/type-system.js";
 import { joinTypes, typeEquals, TypeKind, type LatticeType } from "../types/lattice.js";
 import { aotScalarOf } from "../types/scalar.js";
 import type { TypeInference } from "./type-inference.js";
@@ -28,7 +30,6 @@ export function returnedLatticeType(
   return merged;
 }
 
-/** A name is worth adopting only when reading it back describes the same value. */
 function denotes(name: string, returned: LatticeType, classes: ClassTable): boolean {
   const reread = nominalLatticeType(name, classes);
   if (reread.kind === TypeKind.Object || returned.kind === TypeKind.Object) {
@@ -38,16 +39,17 @@ function denotes(name: string, returned: LatticeType, classes: ClassTable): bool
   return scalar !== null && scalar === aotScalarOf(returned);
 }
 
-/**
- * Names the type a function returns when its source left the annotation out, so
- * callers that need a declared return — array `map`, the native return ABI —
- * can work from what the body actually produces.
- */
+function returnedName(returned: LatticeType, classes: ClassTable): string | null {
+  if (returned.kind !== TypeKind.Array) return declaredTypeOf(returned, classes);
+  const element = declaredNameOf(latticeFromElementsKind(returned.elementsKind));
+  return element === null ? null : arrayOfType(element);
+}
+
 export function inferredReturnName(graph: CFGFunction, types: TypeInference): string | null {
   const classes = graph.classes;
   if (classes === null) return null;
   const returned = returnedLatticeType(graph, types);
   if (returned === null || UNNAMEABLE.has(returned.kind)) return null;
-  const name = declaredTypeOf(returned, classes);
+  const name = returnedName(returned, classes);
   return name !== null && denotes(name, returned, classes) ? name : null;
 }

@@ -232,6 +232,30 @@ function makeErrorBuiltin(name: string) {
   };
 }
 
+function writeLine(
+  args: BuiltinArg[],
+  _this: TaggedValue,
+  interpreter: BuiltinInterpreter,
+): TaggedValue {
+  const output = args.map((a) => toDisplayString(a, undefined, args.length > 1)).join(" ");
+  const target = interpreter?.jitEngine?.output;
+  if (target) target(output);
+  else console.log(output);
+  return mkUndefined();
+}
+
+function makeRegex(args: BuiltinArg[]): TaggedValue {
+  const pattern = args.length > 0 ? toDisplayString(args[0]) : "";
+  const flags = args.length > 1 ? toDisplayString(args[1]) : "";
+  return mkRegex(new RegExp(pattern, flags));
+}
+
+function prototypeOf(args: BuiltinArg[]): TaggedValue {
+  if (args.length === 0 || !isObject(args[0])) return mkNull();
+  const proto = getPayload(args[0]).prototype;
+  return proto ? mkObject(proto) : mkNull();
+}
+
 export const builtins = {
   ...createDomainBuiltins(),
   NaN: { globalConst: () => mkDouble(NaN) },
@@ -240,13 +264,7 @@ export const builtins = {
 
   print: {
     name: "print",
-    call(args: BuiltinArg[], _this: TaggedValue, interpreter: BuiltinInterpreter) {
-      const output = args.map((a) => toDisplayString(a, undefined, args.length > 1)).join(" ");
-      const target = interpreter?.jitEngine?.output;
-      if (target) target(output);
-      else console.log(output);
-      return mkUndefined();
-    },
+    call: writeLine,
   },
 
   input: {
@@ -262,13 +280,7 @@ export const builtins = {
   console: {
     log: {
       name: "console.log",
-      call(args: BuiltinArg[], _this: TaggedValue, interpreter: BuiltinInterpreter) {
-        const output = args.map((a) => toDisplayString(a, undefined, args.length > 1)).join(" ");
-        const target = interpreter?.jitEngine?.output;
-        if (target) target(output);
-        else console.log(output);
-        return mkUndefined();
-      },
+      call: writeLine,
     },
   },
 
@@ -400,16 +412,8 @@ export const builtins = {
 
   RegExp: {
     name: "RegExp",
-    call(args: BuiltinArg[]) {
-      const pattern = args.length > 0 ? toDisplayString(args[0]) : "";
-      const flags = args.length > 1 ? toDisplayString(args[1]) : "";
-      return mkRegex(new RegExp(pattern, flags));
-    },
-    construct(args: BuiltinArg[]) {
-      const pattern = args.length > 0 ? toDisplayString(args[0]) : "";
-      const flags = args.length > 1 ? toDisplayString(args[1]) : "";
-      return mkRegex(new RegExp(pattern, flags));
-    },
+    call: makeRegex,
+    construct: makeRegex,
   },
 
   Symbol: {
@@ -829,11 +833,7 @@ export const builtins = {
     },
     getPrototypeOf: {
       name: "Object.getPrototypeOf",
-      call(args: BuiltinArg[]) {
-        if (args.length === 0 || !isObject(args[0])) return mkNull();
-        const proto = getPayload(args[0]).prototype;
-        return proto ? mkObject(proto) : mkNull();
-      },
+      call: prototypeOf,
     },
     setPrototypeOf: {
       name: "Object.setPrototypeOf",
@@ -982,11 +982,7 @@ export const builtins = {
     },
     getPrototypeOf: {
       name: "Reflect.getPrototypeOf",
-      call(args: BuiltinArg[]) {
-        if (args.length === 0 || !isObject(args[0])) return mkNull();
-        const proto = getPayload(args[0]).prototype;
-        return proto ? mkObject(proto) : mkNull();
-      },
+      call: prototypeOf,
     },
     setPrototypeOf: {
       name: "Reflect.setPrototypeOf",

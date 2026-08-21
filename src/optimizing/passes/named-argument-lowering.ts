@@ -6,10 +6,10 @@ import {
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
-import { calleeSymbolName } from "../analyses/aot-legality.js";
 import {
   declaredDefaultsByName,
   NAMED_ARGUMENTS_PROP,
+  calleeSymbolName,
 } from "../metadata/call-signatures.js";
 import { metadataStringArray } from "../ir/metadata.js";
 import type { DeclaredDefault, DeclaredSignature } from "../types/signature.js";

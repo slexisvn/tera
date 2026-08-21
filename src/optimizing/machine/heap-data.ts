@@ -68,6 +68,11 @@ function classData(classes: ClassTable | null): ClassData {
       }
     }
   }
+  for (const variable of classes === null ? [] : classes.globals()) {
+    if (variable.scalar === SCALAR_POINTER) {
+      statics.push(integerData(variable.offset, TERA_STATIC_ROOTS.bytes));
+    }
+  }
   return {
     records,
     fields: padded(fields),

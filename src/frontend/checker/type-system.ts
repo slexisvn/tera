@@ -16,6 +16,7 @@ import {
   type TeraPseudoTypeSpec,
   type TeraTypeAliasSpec,
 } from "../../../data/tera-language-spec.js";
+import { splitTopLevel } from "../../core/type-text.js";
 import type { ClassVisibility } from "../../core/class-visibility.js";
 import type { ClassShapeMemberKind } from "../../core/class-member.js";
 import { restParameterSource, restParameterType } from "../type-source.js";
@@ -193,30 +194,6 @@ function matchingParen(source: string, open: number): number {
     }
   }
   return -1;
-}
-
-export function splitTopLevel(source: string, separator: string): string[] {
-  const out: string[] = [];
-  let start = 0;
-  let depth = 0;
-  let quote = "";
-  for (let i = 0; i < source.length; i++) {
-    const ch = source[i];
-    if (quote) {
-      if (ch === "\\" && i + 1 < source.length) i++;
-      else if (ch === quote) quote = "";
-      continue;
-    }
-    if (ch === "\"" || ch === "'" || ch === "`") quote = ch;
-    else if (ch === "(" || ch === "[" || ch === "{") depth++;
-    else if (ch === ")" || ch === "]" || ch === "}") depth--;
-    else if (depth === 0 && ch === separator) {
-      out.push(source.slice(start, i));
-      start = i + 1;
-    }
-  }
-  out.push(source.slice(start));
-  return out;
 }
 
 export function parseTypeParams(source: string | undefined): string[] {

@@ -85,11 +85,10 @@ function hashString(str: string): number {
   return h >>> 0;
 }
 
-export class OrderedHashMap {
+abstract class OrderedHashTable {
   _bucketCount: number;
   _buckets: Int32Array;
   _keys: TaggedValue[];
-  _values: TaggedValue[];
   _chains: number[];
   _deleted: boolean[];
   size: number;
@@ -99,7 +98,6 @@ export class OrderedHashMap {
     this._bucketCount = INITIAL_BUCKET_COUNT;
     this._buckets = new Int32Array(INITIAL_BUCKET_COUNT).fill(EMPTY);
     this._keys = [];
-    this._values = [];
     this._chains = [];
     this._deleted = [];
     this.size = 0;
@@ -120,21 +118,60 @@ export class OrderedHashMap {
     return -1;
   }
 
-  _rehash(): void {
-    const oldKeys = this._keys;
-    const oldValues = this._values;
-    const oldDeleted = this._deleted;
-    const newCap = this._bucketCount * 2;
+  has(key: TaggedValue): boolean {
+    return this._findEntry(key) !== -1;
+  }
 
-    this._bucketCount = newCap;
-    this._buckets = new Int32Array(newCap).fill(EMPTY);
+  delete(key: TaggedValue): boolean {
+    const idx = this._findEntry(key);
+    if (idx === -1) return false;
+    this._deleted[idx] = true;
+    this.size--;
+    this._nDeleted++;
+    return true;
+  }
+
+  _reset(bucketCount: number): void {
+    this._bucketCount = bucketCount;
+    this._buckets = new Int32Array(bucketCount).fill(EMPTY);
     this._keys = [];
-    this._values = [];
     this._chains = [];
     this._deleted = [];
     this.size = 0;
     this._nDeleted = 0;
+  }
 
+  _isOverloaded(): boolean {
+    return this.size + this._nDeleted + 1 > this._bucketCount * LOAD_FACTOR;
+  }
+
+  _link(key: TaggedValue): number {
+    const index = this._keys.length;
+    const bucket = this._hash(key);
+    this._chains.push(this._buckets[bucket]!);
+    this._buckets[bucket] = index;
+    this._keys.push(key);
+    this._deleted.push(false);
+    this.size++;
+    return index;
+  }
+
+  *iterateKeys(): Generator<TaggedValue> {
+    for (let i = 0; i < this._keys.length; i++) {
+      if (!this._deleted[i]) yield this._keys[i]!;
+    }
+  }
+}
+
+export class OrderedHashMap extends OrderedHashTable {
+  _values: TaggedValue[] = [];
+
+  _rehash(): void {
+    const oldKeys = this._keys;
+    const oldValues = this._values;
+    const oldDeleted = this._deleted;
+    this._reset(this._bucketCount * 2);
+    this._values = [];
     for (let i = 0; i < oldKeys.length; i++) {
       if (!oldDeleted[i]) this.set(oldKeys[i]!, oldValues[i]!);
     }
@@ -151,52 +188,18 @@ export class OrderedHashMap {
       this._values[idx] = value;
       return;
     }
-    if ((this.size + this._nDeleted + 1) > this._bucketCount * LOAD_FACTOR) {
-      this._rehash();
-    }
-    const newIdx = this._keys.length;
-    const bucket = this._hash(key);
-    this._chains.push(this._buckets[bucket]);
-    this._buckets[bucket] = newIdx;
-    this._keys.push(key);
-    this._values.push(value);
-    this._deleted.push(false);
-    this.size++;
-  }
-
-  has(key: TaggedValue): boolean {
-    return this._findEntry(key) !== -1;
-  }
-
-  delete(key: TaggedValue): boolean {
-    const idx = this._findEntry(key);
-    if (idx === -1) return false;
-    this._deleted[idx] = true;
-    this.size--;
-    this._nDeleted++;
-    return true;
+    if (this._isOverloaded()) this._rehash();
+    this._values[this._link(key)] = value;
   }
 
   clear(): void {
-    this._bucketCount = INITIAL_BUCKET_COUNT;
-    this._buckets = new Int32Array(INITIAL_BUCKET_COUNT).fill(EMPTY);
-    this._keys = [];
+    this._reset(INITIAL_BUCKET_COUNT);
     this._values = [];
-    this._chains = [];
-    this._deleted = [];
-    this.size = 0;
-    this._nDeleted = 0;
   }
 
   *iterateEntries(): Generator<[TaggedValue, TaggedValue]> {
     for (let i = 0; i < this._keys.length; i++) {
       if (!this._deleted[i]) yield [this._keys[i]!, this._values[i]!];
-    }
-  }
-
-  *iterateKeys(): Generator<TaggedValue> {
-    for (let i = 0; i < this._keys.length; i++) {
-      if (!this._deleted[i]) yield this._keys[i]!;
     }
   }
 
@@ -207,52 +210,11 @@ export class OrderedHashMap {
   }
 }
 
-export class OrderedHashSet {
-  _bucketCount: number;
-  _buckets: Int32Array;
-  _keys: TaggedValue[];
-  _chains: number[];
-  _deleted: boolean[];
-  size: number;
-  _nDeleted: number;
-
-  constructor() {
-    this._bucketCount = INITIAL_BUCKET_COUNT;
-    this._buckets = new Int32Array(INITIAL_BUCKET_COUNT).fill(EMPTY);
-    this._keys = [];
-    this._chains = [];
-    this._deleted = [];
-    this.size = 0;
-    this._nDeleted = 0;
-  }
-
-  _hash(key: TaggedValue): number {
-    return hashTaggedValue(key) & (this._bucketCount - 1);
-  }
-
-  _findEntry(key: TaggedValue): number {
-    const bucket = this._hash(key);
-    let idx = this._buckets[bucket]!;
-    while (idx !== EMPTY) {
-      if (!this._deleted[idx] && sameValueZero(this._keys[idx], key)) return idx;
-      idx = this._chains[idx]!;
-    }
-    return -1;
-  }
-
+export class OrderedHashSet extends OrderedHashTable {
   _rehash(): void {
     const oldKeys = this._keys;
     const oldDeleted = this._deleted;
-    const newCap = this._bucketCount * 2;
-
-    this._bucketCount = newCap;
-    this._buckets = new Int32Array(newCap).fill(EMPTY);
-    this._keys = [];
-    this._chains = [];
-    this._deleted = [];
-    this.size = 0;
-    this._nDeleted = 0;
-
+    this._reset(this._bucketCount * 2);
     for (let i = 0; i < oldKeys.length; i++) {
       if (!oldDeleted[i]) this.add(oldKeys[i]!);
     }
@@ -260,45 +222,16 @@ export class OrderedHashSet {
 
   add(value: TaggedValue): void {
     if (this._findEntry(value) !== -1) return;
-    if ((this.size + this._nDeleted + 1) > this._bucketCount * LOAD_FACTOR) {
-      this._rehash();
-    }
-    const newIdx = this._keys.length;
-    const bucket = this._hash(value);
-    this._chains.push(this._buckets[bucket]);
-    this._buckets[bucket] = newIdx;
-    this._keys.push(value);
-    this._deleted.push(false);
-    this.size++;
-  }
-
-  has(value: TaggedValue): boolean {
-    return this._findEntry(value) !== -1;
-  }
-
-  delete(value: TaggedValue): boolean {
-    const idx = this._findEntry(value);
-    if (idx === -1) return false;
-    this._deleted[idx] = true;
-    this.size--;
-    this._nDeleted++;
-    return true;
+    if (this._isOverloaded()) this._rehash();
+    this._link(value);
   }
 
   clear(): void {
-    this._bucketCount = INITIAL_BUCKET_COUNT;
-    this._buckets = new Int32Array(INITIAL_BUCKET_COUNT).fill(EMPTY);
-    this._keys = [];
-    this._chains = [];
-    this._deleted = [];
-    this.size = 0;
-    this._nDeleted = 0;
+    this._reset(INITIAL_BUCKET_COUNT);
   }
 
   *iterateValues(): Generator<TaggedValue> {
-    for (let i = 0; i < this._keys.length; i++) {
-      if (!this._deleted[i]) yield this._keys[i]!;
-    }
+    yield* this.iterateKeys();
   }
 
   *iterateEntries(): Generator<[TaggedValue, TaggedValue]> {

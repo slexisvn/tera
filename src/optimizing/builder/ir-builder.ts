@@ -2074,6 +2074,17 @@ function compileInstruction(
       break;
     }
 
+    case bytecode.ROP_YIELD: {
+      const yielded = block._lastAcc ?? acc;
+      if (!yielded) {
+        bailOut(graph, compiledFn, op, bytecodeIdx);
+        break;
+      }
+      block.addNode(ir.irYield(yielded));
+      block._lastAcc = ir.homeInstruction(ir.irConstant(undefined), block);
+      break;
+    }
+
     case bytecode.ROP_AWAIT: {
       const awaited = block._lastAcc ?? acc;
       if (!awaited) {

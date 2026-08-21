@@ -201,6 +201,7 @@ function canInlineTarget(
 }
 
 const COLD_CALL_THRESHOLD = 5;
+const MAX_LOOPING_INLINE_INSTRUCTIONS = 80;
 const ACC_SLOT = -1;
 
 export function selectInlineTarget(
@@ -318,7 +319,7 @@ export function tryInline(
         const target = instr.operands[0];
         if (target <= i) {
           hasBackwardJump = true;
-          if (instructions.length > 80) return null;
+          if (instructions.length > MAX_LOOPING_INLINE_INSTRUCTIONS) return null;
           if (!inlineBlockMap.has(target)) {
             inlineBlockMap.set(target, graph.addBlock());
           }

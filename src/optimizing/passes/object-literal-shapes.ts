@@ -16,6 +16,8 @@ import {
 } from "../metadata/class-table.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
+import { nominalLatticeType } from "../types/declared.js";
+import { arrayElementNameOf } from "./array-shapes.js";
 
 const LITERAL_SHAPE_PREFIX = "tera_literal";
 const ANY_TYPE = "any";
@@ -53,8 +55,23 @@ function shapeNameOf(fields: readonly LiteralField[]): string {
   return `${LITERAL_SHAPE_PREFIX}$${layout}`;
 }
 
+function storedTypeName(
+  stored: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  if (types.typeOf(stored).kind !== TypeKind.Array) {
+    return declaredTypeOf(types.typeOf(stored), classes);
+  }
+  const element = arrayElementNameOf(stored, graph, classes, types);
+  if (element === null) return null;
+  return classes.defineArray(nominalLatticeType(element, classes))?.name ?? null;
+}
+
 function initializerOf(
   allocation: CFGInstruction,
+  graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
 ): readonly LiteralField[] | null {
@@ -67,7 +84,7 @@ function initializerOf(
     const name = String(use.props.propName);
     const stored = use.inputs[1];
     if (stored === undefined) return null;
-    const declaredType = declaredTypeOf(types.typeOf(stored), classes);
+    const declaredType = storedTypeName(stored, graph, classes, types);
     if (declaredType === null) return null;
     const seen = named.get(name);
     if (seen !== undefined) {
@@ -107,7 +124,7 @@ export function shapeObjectLiterals(graph: CFGFunction, types: TypeInference): n
     for (const node of block.nodes) {
       if (node.type !== IR_NEW_OBJECT) continue;
       if (node.props[CLASS_ID_PROP] !== undefined) continue;
-      const fields = initializerOf(node, classes, types);
+      const fields = initializerOf(node, graph, classes, types);
       if (fields === null) continue;
       const shape = classes.defineSynthetic(surfaceOf(shapeNameOf(fields), fields));
       if (shape.fields.size !== fields.length) continue;

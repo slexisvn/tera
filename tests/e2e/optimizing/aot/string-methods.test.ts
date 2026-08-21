@@ -168,6 +168,29 @@ const AGREEING_PROGRAMS: readonly (readonly [string, string])[] = [
 ];
 
 describe("string methods as compiled builtins", () => {
+  itRunsPe("holds two strings the same function built", () => {
+    agrees(src("fn s(n: int) -> string:", '  return "x" + n', "print(s(1), s(2))"));
+  });
+
+  itRunsPe("collects strings a method built into an array", () => {
+    agrees(
+      src(
+        "class L:",
+        "  public name: string",
+        "  public constructor(name: string):",
+        "    this.name = name",
+        "  public update(v: string) -> string:",
+        '    return this.name + ":" + v',
+        "fn notify(ls: L[], v: string) -> string:",
+        "  out = []",
+        "  for l of ls:",
+        "    out.push(l.update(v))",
+        '  return out.join(",")',
+        'print(notify([L("a"), L("b")], "ready"))',
+      ),
+    );
+  });
+
   for (const [name, source] of AGREEING_PROGRAMS) {
     itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
   }
@@ -214,12 +237,51 @@ describe("string methods as compiled builtins", () => {
     expect(Number(run.stdout.trim())).toBe(TEXT_STORAGE_BYTES - 1);
   });
 
-  it("declines a method the backends have no routine for", () => {
+  it("declines a split whose separator is not one spelled-out character", () => {
     expect(() =>
       nodeEngine({ typecheck: "off" }).compileAot(
-        src('parts = "a,b".split(",")', "print(parts[0])", ""),
+        src(
+          "fn parts(s: string, sep: string) -> int:",
+          "  return s.split(sep).length",
+          'print(parts("a,b", ","))',
+          "",
+        ),
         { backend: "x64-windows", format: "executable" },
       ),
     ).toThrow(/split/);
+  });
+  itRunsPe("splits on a spelled-out separator the way the interpreter does", () => {
+    agrees(
+      src(
+        "fn show(parts: string[]):",
+        "  print(parts.length)",
+        '  print(parts.join("|"))',
+        'show("a,b,c".split(","))',
+        'show(",lead".split(","))',
+        'show("trail,".split(","))',
+        'show("".split(","))',
+        'show("no-sep".split(","))',
+        'show("a,,b".split(","))',
+        'show("x y z".split(" "))',
+      ),
+    );
+  });
+
+  itRunsPe("walks the pieces a split answers", () => {
+    agrees(
+      src(
+        'for piece of "one,two,three".split(","):',
+        "  print(piece.to_upper_case())",
+      ),
+    );
+  });
+  itRunsPe("splits into characters when the separator is empty", () => {
+    agrees(
+      src(
+        'print("racecar".split("").reverse().join(""))',
+        'print("abc".split("").length)',
+        'print("".split("").length)',
+      ),
+    );
   });
 });

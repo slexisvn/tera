@@ -24,6 +24,7 @@ type SingletonKind = Exclude<
 
 export type SingletonType = Readonly<{
   kind: SingletonKind;
+  nullable?: boolean;
 }>;
 
 export type ObjectType = Readonly<{
@@ -103,12 +104,26 @@ export function nullableObjectType(map: IRMetadataValue | null): ObjectType {
   return objectType(map, true);
 }
 
+const NULLABLE_STRING: SingletonType = Object.freeze({
+  kind: TypeKind.String,
+  nullable: true,
+});
+
+export function nullableStringType(): SingletonType {
+  return NULLABLE_STRING;
+}
+
 export function withoutNull(type: LatticeType): LatticeType {
-  return type.kind === TypeKind.Object && type.nullable ? objectType(type.map) : type;
+  if (type.kind === TypeKind.Object && type.nullable) return objectType(type.map);
+  if (type.kind === TypeKind.String && type.nullable === true) return stringType();
+  return type;
 }
 
 export function acceptsNull(type: LatticeType): boolean {
-  return type.kind === TypeKind.Nullish || (type.kind === TypeKind.Object && type.nullable);
+  if (type.kind === TypeKind.Nullish) return true;
+  if (type.kind === TypeKind.Object) return type.nullable;
+  if (type.kind === TypeKind.Array) return false;
+  return type.nullable === true;
 }
 
 export function arrayType(elementsKind: IRMetadataValue | null = null): ArrayType {
@@ -124,7 +139,7 @@ export function typeEquals(left: NullableType, right: NullableType): boolean {
   if (left.kind === TypeKind.Array && right.kind === TypeKind.Array) {
     return left.elementsKind === right.elementsKind;
   }
-  return true;
+  return acceptsNull(left) === acceptsNull(right);
 }
 
 export function isSubtype(
@@ -138,6 +153,10 @@ export function isSubtype(
   if (supertype.kind === TypeKind.Tagged) return subtype.kind !== TypeKind.Any;
   if (supertype.kind === TypeKind.Number) {
     return subtype.kind === TypeKind.Smi || subtype.kind === TypeKind.Double;
+  }
+  if (supertype.kind === TypeKind.String) {
+    if (subtype.kind === TypeKind.Nullish) return acceptsNull(supertype);
+    return subtype.kind === TypeKind.String && (!acceptsNull(subtype) || acceptsNull(supertype));
   }
   if (supertype.kind === TypeKind.Object) {
     if (subtype.kind === TypeKind.Nullish) return supertype.nullable;
@@ -175,6 +194,12 @@ export function joinTypes(
       right.kind === TypeKind.Number)
   ) {
     return numberType();
+  }
+  if (left.kind === TypeKind.String && right.kind === TypeKind.Nullish) {
+    return nullableStringType();
+  }
+  if (left.kind === TypeKind.Nullish && right.kind === TypeKind.String) {
+    return nullableStringType();
   }
   if (left.kind === TypeKind.Object && right.kind === TypeKind.Nullish) {
     return nullableObjectType(left.map);

@@ -1,5 +1,6 @@
 import type { CFGInstruction, IRMetadataValue } from "./index.js";
 import { CLASS_ID_PROP, FIELD_TYPE_PROP } from "../metadata/class-table.js";
+import { RANGE_BUILTIN } from "../metadata/builtin-methods.js";
 import {
   builtinMemberType,
   type BuiltinMemberType,
@@ -87,6 +88,7 @@ export const IR_CALL_INTRINSIC = "CallIntrinsic";
 export const IR_NEW_OBJECT = "NewObject";
 export const IR_RUNTIME_BASE = "RuntimeBase";
 export const IR_AWAIT = "Await";
+export const IR_YIELD = "Yield";
 export const IR_ITERATOR_INIT = "IteratorInit";
 export const IR_ITERATOR_NEXT = "IteratorNext";
 export const IR_ITERATOR_DONE = "IteratorDone";
@@ -411,18 +413,90 @@ function phiTransfer(node: TransferNode, context: TypeContext): LatticeType {
 }
 
 export function storedElementValue(
-  store: CFGInstruction,
+  store: TransferNode,
   array: TransferNode,
 ): CFGInstruction | null {
   if (!isElementStore(store.type) || store.inputs[0] !== array) return null;
   return store.inputs[2] ?? null;
 }
 
+const PUSHED_MEMBER = "push";
+const PUSHED_VALUE = 2;
+
+export function memberCalled(node: TransferNode, member: string): CFGInstruction | null {
+  if (node.type !== IR_GENERIC_CALL || node.props.isMethod !== true) return null;
+  const callee = node.inputs[0];
+  if (callee?.type !== IR_GENERIC_GET_PROP) return null;
+  if (String(callee.props.propName) !== member) return null;
+  return callee.inputs[0] === node.inputs[1] ? callee : null;
+}
+
+export function propertyNameOf(node: TransferNode): string | null {
+  if (node.type !== IR_GENERIC_GET_PROP) return null;
+  const member = node.props.propName;
+  return typeof member === "string" ? member : null;
+}
+
+export function namespaceMemberOf(node: TransferNode, namespace: string): string | null {
+  const owner = node.inputs[0];
+  if (owner?.type !== IR_LOAD_GLOBAL || String(owner.props.name) !== namespace) return null;
+  return propertyNameOf(node);
+}
+
+const NAMESPACE_ARGUMENTS = 2;
+
+export function namespaceCallArguments(
+  node: TransferNode,
+  namespace: string,
+  member: string,
+): readonly CFGInstruction[] | null {
+  const callee = memberCalled(node, member);
+  if (callee === null || namespaceMemberOf(callee, namespace) === null) return null;
+  return node.inputs.slice(NAMESPACE_ARGUMENTS);
+}
+
+function pushedElementValue(use: TransferNode, array: TransferNode): CFGInstruction | null {
+  if (memberCalled(use, PUSHED_MEMBER) === null || use.inputs[1] !== array) return null;
+  return use.inputs[PUSHED_VALUE] ?? null;
+}
+
+const ITERATOR_STEPS: ReadonlySet<string> = new Set<string>([
+  IR_ITERATOR_NEXT,
+  IR_ITERATOR_VALUE,
+  IR_PHI,
+]);
+
+export function iteratorSourceOf(node: TransferNode): CFGInstruction | null {
+  const seen = new Set<TransferNode>([node]);
+  let walk = node.inputs[0];
+  while (walk !== undefined && !seen.has(walk)) {
+    seen.add(walk);
+    if (walk.type === IR_ITERATOR_INIT) return walk.inputs[0] ?? null;
+    if (!ITERATOR_STEPS.has(walk.type)) return null;
+    walk = walk.inputs[0];
+  }
+  return null;
+}
+
+function countsUp(iterable: CFGInstruction): boolean {
+  if (iterable.type !== IR_GENERIC_CALL || iterable.props.isMethod === true) return false;
+  const callee = iterable.inputs[0];
+  return callee?.type === IR_LOAD_GLOBAL && String(callee.props.name) === RANGE_BUILTIN;
+}
+
+function iteratorValueTransfer(node: TransferNode, context: TypeContext): LatticeType {
+  const iterable = iteratorSourceOf(node);
+  if (iterable === null) return anyType();
+  if (countsUp(iterable)) return smiType();
+  const type = context.typeOf(iterable);
+  return type.kind === TypeKind.Array ? latticeFromElementsKind(type.elementsKind) : anyType();
+}
+
 function newArrayTransfer(node: TransferNode, context: TypeContext): LatticeType {
   let merged: LatticeType | null = null;
   for (const input of node.inputs) merged = joinTypes(merged, context.typeOf(input));
   for (const use of node.uses) {
-    const stored = storedElementValue(use, node);
+    const stored = storedElementValue(use, node) ?? pushedElementValue(use, node);
     if (stored !== null) merged = joinTypes(merged, context.typeOf(stored));
   }
   return arrayType(merged === null ? null : elementsKindFor(merged));
@@ -669,6 +743,7 @@ export type Opcode =
   | typeof IR_NEW_OBJECT
   | typeof IR_RUNTIME_BASE
   | typeof IR_AWAIT
+  | typeof IR_YIELD
   | typeof IR_ITERATOR_INIT
   | typeof IR_ITERATOR_NEXT
   | typeof IR_ITERATOR_DONE
@@ -850,10 +925,11 @@ export const OPERATIONS = {
   [IR_NEW_OBJECT]: allocation(NO_INPUTS, RESULT_HANDLE, allocatedObjectType),
   [IR_RUNTIME_BASE]: pureValue(NO_INPUTS, RESULT_HANDLE, constant(objectType())),
   [IR_AWAIT]: memoryOp(WRITES_HEAP, ONE_INPUT, RESULT_HANDLE, settledTypeTransfer, false),
+  [IR_YIELD]: store(WRITES_HEAP, ONE_INPUT),
   [IR_ITERATOR_INIT]: pureValue(ONE_INPUT, RESULT_INT32, constant(smiType())),
   [IR_ITERATOR_NEXT]: pureValue(ONE_INPUT, RESULT_INT32, constant(smiType())),
   [IR_ITERATOR_DONE]: pureValue(ONE_INPUT, RESULT_BOOL, constant(booleanType())),
-  [IR_ITERATOR_VALUE]: pureValue(ONE_INPUT, RESULT_HANDLE, ANY),
+  [IR_ITERATOR_VALUE]: pureValue(ONE_INPUT, RESULT_HANDLE, iteratorValueTransfer),
   [IR_NEW_ARRAY]: allocation(variadic(0), RESULT_HANDLE, newArrayTransfer),
   [IR_ARRAY_RESERVE]: { ...allocation(ONE_INPUT, RESULT_HANDLE, allocatedObjectType), opaqueMemory: true },
   [IR_NEW_REGEX]: allocation(NO_INPUTS, RESULT_HANDLE, constant(objectType())),

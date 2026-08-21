@@ -32,8 +32,8 @@ describe("computed string-key access matches dot access on a string", () => {
   });
 
   it("keeps optional computed access short-circuiting on nullish", () => {
-    expect(value('(null)?.["substring"](0, 2)')).toEqual([undefined]);
-    expect(value('(undefined)?.["length"]')).toEqual([undefined]);
+    expect(value('(null)?.["substring"](0, 2)')).toEqual([null]);
+    expect(value('(undefined)?.["length"]')).toEqual([null]);
   });
 
   it("indexes a string with a negative (python-style) index", () => {
@@ -65,9 +65,9 @@ describe("an optional method call keeps its receiver", () => {
     expect(hot('(("" + "abcdef"))?.substring(1, 4)')).toEqual("bcd");
   });
 
-  it("short-circuits to undefined on a nullish receiver", () => {
-    expect(value("(null)?.substring(0, 2)")).toEqual([undefined]);
-    expect(hot("(null)?.substring(0, 2)")).toEqual(undefined);
+  it("short-circuits to null on a nullish receiver", () => {
+    expect(value("(null)?.substring(0, 2)")).toEqual([null]);
+    expect(hot("(null)?.substring(0, 2)")).toEqual(null);
     expect(value('("hello")?.length')).toEqual([5]);
   });
 

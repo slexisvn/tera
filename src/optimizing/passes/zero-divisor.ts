@@ -21,11 +21,6 @@ function provenNonZero(divisor: CFGInstruction): boolean {
   return divisor.type === IR_CONSTANT && divisor.props.value !== NO_DIVISOR;
 }
 
-/**
- * `n / 0` and `n % 0` answer `Infinity` and `NaN`, which an int32 result has no room
- * for, so a target that cannot fall back to a tagged number faults rather than hand
- * back the zero its hardware guard would.
- */
 export function faultOnZeroDivisor(graph: CFGFunction): number {
   const exposed = graph.blocks.flatMap((block) =>
     block.nodes.filter(

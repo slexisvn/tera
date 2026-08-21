@@ -1,5 +1,5 @@
 import { IR_CALL_KNOWN_FUNCTION, type CFGFunction } from "../ir/index.js";
-import { calleeSymbolName } from "../analyses/aot-legality.js";
+import { calleeSymbolName } from "./call-signatures.js";
 
 export interface CallReachability {
   callees(name: string): ReadonlySet<string>;

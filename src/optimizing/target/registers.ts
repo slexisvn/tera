@@ -1,5 +1,15 @@
 export type RegisterClassId = string;
 
+export function allocationOrder(
+  candidates: readonly string[],
+  callerSaved: ReadonlySet<string>,
+): readonly string[] {
+  return [
+    ...candidates.filter((name) => callerSaved.has(name)),
+    ...candidates.filter((name) => !callerSaved.has(name)),
+  ];
+}
+
 export interface PhysicalRegister {
   readonly kind: "physical";
   readonly index: number;

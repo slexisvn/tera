@@ -110,3 +110,33 @@ describe("builtins fault outside their domain, where the interpreter answers NaN
     expect(program.skipped).toEqual([]);
   });
 });
+describe("AOT Math surface", () => {
+  itRunsPe("raises to a spelled-out whole power", () => {
+    agrees(
+      src(
+        "print(Math.pow(2.0, 10.0))",
+        "print(Math.pow(3.0, 0.0))",
+        "print(Math.pow(1.5, 3.0))",
+        "fn cube(x: float) -> float:",
+        "  return Math.pow(x, 3.0)",
+        "print(cube(4.0))",
+      ),
+    );
+  });
+
+  itRunsPe("folds min and max over more than two values", () => {
+    agrees(src("print(Math.max(3, 7, 2), Math.min(3, 7, 2))", "print(Math.max(1, 2, 3, 4))"));
+  });
+
+  itRunsPe("spells the Math constants", () => {
+    agrees(src("print(Math.PI)", "print(Math.E)"));
+  });
+
+  it("declines a power the compiler cannot expand", () => {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(
+      src("fn f(x: float, y: float) -> float:", "  return Math.pow(x, y)", "print(f(2.0, 3.0))", ""),
+    );
+
+    expect(program.skipped.map((entry) => entry.reason).join("; ")).toContain("pow");
+  });
+});

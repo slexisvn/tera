@@ -6,6 +6,7 @@ import type { EngineOptions, EngineUnhandledRejection, OptimizedGraph } from "..
 import type { TeraExtension } from "../api/extensions.js";
 import type { RegisterCompiledFunction } from "../bytecode/register/ops/bytecode.js";
 import { checkSource } from "../frontend/checker/index.js";
+import { errorMessage } from "./repl/display.js";
 import type { CheckSourceOptions, Diagnostic } from "../frontend/checker/index.js";
 import { parse } from "../frontend/parser/language.js";
 import { buildModuleGraph, checkModuleGraph, type ModuleGraph } from "../frontend/modules/index.js";
@@ -25,12 +26,6 @@ type Source = { name: string; code: string };
 
 const USAGE_EXIT = 2;
 const FAILURE_EXIT = 1;
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  const message = (error as { message?: unknown })?.message;
-  return typeof message === "string" ? message : String(error);
-}
 
 function reportUnhandledRejections(rejections: EngineUnhandledRejection[]): void {
   for (const rejection of rejections) {

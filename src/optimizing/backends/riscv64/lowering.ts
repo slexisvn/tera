@@ -50,10 +50,11 @@ import {
   AOT_CHAR_AT,
   AOT_FLOAT_TO_STRING,
   AOT_INT_TO_STRING,
-  calleeSymbolName,
   type AotStringBuffer,
 } from "../../analyses/aot-legality.js";
+import { calleeSymbolName } from "../../metadata/call-signatures.js";
 import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
+import { doubleBits } from "../../target/float64.js";
 import { asciiData, integerData, zeroFilledBuffer } from "../../machine/data.js";
 import type { FrameLayout, SavedRegister } from "../../machine/frame.js";
 import { fitsImmediate } from "./immediates.js";
@@ -63,6 +64,8 @@ import {
   SCALAR_INT32,
   SCALAR_POINTER,
   SCALAR_STRING,
+  SCALAR_TEXT,
+  scalarWidth,
   SCALAR_VOID,
   type AotScalar,
 } from "../../types/scalar.js";
@@ -92,11 +95,8 @@ import {
   type StackSlot,
   type VirtualRegister,
 } from "../../machine/ir.js";
-import type {
-  MachineLowering,
-  SelectionContext,
-  SelectionHandler,
-} from "../../machine/lowering.js";
+import type { SelectionContext, SelectionHandler } from "../../machine/lowering.js";
+import { MachineLoweringBase, readOf, writeOf } from "../../machine/lowering-base.js";
 import { fusedConditionOf } from "../../machine/select.js";
 import { nativeArgumentScalar, nativeReturnScalar } from "../../machine/signature.js";
 import { RISCV_FPR, RISCV_GPR, RISCV_STACK_SCRATCH } from "./registers.js";
@@ -200,72 +200,31 @@ const PRINT_ROUTINES = new Map<AotScalar, string>([
 
 const SHIFT_MASK = 31;
 
-function doubleBits(value: number): bigint {
-  const view = new DataView(new ArrayBuffer(8));
-  view.setFloat64(0, value);
-  return view.getBigUint64(0);
-}
-
 function calleeSignature(node: CFGInstruction): DeclaredSignature | null {
   const target = node.props.target as { declaredSignature?: DeclaredSignature } | undefined;
   return target?.declaredSignature ?? null;
-}
-
-function readOf(register: VirtualRegister): RegisterOperand {
-  return use(register, register.width);
-}
-
-function writeOf(register: VirtualRegister): RegisterOperand {
-  return def(register, register.width);
 }
 
 function log2(value: number): number {
   return Math.round(Math.log2(value));
 }
 
-export class RiscvLowering implements MachineLowering {
-  constructor(readonly target: RiscvTargetModel) {}
+export class RiscvLowering extends MachineLoweringBase<RiscvTargetModel> {
 
-  rules(): Iterable<readonly [string, SelectionHandler]> {
-    const entries: Array<readonly [string, SelectionHandler]> = [
-      [IR_LOAD_GLOBAL, () => undefined],
-      [IR_RETURN, (ctx) => this.selectReturn(ctx)],
-      [IR_JUMP, (ctx) => void ctx.emit(this.jump(ctx.successorFor("targetBlock")))],
-      [IR_BRANCH, (ctx) => this.selectBranch(ctx)],
-      [IR_INT32_NOT, (ctx) => this.selectIntNot(ctx)],
-      [IR_INT32_COMPARE, (ctx) => this.selectIntCompare(ctx)],
-      [IR_FLOAT64_COMPARE, (ctx) => this.selectFloatCompare(ctx)],
-      [IR_NEG, (ctx) => this.selectNegate(ctx)],
-      [IR_NOT, (ctx) => this.selectLogicalNot(ctx)],
-      [IR_NEW_OBJECT, (ctx) => this.selectNewObject(ctx)],
-      [IR_ARRAY_RESERVE, (ctx) => this.selectArrayReserve(ctx)],
-      [IR_RUNTIME_BASE, (ctx) => this.selectRuntimeBase(ctx)],
-      [IR_LOAD_FIELD, (ctx) => this.selectLoadField(ctx)],
-      [IR_STORE_FIELD, (ctx) => this.selectStoreField(ctx)],
-      [IR_LOAD_TEXT, (ctx) => this.selectLoadText(ctx)],
-      [IR_STORE_TEXT, (ctx) => this.selectStoreText(ctx)],
-      [IR_LOAD_ELEMENT, (ctx) => this.selectLoadElement(ctx)],
-      [IR_GENERIC_GET_INDEX, (ctx) => this.selectLoadElement(ctx)],
-      [IR_STORE_ELEMENT, (ctx) => this.selectStoreElement(ctx)],
-      [IR_GENERIC_SET_INDEX, (ctx) => this.selectStoreElement(ctx)],
-      [IR_CALL_KNOWN_FUNCTION, (ctx) => this.selectKnownCall(ctx)],
-      [IR_CALL_BUILTIN, (ctx) => this.selectBuiltin(ctx)],
-      [IR_GENERIC_ADD, (ctx) => this.selectStringConcat(ctx)],
-      [IR_GENERIC_COMPARE, (ctx) => this.selectStringCompare(ctx)],
-    ];
-    for (const [opcode, mnemonic] of FLOAT_BINARY) {
-      entries.push([opcode, (ctx) => this.selectFloatBinary(ctx, mnemonic)]);
-    }
-    for (const [opcode, mnemonic] of INT_BINARY) {
-      entries.push([opcode, (ctx) => this.selectIntBinary(ctx, mnemonic)]);
-    }
-    for (const [opcode, mnemonic] of INT_SHIFT) {
-      entries.push([opcode, (ctx) => this.selectShift(ctx, mnemonic)]);
-    }
-    for (const [opcode, symbol] of INT_HELPERS) {
-      entries.push([opcode, (ctx) => this.selectIntHelper(ctx, symbol)]);
-    }
-    return entries;
+  protected floatBinaryRules(): ReadonlyMap<string, string> {
+    return FLOAT_BINARY;
+  }
+
+  protected intBinaryRules(): ReadonlyMap<string, string> {
+    return INT_BINARY;
+  }
+
+  protected intShiftRules(): ReadonlyMap<string, string> {
+    return INT_SHIFT;
+  }
+
+  protected intHelperRules(): ReadonlyMap<string, string> {
+    return INT_HELPERS;
   }
 
   materialize(ctx: SelectionContext, constant: CFGInstruction): VirtualRegister {
@@ -325,10 +284,6 @@ export class RiscvLowering implements MachineLowering {
     ]);
   }
 
-  loadIncoming(destination: RegisterOperand, slot: StackSlot): MachineInstruction {
-    return this.reload(destination, slot);
-  }
-
   storeOutgoing(offset: number, source: RegisterOperand): MachineInstruction {
     return instruction(this.storeFor(source), [
       source,
@@ -338,13 +293,6 @@ export class RiscvLowering implements MachineLowering {
 
   jump(target: MachineBlock): MachineInstruction {
     return instruction("j", [label(target)], { terminator: true });
-  }
-
-  call(symbol: string, operands: MachineOperand[]): MachineInstruction {
-    return instruction("call", [sym(symbol), ...operands], {
-      call: true,
-      implicitFrom: 1,
-    });
   }
 
   storeRoot(
@@ -365,7 +313,7 @@ export class RiscvLowering implements MachineLowering {
     ];
   }
 
-  private enterRoots(frame: FrameLayout): readonly MachineInstruction[] {
+  protected enterRoots(frame: FrameLayout): readonly MachineInstruction[] {
     if (frame.rootFrame === null) return [];
     return [
       instruction("li", [def(this.physical(ROOT_COUNT_REGISTER), 8), imm(frame.roots)]),
@@ -380,7 +328,7 @@ export class RiscvLowering implements MachineLowering {
     ];
   }
 
-  private leaveRoots(frame: FrameLayout): readonly MachineInstruction[] {
+  protected leaveRoots(frame: FrameLayout): readonly MachineInstruction[] {
     if (frame.rootFrame === null) return [];
     const cursor = this.physical(ROOT_FRAME_REGISTER);
     const table = this.physical(ROOT_COUNT_REGISTER);
@@ -404,27 +352,7 @@ export class RiscvLowering implements MachineLowering {
     ];
   }
 
-  private physical(name: string): PhysicalRegister {
-    return this.target.registers.register(name);
-  }
-
-  prologue(frame: FrameLayout): readonly MachineInstruction[] {
-    return [
-      ...this.adjustStack(-frame.frameSize),
-      ...frame.saved.map((saved) => this.frameSlotAccess(saved, true)),
-      ...this.enterRoots(frame),
-    ];
-  }
-
-  epilogue(frame: FrameLayout): readonly MachineInstruction[] {
-    return [
-      ...this.leaveRoots(frame),
-      ...frame.saved.map((saved) => this.frameSlotAccess(saved, false)),
-      ...this.adjustStack(frame.frameSize),
-    ];
-  }
-
-  private adjustStack(delta: number): MachineInstruction[] {
+  protected adjustStack(delta: number): MachineInstruction[] {
     if (delta === 0) return [];
     const pointer = this.target.abi.stackPointer;
     if (fitsImmediate(delta)) {
@@ -439,7 +367,7 @@ export class RiscvLowering implements MachineLowering {
     ];
   }
 
-  private frameSlotAccess(saved: SavedRegister, store: boolean): MachineInstruction {
+  protected frameSlotAccess(saved: SavedRegister, store: boolean): MachineInstruction {
     const width = this.target.registers.classOf(saved.register.classId).saveBytes;
     const operand = store ? use(saved.register, width) : def(saved.register, width);
     const location = mem(width, {
@@ -458,10 +386,6 @@ export class RiscvLowering implements MachineLowering {
   storeFor(operand: RegisterOperand): string {
     if (operand.register.classId === RISCV_FPR) return "fsd";
     return operand.width === 8 ? "sd" : "sw";
-  }
-
-  private stackPointer(): RegisterOperand {
-    return use(this.target.abi.stackPointer, 8);
   }
 
   private zero(): RegisterOperand {
@@ -492,30 +416,7 @@ export class RiscvLowering implements MachineLowering {
     return into;
   }
 
-  private coerce(
-    ctx: SelectionContext,
-    value: CFGInstruction,
-    scalar: AotScalar,
-  ): VirtualRegister {
-    return this.convert(ctx, ctx.registerOf(value), ctx.scalarOf(value), scalar);
-  }
-
-  private destination(ctx: SelectionContext, scalar: AotScalar): VirtualRegister {
-    return ctx.scalarOf(ctx.node) === scalar ? ctx.resultRegister() : ctx.temp(scalar);
-  }
-
-  private produce(
-    ctx: SelectionContext,
-    value: VirtualRegister,
-    scalar: AotScalar,
-  ): void {
-    const wanted = ctx.scalarOf(ctx.node);
-    if (scalar === wanted && value === ctx.resultRegister()) return;
-    const converted = this.convert(ctx, value, scalar, wanted);
-    ctx.emit(this.copy(ctx.resultOf(), readOf(converted)));
-  }
-
-  private selectFloatBinary(ctx: SelectionContext, mnemonic: string): void {
+  protected selectFloatBinary(ctx: SelectionContext, mnemonic: string): void {
     const left = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_FLOAT64);
     const right = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_FLOAT64);
     const result = this.destination(ctx, SCALAR_FLOAT64);
@@ -523,7 +424,7 @@ export class RiscvLowering implements MachineLowering {
     this.produce(ctx, result, SCALAR_FLOAT64);
   }
 
-  private selectIntBinary(ctx: SelectionContext, mnemonic: string): void {
+  protected selectIntBinary(ctx: SelectionContext, mnemonic: string): void {
     const left = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
     const right = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_INT32);
     const result = this.destination(ctx, SCALAR_INT32);
@@ -533,14 +434,14 @@ export class RiscvLowering implements MachineLowering {
     this.produce(ctx, result, SCALAR_INT32);
   }
 
-  private selectIntNot(ctx: SelectionContext): void {
+  protected selectIntNot(ctx: SelectionContext): void {
     const operand = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
     const result = this.destination(ctx, SCALAR_INT32);
     ctx.emit(instruction("xori", [writeOf(result), readOf(operand), imm(-1)]));
     this.produce(ctx, result, SCALAR_INT32);
   }
 
-  private selectShift(ctx: SelectionContext, mnemonic: string): void {
+  protected selectShift(ctx: SelectionContext, mnemonic: string): void {
     const value = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
     const amount = ctx.node.inputs[1]!;
     const wide = mnemonic === "srlw" && ctx.scalarOf(ctx.node) === SCALAR_FLOAT64;
@@ -563,16 +464,7 @@ export class RiscvLowering implements MachineLowering {
     this.produce(ctx, converted, SCALAR_FLOAT64);
   }
 
-  private selectIntHelper(ctx: SelectionContext, symbol: string): void {
-    const left = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
-    const right = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_INT32);
-    const result = this.destination(ctx, SCALAR_INT32);
-    ctx.external(symbol);
-    ctx.emitCall(symbol, [left, right], result);
-    this.produce(ctx, result, SCALAR_INT32);
-  }
-
-  private selectNegate(ctx: SelectionContext): void {
+  protected selectNegate(ctx: SelectionContext): void {
     if (ctx.scalarOf(ctx.node) === SCALAR_INT32) {
       const operand = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
       const result = this.destination(ctx, SCALAR_INT32);
@@ -586,7 +478,7 @@ export class RiscvLowering implements MachineLowering {
     this.produce(ctx, result, SCALAR_FLOAT64);
   }
 
-  private selectLogicalNot(ctx: SelectionContext): void {
+  protected selectLogicalNot(ctx: SelectionContext): void {
     const operand = ctx.node.inputs[0]!;
     const result = this.destination(ctx, SCALAR_INT32);
     if (ctx.scalarOf(operand) === SCALAR_FLOAT64) {
@@ -621,13 +513,13 @@ export class RiscvLowering implements MachineLowering {
     return condition;
   }
 
-  private selectIntCompare(ctx: SelectionContext): void {
+  protected selectIntCompare(ctx: SelectionContext): void {
     const left = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
     const right = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_INT32);
     this.emitIntCondition(ctx, String(ctx.node.props.op), left, right);
   }
 
-  private selectStringCompare(ctx: SelectionContext): void {
+  protected selectStringCompare(ctx: SelectionContext): void {
     if (ctx.node.inputs.every((input) => ctx.scalarOf(input) === SCALAR_POINTER)) {
       this.emitIntCondition(
         ctx,
@@ -695,7 +587,7 @@ export class RiscvLowering implements MachineLowering {
     }
   }
 
-  private selectFloatCompare(ctx: SelectionContext): void {
+  protected selectFloatCompare(ctx: SelectionContext): void {
     if (ctx.node.inputs.every((input) => ctx.scalarOf(input) === SCALAR_POINTER)) {
       this.emitIntCondition(
         ctx,
@@ -712,7 +604,7 @@ export class RiscvLowering implements MachineLowering {
     this.produce(ctx, result, SCALAR_INT32);
   }
 
-  private selectBranch(ctx: SelectionContext): void {
+  protected selectBranch(ctx: SelectionContext): void {
     const onTrue = ctx.successorFor("trueBlock");
     const onFalse = ctx.successorFor("falseBlock");
     const fused = fusedConditionOf(ctx);
@@ -750,27 +642,6 @@ export class RiscvLowering implements MachineLowering {
     ctx.emit(this.jump(onFalse));
   }
 
-  private selectReturn(ctx: SelectionContext): void {
-    const scalar = nativeReturnScalar(ctx.legality);
-    if (scalar === SCALAR_VOID || isPendingThrowReturn(ctx.node)) {
-      ctx.emit(instruction("ret", [], { terminator: true, returns: true }));
-      return;
-    }
-    const value = this.coerce(ctx, ctx.node.inputs[0]!, scalar);
-    const width = ctx.widthOf(scalar);
-    const returned = this.target.abi.callingConvention.returnRegisters.get(
-      ctx.classOf(scalar),
-    )!;
-    ctx.emit(this.copy(def(returned, width), use(value, width)));
-    ctx.emit(
-      instruction("ret", [use(returned, width)], {
-        terminator: true,
-        returns: true,
-        implicitFrom: 0,
-      }),
-    );
-  }
-
   private elementAddress(
     ctx: SelectionContext,
     width: number,
@@ -789,7 +660,7 @@ export class RiscvLowering implements MachineLowering {
     return address;
   }
 
-  private selectNewObject(ctx: SelectionContext): void {
+  protected selectNewObject(ctx: SelectionContext): void {
     const shape = allocationShapeOf(ctx.node);
     const size = this.loadNumber(ctx, shape.size, SCALAR_INT32);
     const identity = this.loadNumber(ctx, shape.id, SCALAR_INT32);
@@ -797,7 +668,7 @@ export class RiscvLowering implements MachineLowering {
     ctx.emitCall(RISCV_RUNTIME_SYMBOLS.allocate, [size, identity], ctx.resultRegister());
   }
 
-  private selectArrayReserve(ctx: SelectionContext): void {
+  protected selectArrayReserve(ctx: SelectionContext): void {
     const growth = arrayReserveOf(ctx.node);
     const array = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_POINTER);
     const buffer = this.loadNumber(ctx, growth.buffer, SCALAR_INT32);
@@ -810,12 +681,12 @@ export class RiscvLowering implements MachineLowering {
     );
   }
 
-  private selectRuntimeBase(ctx: SelectionContext): void {
+  protected selectRuntimeBase(ctx: SelectionContext): void {
     const base = ctx.resultRegister();
     ctx.emit(instruction("lla", [writeOf(base), sym(String(ctx.node.props.symbol))]));
   }
 
-  private selectLoadField(ctx: SelectionContext): void {
+  protected selectLoadField(ctx: SelectionContext): void {
     const scalar = fieldScalarOf(ctx.node);
     const width = ctx.widthOf(scalar);
     const receiver = ctx.registerOf(ctx.node.inputs[0]!);
@@ -829,7 +700,7 @@ export class RiscvLowering implements MachineLowering {
     this.produce(ctx, loaded, scalar);
   }
 
-  private selectStoreField(ctx: SelectionContext): void {
+  protected selectStoreField(ctx: SelectionContext): void {
     const scalar = fieldScalarOf(ctx.node);
     const width = ctx.widthOf(scalar);
     const receiver = ctx.registerOf(ctx.node.inputs[0]!);
@@ -843,26 +714,27 @@ export class RiscvLowering implements MachineLowering {
     if (ctx.node.uses.length > 0) this.produce(ctx, value, scalar);
   }
 
-  private textAddress(ctx: SelectionContext, destination: VirtualRegister): VirtualRegister {
-    const receiver = ctx.registerOf(ctx.node.inputs[0]!);
-    const offset = fieldOffsetOf(ctx.node);
+  private displaced(
+    ctx: SelectionContext,
+    destination: VirtualRegister,
+    base: VirtualRegister,
+    offset: number,
+  ): VirtualRegister {
     if (fitsImmediate(offset)) {
-      ctx.emit(instruction("addi", [writeOf(destination), readOf(receiver), imm(offset)]));
+      ctx.emit(instruction("addi", [writeOf(destination), readOf(base), imm(offset)]));
       return destination;
     }
     const displacement = this.loadNumber(ctx, offset, SCALAR_INT32);
-    ctx.emit(
-      instruction("add", [writeOf(destination), readOf(receiver), readOf(displacement)]),
-    );
+    ctx.emit(instruction("add", [writeOf(destination), readOf(base), readOf(displacement)]));
     return destination;
   }
 
-  private selectLoadText(ctx: SelectionContext): void {
-    const address = this.textAddress(ctx, this.destination(ctx, SCALAR_STRING));
-    this.produce(ctx, address, SCALAR_STRING);
+  protected textAddress(ctx: SelectionContext, destination: VirtualRegister): VirtualRegister {
+    const receiver = ctx.registerOf(ctx.node.inputs[0]!);
+    return this.displaced(ctx, destination, receiver, fieldOffsetOf(ctx.node));
   }
 
-  private selectStoreText(ctx: SelectionContext): void {
+  protected selectStoreText(ctx: SelectionContext): void {
     const value = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_STRING);
     const destination = this.textAddress(ctx, ctx.tempIn(RISCV_GPR, 8));
     const capacity = this.loadNumber(ctx, textCapacityOf(ctx.node), SCALAR_INT32);
@@ -885,7 +757,20 @@ export class RiscvLowering implements MachineLowering {
     return { element, base, address: { displacement: fieldOffsetOf(ctx.node) } };
   }
 
-  private selectLoadElement(ctx: SelectionContext): void {
+  private elementTextAddress(
+    ctx: SelectionContext,
+    destination: VirtualRegister,
+  ): VirtualRegister {
+    const { base, address } = this.elementPlace(ctx);
+    return this.displaced(ctx, destination, base, Number(address.displacement ?? 0));
+  }
+
+  protected selectLoadElement(ctx: SelectionContext): void {
+    if (heapElementScalarOf(ctx.node) === SCALAR_TEXT) {
+      const address = this.elementTextAddress(ctx, this.destination(ctx, SCALAR_STRING));
+      this.produce(ctx, address, SCALAR_STRING);
+      return;
+    }
     const { element, base, address } = this.elementPlace(ctx);
     const width = ctx.widthOf(element);
     const loaded = this.destination(ctx, element);
@@ -898,7 +783,15 @@ export class RiscvLowering implements MachineLowering {
     this.produce(ctx, loaded, element);
   }
 
-  private selectStoreElement(ctx: SelectionContext): void {
+  protected selectStoreElement(ctx: SelectionContext): void {
+    if (heapElementScalarOf(ctx.node) === SCALAR_TEXT) {
+      const value = this.coerce(ctx, ctx.node.inputs[2]!, SCALAR_STRING);
+      const destination = this.elementTextAddress(ctx, ctx.tempIn(RISCV_GPR, 8));
+      const capacity = this.loadNumber(ctx, scalarWidth(SCALAR_TEXT), SCALAR_INT32);
+      ctx.external(RISCV_RUNTIME_SYMBOLS.stringSet);
+      ctx.emitCall(RISCV_RUNTIME_SYMBOLS.stringSet, [destination, capacity, value], null);
+      return;
+    }
     const { element, base, address } = this.elementPlace(ctx);
     const width = ctx.widthOf(element);
     const value = this.coerce(ctx, ctx.node.inputs[2]!, element);
@@ -911,7 +804,7 @@ export class RiscvLowering implements MachineLowering {
     if (ctx.node.uses.length > 0) this.produce(ctx, value, element);
   }
 
-  private selectKnownCall(ctx: SelectionContext): void {
+  protected selectKnownCall(ctx: SelectionContext): void {
     const symbol = this.target.symbolOf(calleeSymbolName(ctx.node)!);
     const signature = calleeSignature(ctx.node);
     const args = ctx.node.inputs.map((input, index) =>
@@ -921,7 +814,7 @@ export class RiscvLowering implements MachineLowering {
     ctx.emitCall(symbol, args, ctx.node.uses.length > 0 ? ctx.resultRegister() : null);
   }
 
-  private bufferAddress(ctx: SelectionContext, buffer: AotStringBuffer): VirtualRegister {
+  protected bufferAddress(ctx: SelectionContext, buffer: AotStringBuffer): VirtualRegister {
     const datum = ctx.data.intern(
       `string-buffer:${buffer.producer.id}`,
       1,
@@ -934,7 +827,7 @@ export class RiscvLowering implements MachineLowering {
     return address;
   }
 
-  private emitBufferCall(
+  protected emitBufferCall(
     ctx: SelectionContext,
     symbol: string,
     buffer: AotStringBuffer,
@@ -948,7 +841,7 @@ export class RiscvLowering implements MachineLowering {
     return result;
   }
 
-  private selectStringConcat(ctx: SelectionContext): void {
+  protected selectStringConcat(ctx: SelectionContext): void {
     const buffer = ctx.legality.stringBufferOf(ctx.node)!;
     const left = ctx.registerOf(ctx.node.inputs[0]!);
     const right = ctx.registerOf(ctx.node.inputs[1]!);
@@ -967,22 +860,6 @@ export class RiscvLowering implements MachineLowering {
       [right],
     );
     this.produce(ctx, appended, SCALAR_STRING);
-  }
-
-  private selectStringBuffered(ctx: SelectionContext, symbol: string): void {
-    const buffer = ctx.legality.stringBufferOf(ctx.node)!;
-    const intrinsic = builtinIntrinsicByName(String(ctx.node.props.name))!;
-    const operands = ctx.node.inputs.map((input, index) =>
-      this.coerce(ctx, input, nativeArgumentScalar(builtinParameterAt(intrinsic, index), ctx.classes)),
-    );
-    const result = this.emitBufferCall(
-      ctx,
-      symbol,
-      buffer,
-      this.bufferAddress(ctx, buffer),
-      operands,
-    );
-    this.produce(ctx, result, SCALAR_STRING);
   }
 
   private selectPrint(ctx: SelectionContext): void {
@@ -1010,7 +887,7 @@ export class RiscvLowering implements MachineLowering {
     ctx.emitCall(RISCV_RUNTIME_SYMBOLS.throwError, [message], null);
   }
 
-  private selectBuiltin(ctx: SelectionContext): void {
+  protected selectBuiltin(ctx: SelectionContext): void {
     const name = String(ctx.node.props.name);
     if (name === PRINT_BUILTIN) {
       this.selectPrint(ctx);
@@ -1070,15 +947,4 @@ export class RiscvLowering implements MachineLowering {
     this.emitLibraryCall(ctx, runtime, args, scalar);
   }
 
-  private emitLibraryCall(
-    ctx: SelectionContext,
-    symbol: string,
-    args: readonly VirtualRegister[],
-    scalar: AotScalar,
-  ): void {
-    ctx.external(symbol);
-    const result = this.destination(ctx, scalar);
-    ctx.emitCall(symbol, args, result);
-    this.produce(ctx, result, scalar);
-  }
 }

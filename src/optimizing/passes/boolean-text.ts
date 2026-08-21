@@ -47,7 +47,6 @@ function renderedGlobal(node: CFGInstruction): CFGInstruction | null {
   return node.inputs[1]!;
 }
 
-/** Both `b.to_string()` and `String(b)` ask for a boolean to be spelled out. */
 function spelledBoolean(node: CFGInstruction, types: TypeInference): CFGInstruction | null {
   if (node.type !== IR_GENERIC_CALL) return null;
   const rendered = spelledMethod(node) ?? renderedGlobal(node);

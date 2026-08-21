@@ -918,4 +918,63 @@ describe("AOT classes", () => {
       [7],
     );
   });
+  itNative("initialises a declared field to the zero of its type", () => {
+    expectMatchesInterpreter(
+      [
+        "class Counter:",
+        "  public n: int",
+        "  public constructor(start: int):",
+        "    this.n = start",
+        "  public step() -> int:",
+        "    this.n = this.n + 1",
+        "    return this.n",
+        "fn go(start: int) -> int:",
+        "  c = Counter(start)",
+        "  c.step()",
+        "  return c.step()",
+      ],
+      "go",
+      [4],
+    );
+  });
+
+  itNative("reaches a declared field through a class that owns another", () => {
+    expectMatchesInterpreter(
+      [
+        "class Engine:",
+        "  public hp: int",
+        "  public constructor(hp: int):",
+        "    this.hp = hp",
+        "class Car:",
+        "  public engine: Engine",
+        "  public constructor(hp: int):",
+        "    this.engine = Engine(hp)",
+        "  public power() -> int:",
+        "    return this.engine.hp",
+        "fn go(hp: int) -> int:",
+        "  return Car(hp).power()",
+      ],
+      "go",
+      [300],
+    );
+  });
+
+  itNative("reads a field through the interface a class conforms to", () => {
+    expectMatchesInterpreter(
+      [
+        "interface Sized:",
+        "  size: int",
+        "class Box:",
+        "  public size: int",
+        "  public constructor(size: int):",
+        "    this.size = size",
+        "fn measure(s: Sized) -> int:",
+        "  return s.size",
+        "fn go(n: int) -> int:",
+        "  return measure(Box(n))",
+      ],
+      "go",
+      [12],
+    );
+  });
 });

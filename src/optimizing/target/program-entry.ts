@@ -8,7 +8,6 @@ import {
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
 import { link } from "../ir/cfg-edit.js";
-import { promoteAssignedGlobals } from "../passes/global-promotion.js";
 import {
   branchOnPendingThrow,
   clearPendingThrowReturn,
@@ -52,7 +51,6 @@ function reportUncaughtThrow(graph: CFGFunction, node: CFGInstruction): void {
 export function markProgramEntry(graph: CFGFunction): void {
   graph.name = PROGRAM_ENTRY_NAME;
   graph.declaredSignature = { params: [], returns: PROGRAM_ENTRY_RETURN };
-  promoteAssignedGlobals(graph);
   const editor = new GraphEditor(graph);
   for (const node of returnsOf(graph)) {
     const status = irConstant(PROGRAM_ENTRY_STATUS);

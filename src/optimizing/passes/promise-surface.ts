@@ -18,8 +18,7 @@ import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
 import { compiledFunctionConstant } from "../ir/compiled-function.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 import { branchOnPendingThrow, takePendingThrow } from "../builder/throw-recovery.js";
-import { calleeSymbolName } from "../analyses/aot-legality.js";
-import { genericCalleeName } from "../metadata/call-signatures.js";
+import { calleeNameOf } from "../metadata/call-signatures.js";
 import { isUnwritten, type DeclaredSignature } from "../types/signature.js";
 import { inferTypes } from "../analyses/type-inference.js";
 import { joinTypes, TypeKind, type LatticeType } from "../types/lattice.js";
@@ -96,12 +95,6 @@ function writtenReturnOf(graph: CFGFunction): string {
 
 function isPromiseGlobal(value: CFGInstruction | null): boolean {
   return value !== null && value.type === IR_LOAD_GLOBAL && value.props.name === PROMISE_GLOBAL;
-}
-
-function calleeNameOf(node: CFGInstruction): string | null {
-  if (node.type === IR_GENERIC_CALL) return genericCalleeName(node);
-  if (node.type !== IR_CALL_KNOWN_FUNCTION) return null;
-  return calleeSymbolName(node);
 }
 
 function unitOf(graph: CFGFunction): CompilationUnit {

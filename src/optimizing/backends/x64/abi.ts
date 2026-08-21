@@ -1,4 +1,5 @@
 import type { CallingConvention, RuntimeAbi } from "../../target/abi.js";
+import { allocationOrder } from "../../target/registers.js";
 import type { PhysicalRegister, RegisterFile } from "../../target/registers.js";
 import { X64_FPR, X64_GPR, x64RegisterFile } from "./registers.js";
 
@@ -54,16 +55,6 @@ const SPECS: Record<X64AbiName, X64AbiSpec> = {
     shadowSpaceBytes: 32,
   },
 };
-
-function allocationOrder(
-  candidates: readonly string[],
-  callerSaved: ReadonlySet<string>,
-): readonly string[] {
-  return [
-    ...candidates.filter((name) => callerSaved.has(name)),
-    ...candidates.filter((name) => !callerSaved.has(name)),
-  ];
-}
 
 export function x64IntegerArgumentNames(abi: RuntimeAbi): readonly string[] {
   return (abi.callingConvention.argumentRegisters.get(X64_GPR) ?? []).map(

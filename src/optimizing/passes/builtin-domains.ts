@@ -20,10 +20,6 @@ const RECEIVER = 0;
 const FIRST_ARGUMENT = 1;
 const COUNTED_CHARACTERS = qualifiedMethodName("string", "length");
 
-/**
- * An argument a compiled call has no answer outside `[0, countedBy)` for, where the
- * source answers `NaN` or raises. A member with no `countedBy` only rules out negatives.
- */
 type Domain = {
   readonly argument: number;
   readonly countedBy: string | null;
@@ -74,11 +70,6 @@ function measure(
   return call;
 }
 
-/**
- * Holds a builtin call inside the arguments it can answer for, faulting where the source
- * would have answered `NaN` or raised. A target carrying tagged values has room for those
- * answers already, so this only runs where the pipeline includes it.
- */
 export function faultOutsideBuiltinDomains(graph: CFGFunction): number {
   const guarded = graph.blocks.flatMap((block) =>
     block.nodes.flatMap((node) => {

@@ -341,14 +341,12 @@ describe("array callback methods", () => {
     expect(program.skipped.map((entry) => entry.reason).join("; ")).toContain("comparator");
   });
 
-  it("declines find, whose miss answers undefined", () => {
+  it("compiles find, whose miss answers null", () => {
     const program = nodeEngine({ typecheck: "off" }).compileAot(
       src(...ODD, "xs: int[] = [1, 2]", "print(xs.find(odd))", ""),
     );
 
-    expect(program.skipped.map((entry) => entry.reason).join("; ")).toContain(
-      "answers undefined",
-    );
+    expect(program.skipped).toEqual([]);
   });
 
   it("declines a reduce that has no initial value", () => {
@@ -401,4 +399,17 @@ describe("array slicing", () => {
     itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
     itNative(`${name} the same way through the C backend`, () => agreesInC(source));
   }
+});
+describe("AOT array flattening", () => {
+  itRunsPe("flattens nested arrays the way the interpreter does", () => {
+    agrees(
+      src(
+        "print([[1, 2], [3, 4], [5]].flat())",
+        "grid: int[][] = [[1], [2, 3]]",
+        "print(grid.flat().length)",
+        'words: string[][] = [["a", "b"], ["c"]]',
+        'print(words.flat().join("-"))',
+      ),
+    );
+  });
 });

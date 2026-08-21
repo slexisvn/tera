@@ -1,3 +1,9 @@
+export function doubleBits(value: number): bigint {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, value);
+  return view.getBigUint64(0);
+}
+
 export const FLOAT64_MANTISSA_BITS = 52;
 export const FLOAT64_SIGN_SHIFT = 63;
 export const FLOAT64_EXPONENT_MASK = 0x7ff;
@@ -27,10 +33,6 @@ export const FLOAT64_DECIMAL_BYTES =
   FLOAT64_SIGNIFICANT_DIGITS +
   1;
 
-/**
- * `null` where a number is expected. A quiet NaN with a payload no computation
- * produces, so a value that is absent stays apart from one that is not a number.
- */
 export const FLOAT64_NULL_BITS = 0x7ff8_0000_0000_0001n;
 
 export const FLOAT64_BIGNUM_LENGTH_BYTES = 8;

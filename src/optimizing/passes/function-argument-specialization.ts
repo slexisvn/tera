@@ -8,8 +8,7 @@ import {
 import { cloneGraph } from "../ir/clone.js";
 import { ModuleFunctions } from "../metadata/module-functions.js";
 import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
-import { calleeSymbolName } from "../analyses/aot-legality.js";
-import { genericCalleeName } from "../metadata/call-signatures.js";
+import { calleeNameOf } from "../metadata/call-signatures.js";
 import type { DeclaredSignature } from "../types/signature.js";
 import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
 import { functionSignatureOf, isUnwritten } from "../types/signature.js";
@@ -30,12 +29,6 @@ interface Handoff {
   readonly index: number;
   readonly name: string;
   readonly target: CFGFunction;
-}
-
-function calleeNameOf(node: CFGInstruction): string | null {
-  if (node.type === IR_GENERIC_CALL) return genericCalleeName(node);
-  if (node.type !== IR_CALL_KNOWN_FUNCTION) return null;
-  return calleeSymbolName(node);
 }
 
 function calledParametersOf(graph: CFGFunction): readonly number[] {

@@ -13,6 +13,7 @@ import {
   CompiledFunctionIdAllocator,
   RegisterCompiledFunction,
   ROP_THROW,
+  ROP_LDA_GLOBAL,
   ROP_TRY_START,
   withCompiledFunctionIdAllocator,
 } from "../bytecode/register/ops/bytecode.js";
@@ -30,6 +31,8 @@ import {
 } from "../optimizing/metadata/class-symbols.js";
 import type { EntryDelivery } from "../optimizing/target/entry.js";
 import { markProgramEntry, PROGRAM_ENTRY_NAME } from "../optimizing/target/program-entry.js";
+import { collectionPrelude, COLLECTION_GLOBALS } from "../optimizing/prelude/collections.js";
+import { astChildren, NodeType } from "../frontend/ast/index.js";
 import type { AotOutputFormat } from "../optimizing/target/artifact.js";
 import { createModuleIR, type CompilationUnit } from "../optimizing/compilation-unit.js";
 import { IR_GENERIC_CALL, type CFGInstruction } from "../optimizing/ir/index.js";
@@ -331,6 +334,27 @@ function collectCompiledFunctions(
   return result;
 }
 
+function loadsCollection(compiledFn: RegisterCompiledFunction): boolean {
+  return compiledFn.instructions.some((instruction) => {
+    if (instruction.opcode !== ROP_LDA_GLOBAL) return false;
+    const name = compiledFn.constants[instruction.operands[0]!];
+    return typeof name === "string" && COLLECTION_GLOBALS.has(name);
+  });
+}
+
+function referencesCollections(root: RegisterCompiledFunction): boolean {
+  return collectCompiledFunctions(root, true).some(loadsCollection);
+}
+
+function namesCollection(node: ASTNode): boolean {
+  if (node.type === NodeType.Identifier && COLLECTION_GLOBALS.has(String(node.name))) return true;
+  return astChildren(node).some(namesCollection);
+}
+
+function mentionsCollections(graph: ModuleGraph): boolean {
+  return [...graph.modules.values()].some((record) => namesCollection(record.ast));
+}
+
 function catchesThrows(compiledFn: RegisterCompiledFunction): boolean {
   return compiledFn.instructions.some(
     (instruction) => instruction.opcode === ROP_TRY_START,
@@ -545,10 +569,7 @@ function describeThrown(value: TaggedValue): string {
 }
 
 function uncaughtMessage(value: TaggedValue): string {
-  if (isObject(value) && getPayload(value).getProperty("message") !== undefined) {
-    return describeThrown(value);
-  }
-  return `Uncaught ${toDisplayString(value)}`;
+  return `Uncaught ${describeThrown(value)}`;
 }
 
 export class Engine {
@@ -816,7 +837,11 @@ export class Engine {
       heapBytes,
       ...compileOptions
     } = options;
-    const compiled = this.compileInRuntime(source, compileOptions, true);
+    const probed = this.compileInRuntime(source, compileOptions, true);
+    const compiled = referencesCollections(probed)
+      ? this.compileInRuntime(`${source}
+${collectionPrelude()}`, compileOptions, true)
+      : probed;
     const program = entry === undefined ? compiled : null;
     const functions = this.selectAotFunctions(
       collectCompiledFunctions(compiled, program !== null),
@@ -991,9 +1016,6 @@ export class Engine {
     gatheredArguments: number | null = null,
   ): CompilationUnit {
     if (compiledFn.isLazy) this.compileLazy(compiledFn);
-    if (compiledFn.isGenerator) {
-      throw new BackendLoweringError("AOT does not support generator functions");
-    }
     this.verifyClassShape(compiledFn);
     resetIRNodeIds();
     this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
@@ -1209,14 +1231,21 @@ export class Engine {
     }
     this.lastModuleEntry = { path: entryPath, options };
     const syntaxPlugins = this.compileSyntaxPlugins(options);
-    const graph = buildModuleGraph(entryPath, {
-      fileSystem,
-      root: options.root,
-      searchPaths: options.searchPaths,
-      entrySource: options.entrySource,
-      nativeModules: this.nativeModules.map((module) => module.name),
-      parseSource: (source) => parse(source, { syntaxPlugins }),
-    });
+    const build = (entrySource: string | undefined): ModuleGraph =>
+      buildModuleGraph(entryPath, {
+        fileSystem,
+        root: options.root,
+        searchPaths: options.searchPaths,
+        entrySource,
+        nativeModules: this.nativeModules.map((module) => module.name),
+        parseSource: (source) => parse(source, { syntaxPlugins }),
+      });
+    const built = build(options.entrySource);
+    const graph =
+      collectClasses && mentionsCollections(built)
+        ? build(`${built.entry.source}
+${collectionPrelude()}`)
+        : built;
     const checker = this.compileChecker(options);
     const checked = checkModuleGraph(graph, {
       mode: this.typecheckMode,

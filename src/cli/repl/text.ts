@@ -32,12 +32,6 @@ export function joinSource(base: string, next: string): string {
   return base ? `${base}\n${next}` : next;
 }
 
-export function leadingSpaces(line: string): number {
-  let count = 0;
-  while (count < line.length && line[count] === " ") count++;
-  return count;
-}
-
 export function indentString(width: number): string {
   return " ".repeat(Math.max(0, width));
 }

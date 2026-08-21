@@ -26,6 +26,7 @@ import {
   type ClassMemberKind,
 } from "../../../core/class-member.js";
 import { runtimeInterfaceBaseName, type RuntimeInterfaceContract } from "../../../runtime/interface-contract.js";
+import { declaredTypeDefault } from "../../../core/declared-default.js";
 
 type ParameterizedNode = ASTNode & { params: ParamNode[] };
 
@@ -89,6 +90,7 @@ type ClassFieldNode = {
   init?: ASTNode | null;
   static?: boolean;
   visibility?: ClassVisibility;
+  declaredType?: string;
 };
 
 type ClassNode = ASTNode & {
@@ -415,7 +417,10 @@ function fieldAssignmentTarget(field: ClassFieldNode): ASTNode {
 }
 
 function fieldInitializer(field: ClassFieldNode): ASTNode {
-  return field.init ?? { type: NodeType.Literal, value: undefined, kind: "undefined" };
+  if (field.init) return field.init;
+  const declared = declaredTypeDefault(field.declaredType);
+  if (declared === null) return { type: NodeType.Literal, value: undefined, kind: "undefined" };
+  return { type: NodeType.Literal, value: declared.value, kind: declared.kind };
 }
 
 function fieldAssignment(field: ClassFieldNode): ASTNode {
@@ -560,6 +565,7 @@ type FunctionCompilerThis = {
   compileForOfStatement(node: ForOfNode): void;
   compileObjectDestructuring(node: DestructuringNode): void;
   compileArrayDestructuring(node: DestructuringNode): void;
+  _compileDestructuring(node: DestructuringNode): void;
   _patternSlot(name: string, kind: "let" | "const" | "var"): number;
   _applyPatternDefault(target: PatternNode, srcReg: number): number;
   _destructureTarget(
@@ -593,6 +599,7 @@ type FunctionMethodMap = {
   compileForOfStatement(this: FunctionCompilerThis, node: ForOfNode): void;
   compileObjectDestructuring(this: FunctionCompilerThis, node: DestructuringNode): void;
   compileArrayDestructuring(this: FunctionCompilerThis, node: DestructuringNode): void;
+  _compileDestructuring(this: FunctionCompilerThis, node: DestructuringNode): void;
   _patternSlot(this: FunctionCompilerThis, name: string, kind: "let" | "const" | "var"): number;
   _applyPatternDefault(this: FunctionCompilerThis, target: PatternNode, srcReg: number): number;
   _destructureTarget(
@@ -1365,14 +1372,14 @@ export const functionMethods: FunctionMethodMap = {
   },
 
   compileObjectDestructuring(node) {
-    const srcReg = this.temps.alloc();
-    this.compileExpression(node.init);
-    this.func.emit(bytecode.ROP_STAR, srcReg);
-    this._destructureTarget(node.pattern, srcReg, node.kind);
-    this.temps.free(srcReg);
+    this._compileDestructuring(node);
   },
 
   compileArrayDestructuring(node) {
+    this._compileDestructuring(node);
+  },
+
+  _compileDestructuring(node) {
     const srcReg = this.temps.alloc();
     this.compileExpression(node.init);
     this.func.emit(bytecode.ROP_STAR, srcReg);

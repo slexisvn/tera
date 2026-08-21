@@ -1,4 +1,6 @@
 const STABILITY_WINDOW = 50;
+const CALL_RATE_WINDOW_MS = 100;
+const MAX_RECENT_TIMES = 32;
 const EMA_ALPHA = 0.3;
 
 export class ExecutionProfile {
@@ -24,7 +26,7 @@ export class ExecutionProfile {
     this.totalCalls = 0;
     this.totalTimeMs = 0;
     this.recentTimes = [];
-    this.maxRecentTimes = 32;
+    this.maxRecentTimes = MAX_RECENT_TIMES;
     this.emaTimeMs = 0;
     this.deoptCount = 0;
     this.deoptReasons = [];
@@ -54,7 +56,7 @@ export class ExecutionProfile {
     }
 
     const now = Date.now();
-    if (now - this.windowStart > 100) {
+    if (now - this.windowStart > CALL_RATE_WINDOW_MS) {
       this.callsInWindow = 1;
       this.windowStart = now;
     } else {

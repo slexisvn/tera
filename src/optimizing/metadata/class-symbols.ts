@@ -54,6 +54,12 @@ export function classStaticFieldSymbol(owner: string, name: string): string {
   return joinMemberSymbol(owner, true, undefined, name);
 }
 
+const GLOBAL_VARIABLE_OWNER = "tera_global";
+
+export function globalVariableSymbol(name: string): string {
+  return joinMemberSymbol(GLOBAL_VARIABLE_OWNER, true, undefined, name);
+}
+
 export function hasClassReceiver(member: ClassMemberIdentity): boolean {
   const kind = member.classMemberKind;
   if (kind === undefined || kind === null) return false;

@@ -76,6 +76,7 @@ export const BUILTIN_NAMESPACE = "Math";
 
 export const ANY_SCALAR = "scalar";
 export const PRINT_BUILTIN = "print";
+export const RANGE_BUILTIN = "range";
 export const INPUT_BUILTIN = "input";
 export const THROW_BUILTIN = "throw";
 export const PARSE_INT_BUILTIN = "parse_int";
@@ -94,7 +95,6 @@ export const OBJECT_CLOSE_TEXT = " }";
 export const AGGREGATE_SEPARATOR_TEXT = ", ";
 export const NO_TERMINATOR = 0;
 
-/** Set on a print the compiler built, whose terminator does not follow from position. */
 export const PRINT_TERMINATOR_PROP = "printTerminator";
 
 export function printTerminatorOf(node: ir.CFGInstruction, index: number, arity: number): number {

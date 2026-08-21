@@ -94,7 +94,6 @@ class PrintExpander {
     return node.inputs.some((value) => this.aggregateOf(value) !== null || this.isNull(value));
   }
 
-  /** Only a written `null` spells itself out; a value that is merely absent does not. */
   private isNull(value: CFGInstruction): boolean {
     return value.type === IR_CONSTANT && value.props.value === null;
   }
@@ -124,7 +123,6 @@ class PrintExpander {
     );
   }
 
-  /** The array or object a value stands for, or null when it prints as a scalar. */
   private aggregateOf(value: CFGInstruction): ArrayModel | ClassShape | null {
     const model = this.arrayOf(value);
     if (model !== null) return this.visiting.has(model.shape.id) ? null : model;
@@ -295,10 +293,6 @@ class PrintExpander {
   }
 }
 
-/**
- * Rewrites `print` of an array or an object into the prints and loops that spell
- * it out, so nesting works and no backend has to know the layout of an aggregate.
- */
 export function expandAggregatePrints(graph: CFGFunction, types: TypeInference): number {
   const classes = graph.classes;
   if (classes === null) return 0;

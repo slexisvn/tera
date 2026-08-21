@@ -232,6 +232,7 @@ export class CFGFunction {
   reentrant: boolean;
   recoversThrows: boolean;
   isAsync: boolean;
+  isGenerator: boolean;
   gatheredArguments: number | null;
   private nextBlockId: number;
   _frameStateIndex?: Map<FrameValue, { replace(next: FrameValue): void }[]> | null;
@@ -259,6 +260,7 @@ export class CFGFunction {
     this.internal = false;
     this.recoversThrows = false;
     this.isAsync = false;
+    this.isGenerator = false;
     this.gatheredArguments = null;
     this.nextBlockId = 0;
   }
@@ -856,6 +858,12 @@ export function arrayReserveOf(node: { props: Record<string, unknown> }): {
 
 export function irAwait(value: IRValueLike) {
   const node = new IRNode(ops.IR_AWAIT);
+  node.addInput(value);
+  return node;
+}
+
+export function irYield(value: IRValueLike) {
+  const node = new IRNode(ops.IR_YIELD);
   node.addInput(value);
   return node;
 }

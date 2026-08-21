@@ -1,4 +1,4 @@
-import { NodeType, type ASTNode, type ObjectPropertyNode } from "../ast/index.js";
+import { astChildren, NodeType, type ASTNode, type ObjectPropertyNode } from "../ast/index.js";
 import { lookup, lookupSignature, type BoundProgram, type Scope } from "./binder.js";
 import { diagnostic, type Diagnostic } from "./diagnostics.js";
 import { callSignatureForCallee, comprehensionElementType, comprehensionOf, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf } from "./infer.js";
@@ -453,15 +453,7 @@ export class TypeChecker {
     }
     if (node.type === NodeType.IndexExpression) this.checkIndexExpression(node, scope, line, column);
     if (node.type === NodeType.SpreadElement) this.checkSpreadElement(node, scope, line, column);
-    for (const value of Object.values(node)) {
-      if (Array.isArray(value)) {
-        for (const item of value) {
-          if (item && typeof item === "object" && "type" in item) this.checkExpression(item as ASTNode, scope, line, column);
-        }
-      } else if (value && typeof value === "object" && "type" in value) {
-        this.checkExpression(value as ASTNode, scope, line, column);
-      }
-    }
+    for (const child of astChildren(node)) this.checkExpression(child, scope, line, column);
   }
 
   checkIdentifier(node: ASTNode, scope: Scope, line: number, column: number): void {

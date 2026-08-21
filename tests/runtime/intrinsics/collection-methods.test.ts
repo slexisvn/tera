@@ -6,6 +6,7 @@ import {
   mkSmi,
   mkString,
   mkBool,
+  mkNull,
   mkUndefined,
   mkObject,
   mkFunction,
@@ -57,7 +58,7 @@ describe("MAP_METHODS", () => {
       expect(MAP_METHODS.has.call([key], m)).toBe(mkBool(true));
       expect(MAP_METHODS.delete.call([key], m)).toBe(mkBool(true));
       expect(MAP_METHODS.has.call([key], m)).toBe(mkBool(false));
-      expect(MAP_METHODS.get.call([key], m)).toBe(mkUndefined());
+      expect(MAP_METHODS.get.call([key], m)).toBe(mkNull());
     });
 
     it("overwriting a key updates value", () => {
@@ -248,6 +249,6 @@ describe("WEAKMAP_METHODS", () => {
   it("get returns undefined for missing key", () => {
     const wm = makeWeakMap();
     const key = mkObject(createJSObject());
-    expect(WEAKMAP_METHODS.get.call([key], wm)).toBe(mkUndefined());
+    expect(WEAKMAP_METHODS.get.call([key], wm)).toBe(mkNull());
   });
 });

@@ -1,10 +1,14 @@
 import type { CFGFunction } from "../ir/index.js";
-import type { AnalysisId } from "../infra/analysis-manager.js";
+import type { AnalysisId, AnalysisManager } from "../infra/analysis-manager.js";
 import type { TransformPass } from "../infra/pass-manager.js";
 import { dominanceAnalysisId } from "../analyses/dominance.js";
 import { loopForestAnalysisId } from "../analyses/loops.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
-import { lowerArrayAccess, shapeArrayAllocations } from "../passes/array-shapes.js";
+import {
+  lowerArrayAccess,
+  shapeArrayAllocations,
+  stampElementTypes,
+} from "../passes/array-shapes.js";
 import { lowerArrayMethods } from "../passes/array-methods.js";
 import { lowerBooleanText } from "../passes/boolean-text.js";
 import { expandAggregatePrints } from "../passes/print-expansion.js";
@@ -17,9 +21,17 @@ import { capabilityCheck } from "../passes/capability-check.js";
 import { deadCodeElimination } from "../passes/dce.js";
 import { elideFrameStates } from "../passes/frame-state-elision.js";
 import { lowerGlobalBuiltins } from "../passes/global-builtin-lowering.js";
+import { lowerCollectionSurface } from "../passes/collection-surface.js";
+import { lowerJsonSurface } from "../passes/json-surface.js";
+import { lowerMathSurface } from "../passes/math-surface.js";
+import { lowerGlobalVariables } from "../passes/global-variable-lowering.js";
+import { lowerStringSplit } from "../passes/string-split.js";
 import { lowerIterators } from "../passes/iterator-lowering.js";
 import { lowerNamedArguments } from "../passes/named-argument-lowering.js";
 import { shapeObjectLiterals } from "../passes/object-literal-shapes.js";
+import { lowerObjectSurface } from "../passes/object-surface.js";
+import { lowerGeneratorIteration } from "../passes/generator-iteration.js";
+import { boxEscapingStrings } from "../passes/string-boxing.js";
 import { representationSelection } from "../passes/repr-selection.js";
 import { speculationLowering } from "../passes/speculation-lowering.js";
 import { typeNarrowing } from "../passes/type-narrowing.js";
@@ -36,6 +48,21 @@ const preservesControlFlow = {
     loopForestAnalysisId as AnalysisId<unknown>,
   ],
 } as const;
+
+function lowerHeapIteration(
+  graph: CFGFunction,
+  analyses: AnalysisManager<CFGFunction>,
+): boolean {
+  let changed = false;
+  for (;;) {
+    const stamped = stampElementTypes(graph, analyses.get(typeInferenceAnalysisId));
+    if (stamped > 0) analyses.invalidate(typeInferenceAnalysisId);
+    const lowered = lowerIterators(graph, analyses.get(typeInferenceAnalysisId));
+    if (lowered > 0) analyses.invalidate(typeInferenceAnalysisId);
+    if (stamped + lowered === 0) return changed;
+    changed = true;
+  }
+}
 
 const representationSelectionPass: TransformPass<CFGFunction> = {
   name: "representation-selection",
@@ -91,6 +118,19 @@ export function targetLegalizationPipeline(
       }),
     },
     {
+      name: "collection-surface",
+      preserves: preservesControlFlow,
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerCollectionSurface(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "math-surface",
+      preserves: preservesControlFlow,
+      run: (graph) => ({ changed: lowerMathSurface(graph) > 0 }),
+    },
+    {
       name: "global-builtin-lowering",
       preserves: preservesControlFlow,
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
@@ -116,6 +156,19 @@ export function targetLegalizationPipeline(
       }),
     },
     {
+      name: "object-surface",
+      preserves: preservesControlFlow,
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerObjectSurface(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "generator-iteration",
+      preserves: preservesControlFlow,
+      run: (graph) => ({ changed: lowerGeneratorIteration(graph) > 0 }),
+    },
+    {
       name: "callee-signatures",
       preserves: preservesControlFlow,
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
@@ -132,11 +185,46 @@ export function targetLegalizationPipeline(
       }),
     },
     {
+      name: "global-variable-lowering",
+      preserves: preservesControlFlow,
+      run: (graph) => ({ changed: lowerGlobalVariables(graph) > 0 }),
+    },
+    {
       name: "class-member-lowering",
       preserves: { kind: "none" },
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
       run: (graph, analyses) => ({
         changed: lowerClassMembers(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "json-surface",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerJsonSurface(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "string-split-lowering",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerStringSplit(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "heap-iteration",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({ changed: lowerHeapIteration(graph, analyses) }),
+    },
+    {
+      name: "array-method-lowering",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerArrayMethods(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
     {
@@ -158,22 +246,6 @@ export function targetLegalizationPipeline(
             }),
           } as TransformPass<CFGFunction>,
         ]),
-    {
-      name: "heap-iterator-lowering",
-      preserves: preservesControlFlow,
-      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
-      run: (graph, analyses) => ({
-        changed: lowerIterators(graph, analyses.get(typeInferenceAnalysisId)) > 0,
-      }),
-    },
-    {
-      name: "array-method-lowering",
-      preserves: { kind: "none" },
-      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
-      run: (graph, analyses) => ({
-        changed: lowerArrayMethods(graph, analyses.get(typeInferenceAnalysisId)) > 0,
-      }),
-    },
     {
       name: "array-access-lowering",
       preserves: { kind: "none" },
@@ -212,6 +284,14 @@ export function targetLegalizationPipeline(
       run: (graph) => ({ changed: lowerNamedArguments(graph) > 0 }),
     },
     ...(tagged ? [representationSelectionPass, representationCheckPass] : []),
+    {
+      name: "string-boxing",
+      preserves: preservesControlFlow,
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: boxEscapingStrings(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
     {
       name: "frame-state-elision",
       preserves: { kind: "all" },

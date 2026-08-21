@@ -29,6 +29,7 @@ function functionName(compiledFn: BaselineCompiledFunction): string {
   return compiledFn.name || "<anonymous>";
 }
 
+const MAX_BASELINE_INSTRUCTIONS = 1000;
 const SCRATCH_LOCALS = ["t", "t2", "t3", "t4", "osr"] as const;
 const ROOTED_LOCALS = ["acc", ...SCRATCH_LOCALS] as const;
 
@@ -48,7 +49,7 @@ export class BaselineCompiler {
     interpreter: BaselineInterpreter,
   ): bytecode.BaselineCode | null {
     const instrs = compiledFn.instructions;
-    if (instrs.length === 0 || instrs.length > 1000) return null;
+    if (instrs.length === 0 || instrs.length > MAX_BASELINE_INSTRUCTIONS) return null;
     if (
       instrs.some(
         (instr) =>

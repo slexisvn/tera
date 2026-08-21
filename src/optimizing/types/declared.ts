@@ -123,7 +123,6 @@ export function declaredAcceptsNull(
   return parts.some((part) => PRIMITIVE_TYPES.get(part)?.kind === TypeKind.Nullish);
 }
 
-/** What a declared type holds once null is set aside; empty when it holds only null. */
 export function presentTypeName(
   source: string | null | undefined,
   env: TypeEnv = builtinTypeEnv(),

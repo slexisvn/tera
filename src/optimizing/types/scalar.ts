@@ -18,7 +18,6 @@ export type AotScalar =
 
 export const TEXT_STORAGE_BYTES = 1024;
 
-/** Set by a pass that knows how a value it built is held, when its type cannot say. */
 export const VALUE_SCALAR_PROP = "valueScalar";
 
 const SCALAR_BY_KIND = new Map<string, AotScalar>([
@@ -66,6 +65,12 @@ export function isNumericScalar(scalar: AotScalar): boolean {
 
 export function isReferenceScalar(scalar: AotScalar): boolean {
   return scalar === SCALAR_STRING || scalar === SCALAR_POINTER;
+}
+
+export function scalarStride(scalar: AotScalar): number {
+  const shift = Math.log2(scalarWidth(scalar));
+  if (!Number.isInteger(shift)) throw new Error(`no power-of-two stride for ${scalar}`);
+  return shift;
 }
 
 export function scalarWidth(scalar: AotScalar): number {

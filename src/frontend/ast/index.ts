@@ -219,6 +219,20 @@ export type ASTNode = {
 };
 export type BindingKind = "let" | "const" | "var";
 
+export function astChildren(node: ASTNode): ASTNode[] {
+  const children: ASTNode[] = [];
+  const hold = (value: unknown): void => {
+    if (value !== null && typeof value === "object" && "type" in value) {
+      children.push(value as ASTNode);
+    }
+  };
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) for (const item of value) hold(item);
+    else hold(value);
+  }
+  return children;
+}
+
 type AnyNode = ASTNode | null;
 type Params = ParamNode[];
 

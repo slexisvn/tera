@@ -30,11 +30,14 @@ export function genericCalleeName(node: CFGInstruction): string | null {
   return compiledFunctionConstant(callee.props.value)?.name ?? null;
 }
 
-function calleeNameOf(node: CFGInstruction): string | null {
-  if (node.type === IR_GENERIC_CALL) return genericCalleeName(node);
-  if (node.type !== IR_CALL_KNOWN_FUNCTION) return null;
+export function calleeSymbolName(node: CFGInstruction): string | null {
   const target = node.props.target as CallTarget | undefined;
   return typeof target?.name === "string" ? target.name : null;
+}
+
+export function calleeNameOf(node: CFGInstruction): string | null {
+  if (node.type === IR_GENERIC_CALL) return genericCalleeName(node);
+  return node.type === IR_CALL_KNOWN_FUNCTION ? calleeSymbolName(node) : null;
 }
 
 export function stampCalleeSignatures(

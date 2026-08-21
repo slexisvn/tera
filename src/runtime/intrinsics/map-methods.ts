@@ -1,4 +1,5 @@
 import {
+  mkNull,
   mkUndefined,
   mkBool,
   isFunction,
@@ -40,7 +41,7 @@ export const MAP_METHODS = {
       const map = getMapData(thisValue);
       const key = argOrUndefined(args, 0);
       const val = map.get(key);
-      return val !== undefined ? val : mkUndefined();
+      return val !== undefined ? val : mkNull();
     },
   },
 

@@ -4,6 +4,7 @@ import {
   mkSmi,
   mkString,
   mkBool,
+  mkNull,
   mkUndefined,
   mkArray,
   mkFunction,
@@ -196,10 +197,10 @@ describe("ARRAY_METHODS", () => {
       expect(callMethodWithInterp("find", a, interp, gt1)).toBe(mkSmi(2));
     });
 
-    it("find returns undefined when nothing matches", () => {
+    it("find returns null when nothing matches", () => {
       const a = arr(mkSmi(1));
       const never = mkFunction({ name: "never", call: () => mkBool(false) });
-      expect(callMethodWithInterp("find", a, interp, never)).toBe(mkUndefined());
+      expect(callMethodWithInterp("find", a, interp, never)).toBe(mkNull());
     });
 
     it("findIndex returns index of first match", () => {

@@ -664,12 +664,6 @@ function storedValue(node: EscapeNode): EscapeNode | null {
   return null;
 }
 
-/**
- * The slot a subscript names. A negative index counts back from the elements the literal
- * was built with, so `xs[-1]` shares a slot with `xs[2]` instead of naming one that
- * nothing ever stored and reading back as undefined. Null where no slot can be named,
- * which is what keeps the allocation out of this pass entirely.
- */
 function slotOf(node: EscapeNode): number | null {
   const value = node.inputs[1]?.props.value;
   if (typeof value !== "number" || !Number.isInteger(value)) return null;

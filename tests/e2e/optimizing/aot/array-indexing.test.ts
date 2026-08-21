@@ -196,4 +196,66 @@ describe("array subscripts beyond either end fault, where the interpreter answer
 
     expect(program.skipped).toEqual([]);
   });
+  itRunsPe("walks a matrix by index the way the interpreter does", () => {
+    agrees(
+      src(
+        "grid: int[][] = [[1, 2], [3, 4]]",
+        "s = 0",
+        "i: int = 0",
+        "while i < grid.length:",
+        "  row = grid[i]",
+        "  j: int = 0",
+        "  while j < row.length:",
+        "    s += row[j]",
+        "    j += 1",
+        "  i += 1",
+        "print(s)",
+      ),
+    );
+  });
+
+  itRunsPe("walks a matrix with nested for-of the way the interpreter does", () => {
+    agrees(
+      src(
+        "grid: int[][] = [[1, 2], [3, 4]]",
+        "s = 0",
+        "for row of grid:",
+        "  for v of row:",
+        "    s += v",
+        "print(s)",
+      ),
+    );
+  });
+
+  itRunsPe("calls a string method on an element the way the interpreter does", () => {
+    agrees(
+      src("names: string[] = [\"ann\", \"bob\"]", "for n of names:", "  print(n.to_upper_case())"),
+    );
+  });
+  itRunsPe("collects strings a loop builds and joins them", () => {
+    agrees(
+      src(
+        "fn label(n: int) -> string:",
+        "  return `item ${n}`",
+        "names: string[] = []",
+        "for i of range(0, 3):",
+        "  names.push(label(i))",
+        'print(names.join(", "))',
+        "for n of names:",
+        "  print(n)",
+      ),
+    );
+  });
+  itRunsPe("builds an array from a comprehension the way the interpreter does", () => {
+    agrees(
+      src(
+        "squares: int[] = [x * x for x of range(1, 6)]",
+        "print(squares)",
+        "evens: int[] = [n for n of range(0, 10, 2)]",
+        "print(evens)",
+        "kept: int[] = [n for n of [1, 2, 3, 4, 5] if n % 2 == 1]",
+        "print(kept)",
+      ),
+    );
+  });
 });

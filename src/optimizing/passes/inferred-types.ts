@@ -1,4 +1,9 @@
-import { IR_GENERIC_CALL, type CFGFunction, type CFGInstruction } from "../ir/index.js";
+import {
+  IR_GENERIC_CALL,
+  memberCalled,
+  type CFGFunction,
+  type CFGInstruction,
+} from "../ir/index.js";
 import { AnalysisManager } from "../infra/analysis-manager.js";
 import { createAnalysisRegistry } from "../analyses/index.js";
 import { inferredReturnName } from "../analyses/returned-type.js";
@@ -8,7 +13,7 @@ import { FUNCTION_TARGET_PROP, ModuleFunctions } from "../metadata/module-functi
 import { isUnwritten } from "../types/signature.js";
 import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
 import { adoptWrittenTypes } from "./function-argument-specialization.js";
-import { arrayElementNameOf, memberCalled } from "./array-shapes.js";
+import { arrayElementNameOf } from "./array-shapes.js";
 import { literalReturnShapeOf, shapeObjectLiterals } from "./object-literal-shapes.js";
 
 const INDEX_TYPE = "int";
@@ -20,10 +25,6 @@ type CallbackParameters = (element: string, seed: string | null) => readonly (st
 
 const OVER_ELEMENTS: CallbackParameters = (element) => [element, INDEX_TYPE];
 
-/**
- * What each array member hands its callback. Writing these onto the callback
- * lets an unannotated `v => v * 2` be typed from the array it walks.
- */
 const CALLBACK_PARAMETERS: ReadonlyMap<string, CallbackParameters> = new Map<
   string,
   CallbackParameters
@@ -32,13 +33,13 @@ const CALLBACK_PARAMETERS: ReadonlyMap<string, CallbackParameters> = new Map<
   ["filter", OVER_ELEMENTS],
   ["some", OVER_ELEMENTS],
   ["every", OVER_ELEMENTS],
+  ["find", OVER_ELEMENTS],
   ["find_index", OVER_ELEMENTS],
   ["for_each", OVER_ELEMENTS],
   ["reduce", (element, seed) => [seed, element, INDEX_TYPE]],
   ["sort", (element) => [element, element]],
 ]);
 
-/** Members that answer an array, and where that array's element type comes from. */
 const MAPS_ELEMENTS = "map";
 const KEEPS_ELEMENTS: ReadonlySet<string> = new Set<string>(["filter", "sort", "reverse"]);
 
@@ -95,7 +96,6 @@ class TypeAdoption {
     if (shapeObjectLiterals(unit.graph, this.types(unit)) > 0) this.retype(unit.graph);
   }
 
-  /** The element type of an array a value stands for, following array members. */
   private elementNameOf(
     value: CFGInstruction | undefined,
     unit: CompilationUnit,
@@ -170,12 +170,6 @@ class TypeAdoption {
   }
 }
 
-/**
- * Fills in what the source left implicit: object literals get a shape, callbacks
- * get the parameter types of the array they walk, and a function without a return
- * annotation gets the type its body returns. Repeats until nothing new is learnt,
- * so a chained `xs.map(...).filter(...)` types its second callback from the first.
- */
 export function adoptInferredTypes(module: ModuleIR, classes: ClassTable | null): void {
   if (classes === null) return;
   new TypeAdoption(module, classes).run();

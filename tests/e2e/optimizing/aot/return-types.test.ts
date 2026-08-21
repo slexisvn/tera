@@ -47,10 +47,14 @@ describe("AOT return types agree across every path", () => {
     );
   });
 
-  it("declines a reference return the signature never declared", () => {
+  it("names a reference return the signature left out", () => {
+    bothAdmit(src("fn step(flag: bool):", "  if flag:", "    return [1, 2]", "  return [3]"));
+  });
+
+  it("declines a return whose paths answer different kinds", () => {
     bothDecline(
-      src("fn step(flag: bool):", "  if flag:", "    return [1, 2]", "  return [3]"),
-      MISMATCH,
+      src("fn step(flag: bool):", "  if flag:", "    return [1, 2]", '  return "a"'),
+      "returns a string but its return type is not a string",
     );
   });
 

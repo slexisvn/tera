@@ -1,4 +1,5 @@
 import {
+  mkNull,
   mkUndefined,
   mkBool,
   isObject,
@@ -36,7 +37,7 @@ export const WEAKMAP_METHODS = {
       const wm = getWeakMapData(thisValue);
       const key = argOrUndefined(args, 0);
       const val = wm.get(key);
-      return val !== undefined ? val : mkUndefined();
+      return val !== undefined ? val : mkNull();
     },
   },
 

@@ -934,7 +934,7 @@ export class FeedbackVector {
   isSettled(slotIdx: number): boolean {
     const slot = this.slots[slotIdx];
     if (!slot) return false;
-    return slot.isStable && slot.totalRecordCount >= 50;
+    return slot.isStable && slot.totalRecordCount >= STABILITY_SETTLE_THRESHOLD;
   }
 
   getSlotsNeedingRefresh(): number[] {
