@@ -70,4 +70,48 @@ describe("AOT closures", () => {
       ),
     );
   });
+
+  itRunsPe("calls a lambda a variable was declared to hold", () => {
+    agrees(src("inc: (int) -> int = n => n + 1", "print(inc(4))"));
+  });
+
+  itRunsPe("reads the result of such a lambda into a declared variable", () => {
+    agrees(src("inc: (int) -> int = n => n + 1", "r: int = inc(4)", "print(r)"));
+  });
+
+  itRunsPe("keeps the declared types of a lambda over floats", () => {
+    agrees(src("half: (float) -> float = x => x / 2.0", "print(half(9.0))"));
+  });
+
+  itRunsPe("calls a lambda over text", () => {
+    agrees(src("shout: (string) -> string = s => s + \"!\"", 'print(shout("hi"))'));
+  });
+
+  itRunsPe("calls a lambda the maker returned", () => {
+    agrees(
+      src("fn adder(base: int) -> (int) -> int:", "  return n => n + base", "print(adder(3)(4))"),
+    );
+  });
+
+  itRunsPe("keeps two returned lambdas apart", () => {
+    agrees(
+      src(
+        "fn adder(base: int) -> (int) -> int:",
+        "  return n => n + base",
+        "a = adder(10)",
+        "b = adder(100)",
+        "print(a(1), b(1))",
+      ),
+    );
+  });
+
+  itRunsPe("takes a lambda parameter type from the parameter it is passed to", () => {
+    agrees(
+      src(
+        "fn apply(f: (int) -> int, n: int) -> int:",
+        "  return f(n)",
+        "print(apply(n => n * 3, 4))",
+      ),
+    );
+  });
 });

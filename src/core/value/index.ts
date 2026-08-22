@@ -925,7 +925,11 @@ export function toDisplayString(
 }
 
 export function typeOf(v: TaggedValue): string {
-  switch (codeOf(v)) {
+  return typeOfCode(codeOf(v));
+}
+
+export function typeOfCode(code: number): string {
+  switch (code) {
     case CODE_SMI:
     case CODE_DOUBLE:
       return "number";

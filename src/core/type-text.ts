@@ -22,3 +22,21 @@ export function splitTopLevel(source: string, separator: string): string[] {
   out.push(source.slice(start));
   return out;
 }
+
+const UNWRITTEN_TYPE = "any";
+
+export const UNTYPED_NAMES: ReadonlySet<string> = new Set([
+  UNWRITTEN_TYPE,
+  "unknown",
+  "undefined",
+  "void",
+  "never",
+]);
+
+export function isUnwrittenType(declared: string | null | undefined): boolean {
+  return declared === null || declared === undefined || declared.trim() === UNWRITTEN_TYPE;
+}
+
+export function isUntypedName(declared: string | null | undefined): boolean {
+  return declared === null || declared === undefined || UNTYPED_NAMES.has(declared.trim());
+}

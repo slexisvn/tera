@@ -1,4 +1,4 @@
-import { splitTopLevel } from "./type-text.js";
+import { splitTopLevel, UNTYPED_NAMES } from "./type-text.js";
 
 export type DeclaredDefaultLiteral = {
   readonly value: string | number | boolean | null;
@@ -9,14 +9,6 @@ const NUMBER_KIND = "number";
 const STRING_KIND = "string";
 const BOOLEAN_KIND = "boolean";
 const NULL_KIND = "null";
-
-const UNTYPED_NAMES: ReadonlySet<string> = new Set([
-  "any",
-  "unknown",
-  "undefined",
-  "void",
-  "never",
-]);
 
 const PRIMITIVE_DEFAULTS: ReadonlyMap<string, DeclaredDefaultLiteral> = new Map([
   ["int", { value: 0, kind: NUMBER_KIND }],

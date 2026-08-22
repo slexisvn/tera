@@ -523,7 +523,7 @@ function applyConstruction(
   editor.remove(node);
 }
 
-function shapeIdOfReceiver(
+export function shapeIdOfReceiver(
   receiver: CFGInstruction,
   shape: ClassShape,
   stamp: Stamp,

@@ -18,7 +18,11 @@ import {
   narrowType,
   typeFromConstant,
   typeFromTypeof,
+  typeofName,
+  nullableObjectType,
+  nullableStringType,
 } from "../../../src/optimizing/types/lattice.js";
+import { mkBool, mkSmi, typeOf } from "../../../src/core/value/index.js";
 
 describe("typeEquals", () => {
   it("same singleton types are equal", () => {
@@ -241,5 +245,42 @@ describe("typeFromTypeof", () => {
 
   it("unknown typeof returns null", () => {
     expect(typeFromTypeof("bigint")).toBeNull();
+  });
+});
+
+describe("typeofName", () => {
+  it("answers what the interpreter answers for the same value", () => {
+    expect(typeofName(smiType())).toBe(typeOf(mkSmi(1)));
+    expect(typeofName(doubleType())).toBe(typeOf(mkSmi(1)));
+    expect(typeofName(numberType())).toBe(typeOf(mkSmi(1)));
+    expect(typeofName(booleanType())).toBe(typeOf(mkBool(true)));
+  });
+
+  it("names string and array values", () => {
+    expect(typeofName(stringType())).toBe("string");
+    expect(typeofName(arrayType())).toBe("object");
+  });
+
+  it("declines a plain object whose class is unknown", () => {
+    expect(typeofName(objectType())).toBeNull();
+  });
+
+  it("names an object once its class is known", () => {
+    expect(typeofName(objectType(3))).toBe("object");
+  });
+
+  it("declines types that stand for more than one runtime shape", () => {
+    expect(typeofName(anyType())).toBeNull();
+    expect(typeofName(taggedType())).toBeNull();
+    expect(typeofName(nullishType())).toBeNull();
+    expect(typeofName(neverType())).toBeNull();
+  });
+
+  it("declines a nullable type whose name would change when it is null", () => {
+    expect(typeofName(nullableStringType())).toBeNull();
+  });
+
+  it("keeps a nullable object because null is named the same", () => {
+    expect(typeofName(nullableObjectType(3))).toBe(typeofName(objectType(3)));
   });
 });

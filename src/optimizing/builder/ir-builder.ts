@@ -1818,6 +1818,20 @@ function compileInstruction(
         args.push(regs.get(arg0Reg + i) || ir.irConstant(undefined));
       }
 
+      if (isClassValue(constructor)) {
+        const construction = ir.irGenericCall(constructor, args);
+        construction.frameState = captureFrameState(
+          compiledFn,
+          bytecodeIdx,
+          regs,
+          [constructor],
+          frameStates,
+        );
+        block.addNode(construction);
+        block._lastAcc = construction;
+        break;
+      }
+
       const frameState = captureFrameState(
         compiledFn,
         bytecodeIdx,

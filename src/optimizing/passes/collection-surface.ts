@@ -1,4 +1,6 @@
 import {
+  irGenericCall,
+  irGenericGetProp,
   irLoadGlobal,
   IR_GENERIC_ADD,
   IR_GENERIC_CALL,
@@ -30,9 +32,12 @@ import {
   type ValueKind,
 } from "../prelude/collections.js";
 
+type Stamp = (node: CFGInstruction) => CFGInstruction;
+
 const KEYED_MEMBERS: ReadonlySet<string> = new Set(["set", "get", "has", "add", "delete"]);
 const CALLEE_INPUT = 1;
-const LISTED_MEMBERS: ReadonlySet<string> = new Set(["keys", "values"]);
+const VALUES_MEMBER = "values";
+const LISTED_MEMBERS: ReadonlySet<string> = new Set(["keys", VALUES_MEMBER]);
 const SIZE_MEMBER = "size";
 const VALUED_MEMBER = "set";
 const RECEIVER = 1;
@@ -106,10 +111,15 @@ function aliasesOf(node: CFGInstruction): ReadonlySet<CFGInstruction> {
   return aliases;
 }
 
-function heldWithin(aliases: ReadonlySet<CFGInstruction>): boolean {
+function iteratesDirectly(use: CFGInstruction, kind: string): boolean {
+  return use.type === IR_ITERATOR_INIT && kind === SET_GLOBAL;
+}
+
+function heldWithin(aliases: ReadonlySet<CFGInstruction>, kind: string): boolean {
   for (const alias of aliases) {
     for (const use of alias.uses) {
       if (aliases.has(use)) continue;
+      if (iteratesDirectly(use, kind)) continue;
       const called = calledMember(use, aliases);
       if (called !== null) {
         if (!supported(called)) return false;
@@ -212,6 +222,29 @@ function collectionOf(
   return kind === SET_GLOBAL ? setClassName(key) : mapClassName(key, value ?? COUNTED_VALUE);
 }
 
+function listDirectIteration(
+  editor: GraphEditor,
+  aliases: ReadonlySet<CFGInstruction>,
+  kind: string,
+  stamp: Stamp,
+): number {
+  let listed = 0;
+  for (const alias of aliases) {
+    for (const use of [...alias.uses]) {
+      if (!iteratesDirectly(use, kind)) continue;
+      const member = stamp(irGenericGetProp(alias, VALUES_MEMBER));
+      const call = stamp(irGenericCall(member, [alias]));
+      call.props.isMethod = true;
+      call.frameState = use.frameState;
+      editor.insertBefore(use, member);
+      editor.insertBefore(use, call);
+      editor.setInput(use, use.inputs.indexOf(alias), call);
+      listed += 1;
+    }
+  }
+  return listed;
+}
+
 export function lowerCollectionSurface(graph: CFGFunction, types: TypeInference): number {
   const editor = new GraphEditor(graph);
   const stamp = nodeIdStamper(graph);
@@ -222,12 +255,13 @@ export function lowerCollectionSurface(graph: CFGFunction, types: TypeInference)
       const kind = namedConstruction(node, graph);
       if (kind === null) continue;
       const aliases = aliasesOf(node);
-      if (!heldWithin(aliases)) continue;
+      if (!heldWithin(aliases, kind)) continue;
       const named = collectionOf(aliases, kind, graph, types);
       if (named === null) continue;
       const callee = stamp(irLoadGlobal(named));
       editor.insertBefore(node, callee);
       editor.setInput(node, 0, callee);
+      listDirectIteration(editor, aliases, kind, stamp);
       lowered += 1;
     }
   }
@@ -306,6 +340,7 @@ function sharedAcross(
   for (const alias of aliases) {
     for (const use of alias.uses) {
       if (aliases.has(use)) continue;
+      if (iteratesDirectly(use, kind)) continue;
       const called = calledMember(use, aliases);
       if (called !== null) {
         if (!supported(called)) return false;
@@ -437,10 +472,12 @@ export function shapeModuleCollections(
 
   const changed = new Set<CFGFunction>();
   for (const seed of seeds) {
-    if (seed.construction === null) continue;
     const graph = seed.unit.graph;
     const editor = new GraphEditor(graph);
-    const callee = nodeIdStamper(graph)(irLoadGlobal(named.get(seed.kind)!));
+    const stamp = nodeIdStamper(graph);
+    if (listDirectIteration(editor, seed.aliases, seed.kind, stamp) > 0) changed.add(graph);
+    if (seed.construction === null) continue;
+    const callee = stamp(irLoadGlobal(named.get(seed.kind)!));
     editor.insertBefore(seed.construction, callee);
     editor.setInput(seed.construction, 0, callee);
     changed.add(graph);

@@ -104,9 +104,13 @@ export type ClassNode = {
   nameSpan: SourceSpan;
 };
 
+export type BlockTestRole = "condition" | "subject" | "label";
+
 export type BlockNode = {
   kind: "Block";
   test?: ASTNode;
+  testRole?: BlockTestRole;
+  subject?: ASTNode;
   catchVariable?: string;
   catchVariableSpan?: SourceSpan;
   body: SemanticNode[];

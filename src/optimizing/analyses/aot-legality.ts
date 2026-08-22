@@ -31,6 +31,7 @@ import {
   IR_INT32_COMPARE,
   IR_CALL_KNOWN_FUNCTION,
   IR_CALL_BUILTIN,
+  IR_GENERIC_DELETE_PROP,
   IR_NEW_ARRAY,
   IR_ARRAY_RESERVE,
   IR_LOAD_ELEMENT,
@@ -284,6 +285,12 @@ const MEMBER_REASONS: ReadonlyMap<string, string> = new Map<string, string>([
 
 const REJECTIONS = new Map<string, (node: CFGInstruction) => string>([
   [IR_NEW_ARRAY, () => "array has an unsupported element type"],
+  [
+    IR_GENERIC_DELETE_PROP,
+    () =>
+      "delete removes a property at run time, and a compiled object holds a fixed set " +
+      "of fields; use a Map and its delete method, or keep this part interpreted",
+  ],
   [
     IR_GENERIC_GET_PROP,
     (node) =>

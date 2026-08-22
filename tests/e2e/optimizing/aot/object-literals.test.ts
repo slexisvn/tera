@@ -246,4 +246,17 @@ describe("AOT object types on parameters", () => {
       ),
     ).toContain("passes an object laid out differently from the order it declares");
   });
+
+  it("declines removing a field and points at a map instead", () => {
+    const reason = declined(src("o = { a: 1, b: 2 }", "delete o.a", "print(o.b)"));
+
+    expect(reason).toContain("fixed set of fields");
+    expect(reason).toContain("Map");
+  });
+
+  it("names the operator rather than the opcode behind it", () => {
+    expect(declined(src("o = { a: 1, b: 2 }", "delete o.a", "print(o.b)"))).not.toContain(
+      "unsupported opcode",
+    );
+  });
 });

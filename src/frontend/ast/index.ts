@@ -1,4 +1,5 @@
 import type { ClassVisibility } from "../../core/class-visibility.js";
+import { isUntypedName, isUnwrittenType } from "../../core/type-text.js";
 
 export const NodeType = {
   Program: "Program",
@@ -231,6 +232,51 @@ export function astChildren(node: ASTNode): ASTNode[] {
     else hold(value);
   }
   return children;
+}
+
+export function parameterName(param: ParamNode): string | null {
+  if (typeof param === "string") return param;
+  if (param === null || typeof param !== "object") return null;
+  const name = (param as { name?: unknown }).name;
+  return typeof name === "string" ? name : null;
+}
+
+export function isRestParameter(param: ParamNode): boolean {
+  return typeof param === "object" && param !== null && (param as { rest?: unknown }).rest === true;
+}
+
+export function functionParameters(node: ASTNode): ParamNode[] {
+  return Array.isArray(node.params) ? node.params as ParamNode[] : [];
+}
+
+export function declaredParamInfo(node: ASTNode): FunctionParamInfo[] | null {
+  return Array.isArray(node._paramInfo) ? node._paramInfo as FunctionParamInfo[] : null;
+}
+
+export function adoptContextualSignature(
+  node: ASTNode,
+  positionalTypes: readonly string[],
+  returns: string | null,
+): void {
+  const declared = declaredParamInfo(node);
+  const known = new Map((declared ?? []).map((entry) => [entry.name, entry]));
+  const adopted: FunctionParamInfo[] = [];
+  let positional = 0;
+  let changed = false;
+  for (const param of functionParameters(node)) {
+    const name = parameterName(param);
+    if (name === null) continue;
+    const existing = known.get(name) ?? { name };
+    const contextual = isRestParameter(param) ? undefined : positionalTypes[positional++];
+    if (!isUnwrittenType(existing.type) || isUntypedName(contextual)) {
+      adopted.push(existing);
+      continue;
+    }
+    adopted.push({ ...existing, type: contextual });
+    changed = true;
+  }
+  if (changed && adopted.length === (declared ?? adopted).length) node._paramInfo = adopted;
+  if (!isUntypedName(returns) && typeof node._returnType !== "string") node._returnType = returns!;
 }
 
 type AnyNode = ASTNode | null;

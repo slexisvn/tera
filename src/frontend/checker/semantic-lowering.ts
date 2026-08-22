@@ -381,18 +381,22 @@ function tryNodes(node: ASTNode): SemanticNode[] {
 }
 
 function switchNodes(node: ASTNode): SemanticNode[] {
+  const subject = node.discriminant as ASTNode | undefined;
   const cases = arrayOf<ASTNode>(node.cases).map((entry) => {
     const test = entry.test as ASTNode | null | undefined;
     return {
       kind: "Block",
       test: test ?? undefined,
+      testRole: "label",
+      subject,
       body: semanticBody(entry.consequent as ASTNode[]),
       span: spanOf(entry),
     } satisfies BlockNode;
   });
   return [{
     kind: "Block",
-    test: node.discriminant as ASTNode | undefined,
+    test: subject,
+    testRole: "subject",
     body: cases,
     span: spanOf(node),
   }];

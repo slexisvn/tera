@@ -1,4 +1,4 @@
-import { astChildren, NodeType, type ASTNode, type ObjectPropertyNode } from "../ast/index.js";
+import { adoptContextualSignature, astChildren, NodeType, type ASTNode, type ObjectPropertyNode } from "../ast/index.js";
 import {
   lookup,
   lookupSignature,
@@ -72,7 +72,7 @@ export class TypeChecker {
           this.onDeclare?.({ name: node.catchVariable, line: at.line, column: at.column, type: "any", kind: "parameter" });
         }
         if (node.test) {
-          this.checkCondition(node.test, scope, node.span.line, node.span.column);
+          this.checkBlockTest(node, scope);
           this.checkExpression(node.test, scope, node.span.line, node.span.column);
         }
         for (const stmt of node.body) this.checkNode(stmt, child);
@@ -387,7 +387,7 @@ export class TypeChecker {
     const expected = functionSignatureForType("<return>", resolved);
     const before = this.diagnostics.length;
     if (node.value) this.checkExpression(node.value, scope, node.span.line, node.span.column, expected, expectedType);
-    const actual = inferExpression(node.value, this.bound, scope, null, expectedType);
+    const actual = inferExpression(node.value, this.bound, scope, expected, expectedType);
     const actualResolved = sig.async ? awaitedType(actual, this.bound.env) : actual;
     if (!compatible(actualResolved, resolved, this.bound.env) && this.diagnostics.length === before) {
       const at = node.value ? nodePosition(node.value, node.span.line, node.span.column) : node.span;
@@ -469,6 +469,26 @@ export class TypeChecker {
     if (lookup(scope, name) || lookupSignature(scope, name)) return;
     const at = nodePosition(node, line, column);
     this.add(at.line, at.column, `undefined name '${name}'`);
+  }
+
+  checkBlockTest(node: Extract<SemanticNode, { kind: "Block" }>, scope: Scope): void {
+    const test = node.test as ASTNode;
+    const { line, column } = node.span;
+    if (node.testRole === "subject") return;
+    if (node.testRole !== "label") {
+      this.checkCondition(test, scope, line, column);
+      return;
+    }
+    this.checkCaseLabel(test, node.subject, scope, line, column);
+  }
+
+  checkCaseLabel(node: ASTNode, subject: ASTNode | undefined, scope: Scope, line: number, column: number): void {
+    const subjectType = inferExpression(subject, this.bound, scope);
+    const actual = inferExpression(node, this.bound, scope);
+    if (this.isUnknownish(subjectType) || this.isUnknownish(actual)) return;
+    if (binaryOperatorSemantics("==", subjectType, actual, this.bound.env).valid) return;
+    const at = nodePosition(node, line, column);
+    this.add(at.line, at.column, `Type '${actual}' is not comparable to switch subject type '${subjectType}'`);
   }
 
   checkCondition(node: ASTNode, scope: Scope, line: number, column: number): void {
@@ -563,15 +583,20 @@ export class TypeChecker {
       const at = nodePosition(node, line, column);
       this.onDeclare?.({ name, line: at.line, column: at.column, type: expectedType, kind: "parameter" });
     }
+    if (expected) adoptContextualSignature(node, positionalTypesOf(expected), null);
     const body = node.body as ASTNode | ASTNode[];
     if (Array.isArray(body) || body.type === NodeType.BlockStatement) return;
     const at = nodePosition(body, line, column);
-    this.checkExpression(body, child, at.line, at.column);
-    if (!expected || expected.returns === "any") return;
-    const actual = inferExpression(body, this.bound, child, null, expected.returns);
-    if (!compatible(actual, expected.returns, this.bound.env)) {
-      this.add(at.line, at.column, `Type '${actual}' is not assignable to return type '${expected.returns}'`);
+    const returns = expected && expected.returns !== "any" ? expected.returns : null;
+    const returned = returns === null ? null : functionSignatureForType("<return>", returns);
+    this.checkExpression(body, child, at.line, at.column, returned, returns);
+    if (returns === null) return;
+    const actual = inferExpression(body, this.bound, child, returned, returns);
+    if (!compatible(actual, returns, this.bound.env)) {
+      this.add(at.line, at.column, `Type '${actual}' is not assignable to return type '${returns}'`);
+      return;
     }
+    adoptContextualSignature(node, [], returns);
   }
 
   checkFunctionExpression(node: ASTNode, scope: Scope, line: number, column: number): void {
@@ -1034,6 +1059,10 @@ function classMethodType(fn: Extract<SemanticNode, { kind: "Function" }>, return
     )
     .join(", ");
   return cleanType(`(${params}) -> ${returns}`);
+}
+
+function positionalTypesOf(signature: Signature): string[] {
+  return signature.positional.map((name) => signature.params.get(name)?.type ?? "any");
 }
 
 function nodePosition(node: ASTNode, fallbackLine: number, fallbackColumn: number): { line: number; column: number } {

@@ -286,6 +286,14 @@ function ancestryOf(classes: ClassTable, shape: ClassShape): readonly ClassShape
   return line;
 }
 
+export function descendsFrom(
+  classes: ClassTable,
+  shape: ClassShape,
+  ancestor: string,
+): boolean {
+  return ancestryOf(classes, shape).some((entry) => entry.name === ancestor);
+}
+
 function commonAncestorOf(
   classes: ClassTable,
   shapes: readonly ClassShape[],

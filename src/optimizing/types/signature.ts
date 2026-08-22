@@ -1,7 +1,8 @@
+import { isUnwrittenType } from "../../core/type-text.js";
+
 export type DeclaredDefault = number | string | boolean | null;
 
 const SIGNATURE_ARROW = "->";
-const ANY_TYPE = "any";
 const GATHERED_PARAMETER_PREFIX = "gathered$";
 
 function topLevelParts(source: string): readonly string[] {
@@ -43,9 +44,7 @@ export function functionSignatureOf(declared: string | null | undefined): Declar
   return null;
 }
 
-export function isUnwritten(declared: string | null | undefined): boolean {
-  return declared === null || declared === undefined || declared.trim() === ANY_TYPE;
-}
+export const isUnwritten = isUnwrittenType;
 
 export interface RestParameter {
   readonly name: string;

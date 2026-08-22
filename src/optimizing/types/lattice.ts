@@ -1,5 +1,15 @@
 import type { IRMetadataValue } from "../ir/index.js";
 import { isInt32 } from "../target/integer.js";
+import {
+  CODE_ARRAY,
+  CODE_DOUBLE,
+  CODE_NULL,
+  CODE_OBJECT,
+  CODE_SMI,
+  CODE_STRING,
+  CODE_TRUE,
+  typeOfCode,
+} from "../../core/value/index.js";
 
 export const TypeKind = Object.freeze({
   Any: "Any",
@@ -310,6 +320,24 @@ export function typeFromConstant(value: IRMetadataValue): LatticeType {
   if (Array.isArray(value)) return arrayType();
   if (typeof value === "object") return objectType();
   return anyType();
+}
+
+const TYPEOF_CODES: ReadonlyMap<TypeKindName, number> = new Map([
+  [TypeKind.Smi, CODE_SMI],
+  [TypeKind.Double, CODE_DOUBLE],
+  [TypeKind.Number, CODE_SMI],
+  [TypeKind.Boolean, CODE_TRUE],
+  [TypeKind.String, CODE_STRING],
+  [TypeKind.Array, CODE_ARRAY],
+  [TypeKind.Object, CODE_OBJECT],
+]);
+
+export function typeofName(type: LatticeType): string | null {
+  if (type.kind === TypeKind.Object && type.map === null) return null;
+  const code = TYPEOF_CODES.get(type.kind);
+  if (code === undefined) return null;
+  const name = typeOfCode(code);
+  return acceptsNull(type) && name !== typeOfCode(CODE_NULL) ? null : name;
 }
 
 export function typeFromTypeof(value: string): LatticeType | null {

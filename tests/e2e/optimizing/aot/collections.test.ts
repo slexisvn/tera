@@ -236,4 +236,66 @@ describe("AOT maps and sets", () => {
       ),
     );
   });
+
+  itRunsPe("walks a set of ints without naming its values", () => {
+    agrees(
+      src(
+        "seen = Set()",
+        "for n of [1, 2, 2, 3]:",
+        "  seen.add(n)",
+        "total = 0",
+        "for v of seen:",
+        "  total = total + v",
+        "print(total, seen.size)",
+      ),
+    );
+  });
+
+  itRunsPe("walks a set of text without naming its values", () => {
+    agrees(
+      src(
+        "tags = Set()",
+        'for w of ["red", "green", "red"]:',
+        "  tags.add(w)",
+        "for v of tags:",
+        "  print(v)",
+      ),
+    );
+  });
+
+  itRunsPe("walks a set the same way whether or not values is spelled out", () => {
+    agrees(
+      src(
+        "seen = Set()",
+        "seen.add(4)",
+        "seen.add(5)",
+        "for v of seen:",
+        "  print(v)",
+        "for v of seen.values():",
+        "  print(v)",
+      ),
+    );
+  });
+
+  itRunsPe("walks a set that a function was handed", () => {
+    agrees(
+      src(
+        "fn total(values: Set) -> int:",
+        "  sum_of = 0",
+        "  for v of values:",
+        "    sum_of = sum_of + v",
+        "  return sum_of",
+        "seen = Set()",
+        "seen.add(6)",
+        "seen.add(7)",
+        "print(total(seen))",
+      ),
+    );
+  });
+
+  it("declines a map that is iterated directly", () => {
+    declines(
+      src("m = Map()", 'm.set("a", 1)', "for e of m:", "  print(e)"),
+    );
+  });
 });

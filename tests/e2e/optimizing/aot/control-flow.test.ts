@@ -1,6 +1,8 @@
-import { describe, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { cSource, itNative, runCFunction, runCStringFunction } from "../../../helpers/c-executor.js";
+
+const src = (...lines: string[]) => lines.join("\n") + "\n";
 
 function compile(source: string) {
   return nodeEngine().compileAot(source);
@@ -68,5 +70,106 @@ describe("AOT control flow", () => {
     expect(runCFunction(cSource(program), "first_over", [3, 10])).toBe(4);
     expect(runCFunction(cSource(program), "first_over", [3, 0])).toBe(-1);
     expect(runCFunction(cSource(program), "first_over", [30, 10])).toBe(-1);
+  });
+});
+
+const NAMED = src(
+  "fn name(v: int) -> string:",
+  "  switch v:",
+  "    case 1:",
+  '      return "one"',
+  "    case 2:",
+  '      return "two"',
+  "    default:",
+  '      return "other"',
+);
+
+const COUNTED = src(
+  "fn size(v: string) -> int:",
+  "  switch v:",
+  '    case "small":',
+  "      return 1",
+  '    case "large":',
+  "      return 3",
+  "    default:",
+  "      return 0",
+);
+
+const FALLS_THROUGH = src(
+  "fn band(v: int) -> int:",
+  "  switch v:",
+  "    case 1:",
+  "    case 2:",
+  "      return 10",
+  "    default:",
+  "      return 20",
+);
+
+const BREAKS = src(
+  "fn label(v: int) -> int:",
+  "  out = 0",
+  "  switch v:",
+  "    case 1:",
+  "      out = 11",
+  "      break",
+  "    default:",
+  "      out = 22",
+  "  return out",
+);
+
+describe("AOT switch", () => {
+  itNative("picks the arm that matches an int subject", () => {
+    const program = compile(NAMED);
+
+    expect(program.skipped).toEqual([]);
+    expect(runCStringFunction(cSource(program), "name", [1])).toBe("one");
+    expect(runCStringFunction(cSource(program), "name", [2])).toBe("two");
+  });
+
+  itNative("falls back to the default arm", () => {
+    const program = compile(NAMED);
+
+    expect(runCStringFunction(cSource(program), "name", [9])).toBe("other");
+  });
+
+  itNative("matches a string subject", () => {
+    const program = compile(COUNTED);
+
+    expect(program.skipped).toEqual([]);
+    expect(runCFunction(cSource(program), "size", ["small"])).toBe(1);
+    expect(runCFunction(cSource(program), "size", ["large"])).toBe(3);
+    expect(runCFunction(cSource(program), "size", ["other"])).toBe(0);
+  });
+
+  itNative("shares one body between stacked case labels", () => {
+    const program = compile(FALLS_THROUGH);
+
+    expect(program.skipped).toEqual([]);
+    expect(runCFunction(cSource(program), "band", [1])).toBe(10);
+    expect(runCFunction(cSource(program), "band", [2])).toBe(10);
+    expect(runCFunction(cSource(program), "band", [3])).toBe(20);
+  });
+
+  itNative("leaves the switch when an arm breaks", () => {
+    const program = compile(BREAKS);
+
+    expect(program.skipped).toEqual([]);
+    expect(runCFunction(cSource(program), "label", [1])).toBe(11);
+    expect(runCFunction(cSource(program), "label", [2])).toBe(22);
+  });
+
+  it("refuses a case label that can never equal the subject", () => {
+    expect(() =>
+      compile(
+        src(
+          "fn name(v: int) -> string:",
+          "  switch v:",
+          '    case "a":',
+          '      return "one"',
+          "    default:",
+          '      return "other"',
+        ),
+      ),
+    ).toThrow(/not comparable to switch subject type 'int'/);
   });
 });

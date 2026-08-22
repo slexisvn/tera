@@ -74,14 +74,14 @@ import { introspectReceiverMembers } from "../runtime/introspect.js";
 import type { IntrospectedMember } from "../runtime/introspect.js";
 import { builtinValue, installBuiltinEntries, isRuntimeFunctionPayload, type BuiltinRegistryMap } from "../runtime/builtins/index.js";
 import {
-  checkSource,
-  checkSourceProgram,
+  checkProgram,
   TypecheckError,
   type Diagnostic,
   type BindOptions,
   type ExternalBuiltinSignature,
   type TypecheckMode,
 } from "../frontend/checker/index.js";
+import { astToSemanticProgram } from "../frontend/checker/semantic-lowering.js";
 import { classSurfacesOf } from "../frontend/modules/interface.js";
 import { buildClassTable, constructorFieldDisagreement, type ClassTable } from "../optimizing/metadata/class-table.js";
 import type { ASTNode } from "../frontend/ast/index.js";
@@ -1055,24 +1055,24 @@ ${collectionPrelude()}`, compileOptions, true)
     const syntaxPlugins = this.compileSyntaxPlugins(options);
     const checker = this.compileChecker(options);
     const compilerExtensions = this.compileCompilerExtensions(options);
-    const checkerOptions = {
-      syntaxPlugins,
-      builtins: checker.builtins,
-      aliases: checker.aliases,
-      interfaces: checker.interfaces,
-    };
-    if (aot) {
-      const checked = checkSourceProgram(source, { ...checkerOptions, mode });
+    const parsedSource = parse(source, { syntaxPlugins });
+    if (aot || mode !== "off") {
+      const checked = checkProgram(astToSemanticProgram(parsedSource), {
+        mode,
+        builtins: checker.builtins,
+        aliases: checker.aliases,
+        interfaces: checker.interfaces,
+      });
       this.diagnostics = checked.diagnostics;
-      this.aotClasses = buildClassTable(classSurfacesOf(checked.bound), checked.bound.env);
+      if (aot) this.aotClasses = buildClassTable(classSurfacesOf(checked.bound), checked.bound.env);
     } else {
-      this.diagnostics = checkSource(source, { ...checkerOptions, mode });
+      this.diagnostics = [];
     }
     if (mode === STRICT_TYPECHECK && this.diagnostics.length > 0) {
       throw new TypecheckError(this.diagnostics);
     }
     this.installRuntimeIntrinsics(this.runtimeBuiltinRegistry, compilerExtensions);
-    const parsed = this.runCompilerPasses("ast", parse(source, { syntaxPlugins }), compilerExtensions);
+    const parsed = this.runCompilerPasses("ast", parsedSource, compilerExtensions);
     const ast = this.runCompilerPasses("semantic", analyzeEffects(parsed), compilerExtensions) as ASTNode;
     const compiler = new RegisterBytecodeCompiler({
       sourceName: options.sourceName ?? null,

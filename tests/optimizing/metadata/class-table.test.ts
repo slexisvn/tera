@@ -8,6 +8,7 @@ import {
   callableOf,
   CLASS_HEADER_BYTES,
   constructorFieldDisagreement,
+  descendsFrom,
 } from "../../../src/optimizing/metadata/class-table.js";
 import {
   builtinTypeEnv,
@@ -256,6 +257,53 @@ describe("class hierarchy analysis", () => {
     expect(
       table.implementationsOf("Shape", "area", "method").map((target) => target.owner),
     ).not.toContain("Shape");
+  });
+});
+
+describe("nominal ancestry", () => {
+  const shapes = [
+    classSurface("Shape", [method("area", "() -> float", "Shape")]),
+    classSurface("Circle", [method("area", "() -> float", "Circle")], "Shape"),
+    classSurface("Square", [method("area", "() -> float", "Square")], "Shape"),
+    classSurface("Unit", [], "Circle"),
+    classSurface("Blob", [method("area", "() -> float", "Blob")]),
+  ];
+
+  const table = buildClassTable(shapes);
+  const descends = (name: string, ancestor: string): boolean =>
+    descendsFrom(table, table.shapeOf(name)!, ancestor);
+
+  it("counts a class as descending from itself", () => {
+    expect(descends("Circle", "Circle")).toBe(true);
+  });
+
+  it("follows a direct parent link", () => {
+    expect(descends("Circle", "Shape")).toBe(true);
+  });
+
+  it("follows the whole chain of parents", () => {
+    expect(descends("Unit", "Shape")).toBe(true);
+  });
+
+  it("does not run the chain backwards", () => {
+    expect(descends("Shape", "Circle")).toBe(false);
+  });
+
+  it("separates siblings that share a base", () => {
+    expect(descends("Circle", "Square")).toBe(false);
+  });
+
+  it("separates a class that merely carries the same surface", () => {
+    expect(descends("Blob", "Shape")).toBe(false);
+  });
+
+  it("parts company with the structural dispatch cone", () => {
+    expect(table.dispatchConeOf("Shape").map((shape) => shape.name)).toContain("Blob");
+    expect(descends("Blob", "Shape")).toBe(false);
+  });
+
+  it("says nothing descends from a name the table never saw", () => {
+    expect(descends("Circle", "Missing")).toBe(false);
   });
 });
 

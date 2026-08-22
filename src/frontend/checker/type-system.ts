@@ -587,7 +587,7 @@ export function iterableBindingType(type: TypeName, mode: "in" | "of", env: Type
   const element = arrayElementType(resolved);
   if (element) return element;
   if (isTupleType(resolved)) return unionType(tupleTypes(resolved));
-  if (resolved === "Array" || resolved === ITERATOR_TYPE) return "any";
+  if (UNTYPED_ELEMENT_ITERABLES.has(baseTypeName(resolved))) return "any";
   return iteratorElementType(resolved, env) ?? "unknown";
 }
 
@@ -609,6 +609,12 @@ export function baseTypeName(type: TypeName): string {
 
 const PROMISE_TYPE = "Promise";
 const ITERATOR_TYPE = "iterator";
+const UNTYPED_ELEMENT_ITERABLES: ReadonlySet<TypeName> = new Set([
+  "Array",
+  "Map",
+  "Set",
+  ITERATOR_TYPE,
+]);
 
 export function awaitedType(type: TypeName, env: TypeEnv, seen = new Set<string>()): TypeName {
   return unionType(unionParts(type, env).map((part) => awaitedPart(part, env, seen)));

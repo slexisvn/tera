@@ -36,6 +36,7 @@ import { boxEscapingStrings } from "../passes/string-boxing.js";
 import { representationSelection } from "../passes/repr-selection.js";
 import { speculationLowering } from "../passes/speculation-lowering.js";
 import { typeNarrowing } from "../passes/type-narrowing.js";
+import { foldStaticReflection } from "../passes/static-reflection.js";
 import { coerceStringOperands } from "../passes/string-coercion.js";
 import { faultOnZeroDivisor } from "../passes/zero-divisor.js";
 import { faultOutsideBuiltinDomains } from "../passes/builtin-domains.js";
@@ -107,6 +108,14 @@ export function targetLegalizationPipeline(
             analyses.get(dominanceAnalysisId),
             analyses.get(typeInferenceAnalysisId),
           ) > 0,
+      }),
+    },
+    {
+      name: "static-reflection",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: foldStaticReflection(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
     ...(tagged

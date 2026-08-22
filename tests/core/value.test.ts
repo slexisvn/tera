@@ -39,7 +39,9 @@ import {
   toBool,
   toString,
   stringCharAt,
+  codeOf,
   typeOf,
+  typeOfCode,
   strictEqual,
   abstractLooseEqual,
   abstractRelational,
@@ -383,6 +385,16 @@ describe("typeOf", () => {
     expect(typeOf(mkNull())).toBe("object");
     expect(typeOf(mkUndefined())).toBe("undefined");
     expect(typeOf(mkSymbol(new JSSymbol("s")))).toBe("symbol");
+  });
+
+  it("answers the same for a value and for the tag code it carries", () => {
+    for (const value of [mkSmi(1), mkDouble(1.5), mkBool(true), mkString("x"), mkNull(), mkUndefined()]) {
+      expect(typeOfCode(codeOf(value))).toBe(typeOf(value));
+    }
+  });
+
+  it("names a tag code it has never seen", () => {
+    expect(typeOfCode(-1)).toBe("unknown");
   });
 });
 
