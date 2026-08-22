@@ -6,11 +6,11 @@ import { join } from "node:path";
 import { it } from "vitest";
 import type { AotProgram } from "../../src/optimizing/drivers/aot.js";
 import { cCompiler } from "./c-executor.js";
+import { BINARY, build } from "./c-toolchain.js";
 
 export type NativeArgument = number | string;
 
 const PROTOTYPE = /^(int32_t|double|const char \*)\s*(\w+)\s*\(([^)]*)\);$/gm;
-const BINARY = process.platform === "win32" ? "program.exe" : "program";
 
 export const itAssembles = it.skipIf(cCompiler === null);
 
@@ -108,11 +108,7 @@ export function nativeStdout(
     writeFileSync(join(directory, "program.s"), assembly);
     writeFileSync(join(directory, "main.c"), mainSource(header, symbol, args));
     const binary = join(directory, BINARY);
-    const built = spawnSync(
-      cCompiler,
-      [join(directory, "main.c"), join(directory, "program.s"), "-o", binary, "-lm"],
-      { encoding: "utf8" },
-    );
+    const built = build(cCompiler, [join(directory, "main.c"), join(directory, "program.s")], binary);
     if (built.status !== 0) {
       throw new Error(`assembling ${symbol} failed:\n${built.stderr}\n${assembly}`);
     }
@@ -177,11 +173,7 @@ export function runNativeStringBatch(
     writeFileSync(join(directory, "program.s"), nativeFile(program, ".s"));
     writeFileSync(join(directory, "main.c"), batchMain(header, calls));
     const binary = join(directory, BINARY);
-    const built = spawnSync(
-      cCompiler,
-      [join(directory, "main.c"), join(directory, "program.s"), "-o", binary, "-lm"],
-      { encoding: "utf8" },
-    );
+    const built = build(cCompiler, [join(directory, "main.c"), join(directory, "program.s")], binary);
     if (built.status !== 0) throw new Error(`assembling the batch failed:\n${built.stderr}`);
     const run = spawnSync(binary, [], { encoding: "utf8", timeout: 10_000 });
     if (run.status !== 0) {

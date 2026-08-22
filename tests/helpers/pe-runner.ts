@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { it } from "vitest";
+import { runsOwnBackends } from "./native-tier.js";
 
 export interface PeRun {
   readonly status: number | null;
@@ -20,7 +21,8 @@ function inRunDirectory<T>(use: (path: string) => T): T {
   }
 }
 
-export const runsWindowsPrograms = process.platform === "win32" && process.arch === "x64";
+export const runsWindowsPrograms =
+  runsOwnBackends && process.platform === "win32" && process.arch === "x64";
 
 export const itRunsPe = it.skipIf(!runsWindowsPrograms);
 

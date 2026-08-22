@@ -1,43 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
-import { cSource, itNative, runCProgram } from "../../../helpers/c-executor.js";
+import { itNative } from "../../../helpers/c-executor.js";
+import { cAgreement, image, interpreted, peAgrees } from "../../../helpers/aot-agreement.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
-function interpreted(source: string): string {
-  const stream: string[] = [];
-  nodeEngine({ typecheck: "off", output: (text) => stream.push(`${text}\n`) }).run(
-    `${source}\n`,
-  );
-  return stream.join("");
-}
-
-function image(source: string): Uint8Array {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "x64-windows",
-    format: "executable",
-  });
-  expect(program.skipped).toEqual([]);
-  return program.files[0]!.contents as Uint8Array;
-}
-
-function agrees(source: string): void {
-  const run = runPe(image(source));
-
-  expect(run.status).toBe(0);
-  expect(run.stdout).toBe(interpreted(source));
-}
-
-function agreesInC(source: string): void {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "c",
-    format: "assembly",
-  });
-
-  expect(program.skipped).toEqual([]);
-  expect(runCProgram(cSource(program)).stdout).toBe(interpreted(source));
-}
+const native = cAgreement();
 
 const PROGRAMS: readonly (readonly [string, string])[] = [
   ["an int array", src("xs: int[] = [1, 2, 3]", "print(xs)")],
@@ -80,8 +49,8 @@ const PROGRAMS: readonly (readonly [string, string])[] = [
 
 describe("printing aggregates", () => {
   for (const [name, source] of PROGRAMS) {
-    itRunsPe(`prints ${name} the way the interpreter does`, () => agrees(source));
-    itNative(`prints ${name} the same way through the C backend`, () => agreesInC(source));
+    itRunsPe(`prints ${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`prints ${name} the same way through the C backend`, native.agrees(source));
   }
 
   it("declines a print of a value it cannot format", () => {

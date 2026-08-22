@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
-import { cSource, itNative, runCStringFunction } from "../../../helpers/c-executor.js";
+import { cSource, itNative } from "../../../helpers/c-executor.js";
+import { cCalls, cText } from "../../../helpers/aot-agreement.js";
 import { TEXT_STORAGE_BYTES } from "../../../../src/optimizing/types/scalar.js";
 
 const src = (...lines: string[]) => lines.join("\n");
@@ -30,14 +31,23 @@ function agrees(source: string): void {
   expect(run.stdout).toBe(interpreted(source));
 }
 
-function returnsText(body: string, expected: string): void {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(
-    src("fn f() -> string:", `  return ${body}`, ""),
-  );
+const returns = cCalls({
+  toC: (body: string) => cText(src("fn f() -> string:", `  return ${body}`)),
+});
 
-  expect(program.skipped).toEqual([]);
-  expect(runCStringFunction(cSource(program), "f", [])).toBe(expected);
-}
+const TEXT_RESULTS: readonly (readonly [string, string])[] = [
+  ['"aBc".to_upper_case()', "ABC"],
+  ['"aBc".to_lower_case()', "abc"],
+  ['"  ab  ".trim()', "ab"],
+  ['"  ab  ".trim_start()', "ab  "],
+  ['"  ab  ".trim_end()', "  ab"],
+  ['"abcdef".slice(1, 3)', "bc"],
+  ['"abcdef".slice(2)', "cdef"],
+  ['"ab".repeat(3)', "ababab"],
+  ['"a-b-c".replace("-", "+")', "a+b-c"],
+  ['"a-b-c".replace_all("-", "+")', "a+b+c"],
+];
+
 
 const AGREEING_PROGRAMS: readonly (readonly [string, string])[] = [
   ["upper-cases ascii", 'print("aBc 1!".to_upper_case())'],
@@ -217,18 +227,9 @@ describe("string methods as compiled builtins", () => {
     }
   });
 
-  itNative("keeps the C backend in lockstep on one case per method", () => {
-    returnsText('"aBc".to_upper_case()', "ABC");
-    returnsText('"aBc".to_lower_case()', "abc");
-    returnsText('"  ab  ".trim()', "ab");
-    returnsText('"  ab  ".trim_start()', "ab  ");
-    returnsText('"  ab  ".trim_end()', "  ab");
-    returnsText('"abcdef".slice(1, 3)', "bc");
-    returnsText('"abcdef".slice(2)', "cdef");
-    returnsText('"ab".repeat(3)', "ababab");
-    returnsText('"a-b-c".replace("-", "+")', "a+b-c");
-    returnsText('"a-b-c".replace_all("-", "+")', "a+b+c");
-  });
+  for (const [body, expected] of TEXT_RESULTS) {
+    itNative(`keeps the C backend in lockstep on ${body}`, returns.text(body, "f", [], expected));
+  }
 
   itRunsPe("truncates at the buffer capacity instead of overrunning it", () => {
     const run = runPe(image(src('print("ab".repeat(100000).length)')));

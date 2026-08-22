@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
+import { cCalls } from "../../../helpers/aot-agreement.js";
 
 function compile(lines: readonly string[]) {
   const program = nodeEngine().compileAot(`${lines.join("\n")}\n`);
@@ -12,20 +13,18 @@ function interpret(lines: readonly string[], call: string): unknown {
   return nodeEngine().runNative(`${lines.join("\n")}\n${call}\n`);
 }
 
+const native = cCalls({
+  toC: (lines: readonly string[]) => cSource(compile(lines)),
+  interpret: (lines: readonly string[], call: string) => interpret(lines, call),
+});
+
+const matchesInterpreter = (lines: readonly string[], entry: string, args: readonly number[]): void =>
+  native.matches(lines, entry, args)();
+
 function bodyOf(program: { source: string }, symbol: string): string {
   const start = cSource(program).search(new RegExp(`\\b${symbol}\\(`));
   expect(start).toBeGreaterThan(-1);
   return cSource(program).slice(start, cSource(program).indexOf("\n}", start));
-}
-
-function expectMatchesInterpreter(
-  lines: readonly string[],
-  entry: string,
-  args: readonly number[],
-): void {
-  const program = compile(lines);
-  const interpreted = interpret(lines, `${entry}(${args.join(", ")})`);
-  expect(runCFunction(cSource(program), entry, args)).toBe(interpreted);
 }
 
 describe("AOT arrays mutated across loop back-edges", () => {
@@ -58,11 +57,10 @@ describe("AOT arrays mutated across loop back-edges", () => {
 
     expect(bodyOf(program, "f")).toContain("tera_alloc(");
     expect(bodyOf(program, "f")).toMatch(/\)\)\[\w+\]/);
-    expectMatchesInterpreter(lines, "f", [9]);
+    matchesInterpreter(lines, "f", [9]);
   });
 
-  itNative("preserves a store made in only one arm of a branch", () => {
-    expectMatchesInterpreter(
+  itNative("preserves a store made in only one arm of a branch", native.matches(
       [
         "fn f(n: int) -> int:",
         "  m = [0, 0]",
@@ -77,11 +75,9 @@ describe("AOT arrays mutated across loop back-edges", () => {
       ],
       "f",
       [6],
-    );
-  });
+    ));
 
-  itNative("preserves a store guarded by a branch with no else", () => {
-    expectMatchesInterpreter(
+  itNative("preserves a store guarded by a branch with no else", native.matches(
       [
         "fn f(n: int) -> int:",
         "  m = [0, 0]",
@@ -94,11 +90,9 @@ describe("AOT arrays mutated across loop back-edges", () => {
       ],
       "f",
       [7],
-    );
-  });
+    ));
 
-  itNative("preserves a store made in a nested inner loop", () => {
-    expectMatchesInterpreter(
+  itNative("preserves a store made in a nested inner loop", native.matches(
       [
         "fn f(n: int) -> int:",
         "  m = [0, 0, 0, 0]",
@@ -113,11 +107,9 @@ describe("AOT arrays mutated across loop back-edges", () => {
       ],
       "f",
       [5],
-    );
-  });
+    ));
 
-  itNative("tracks two independent arrays mutated in the same loop", () => {
-    expectMatchesInterpreter(
+  itNative("tracks two independent arrays mutated in the same loop", native.matches(
       [
         "fn f(n: int) -> int:",
         "  a = [0, 0]",
@@ -131,8 +123,7 @@ describe("AOT arrays mutated across loop back-edges", () => {
       ],
       "f",
       [6],
-    );
-  });
+    ));
 
   itNative("compiles a loop that swaps array elements through a temporary", () => {
     const lines = [
@@ -149,7 +140,7 @@ describe("AOT arrays mutated across loop back-edges", () => {
     const program = compile(lines);
 
     expect(runCFunction(cSource(program), "f", [3])).toBe(41);
-    expectMatchesInterpreter(lines, "f", [4]);
+    matchesInterpreter(lines, "f", [4]);
   });
 
   itNative("keeps float element arrays in floating point", () => {
@@ -168,8 +159,7 @@ describe("AOT arrays mutated across loop back-edges", () => {
     expect(interpret(lines, "f(5)")).toBe(2.5);
   });
 
-  itNative("reads a value stored before the loop and again after it", () => {
-    expectMatchesInterpreter(
+  itNative("reads a value stored before the loop and again after it", native.matches(
       [
         "fn f(n: int) -> int:",
         "  a = [0, 0]",
@@ -182,30 +172,31 @@ describe("AOT arrays mutated across loop back-edges", () => {
       ],
       "f",
       [4],
-    );
-  });
+    ));
 
-  itNative("keeps local arrays concrete instead of scalar replacing them", () => {
-    const program = compile([
-      "fn f(n: int) -> int:",
-      "  a = [3, 4]",
-      "  s = 0",
-      "  i = 0",
-      "  while i < n:",
-      "    s = s + a[0] + a[1]",
-      "    i = i + 1",
-      "  return s",
-    ]);
+  const CONCRETE_LOCAL = [
+    "fn f(n: int) -> int:",
+    "  a = [3, 4]",
+    "  s = 0",
+    "  i = 0",
+    "  while i < n:",
+    "    s = s + a[0] + a[1]",
+    "    i = i + 1",
+    "  return s",
+  ];
+
+  it("keeps local arrays concrete instead of scalar replacing them", () => {
+    const program = compile(CONCRETE_LOCAL);
 
     expect(bodyOf(program, "f")).toContain("int32_t v");
     expect(bodyOf(program, "f")).toContain("tera_alloc(");
-    expect(runCFunction(cSource(program), "f", [3])).toBe(21);
   });
+
+  itNative("reads a concrete local array in a loop", native.matches(CONCRETE_LOCAL, "f", [3]));
 });
 
 describe("AOT for-of over a local array", () => {
-  itNative("sums every element in declaration order", () => {
-    expectMatchesInterpreter(
+  itNative("sums every element in declaration order", native.matches(
       [
         "fn f(n: int) -> int:",
         "  total = 0",
@@ -215,11 +206,9 @@ describe("AOT for-of over a local array", () => {
       ],
       "f",
       [10],
-    );
-  });
+    ));
 
-  itNative("walks an array held in a variable", () => {
-    expectMatchesInterpreter(
+  itNative("walks an array held in a variable", native.matches(
       [
         "fn f(a: int) -> int:",
         "  values = [a, a + 1, a + 2]",
@@ -230,16 +219,13 @@ describe("AOT for-of over a local array", () => {
       ],
       "f",
       [4],
-    );
-  });
+    ));
 
-  itNative("leaves the total untouched for an empty array", () => {
-    expectMatchesInterpreter(
+  itNative("leaves the total untouched for an empty array", native.matches(
       ["fn f(a: int) -> int:", "  total = a", "  for x of []:", "    total = total + x", "  return total"],
       "f",
       [7],
-    );
-  });
+    ));
 
   it("turns the iterator into an index compared against the static length", () => {
     const program = compile([
@@ -255,8 +241,7 @@ describe("AOT for-of over a local array", () => {
     expect(cSource(program)).not.toContain("Iterator");
   });
 
-  itNative("breaks out of a for-of loop early", () => {
-    expectMatchesInterpreter(
+  itNative("breaks out of a for-of loop early", native.matches(
       [
         "fn f(limit: int) -> int:",
         "  total = 0",
@@ -268,6 +253,5 @@ describe("AOT for-of over a local array", () => {
       ],
       "f",
       [2],
-    );
-  });
+    ));
 });

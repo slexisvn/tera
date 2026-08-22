@@ -4,6 +4,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { it } from "vitest";
+import { runsOwnBackends } from "./native-tier.js";
 
 export interface ElfRun {
   readonly status: number | null;
@@ -45,7 +46,7 @@ function detect(): Launcher | null {
   return null;
 }
 
-export const elfLauncher = detect();
+export const elfLauncher = runsOwnBackends ? detect() : null;
 
 export const itRunsElf = it.skipIf(elfLauncher === null);
 

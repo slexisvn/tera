@@ -1,4 +1,4 @@
-import { describe, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import type { AotProgram } from "../../../../src/optimizing/drivers/aot.js";
 import {
@@ -219,21 +219,27 @@ describe("x64 native execution matches the interpreter", () => {
     );
   });
 
-  itAssembles("emits addressing modes rather than address arithmetic", () => {
-    const source = src(
-      "fn at(n: int) -> float:",
-      "  data = [1.5, 2.5, 3.5]",
-      "  return data[n]",
-    );
-    const assembly = nativeFile(compile(source), ".s");
-    expect(assembly).toMatch(/movsd\s+\d+\(%r\w+,%r\w+,8\)/);
-    expect(runNativeFunction(compile(source), "at", [2])).toBe(3.5);
+  const INDEXED_LOAD = src(
+    "fn at(n: int) -> float:",
+    "  data = [1.5, 2.5, 3.5]",
+    "  return data[n]",
+  );
+  const FOLDED_ADD = src("fn bump(a: int) -> int:", "  return a + 7");
+
+  it("emits addressing modes rather than address arithmetic", () => {
+    expect(nativeFile(compile(INDEXED_LOAD), ".s")).toMatch(/movsd\s+\d+\(%r\w+,%r\w+,8\)/);
   });
 
-  itAssembles("folds an integer addition into a lea", () => {
-    const source = src("fn bump(a: int) -> int:", "  return a + 7");
-    expect(nativeFile(compile(source), ".s")).toMatch(/leal\s+7\(%r\w+\)/);
-    expect(runNativeFunction(compile(source), "bump", [35])).toBe(42);
+  itAssembles("runs an emitted addressing mode", () => {
+    expect(runNativeFunction(compile(INDEXED_LOAD), "at", [2])).toBe(3.5);
+  });
+
+  it("folds an integer addition into a lea", () => {
+    expect(nativeFile(compile(FOLDED_ADD), ".s")).toMatch(/leal\s+7\(%r\w+\)/);
+  });
+
+  itAssembles("runs a folded integer addition", () => {
+    expect(runNativeFunction(compile(FOLDED_ADD), "bump", [35])).toBe(42);
   });
 });
 

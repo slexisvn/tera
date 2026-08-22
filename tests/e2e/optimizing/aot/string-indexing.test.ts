@@ -1,47 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
-import { cSource, itNative, runCProgram } from "../../../helpers/c-executor.js";
+import { itNative } from "../../../helpers/c-executor.js";
+import { cAgreement, image, interpreted, peAgrees } from "../../../helpers/aot-agreement.js";
 
 const src = (...lines: string[]) => lines.join("\n");
+
+const native = cAgreement();
 
 const TEXT = 's = "abcde"';
 const AT = ["fn at(t: string, i: int) -> string:", "  return t[i]"];
 const OUT_OF_RANGE = "string index is out of range";
-
-function interpreted(source: string): string {
-  const stream: string[] = [];
-  nodeEngine({ typecheck: "off", output: (text) => stream.push(`${text}\n`) }).run(
-    `${source}\n`,
-  );
-  return stream.join("");
-}
-
-function image(source: string): Uint8Array {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "x64-windows",
-    format: "executable",
-  });
-  expect(program.skipped).toEqual([]);
-  return program.files[0]!.contents as Uint8Array;
-}
-
-function agrees(source: string): void {
-  const run = runPe(image(source));
-
-  expect(run.status).toBe(0);
-  expect(run.stdout).toBe(interpreted(source));
-}
-
-function agreesInC(source: string): void {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "c",
-    format: "assembly",
-  });
-
-  expect(program.skipped).toEqual([]);
-  expect(runCProgram(cSource(program)).stdout).toBe(interpreted(source));
-}
 
 const IN_RANGE: readonly (readonly [string, string])[] = [
   ["reads the last character through -1", src(TEXT, "print(s[-1])")],
@@ -83,8 +52,8 @@ const BEYOND_THE_ENDS: readonly (readonly [string, string])[] = [
 
 describe("negative string subscripts count back from the end", () => {
   for (const [name, source] of IN_RANGE) {
-    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
-    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
   }
 });
 
@@ -98,15 +67,7 @@ describe("string subscripts beyond either end fault, where the interpreter answe
       expect(run.stdout).toBe("");
     });
 
-    itNative(`faults on ${name} through the C backend`, () => {
-      const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-        backend: "c",
-        format: "assembly",
-      });
-
-      expect(program.skipped).toEqual([]);
-      expect(runCProgram(cSource(program)).status).not.toBe(0);
-    });
+    itNative(`faults on ${name} through the C backend`, native.faults(source));
   }
 
   itRunsPe("keeps the output the program wrote before the subscript it faulted on", () => {

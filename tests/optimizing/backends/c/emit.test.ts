@@ -353,3 +353,122 @@ describe("emitNumericFunction builtin methods", () => {
     expect(runCFunction(source, "code_at", ["Hi", -1])).toBe(0);
   });
 });
+
+function emitted(graph: CFGFunction) {
+  const result = emitNumericFunction(graph);
+  if (!result.ok) throw new Error(`expected success, got: ${result.reason}`);
+  return result;
+}
+
+function declined(graph: CFGFunction): string {
+  const result = emitNumericFunction(graph);
+  if (result.ok) throw new Error("expected the emitter to decline this graph");
+  return result.reason;
+}
+
+describe("what emitNumericFunction reports about a function it lowered", () => {
+  it("names the symbol after the graph", () => {
+    expect(emitted(returningConstant("answer", 42)).symbol).toBe("answer");
+  });
+
+  it("reports no parameters for a graph that declares none", () => {
+    const result = emitted(returningConstant("answer", 42));
+
+    expect(result.parameterCount).toBe(0);
+    expect(result.parameterScalars).toEqual([]);
+  });
+
+  it("reports one scalar per declared parameter, in order", () => {
+    const graph = declaring("mix", ["int", "float"], "float");
+    const p0 = graph.addParameter(0);
+    const p1 = graph.addParameter(1);
+    const block = graph.addBlock();
+    const sum = irFloat64Add(p0, p1);
+    block.addNode(sum);
+    block.addNode(irReturn(sum));
+    const result = emitted(graph);
+
+    expect(result.parameterCount).toBe(2);
+    expect(result.parameterScalars).toHaveLength(2);
+    expect(result.parameterScalars[0]).not.toBe(result.parameterScalars[1]);
+  });
+
+  it("takes the return scalar from the declared return type", () => {
+    const graph = declaring("half", ["int"], "float");
+    const p0 = graph.addParameter(0);
+    const block = graph.addBlock();
+    const scaled = irFloat64Add(p0, p0);
+    block.addNode(scaled);
+    block.addNode(irReturn(scaled));
+
+    expect(emitted(graph).returnScalar).toBe("float64");
+  });
+
+  it("emits a prototype the source's definition matches", () => {
+    const result = emitted(returningConstant("answer", 42));
+    const opening = result.prototype.replace(/;\s*$/, "");
+
+    expect(result.prototype.endsWith(";")).toBe(true);
+    expect(result.source).toContain(opening);
+  });
+
+  it("names the symbol in both the prototype and the body it emits", () => {
+    const result = emitted(returningConstant("answer", 42));
+
+    expect(result.prototype).toContain("answer");
+    expect(result.source).toContain("answer");
+  });
+
+  it("puts the runtime helpers in a preamble rather than in each function's body", () => {
+    const result = emitted(returningConstant("answer", 42));
+
+    expect(result.sourcePreamble).toContain("tera_i32_add");
+    expect(result.source.slice(result.source.indexOf("answer"))).not.toContain("static inline");
+  });
+
+  it("keeps the header preamble free of function bodies so it can be included twice", () => {
+    expect(emitted(returningConstant("answer", 42)).headerPreamble).not.toContain("static inline");
+  });
+
+  it("reports no references for a function that calls nothing", () => {
+    expect(emitted(returningConstant("answer", 42)).references).toEqual([]);
+  });
+
+  it("emits the same source for the same graph shape twice over", () => {
+    const first = emitted(returningConstant("answer", 42)).source;
+    resetIRNodeIds();
+    const second = emitted(returningConstant("answer", 42)).source;
+
+    expect(second).toBe(first);
+  });
+
+  it("declines a graph whose parameter has no declared type, saying which parameter", () => {
+    const graph = new CFGFunction("loose");
+    const parameter = graph.addParameter(0);
+    const block = graph.addBlock();
+    block.addNode(irReturn(parameter));
+
+    expect(declined(graph)).toContain("parameter #1");
+    expect(declined(graph)).toContain("declare it");
+  });
+
+  it("declines a graph that allocates an object the C backend cannot lay out", () => {
+    const graph = new CFGFunction("makes");
+    const block = graph.addBlock();
+    const created = new CFGInstruction(IR_NEW_OBJECT);
+    block.addNode(created);
+    block.addNode(irReturn(created));
+
+    expect(declined(graph)).not.toBe("");
+  });
+
+  it("gives a reason a caller can put in front of a user rather than an empty string", () => {
+    const graph = new CFGFunction("loose");
+    const parameter = graph.addParameter(0);
+    const block = graph.addBlock();
+    block.addNode(irReturn(parameter));
+
+    expect(declined(graph).length).toBeGreaterThan(0);
+    expect(declined(graph)).toBe(declined(graph));
+  });
+});

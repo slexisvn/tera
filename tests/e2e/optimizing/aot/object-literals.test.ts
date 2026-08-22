@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
-import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
+import { cSource, itNative } from "../../../helpers/c-executor.js";
+import { cCalls } from "../../../helpers/aot-agreement.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
@@ -10,30 +11,27 @@ function compile(source: string) {
   return program;
 }
 
+const native = cCalls({
+  toC: (source: string) => cSource(compile(source)),
+  interpret: (source: string, call: string) =>
+    nodeEngine({ typecheck: "off" }).runNative(`${source}
+${call}
+`),
+});
+
 function declined(source: string): string {
   const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`);
   return program.skipped.map((entry) => entry.reason).join("; ");
 }
 
-function matchesInterpreter(source: string, entry: string, args: readonly number[]): void {
-  const program = compile(source);
-  const interpreted = nodeEngine({ typecheck: "off" }).runNative(
-    `${source}\n${entry}(${args.join(", ")})\n`,
-  );
-  expect(runCFunction(cSource(program), entry, args)).toBe(interpreted);
-}
-
 describe("AOT object literals", () => {
-  itNative("reads back a field it wrote", () => {
-    matchesInterpreter(
+  itNative("reads back a field it wrote", native.matches(
       src("fn f(n: int) -> int:", "  o = { a: n, b: 2 }", "  return o.a + o.b"),
       "f",
       [5],
-    );
-  });
+    ));
 
-  itNative("carries a literal out of the function that built it", () => {
-    matchesInterpreter(
+  itNative("carries a literal out of the function that built it", native.matches(
       src(
         "fn make(n: int):",
         "  return { a: n, b: n * 2 }",
@@ -43,19 +41,15 @@ describe("AOT object literals", () => {
       ),
       "f",
       [4],
-    );
-  });
+    ));
 
-  itNative("reassigns a field after the literal is built", () => {
-    matchesInterpreter(
+  itNative("reassigns a field after the literal is built", native.matches(
       src("fn f(n: int) -> int:", "  o = { a: 1 }", "  o.a = n", "  return o.a"),
       "f",
       [9],
-    );
-  });
+    ));
 
-  itNative("mixes a float and an int field", () => {
-    matchesInterpreter(
+  itNative("mixes a float and an int field", native.matches(
       src(
         "fn f(n: int) -> float:",
         "  o = { count: n, rate: 1.5 }",
@@ -63,11 +57,9 @@ describe("AOT object literals", () => {
       ),
       "f",
       [3],
-    );
-  });
+    ));
 
-  itNative("builds two literals of the same layout in different functions", () => {
-    matchesInterpreter(
+  itNative("builds two literals of the same layout in different functions", native.matches(
       src(
         "fn one(n: int) -> int:",
         "  return { a: n, b: 1 }.a",
@@ -78,8 +70,7 @@ describe("AOT object literals", () => {
       ),
       "f",
       [6],
-    );
-  });
+    ));
 
   it("declines a literal whose field holds something with no machine type", () => {
     expect(declined(src("fn f() -> int:", "  o = { a: v => v }", "  return 1"))).not.toBe("");
@@ -87,8 +78,7 @@ describe("AOT object literals", () => {
 });
 
 describe("AOT string comparison", () => {
-  itNative("branches on equality", () => {
-    matchesInterpreter(
+  itNative("branches on equality", native.matches(
       src(
         "fn price(name: string) -> int:",
         '  if name == "apple":',
@@ -99,11 +89,9 @@ describe("AOT string comparison", () => {
       ),
       "f",
       [0],
-    );
-  });
+    ));
 
-  itNative("orders two strings lexicographically", () => {
-    matchesInterpreter(
+  itNative("orders two strings lexicographically", native.matches(
       src(
         "fn f(n: int) -> int:",
         "  total = n",
@@ -119,11 +107,9 @@ describe("AOT string comparison", () => {
       ),
       "f",
       [0],
-    );
-  });
+    ));
 
-  itNative("compares a built string against a spelled-out one", () => {
-    matchesInterpreter(
+  itNative("compares a built string against a spelled-out one", native.matches(
       src(
         "fn f(n: int) -> int:",
         "  built = n.to_string()",
@@ -133,13 +119,11 @@ describe("AOT string comparison", () => {
       ),
       "f",
       [7],
-    );
-  });
+    ));
 });
 
 describe("AOT arrays of spelled-out strings", () => {
-  itNative("indexes an array of string constants", () => {
-    matchesInterpreter(
+  itNative("indexes an array of string constants", native.matches(
       src(
         "fn pick(i: int) -> string:",
         '  names = ["ant", "bee", "cow"]',
@@ -151,11 +135,9 @@ describe("AOT arrays of spelled-out strings", () => {
       ),
       "f",
       [2],
-    );
-  });
+    ));
 
-  itNative("keeps a string the program builds into an array", () => {
-    matchesInterpreter(
+  itNative("keeps a string the program builds into an array", native.matches(
       src(
         "fn f(i: int) -> int:",
         '  names = ["H", "O"]',
@@ -166,27 +148,21 @@ describe("AOT arrays of spelled-out strings", () => {
       ),
       "f",
       [1],
-    );
-  });
+    ));
 
-  itNative("reads a field a constant key names", () => {
-    matchesInterpreter(
+  itNative("reads a field a constant key names", native.matches(
       src("fn f(n: int) -> int:", "  o = { a: n, b: 2 }", "  return o[\"a\"] + o[\"b\"]"),
       "f",
       [5],
-    );
-  });
+    ));
 
-  itNative("writes a field a constant key names", () => {
-    matchesInterpreter(
+  itNative("writes a field a constant key names", native.matches(
       src("fn f(n: int) -> int:", "  o = { a: 1 }", "  o[\"a\"] = n", "  return o.a"),
       "f",
       [9],
-    );
-  });
+    ));
 
-  itNative("answers membership from the shape the literal has", () => {
-    matchesInterpreter(
+  itNative("answers membership from the shape the literal has", native.matches(
       src(
         "fn f(n: int) -> int:",
         "  o = { a: n }",
@@ -198,18 +174,14 @@ describe("AOT arrays of spelled-out strings", () => {
       ),
       "f",
       [3],
-    );
-  });
-  itNative("counts the keys a literal declares", () => {
-    matchesInterpreter(
+    ));
+  itNative("counts the keys a literal declares", native.matches(
       src("fn f(n: int) -> int:", "  o = { a: n, b: 2, c: 3 }", "  return Object.keys(o).length"),
       "f",
       [1],
-    );
-  });
+    ));
 
-  itNative("folds the values a literal holds", () => {
-    matchesInterpreter(
+  itNative("folds the values a literal holds", native.matches(
       src(
         "fn add(a: int, b: int) -> int:",
         "  return a + b",
@@ -219,15 +191,13 @@ describe("AOT arrays of spelled-out strings", () => {
       ),
       "f",
       [4],
-    );
-  });
+    ));
 });
 
 describe("AOT object types on parameters", () => {
   const ORDER = "type Order = { sku: string, qty: int, price: float }";
 
-  itNative("reads a field through a declared object type alias", () => {
-    matchesInterpreter(
+  itNative("reads a field through a declared object type alias", native.matches(
       src(
         ORDER,
         "fn total(order: Order) -> float:",
@@ -237,11 +207,9 @@ describe("AOT object types on parameters", () => {
       ),
       "f",
       [4],
-    );
-  });
+    ));
 
-  itNative("reads a field through an object type written in place", () => {
-    matchesInterpreter(
+  itNative("reads a field through an object type written in place", native.matches(
       src(
         "fn total(order: { qty: int, price: float }) -> float:",
         "  return order.price * order.qty",
@@ -250,11 +218,9 @@ describe("AOT object types on parameters", () => {
       ),
       "f",
       [7],
-    );
-  });
+    ));
 
-  itNative("lays a literal out as declared when its fields are written out of order", () => {
-    matchesInterpreter(
+  itNative("lays a literal out as declared when its fields are written out of order", native.matches(
       src(
         ORDER,
         "fn total(order: Order) -> float:",
@@ -264,8 +230,7 @@ describe("AOT object types on parameters", () => {
       ),
       "f",
       [4],
-    );
-  });
+    ));
 
   it("declines an object it cannot lay out the way the callee declares", () => {
     expect(

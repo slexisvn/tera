@@ -1,43 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
-import { cSource, itNative, runCProgram } from "../../../helpers/c-executor.js";
+import { itNative } from "../../../helpers/c-executor.js";
+import { cAgreement, image, interpreted, peAgrees } from "../../../helpers/aot-agreement.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
-function interpreted(source: string): string {
-  const stream: string[] = [];
-  nodeEngine({ typecheck: "off", output: (text) => stream.push(`${text}\n`) }).run(
-    `${source}\n`,
-  );
-  return stream.join("");
-}
-
-function image(source: string): Uint8Array {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "x64-windows",
-    format: "executable",
-  });
-  expect(program.skipped).toEqual([]);
-  return program.files[0]!.contents as Uint8Array;
-}
-
-function agrees(source: string): void {
-  const run = runPe(image(source));
-
-  expect(run.status).toBe(0);
-  expect(run.stdout).toBe(interpreted(source));
-}
-
-function agreesInC(source: string): void {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "c",
-    format: "assembly",
-  });
-
-  expect(program.skipped).toEqual([]);
-  expect(runCProgram(cSource(program)).stdout).toBe(interpreted(source));
-}
+const native = cAgreement();
 
 function declined(source: string): string {
   const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`);
@@ -250,22 +219,22 @@ const ABSENT_TEXT_PROGRAMS: readonly (readonly [string, string])[] = [
 
 describe("AOT numbers that can be absent", () => {
   for (const [name, source] of ABSENT_NUMBER_PROGRAMS) {
-    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
-    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
   }
 });
 
 describe("AOT text that can be absent", () => {
   for (const [name, source] of ABSENT_TEXT_PROGRAMS) {
-    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
-    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
   }
 });
 
 describe("AOT nullable references", () => {
   for (const [name, source] of PROGRAMS) {
-    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
-    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
   }
 
   itRunsPe("stores the null pointer for a field that was never assigned", () => {
@@ -280,7 +249,7 @@ describe("AOT nullable references", () => {
     ).toThrow("Type 'null' is not assignable to return type 'int'");
   });
   itRunsPe("short-circuits an optional field read to null", () => {
-    agrees(
+    peAgrees(
       src(
         "class P:",
         "  public constructor(name: string):",
@@ -294,7 +263,7 @@ describe("AOT nullable references", () => {
   });
 
   itRunsPe("answers null from a find that matches nothing", () => {
-    agrees(
+    peAgrees(
       src(
         "names: string[] = [\"ann\", \"bobby\"]",
         "print(names.find(n => n.length > 4))",
@@ -304,11 +273,11 @@ describe("AOT nullable references", () => {
   });
 
   itRunsPe("answers null from a find over numbers", () => {
-    agrees(src("xs: int[] = [1, 2, 3]", "print(xs.find(v => v > 1))", "print(xs.find(v => v > 9))"));
+    peAgrees(src("xs: int[] = [1, 2, 3]", "print(xs.find(v => v > 1))", "print(xs.find(v => v > 9))"));
   });
 
   itRunsPe("adds to a nullable int once a default has filled it in", () => {
-    agrees(
+    peAgrees(
       src(
         "fn bump(x: int | null) -> int:",
         "  return (x ?? 0) + 1",
@@ -317,18 +286,19 @@ describe("AOT nullable references", () => {
     );
   });
 
-  itNative("adds to a nullable int the same way through the C backend", () => {
-    agreesInC(
+  itNative(
+    "adds to a nullable int the same way through the C backend",
+    native.agrees(
       src(
         "fn bump(x: int | null) -> int:",
         "  return (x ?? 0) + 1",
         "print(bump(5), bump(null))",
       ),
-    );
-  });
+    ),
+  );
 
   itRunsPe("compares a nullable float a default has filled in", () => {
-    agrees(
+    peAgrees(
       src(
         "fn over(x: float | null, limit: float) -> bool:",
         "  return (x ?? 0.0) > limit",

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
+import { cCalls } from "../../../helpers/aot-agreement.js";
 
 function compile(lines: readonly string[]) {
   const program = nodeEngine().compileAot(`${lines.join("\n")}\n`);
@@ -12,20 +13,15 @@ function interpret(lines: readonly string[], call: string): unknown {
   return nodeEngine().runNative(`${lines.join("\n")}\n${call}\n`);
 }
 
+const native = cCalls({
+  toC: (lines: readonly string[]) => cSource(compile(lines)),
+  interpret: (lines: readonly string[], call: string) => interpret(lines, call),
+});
+
 function bodyOf(program: { source: string }, symbol: string): string {
   const start = cSource(program).search(new RegExp(`^\\w[\\w *]*\\b${symbol}\\(`, "m"));
   expect(start).toBeGreaterThan(-1);
   return cSource(program).slice(start, cSource(program).indexOf("\n}", start));
-}
-
-function expectMatchesInterpreter(
-  lines: readonly string[],
-  entry: string,
-  args: readonly number[],
-): void {
-  const program = compile(lines);
-  const interpreted = interpret(lines, `${entry}(${args.join(", ")})`);
-  expect(runCFunction(cSource(program), entry, args)).toBe(interpreted);
 }
 
 const POINT = [
@@ -118,32 +114,25 @@ const SIZED = [
 ];
 
 describe("AOT classes", () => {
-  itNative("constructs an instance and reads a field back", () => {
-    expectMatchesInterpreter(
+  itNative("constructs an instance and reads a field back", native.matches(
       [...POINT, "fn go(a: int, b: int) -> int:", "  p = Point(a, b)", "  return p.x"],
       "go",
       [3, 4],
-    );
-  });
+    ));
 
-  itNative("calls a method that reads two fields", () => {
-    expectMatchesInterpreter(
+  itNative("calls a method that reads two fields", native.matches(
       [...POINT, "fn go(a: int, b: int) -> int:", "  p = Point(a, b)", "  return p.sum()"],
       "go",
       [3, 4],
-    );
-  });
+    ));
 
-  itNative("passes arguments to a method alongside the receiver", () => {
-    expectMatchesInterpreter(
+  itNative("passes arguments to a method alongside the receiver", native.matches(
       [...POINT, "fn go(a: int, b: int) -> int:", "  p = Point(a, b)", "  return p.scaled(3)"],
       "go",
       [3, 4],
-    );
-  });
+    ));
 
-  itNative("mutates a field through an assignment", () => {
-    expectMatchesInterpreter(
+  itNative("mutates a field through an assignment", native.matches(
       [
         ...POINT,
         "fn go(a: int, b: int) -> int:",
@@ -153,11 +142,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [3, 4],
-    );
-  });
+    ));
 
-  itNative("keeps two instances of the same class distinct", () => {
-    expectMatchesInterpreter(
+  itNative("keeps two instances of the same class distinct", native.matches(
       [
         ...POINT,
         "fn go(a: int, b: int) -> int:",
@@ -168,11 +155,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [3, 4],
-    );
-  });
+    ));
 
-  itNative("constructs inside a loop without reusing storage", () => {
-    expectMatchesInterpreter(
+  itNative("constructs inside a loop without reusing storage", native.matches(
       [
         ...POINT,
         "fn go(n: int) -> int:",
@@ -186,11 +171,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [5],
-    );
-  });
+    ));
 
-  itNative("keeps a float field in floating point", () => {
-    expectMatchesInterpreter(
+  itNative("keeps a float field in floating point", native.matches(
       [
         "class Box:",
         "  public constructor(v: float):",
@@ -203,11 +186,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [7.5],
-    );
-  });
+    ));
 
-  itNative("runs a derived constructor through super", () => {
-    expectMatchesInterpreter(
+  itNative("runs a derived constructor through super", native.matches(
       [
         "class Shape:",
         "  public constructor(n: int):",
@@ -226,11 +207,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [6],
-    );
-  });
+    ));
 
-  itNative("overrides an inherited method", () => {
-    expectMatchesInterpreter(
+  itNative("overrides an inherited method", native.matches(
       [
         "class Shape:",
         "  public constructor(n: int):",
@@ -248,8 +227,7 @@ describe("AOT classes", () => {
       ],
       "go",
       [6],
-    );
-  });
+    ));
 
   it("gives a subclass field an offset past the whole parent instance", () => {
     const program = compile([
@@ -270,8 +248,7 @@ describe("AOT classes", () => {
     expect(bodyOf(program, "Circle_radius")).toContain("+ 16)");
   });
 
-  itNative("reads a field through a field that holds another instance", () => {
-    expectMatchesInterpreter(
+  itNative("reads a field through a field that holds another instance", native.matches(
       [
         "class Inner:",
         "  public constructor(v: int):",
@@ -286,11 +263,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [7],
-    );
-  });
+    ));
 
-  itNative("reads a field off an instance returned by a plain function", () => {
-    expectMatchesInterpreter(
+  itNative("reads a field off an instance returned by a plain function", native.matches(
       [
         "class P:",
         "  public constructor(v: int):",
@@ -302,11 +277,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [9],
-    );
-  });
+    ));
 
-  itNative("chains a method that returns an instance", () => {
-    expectMatchesInterpreter(
+  itNative("chains a method that returns an instance", native.matches(
       [
         "class P:",
         "  public constructor(v: int):",
@@ -318,8 +291,7 @@ describe("AOT classes", () => {
       ],
       "go",
       [9],
-    );
-  });
+    ));
 
   it("lays an int field out directly after the object header", () => {
     const program = compile([
@@ -364,21 +336,17 @@ describe("AOT classes", () => {
 
     expect(cSource(program)).toContain("Point(unsigned char *p0, int32_t p1, int32_t p2)");
   });
-  itNative("dispatches a polymorphic call to the receivers own implementation", () => {
-    expectMatchesInterpreter(SHAPES.concat([
+  itNative("dispatches a polymorphic call to the receivers own implementation", native.matches(SHAPES.concat([
       "fn go(a: int) -> int:",
       "  s = Shape(a)",
       "  return s.area()",
-    ]), "go", [7]);
-  });
+    ]), "go", [7]));
 
-  itNative("dispatches the same call site to an overriding subclass", () => {
-    expectMatchesInterpreter(SHAPES.concat([
+  itNative("dispatches the same call site to an overriding subclass", native.matches(SHAPES.concat([
       "fn go(a: int) -> int:",
       "  c = Circle(a)",
       "  return c.area()",
-    ]), "go", [7]);
-  });
+    ]), "go", [7]));
 
   it("tests the shape id in the object header when the call site is polymorphic", () => {
     const program = compile(SHAPES.concat([
@@ -404,16 +372,13 @@ describe("AOT classes", () => {
     expect(bodyOf(program, "go")).not.toContain("Circle_area(");
   });
 
-  itNative("reads a property through a getter", () => {
-    expectMatchesInterpreter(
+  itNative("reads a property through a getter", native.matches(
       [...GAUGE, "fn go(a: int) -> float:", "  return Gauge(a).scaled"],
       "go",
       [7],
-    );
-  });
+    ));
 
-  itNative("writes a property through a setter", () => {
-    expectMatchesInterpreter(
+  itNative("writes a property through a setter", native.matches(
       [
         ...GAUGE,
         "fn go(a: int) -> float:",
@@ -423,8 +388,7 @@ describe("AOT classes", () => {
       ],
       "go",
       [7],
-    );
-  });
+    ));
 
   it("calls the getter instead of loading a field at an offset", () => {
     const program = compile([...GAUGE, "fn go(a: int) -> float:", "  return Gauge(a).scaled"]);
@@ -444,21 +408,17 @@ describe("AOT classes", () => {
     expect(cSource(program)).toContain("void Gauge_set_scaled(unsigned char *p0, int32_t p1)");
   });
 
-  itNative("dispatches a getter to the receivers own implementation", () => {
-    expectMatchesInterpreter(
+  itNative("dispatches a getter to the receivers own implementation", native.matches(
       [...SIZED, "fn go(a: int) -> int:", "  s = Sized(a)", "  return s.width"],
       "go",
       [7],
-    );
-  });
+    ));
 
-  itNative("dispatches the same getter site to an overriding subclass", () => {
-    expectMatchesInterpreter(
+  itNative("dispatches the same getter site to an overriding subclass", native.matches(
       [...SIZED, "fn go(a: int) -> int:", "  w = Wide(a)", "  return w.width"],
       "go",
       [7],
-    );
-  });
+    ));
 
   it("tests the shape id when a getter site is polymorphic", () => {
     const program = compile([
@@ -473,13 +433,11 @@ describe("AOT classes", () => {
     expect(bodyOf(program, "measure")).toContain("Wide_get_width(");
   });
 
-  itNative("dispatches through a field to the class the field currently holds", () => {
-    expectMatchesInterpreter(STATES.concat([
+  itNative("dispatches through a field to the class the field currently holds", native.matches(STATES.concat([
       "fn go(a: int) -> int:",
       "  d = Document(a)",
       "  return d.publish() * 100 + d.publish()",
-    ]), "go", [7]);
-  });
+    ]), "go", [7]));
 
   it("covers a class that only matches the receiver's surface", () => {
     const program = compile(STATES.concat([
@@ -492,17 +450,14 @@ describe("AOT classes", () => {
     expect(bodyOf(program, "Document_publish")).toContain("PublishedState_publish(");
   });
 
-  itNative("dispatches a call made through an interface typed value", () => {
-    expectMatchesInterpreter(SHAPED.concat([
+  itNative("dispatches a call made through an interface typed value", native.matches(SHAPED.concat([
       "fn measure(s: Shaped) -> int:",
       "  return s.area()",
       "fn go(a: int) -> int:",
       "  return measure(Box(a)) * 100 + measure(Disc(a))",
-    ]), "go", [7]);
-  });
+    ]), "go", [7]));
 
-  itNative("stores an interface typed value in a field and calls back through it", () => {
-    expectMatchesInterpreter(SHAPED.concat([
+  itNative("stores an interface typed value in a field and calls back through it", native.matches(SHAPED.concat([
       "class Holder:",
       "  public constructor(s: Shaped):",
       "    this.s = s",
@@ -510,8 +465,7 @@ describe("AOT classes", () => {
       "    return this.s.area()",
       "fn go(a: int) -> int:",
       "  return Holder(Disc(a)).measure()",
-    ]), "go", [7]);
-  });
+    ]), "go", [7]));
 
   it("names every implementation of the interface at the call site", () => {
     const program = compile(SHAPED.concat([
@@ -525,8 +479,7 @@ describe("AOT classes", () => {
     expect(bodyOf(program, "measure")).toContain("Disc_area(");
   });
 
-  itNative("calls a static method on the class itself", () => {
-    expectMatchesInterpreter(
+  itNative("calls a static method on the class itself", native.matches(
       [
         "class M:",
         "  public constructor(v: int):",
@@ -538,8 +491,7 @@ describe("AOT classes", () => {
       ],
       "go",
       [21],
-    );
-  });
+    ));
 
   it("calls a static method without passing a receiver", () => {
     const program = compile([
@@ -556,8 +508,7 @@ describe("AOT classes", () => {
     expect(bodyOf(program, "go")).toContain("M_static_twice(p0)");
   });
 
-  itNative("inherits a static method from the parent class", () => {
-    expectMatchesInterpreter(
+  itNative("inherits a static method from the parent class", native.matches(
       [
         "class Base:",
         "  public constructor(v: int):",
@@ -572,11 +523,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [21],
-    );
-  });
+    ));
 
-  itNative("calls the parent implementation through super", () => {
-    expectMatchesInterpreter(
+  itNative("calls the parent implementation through super", native.matches(
       [
         "class A:",
         "  public constructor(n: int):",
@@ -593,8 +542,7 @@ describe("AOT classes", () => {
       ],
       "go",
       [6],
-    );
-  });
+    ));
 
   it("binds a super call to the parent implementation rather than dispatching", () => {
     const program = compile([
@@ -615,8 +563,7 @@ describe("AOT classes", () => {
     expect(bodyOf(program, "B_size")).toContain("A_size(p0)");
   });
 
-  itNative("round-trips a static field through the module datum", () => {
-    expectMatchesInterpreter(
+  itNative("round-trips a static field through the module datum", native.matches(
       [
         "class Tally:",
         "  public static total: int = 0",
@@ -629,8 +576,7 @@ describe("AOT classes", () => {
       ],
       "go",
       [5],
-    );
-  });
+    ));
 
   it("addresses a static field off the statics block rather than an instance", () => {
     const program = compile([
@@ -647,8 +593,7 @@ describe("AOT classes", () => {
     expect(bodyOf(program, "go")).not.toContain("tera_alloc(");
   });
 
-  itNative("gives two classes separate storage for a static field of the same name", () => {
-    expectMatchesInterpreter(
+  itNative("gives two classes separate storage for a static field of the same name", native.matches(
       [
         "class Left:",
         "  public static slot: int = 0",
@@ -665,19 +610,15 @@ describe("AOT classes", () => {
       ],
       "go",
       [5],
-    );
-  });
+    ));
 
-  itNative("passes a constructor argument by name", () => {
-    expectMatchesInterpreter(
+  itNative("passes a constructor argument by name", native.matches(
       [...POINT, "fn go(a: int, b: int) -> int:", "  p = Point(y=b, x=a)", "  return p.x - p.y"],
       "go",
       [3, 4],
-    );
-  });
+    ));
 
-  itNative("passes a super constructor argument by name", () => {
-    expectMatchesInterpreter(
+  itNative("passes a super constructor argument by name", native.matches(
       [
         "class Shape:",
         "  public constructor(n: int):",
@@ -692,19 +633,15 @@ describe("AOT classes", () => {
       ],
       "go",
       [6],
-    );
-  });
+    ));
 
-  itNative("passes a method argument by name", () => {
-    expectMatchesInterpreter(
+  itNative("passes a method argument by name", native.matches(
       [...POINT, "fn go(a: int, b: int) -> int:", "  return Point(a, b).scaled(by=3)"],
       "go",
       [3, 4],
-    );
-  });
+    ));
 
-  itNative("passes a static method argument by name", () => {
-    expectMatchesInterpreter(
+  itNative("passes a static method argument by name", native.matches(
       [
         "class M:",
         "  public constructor(v: int):",
@@ -716,11 +653,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [7],
-    );
-  });
+    ));
 
-  itNative("passes a plain function argument by name", () => {
-    expectMatchesInterpreter(
+  itNative("passes a plain function argument by name", native.matches(
       [
         "fn span(low: int, high: int) -> int:",
         "  return high - low",
@@ -729,11 +664,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [3, 10],
-    );
-  });
+    ));
 
-  itNative("reads a field off an instance held in an array", () => {
-    expectMatchesInterpreter(
+  itNative("reads a field off an instance held in an array", native.matches(
       [
         "class P:",
         "  public constructor(v: int):",
@@ -744,8 +677,7 @@ describe("AOT classes", () => {
       ],
       "go",
       [3],
-    );
-  });
+    ));
 
   it("holds instances in an array of pointers", () => {
     const program = compile([
@@ -761,8 +693,7 @@ describe("AOT classes", () => {
     expect(bodyOf(program, "go")).toContain("tera_alloc(");
   });
 
-  itNative("dispatches through an array holding two subclasses", () => {
-    expectMatchesInterpreter(
+  itNative("dispatches through an array holding two subclasses", native.matches(
       SHAPES.concat([
         "fn go(a: int) -> int:",
         "  xs = [Shape(a), Circle(a)]",
@@ -770,11 +701,9 @@ describe("AOT classes", () => {
       ]),
       "go",
       [7],
-    );
-  });
+    ));
 
-  itNative("walks an array of instances in a loop", () => {
-    expectMatchesInterpreter(
+  itNative("walks an array of instances in a loop", native.matches(
       [
         "class P:",
         "  public constructor(v: int):",
@@ -790,8 +719,7 @@ describe("AOT classes", () => {
       ],
       "go",
       [3],
-    );
-  });
+    ));
 
   itNative("dispatches per element while walking instances with for-of", () => {
     const program = compile([
@@ -819,8 +747,7 @@ describe("AOT classes", () => {
     expect(runCFunction(cSource(program), "go", [3])).toBe(3 + 300 + 16 + 400);
   });
 
-  itNative("returns from a method that declares no return value", () => {
-    expectMatchesInterpreter(
+  itNative("returns from a method that declares no return value", native.matches(
       [
         "class Counter:",
         "  public constructor():",
@@ -835,19 +762,15 @@ describe("AOT classes", () => {
       ],
       "go",
       [4],
-    );
-  });
+    ));
 
-  itNative("constructs a subclass that declares no constructor", () => {
-    expectMatchesInterpreter(
+  itNative("constructs a subclass that declares no constructor", native.matches(
       [...INHERITED, "fn go(a: int) -> int:", "  return Leaf(a).doubled()"],
       "go",
       [7],
-    );
-  });
+    ));
 
-  itNative("carries the parent constructor down two levels of silent subclasses", () => {
-    expectMatchesInterpreter(
+  itNative("carries the parent constructor down two levels of silent subclasses", native.matches(
       [
         ...INHERITED,
         "class Deep extends Leaf:",
@@ -859,11 +782,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [7],
-    );
-  });
+    ));
 
-  itNative("applies a parent default through an inherited constructor", () => {
-    expectMatchesInterpreter(
+  itNative("applies a parent default through an inherited constructor", native.matches(
       [
         "class Base:",
         "  public constructor(n: int = 4):",
@@ -878,11 +799,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [9],
-    );
-  });
+    ));
 
-  itNative("initializes the fields of a subclass that declares no constructor", () => {
-    expectMatchesInterpreter(
+  itNative("initializes the fields of a subclass that declares no constructor", native.matches(
       [
         ...INHERITED,
         "class Tagged extends Base:",
@@ -894,11 +813,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [7],
-    );
-  });
+    ));
 
-  itNative("dispatches over a subclass that declares no constructor", () => {
-    expectMatchesInterpreter(
+  itNative("dispatches over a subclass that declares no constructor", native.matches(
       [
         "class Base:",
         "  public constructor(n: int):",
@@ -916,10 +833,8 @@ describe("AOT classes", () => {
       ],
       "go",
       [7],
-    );
-  });
-  itNative("initialises a declared field to the zero of its type", () => {
-    expectMatchesInterpreter(
+    ));
+  itNative("initialises a declared field to the zero of its type", native.matches(
       [
         "class Counter:",
         "  public n: int",
@@ -935,11 +850,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [4],
-    );
-  });
+    ));
 
-  itNative("reaches a declared field through a class that owns another", () => {
-    expectMatchesInterpreter(
+  itNative("reaches a declared field through a class that owns another", native.matches(
       [
         "class Engine:",
         "  public hp: int",
@@ -956,11 +869,9 @@ describe("AOT classes", () => {
       ],
       "go",
       [300],
-    );
-  });
+    ));
 
-  itNative("reads a field through the interface a class conforms to", () => {
-    expectMatchesInterpreter(
+  itNative("reads a field through the interface a class conforms to", native.matches(
       [
         "interface Sized:",
         "  size: int",
@@ -975,6 +886,5 @@ describe("AOT classes", () => {
       ],
       "go",
       [12],
-    );
-  });
+    ));
 });

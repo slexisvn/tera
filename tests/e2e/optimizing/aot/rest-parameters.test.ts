@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
-import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
+import { cSource, itNative } from "../../../helpers/c-executor.js";
+import { cCalls } from "../../../helpers/aot-agreement.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
 
 const src = (...lines: string[]) => lines.join("\n");
@@ -11,14 +12,13 @@ function compile(source: string, backend = "c") {
   return program;
 }
 
+const native = cCalls({
+  toC: (source: string) => cSource(compile(source)),
+  interpret: (source: string, call: string) => interpret(source, call),
+});
+
 function interpret(source: string, call: string): unknown {
   return nodeEngine({ typecheck: "off" }).runNative(`${source}\n${call}\n`);
-}
-
-function matchesInterpreter(source: string, entry: string, args: readonly number[]): void {
-  expect(runCFunction(cSource(compile(source)), entry, args)).toBe(
-    interpret(source, `${entry}(${args.join(", ")})`),
-  );
 }
 
 function ran(source: string) {
@@ -59,16 +59,13 @@ const CONE = src(
 );
 
 describe("AOT rest parameters", () => {
-  itNative("counts the arguments a call gathered", () => {
-    matchesInterpreter(
+  itNative("counts the arguments a call gathered", native.matches(
       src("fn total(...rest: int) -> int:", "  return rest.length", "fn go(n: int) -> int:", "  return total(n, n, n)"),
       "go",
       [4],
-    );
-  });
+    ));
 
-  itNative("reads a gathered argument by index", () => {
-    matchesInterpreter(
+  itNative("reads a gathered argument by index", native.matches(
       src(
         "fn second(...rest: int) -> int:",
         "  return rest[1]",
@@ -77,11 +74,9 @@ describe("AOT rest parameters", () => {
       ),
       "go",
       [4],
-    );
-  });
+    ));
 
-  itNative("walks the gathered arguments with for-of", () => {
-    matchesInterpreter(
+  itNative("walks the gathered arguments with for-of", native.matches(
       src(
         "fn sum(...values: int) -> int:",
         "  total = 0",
@@ -93,11 +88,9 @@ describe("AOT rest parameters", () => {
       ),
       "go",
       [4],
-    );
-  });
+    ));
 
-  itNative("gathers only the arguments after the declared parameters", () => {
-    matchesInterpreter(
+  itNative("gathers only the arguments after the declared parameters", native.matches(
       src(
         "fn tail(first: int, ...rest: int) -> int:",
         "  return first * 100 + rest.length",
@@ -106,16 +99,13 @@ describe("AOT rest parameters", () => {
       ),
       "go",
       [4],
-    );
-  });
+    ));
 
-  itNative("reads the length of an array the function built itself", () => {
-    matchesInterpreter(
+  itNative("reads the length of an array the function built itself", native.matches(
       src("fn go(n: int) -> int:", "  xs = [n, n + 1, n + 2]", "  return xs.length"),
       "go",
       [4],
-    );
-  });
+    ));
 
   itRunsPe("constructs a class whose constructor gathers its arguments", () => {
     expect(ran(src(BAG, "print(Bag(1, 2, 3).size)")).stdout).toBe("3\n");
@@ -135,8 +125,7 @@ describe("AOT rest parameters", () => {
     expect(run.stdout).toBe("4\n");
   });
 
-  itNative("gathers a different count for each arity a call site uses", () => {
-    matchesInterpreter(
+  itNative("gathers a different count for each arity a call site uses", native.matches(
       src(
         "fn total(...rest: int) -> int:",
         "  return rest.length",
@@ -145,8 +134,7 @@ describe("AOT rest parameters", () => {
       ),
       "go",
       [4],
-    );
-  });
+    ));
 
   it("compiles one clone per arity and no clone nobody calls", () => {
     const program = compile(

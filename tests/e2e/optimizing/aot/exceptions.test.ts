@@ -1,6 +1,7 @@
 import { describe, expect } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
-import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
+import { cSource, itNative } from "../../../helpers/c-executor.js";
+import { cCalls } from "../../../helpers/aot-agreement.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
 import { TERA_EXIT_UNCAUGHT_THROW } from "../../../../src/optimizing/target/faults.js";
 
@@ -12,14 +13,13 @@ function compile(source: string, backend = "c") {
   return program;
 }
 
+const native = cCalls({
+  toC: (source: string) => cSource(compile(source)),
+  interpret: (source: string, call: string) => interpret(source, call),
+});
+
 function interpret(source: string, call: string): unknown {
   return nodeEngine({ typecheck: "off" }).runNative(`${source}\n${call}\n`);
-}
-
-function matchesInterpreter(source: string, entry: string, args: readonly number[]): void {
-  expect(runCFunction(cSource(compile(source)), entry, args)).toBe(
-    interpret(source, `${entry}(${args.join(", ")})`),
-  );
 }
 
 function ran(source: string) {
@@ -50,8 +50,7 @@ const ACCOUNT = src(
 );
 
 describe("AOT exceptions", () => {
-  itNative("catches a throw raised in the same function", () => {
-    matchesInterpreter(
+  itNative("catches a throw raised in the same function", native.matches(
       src(
         "fn go(n: int) -> int:",
         "  try:",
@@ -63,27 +62,21 @@ describe("AOT exceptions", () => {
       ),
       "go",
       [-4],
-    );
-  });
+    ));
 
-  itNative("catches a throw raised by a callee", () => {
-    matchesInterpreter(
+  itNative("catches a throw raised by a callee", native.matches(
       src(RISKY, "fn go(n: int) -> int:", "  try:", "    return risky(n)", "  catch e:", "    return -1"),
       "go",
       [-4],
-    );
-  });
+    ));
 
-  itNative("leaves the value of a call that did not throw alone", () => {
-    matchesInterpreter(
+  itNative("leaves the value of a call that did not throw alone", native.matches(
       src(RISKY, "fn go(n: int) -> int:", "  try:", "    return risky(n)", "  catch e:", "    return -1"),
       "go",
       [21],
-    );
-  });
+    ));
 
-  itNative("carries a throw through a frame that has no handler", () => {
-    matchesInterpreter(
+  itNative("carries a throw through a frame that has no handler", native.matches(
       src(
         RISKY,
         "fn middle(n: int) -> int:",
@@ -96,11 +89,9 @@ describe("AOT exceptions", () => {
       ),
       "go",
       [-4],
-    );
-  });
+    ));
 
-  itNative("keeps the mutation a throwing method made before it threw", () => {
-    matchesInterpreter(
+  itNative("keeps the mutation a throwing method made before it threw", native.matches(
       src(
         ACCOUNT,
         "fn go(n: int) -> int:",
@@ -114,11 +105,9 @@ describe("AOT exceptions", () => {
       ),
       "go",
       [500],
-    );
-  });
+    ));
 
-  itNative("catches once per iteration of a loop", () => {
-    matchesInterpreter(
+  itNative("catches once per iteration of a loop", native.matches(
       src(
         RISKY,
         "fn go(n: int) -> int:",
@@ -132,11 +121,9 @@ describe("AOT exceptions", () => {
       ),
       "go",
       [100],
-    );
-  });
+    ));
 
-  itNative("hands a rethrow to the enclosing handler", () => {
-    matchesInterpreter(
+  itNative("hands a rethrow to the enclosing handler", native.matches(
       src(
         "fn go(n: int) -> int:",
         "  try:",
@@ -150,8 +137,7 @@ describe("AOT exceptions", () => {
       ),
       "go",
       [7],
-    );
-  });
+    ));
 
   itRunsPe("binds the thrown message to the catch variable", () => {
     expect(ran(src("try:", '  throw "boom"', "catch e:", '  print("caught:", e)')).stdout).toBe(

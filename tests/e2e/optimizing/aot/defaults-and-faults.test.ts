@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
-import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
+import { cSource, itNative } from "../../../helpers/c-executor.js";
+import { cCalls } from "../../../helpers/aot-agreement.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
 import { TERA_EXIT_UNCAUGHT_THROW } from "../../../../src/optimizing/target/faults.js";
 
@@ -13,15 +14,13 @@ function compile(source: string, backend = "c") {
   return program;
 }
 
+const native = cCalls({
+  toC: (source: string) => cSource(compile(source)),
+  interpret: (source: string, call: string) => interpret(source, call),
+});
+
 function interpret(source: string, call: string): unknown {
   return nodeEngine({ typecheck: "off" }).runNative(`${source}\n${call}\n`);
-}
-
-function matchesInterpreter(source: string, entry: string, args: readonly number[]): void {
-  const program = compile(source);
-  expect(runCFunction(cSource(program), entry, args)).toBe(
-    interpret(source, `${entry}(${args.join(", ")})`),
-  );
 }
 
 function image(source: string, entry: string | null = null): Uint8Array {
@@ -46,41 +45,31 @@ const BOX = [
 ];
 
 describe("AOT default arguments", () => {
-  itNative("fills a constructor default the caller left out", () => {
-    matchesInterpreter(
+  itNative("fills a constructor default the caller left out", native.matches(
       src(...BOX, "fn go(w: int) -> int:", "  return Box(w).area()"),
       "go",
       [5],
-    );
-  });
+    ));
 
-  itNative("fills every constructor default when none are given", () => {
-    matchesInterpreter(src(...BOX, "fn go() -> int:", "  return Box().area()"), "go", []);
-  });
+  itNative("fills every constructor default when none are given", native.matches(src(...BOX, "fn go() -> int:", "  return Box().area()"), "go", []));
 
-  itNative("fills a method default", () => {
-    matchesInterpreter(
+  itNative("fills a method default", native.matches(
       src(...BOX, "fn go(w: int) -> int:", "  return Box(w).scaled()"),
       "go",
       [4],
-    );
-  });
+    ));
 
-  itNative("fills a plain function default", () => {
-    matchesInterpreter(
+  itNative("fills a plain function default", native.matches(
       src("fn twice(a: int, b: int = 5) -> int:", "  return a * b", "fn go(a: int) -> int:", "  return twice(a)"),
       "go",
       [6],
-    );
-  });
+    ));
 
-  itNative("fills a default skipped over by a named argument", () => {
-    matchesInterpreter(
+  itNative("fills a default skipped over by a named argument", native.matches(
       src(...BOX, "fn go() -> int:", "  return Box(h=10).area()"),
       "go",
       [],
-    );
-  });
+    ));
 
   it("declines a call whose omitted parameter has no literal default", () => {
     const program = nodeEngine({ typecheck: "off" }).compileAot(

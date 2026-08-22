@@ -1,48 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
-import { cSource, itNative, runCProgram } from "../../../helpers/c-executor.js";
+import { itNative } from "../../../helpers/c-executor.js";
+import { cAgreement, image, interpreted, peAgrees } from "../../../helpers/aot-agreement.js";
 
 const src = (...lines: string[]) => lines.join("\n");
+
+const native = cAgreement();
 
 const TEXT = 's = "abcde"';
 const NO_CODE = "no character code at that index";
 const NO_REPEAT = "cannot repeat text a negative number of times";
 const BY_ZERO = "cannot take the remainder by zero";
-
-function interpreted(source: string): string {
-  const stream: string[] = [];
-  nodeEngine({ typecheck: "off", output: (text) => stream.push(`${text}\n`) }).run(
-    `${source}\n`,
-  );
-  return stream.join("");
-}
-
-function image(source: string): Uint8Array {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "x64-windows",
-    format: "executable",
-  });
-  expect(program.skipped).toEqual([]);
-  return program.files[0]!.contents as Uint8Array;
-}
-
-function agrees(source: string): void {
-  const run = runPe(image(source));
-
-  expect(run.status).toBe(0);
-  expect(run.stdout).toBe(interpreted(source));
-}
-
-function agreesInC(source: string): void {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "c",
-    format: "assembly",
-  });
-
-  expect(program.skipped).toEqual([]);
-  expect(runCProgram(cSource(program)).stdout).toBe(interpreted(source));
-}
 
 const IN_DOMAIN: readonly (readonly [string, string])[] = [
   ["reads the code of the first character", src(TEXT, "print(s.char_code_at(0))")],
@@ -76,8 +45,8 @@ const OUT_OF_DOMAIN: readonly (readonly [string, string, string])[] = [
 
 describe("builtins answer inside their domain the way the interpreter does", () => {
   for (const [name, source] of IN_DOMAIN) {
-    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
-    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
   }
 });
 
@@ -91,15 +60,7 @@ describe("builtins fault outside their domain, where the interpreter answers NaN
       expect(run.stdout).toBe("");
     });
 
-    itNative(`faults on ${name} through the C backend`, () => {
-      const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-        backend: "c",
-        format: "assembly",
-      });
-
-      expect(program.skipped).toEqual([]);
-      expect(runCProgram(cSource(program)).status).not.toBe(0);
-    });
+    itNative(`faults on ${name} through the C backend`, native.faults(source));
   }
 
   it("compiles a remainder by a non-zero literal without a guard to fault through", () => {
@@ -112,7 +73,7 @@ describe("builtins fault outside their domain, where the interpreter answers NaN
 });
 describe("AOT Math surface", () => {
   itRunsPe("raises to a spelled-out whole power", () => {
-    agrees(
+    peAgrees(
       src(
         "print(Math.pow(2.0, 10.0))",
         "print(Math.pow(3.0, 0.0))",
@@ -125,11 +86,11 @@ describe("AOT Math surface", () => {
   });
 
   itRunsPe("folds min and max over more than two values", () => {
-    agrees(src("print(Math.max(3, 7, 2), Math.min(3, 7, 2))", "print(Math.max(1, 2, 3, 4))"));
+    peAgrees(src("print(Math.max(3, 7, 2), Math.min(3, 7, 2))", "print(Math.max(1, 2, 3, 4))"));
   });
 
   itRunsPe("spells the Math constants", () => {
-    agrees(src("print(Math.PI)", "print(Math.E)"));
+    peAgrees(src("print(Math.PI)", "print(Math.E)"));
   });
 
   it("declines a power the compiler cannot expand", () => {

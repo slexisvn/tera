@@ -1,7 +1,8 @@
 import { describe, expect } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
-import { cSource, itNative, runCProgram } from "../../../helpers/c-executor.js";
+import { cBatch, itNative } from "../../../helpers/c-executor.js";
+import { cText } from "../../../helpers/aot-agreement.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
@@ -32,14 +33,13 @@ function agrees(source: string, lines: readonly string[] = []): void {
   expect(run.stdout).toBe(interpreted(source, lines));
 }
 
-function agreesInC(source: string): void {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "c",
-    format: "assembly",
-  });
+const batch = cBatch();
 
-  expect(program.skipped).toEqual([]);
-  expect(runCProgram(cSource(program)).stdout).toBe(interpreted(source, []));
+function agreesInC(source: string): () => void {
+  const run = batch.program(() => cText(source));
+  return () => {
+    expect(run().stdout).toBe(interpreted(source, []));
+  };
 }
 
 const PROGRAMS: readonly (readonly [string, string])[] = [
@@ -113,7 +113,7 @@ const PROGRAMS: readonly (readonly [string, string])[] = [
 describe("strings built across a call that can re-enter", () => {
   for (const [name, source] of PROGRAMS) {
     itRunsPe(`builds ${name} the way the interpreter does`, () => agrees(source));
-    itNative(`builds ${name} the same way through the C backend`, () => agreesInC(source));
+    itNative(`builds ${name} the same way through the C backend`, agreesInC(source));
   }
 
   itRunsPe("keeps each activation's line of input to itself", () => {

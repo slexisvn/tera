@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { it } from "vitest";
+import { runsToolchain } from "./native-tier.js";
 
 const COMPILERS = ["cc", "gcc", "clang"];
 const COPIERS = ["objcopy", "llvm-objcopy"];
@@ -52,7 +53,7 @@ function detect(): Toolchain | null {
   });
 }
 
-export const gnuToolchain = detect();
+export const gnuToolchain = runsToolchain ? detect() : null;
 
 export const itAssembles = it.skipIf(gnuToolchain === null);
 
@@ -136,9 +137,9 @@ function version(name: string): boolean {
   return spawnSync(name, ["--version"], { encoding: "utf8" }).status === 0;
 }
 
-export const elfReader = locate(READERS, version);
+export const elfReader = runsToolchain ? locate(READERS, version) : null;
 
-export const objectDumper = locate(DUMPERS, version);
+export const objectDumper = runsToolchain ? locate(DUMPERS, version) : null;
 
 export const itReadsElf = it.skipIf(elfReader === null);
 

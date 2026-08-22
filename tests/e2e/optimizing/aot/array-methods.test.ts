@@ -1,43 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
-import { cSource, itNative, runCProgram } from "../../../helpers/c-executor.js";
+import { itNative } from "../../../helpers/c-executor.js";
+import { cAgreement, image, interpreted, peAgrees } from "../../../helpers/aot-agreement.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
-function interpreted(source: string): string {
-  const stream: string[] = [];
-  nodeEngine({ typecheck: "off", output: (text) => stream.push(`${text}\n`) }).run(
-    `${source}\n`,
-  );
-  return stream.join("");
-}
-
-function image(source: string): Uint8Array {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "x64-windows",
-    format: "executable",
-  });
-  expect(program.skipped).toEqual([]);
-  return program.files[0]!.contents as Uint8Array;
-}
-
-function agrees(source: string): void {
-  const run = runPe(image(source));
-
-  expect(run.status).toBe(0);
-  expect(run.stdout).toBe(interpreted(source));
-}
-
-function agreesInC(source: string): void {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "c",
-    format: "assembly",
-  });
-
-  expect(program.skipped).toEqual([]);
-  expect(runCProgram(cSource(program)).stdout).toBe(interpreted(source));
-}
+const native = cAgreement();
 
 const PROGRAMS: readonly (readonly [string, string])[] = [
   ["finds an int", src("xs: int[] = [1, 2, 3]", "print(xs.index_of(3))")],
@@ -314,8 +283,8 @@ const MUTATION_PROGRAMS: readonly (readonly [string, string])[] = [
 
 describe("array mutation methods", () => {
   for (const [name, source] of MUTATION_PROGRAMS) {
-    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
-    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
   }
 
   itRunsPe("faults on popping an empty array, where the interpreter answers undefined", () => {
@@ -329,8 +298,8 @@ describe("array mutation methods", () => {
 
 describe("array callback methods", () => {
   for (const [name, source] of CALLBACK_PROGRAMS) {
-    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
-    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
   }
 
   it("declines a sort with no comparator, where the interpreter sorts as text", () => {
@@ -374,8 +343,8 @@ describe("array callback methods", () => {
 
 describe("array search methods", () => {
   for (const [name, source] of PROGRAMS) {
-    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
-    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
   }
 
   itRunsPe("scans elements in order and stops at the first match", () => {
@@ -396,13 +365,13 @@ describe("array search methods", () => {
 
 describe("array slicing", () => {
   for (const [name, source] of SLICE_PROGRAMS) {
-    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
-    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
   }
 });
 describe("AOT array flattening", () => {
   itRunsPe("flattens nested arrays the way the interpreter does", () => {
-    agrees(
+    peAgrees(
       src(
         "print([[1, 2], [3, 4], [5]].flat())",
         "grid: int[][] = [[1], [2, 3]]",

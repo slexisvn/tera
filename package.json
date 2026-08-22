@@ -40,6 +40,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --project unit",
     "test:e2e": "vitest run --project e2e",
+    "test:native": "vitest run --project native",
+    "test:full": "vitest run --project full",
     "postinstall": "patch-package"
   },
   "devDependencies": {

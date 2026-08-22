@@ -1,39 +1,11 @@
 import { describe, expect } from "vitest";
-import { nodeEngine } from "../../../helpers/engine.js";
-import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
-import { cSource, itNative, runCProgram } from "../../../helpers/c-executor.js";
+import { itRunsPe } from "../../../helpers/pe-runner.js";
+import { itNative } from "../../../helpers/c-executor.js";
+import { cAgreement, interpreted, peAgrees } from "../../../helpers/aot-agreement.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
-function interpreted(source: string): string {
-  const stream: string[] = [];
-  nodeEngine({ typecheck: "off", output: (text) => stream.push(`${text}\n`) }).run(
-    `${source}\n`,
-  );
-  return stream.join("");
-}
-
-function agrees(source: string): void {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "x64-windows",
-    format: "executable",
-  });
-  expect(program.skipped).toEqual([]);
-  const run = runPe(program.files[0]!.contents as Uint8Array);
-
-  expect(run.status).toBe(0);
-  expect(run.stdout).toBe(interpreted(source));
-}
-
-function agreesInC(source: string): void {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-    backend: "c",
-    format: "assembly",
-  });
-
-  expect(program.skipped).toEqual([]);
-  expect(runCProgram(cSource(program)).stdout).toBe(interpreted(source));
-}
+const native = cAgreement();
 
 /** An empty needle matches in the gaps, which is where the two members part ways. */
 const PROGRAMS: readonly (readonly [string, string])[] = [
@@ -63,7 +35,7 @@ const PROGRAMS: readonly (readonly [string, string])[] = [
 
 describe("replace and replace_all", () => {
   for (const [name, source] of PROGRAMS) {
-    itRunsPe(`${name} the way the interpreter does`, () => agrees(source));
-    itNative(`${name} the same way through the C backend`, () => agreesInC(source));
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
   }
 });
