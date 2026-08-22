@@ -60,7 +60,6 @@ export interface CompileConfig {
   cc: string | null;
   heapBytes: number | null;
   keepTemps: boolean;
-  typecheck: TypecheckMode | null;
   modulePaths: string[];
 }
 

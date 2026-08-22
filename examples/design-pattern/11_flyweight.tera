@@ -3,7 +3,7 @@ interface DrawableGlyph:
 
 class Glyph implements DrawableGlyph:
   private static cache = Map()
-  private constructor(char):
+  private constructor(char: string):
     this.char = char
   public static of(char: string) -> DrawableGlyph:
     if !Glyph.cache.has(char):

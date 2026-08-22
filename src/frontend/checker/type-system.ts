@@ -366,9 +366,9 @@ export function parseFunctionType(type: TypeName): Signature | null {
       params.set(name, { type: arrayOfType(parsed.type), optional: true });
       continue;
     }
-    params.set(name, { type: parsed.type, optional: false });
+    params.set(name, { type: parsed.type, optional: parsed.optional });
     positional.push(name);
-    required.add(name);
+    if (!parsed.optional) required.add(name);
   }
   const signature: Signature = {
     name: "<function>",
@@ -385,18 +385,20 @@ export function parseFunctionType(type: TypeName): Signature | null {
 function parseFunctionParam(
   source: string,
   index: number,
-): { name: string; type: TypeName; rest: boolean } {
+): { name: string; type: TypeName; rest: boolean; optional: boolean } {
   const gathered = restParameterSource(source);
   const rest = gathered !== null;
   const declaration = gathered ?? source;
   const colon = topLevelColon(declaration);
   if (colon > 0) {
-    const name = declaration.slice(0, colon).trim();
+    const written = declaration.slice(0, colon).trim();
+    const optional = written.endsWith("?");
+    const name = optional ? written.slice(0, -1).trim() : written;
     if (/^[A-Za-z_$][\w$]*$/.test(name)) {
-      return { name, type: cleanType(declaration.slice(colon + 1)), rest };
+      return { name, type: cleanType(declaration.slice(colon + 1)), rest, optional };
     }
   }
-  return { name: `arg${index}`, type: cleanType(declaration), rest };
+  return { name: `arg${index}`, type: cleanType(declaration), rest, optional: false };
 }
 
 function topLevelColon(source: string): number {
@@ -585,7 +587,7 @@ export function iterableBindingType(type: TypeName, mode: "in" | "of", env: Type
   const element = arrayElementType(resolved);
   if (element) return element;
   if (isTupleType(resolved)) return unionType(tupleTypes(resolved));
-  if (resolved === "Array") return "any";
+  if (resolved === "Array" || resolved === ITERATOR_TYPE) return "any";
   return iteratorElementType(resolved, env) ?? "unknown";
 }
 
@@ -606,6 +608,7 @@ export function baseTypeName(type: TypeName): string {
 }
 
 const PROMISE_TYPE = "Promise";
+const ITERATOR_TYPE = "iterator";
 
 export function awaitedType(type: TypeName, env: TypeEnv, seen = new Set<string>()): TypeName {
   return unionType(unionParts(type, env).map((part) => awaitedPart(part, env, seen)));

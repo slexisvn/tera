@@ -197,7 +197,10 @@ function memberName(node: ASTNode): string {
 
 function inferMember(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
   const scoped = lookup(scope, dottedName(node) ?? "");
-  if (scoped) return scoped.type;
+  return scoped ? scoped.type : declaredMemberType(node, bound, scope);
+}
+
+export function declaredMemberType(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
   const objectType = inferExpression(node.object as ASTNode, bound, scope);
   const optional = node.type === NodeType.OptionalMemberExpression;
   if (node.computed) {
@@ -243,6 +246,29 @@ function inferIndexedType(type: TypeName, key: ASTNode | null | undefined, slice
 function indexValueNode(dim: ASTNode): ASTNode | null {
   if (dim.kind === "index") return dim.value as ASTNode;
   return null;
+}
+
+function computedWriteKey(target: ASTNode): ASTNode | null {
+  if (target.type === NodeType.IndexExpression) {
+    const dims = target.dims as ASTNode[];
+    return dims.length === 1 ? indexValueNode(dims[0]!) : null;
+  }
+  return target.computed ? (target.property as ASTNode) : null;
+}
+
+export function writesUnknownKey(
+  target: ASTNode,
+  bound: BoundProgram,
+  scope: Scope,
+): boolean {
+  const key = computedWriteKey(target);
+  if (key === null) return false;
+  const resolved = resolveType(inferExpression(target.object as ASTNode, bound, scope), bound.env);
+  if (arrayElementType(resolved) || isTupleType(resolved) || resolved === "Array") return false;
+  const shape = instantiateShapeForType(resolved, bound.env);
+  if (shape === null || shape === undefined || shape.indexers?.length) return false;
+  const literal = literalIndexKey(key);
+  return literal === null || !shape.fields.has(String(literal));
 }
 
 export function literalIndexKey(node: ASTNode | null | undefined): string | number | null {
@@ -544,16 +570,17 @@ function arrayMethodSignature(type: TypeName, property: string, env: TypeEnv): S
     const rest: Signature["rest"] = { name: "arrays", type: unionType([element, `${element}[]`]), optional: true, named: false };
     return { name: `${owner}.concat`, typeParams: [], params: new Map(), required: new Set(), positional: [], returns: `${element}[]`, rest };
   }
-  if (property === "map") return withTypeParams(signature(`${owner}.map`, [["fn", `(${element}) -> U`]], "U[]"), ["U"]);
-  if (property === "flatMap") return withTypeParams(signature(`${owner}.flatMap`, [["fn", `(${element}) -> U[]`]], "U[]"), ["U"]);
-  if (property === "filter") return signature(`${owner}.filter`, [["fn", `(${element}) -> bool`]], `${element}[]`);
-  if (property === "find") return signature(`${owner}.find`, [["fn", `(${element}) -> bool`]], unionType([element, "undefined"]));
-  if (property === "findIndex" || property === "indexOf") return signature(`${owner}.${property}`, [["fn", `(${element}) -> bool`]], "int");
-  if (property === "forEach") return signature(`${owner}.forEach`, [["fn", `(${element}) -> void`]], "void");
-  if (property === "some" || property === "every") return signature(`${owner}.${property}`, [["fn", `(${element}) -> bool`]], "bool");
-  if (property === "sort") return signature(`${owner}.sort`, [["fn", `(${element}, ${element}) -> int`, true]], `${element}[]`);
+  const visitor = `${element}, int`;
+  if (property === "map") return withTypeParams(signature(`${owner}.map`, [["fn", `(${visitor}) -> U`]], "U[]"), ["U"]);
+  if (property === "flatMap") return withTypeParams(signature(`${owner}.flatMap`, [["fn", `(${visitor}) -> U[]`]], "U[]"), ["U"]);
+  if (property === "filter") return signature(`${owner}.filter`, [["fn", `(${visitor}) -> bool`]], `${element}[]`);
+  if (property === "find") return signature(`${owner}.find`, [["fn", `(${visitor}) -> bool`]], unionType([element, "undefined"]));
+  if (property === "findIndex" || property === "indexOf") return signature(`${owner}.${property}`, [["fn", `(${visitor}) -> bool`]], "int");
+  if (property === "forEach") return signature(`${owner}.forEach`, [["fn", `(${visitor}) -> void`]], "void");
+  if (property === "some" || property === "every") return signature(`${owner}.${property}`, [["fn", `(${visitor}) -> bool`]], "bool");
+  if (property === "sort") return signature(`${owner}.sort`, [["fn", `(${element}, ${element}) -> float`, true]], `${element}[]`);
   if (property === "reduce" || property === "reduceRight") {
-    return withTypeParams(signature(`${owner}.${property}`, [["fn", `(U, ${element}) -> U`], ["initial", "U", true]], "U"), ["U"]);
+    return withTypeParams(signature(`${owner}.${property}`, [["fn", `(U, ${element}, int) -> U`], ["initial", "U", true]], "U"), ["U"]);
   }
   return null;
 }

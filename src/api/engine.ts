@@ -80,6 +80,7 @@ import {
   type Diagnostic,
   type BindOptions,
   type ExternalBuiltinSignature,
+  type TypecheckMode,
 } from "../frontend/checker/index.js";
 import { classSurfacesOf } from "../frontend/modules/interface.js";
 import { buildClassTable, constructorFieldDisagreement, type ClassTable } from "../optimizing/metadata/class-table.js";
@@ -92,7 +93,7 @@ export type EngineOptions = {
   backends?: BackendRegistry;
   jitBackendId?: string;
   moduleFileSystem?: ModuleFileSystem;
-  typecheck?: "off" | "warn" | "strict";
+  typecheck?: TypecheckMode;
   output?: (text: string) => void;
   input?: (prompt: string) => string | null;
   osr?: boolean;
@@ -124,6 +125,7 @@ export type EngineUnhandledRejection = {
 export type OptimizedGraph = { dump(): string };
 
 const IMPORT_PROBE = /^[ \t]*(?:import|from)\s/m;
+const STRICT_TYPECHECK: TypecheckMode = "strict";
 const SYNTHETIC_ENTRY = "__entry__.tera";
 const MODULE_INIT_NAME = "tera_module_init";
 
@@ -587,7 +589,7 @@ export class Engine {
   executionCount: number;
   totalCompileTimeMs: number;
   totalExecTimeMs: number;
-  typecheckMode: "off" | "warn" | "strict";
+  typecheckMode: TypecheckMode;
   output?: (text: string) => void;
   input?: (prompt: string) => string | null;
   diagnostics: Diagnostic[];
@@ -1047,8 +1049,9 @@ ${collectionPrelude()}`, compileOptions, true)
   private compileInRuntime(
     source: string,
     options: CompileOptions = {},
-    retainClassShapes = false,
+    aot = false,
   ): RegisterCompiledFunction {
+    const mode = aot ? STRICT_TYPECHECK : this.typecheckMode;
     const syntaxPlugins = this.compileSyntaxPlugins(options);
     const checker = this.compileChecker(options);
     const compilerExtensions = this.compileCompilerExtensions(options);
@@ -1058,17 +1061,14 @@ ${collectionPrelude()}`, compileOptions, true)
       aliases: checker.aliases,
       interfaces: checker.interfaces,
     };
-    if (retainClassShapes) {
-      const checked = checkSourceProgram(source, {
-        ...checkerOptions,
-        mode: this.typecheckMode === "off" ? "warn" : this.typecheckMode,
-      });
-      this.diagnostics = this.typecheckMode === "off" ? [] : checked.diagnostics;
+    if (aot) {
+      const checked = checkSourceProgram(source, { ...checkerOptions, mode });
+      this.diagnostics = checked.diagnostics;
       this.aotClasses = buildClassTable(classSurfacesOf(checked.bound));
     } else {
-      this.diagnostics = checkSource(source, { ...checkerOptions, mode: this.typecheckMode });
+      this.diagnostics = checkSource(source, { ...checkerOptions, mode });
     }
-    if (this.typecheckMode === "strict" && this.diagnostics.length > 0) {
+    if (mode === STRICT_TYPECHECK && this.diagnostics.length > 0) {
       throw new TypecheckError(this.diagnostics);
     }
     this.installRuntimeIntrinsics(this.runtimeBuiltinRegistry, compilerExtensions);
@@ -1221,8 +1221,9 @@ ${collectionPrelude()}`, compileOptions, true)
   loadModuleGraph(
     entryPath: string,
     options: ModuleRunOptions = {},
-    collectClasses = false,
+    aot = false,
   ): ModuleGraph {
+    const mode = aot ? STRICT_TYPECHECK : this.typecheckMode;
     const fileSystem = this.moduleFileSystem;
     if (fileSystem === null) {
       throw new Error(
@@ -1242,22 +1243,22 @@ ${collectionPrelude()}`, compileOptions, true)
       });
     const built = build(options.entrySource);
     const graph =
-      collectClasses && mentionsCollections(built)
+      aot && mentionsCollections(built)
         ? build(`${built.entry.source}
 ${collectionPrelude()}`)
         : built;
     const checker = this.compileChecker(options);
     const checked = checkModuleGraph(graph, {
-      mode: this.typecheckMode,
+      mode,
       builtins: checker.builtins,
       aliases: checker.aliases,
       interfaces: checker.interfaces,
       nativeInterfaces: this.nativeModuleInterfaces(),
-      collectClasses,
+      collectClasses: aot,
     });
     this.diagnostics = [...checked.diagnostics];
-    if (collectClasses) this.aotClasses = buildClassTable(checked.classes);
-    if (this.typecheckMode === "strict" && this.diagnostics.length > 0) {
+    if (aot) this.aotClasses = buildClassTable(checked.classes);
+    if (mode === STRICT_TYPECHECK && this.diagnostics.length > 0) {
       throw new TypecheckError(this.diagnostics);
     }
     return graph;

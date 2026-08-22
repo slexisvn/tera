@@ -20,6 +20,7 @@ export type Scope = {
   signatures: Map<string, Signature>;
   signature?: Signature;
   classOwner?: string | null;
+  boundary?: boolean;
 };
 
 export type BoundProgram = {
@@ -188,7 +189,7 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
   if (node.kind === "Function") {
     const sig = signatureFromParams(node.name, node.typeParams, node.params, node.returns, { async: node.async });
     scope.signatures.set(node.name, sig);
-    const child = createScope(scope, sig);
+    const child = createScope(scope, sig, true);
     bound.scopes.set(node, child);
     for (const [name, binding] of sig.params) child.locals.set(name, { ...binding, declared: true });
     for (const stmt of node.body) bindNode(stmt, bound, child);
@@ -204,17 +205,34 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
     bound.scopes.set(node, child);
     child.locals.set(node.name, { type: node.name, optional: false });
     for (const [name, binding] of sig.params) child.locals.set(name, { ...binding, declared: true });
-    const section = createScope(child, signatureFromParams(node.name, [], [], "any"));
-    for (const stmt of node.body) bindNode(stmt, bound, isModelSection(stmt) ? section : child);
+    const sectionScope = (): Scope =>
+      createScope(child, signatureFromParams(node.name, [], [], "any"), true);
+    for (const stmt of node.body) {
+      bindNode(stmt, bound, isModelSection(stmt) ? sectionScope() : child);
+    }
     return;
   }
   if (node.kind === "Class") {
     const constructor = node.members.find((member) => member.memberKind === "constructor");
-    const sig = signatureFromParams(node.name, [], constructor?.fn.params ?? [], node.name, {
-      visibility: constructor?.visibility ?? DEFAULT_CLASS_VISIBILITY,
-      owner: node.name,
-      abstract: node.abstract,
-    });
+    const inherited =
+      constructor === undefined && node.parent !== undefined
+        ? lookupSignature(scope, node.parent) ?? null
+        : null;
+    const sig: Signature =
+      inherited === null
+        ? signatureFromParams(node.name, [], constructor?.fn.params ?? [], node.name, {
+            visibility: constructor?.visibility ?? DEFAULT_CLASS_VISIBILITY,
+            owner: node.name,
+            abstract: node.abstract,
+          })
+        : {
+            ...inherited,
+            name: node.name,
+            returns: node.name,
+            owner: node.name,
+            visibility: DEFAULT_CLASS_VISIBILITY,
+            abstract: node.abstract,
+          };
     scope.signatures.set(node.name, sig);
     if (node.abstract) bound.env.abstractClasses.add(node.name);
     if (node.parent) bound.env.nominalFamilies.set(node.name, node.parent);
@@ -233,7 +251,7 @@ function bindNode(node: SemanticNode, bound: BoundProgram, scope: Scope): void {
       if (member.static && member.memberKind !== "constructor") {
         scope.signatures.set(`${node.name}.${member.fn.name}`, memberSig);
       }
-      const child = createScope(classScope, memberSig);
+      const child = createScope(classScope, memberSig, true);
       child.classOwner = node.name;
       bound.scopes.set(member.fn, child);
       child.locals.set("this", { type: member.static ? staticType : node.name, optional: false, declared: true });
@@ -270,8 +288,8 @@ function modelForwardSignature(node: Extract<SemanticNode, { kind: "Model" }>): 
   return forward ? signatureFromParams(node.name, forward.typeParams, forward.params, forward.returns) : null;
 }
 
-function createScope(parent: Scope | null, signature?: Signature): Scope {
-  return { parent, locals: new Map(), signatures: new Map(), signature, classOwner: parent?.classOwner ?? null };
+function createScope(parent: Scope | null, signature?: Signature, boundary = false): Scope {
+  return { parent, locals: new Map(), signatures: new Map(), signature, classOwner: parent?.classOwner ?? null, boundary };
 }
 
 export function bindProgram(program: SemanticProgram, options: BindOptions = {}): BoundProgram {
@@ -308,6 +326,17 @@ export function lookup(scope: Scope, name: string): Binding | undefined {
   while (current) {
     const binding = current.locals.get(name);
     if (binding) return binding;
+    current = current.parent;
+  }
+  return undefined;
+}
+
+export function lookupWithinBoundary(scope: Scope, name: string): Binding | undefined {
+  let current: Scope | null = scope;
+  while (current) {
+    const binding = current.locals.get(name);
+    if (binding) return binding;
+    if (current.boundary) return undefined;
     current = current.parent;
   }
   return undefined;

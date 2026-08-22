@@ -92,19 +92,19 @@ describe("AOT range loops", () => {
     expect(program.skipped.map((fn) => fn.reason).join("; ")).toContain("IteratorInit");
   });
 
-  it("declines a range over bounds that are not counted in integers", () => {
-    const program = nodeEngine().compileAot(
-      [
-        "fn total(a: float, b: float) -> float:",
-        "  s = 0.0",
-        "  for i of range(a, b):",
-        "    s = s + i",
-        "  return s",
-        "",
-      ].join("\n"),
-      { backend: "c" },
-    );
-
-    expect(program.skipped.map((fn) => fn.reason).join("; ")).toContain("IteratorInit");
+  it("refuses a range over bounds that are not counted in integers", () => {
+    expect(() =>
+      nodeEngine().compileAot(
+        [
+          "fn total(a: float, b: float) -> float:",
+          "  s = 0.0",
+          "  for i of range(a, b):",
+          "    s = s + i",
+          "  return s",
+          "",
+        ].join("\n"),
+        { backend: "c" },
+      ),
+    ).toThrow("Type 'float' is not assignable to parameter 'start: int'");
   });
 });

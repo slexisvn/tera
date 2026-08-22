@@ -57,7 +57,7 @@ describe("AOT object literals", () => {
   itNative("mixes a float and an int field", () => {
     matchesInterpreter(
       src(
-        "fn f(n: int) -> int:",
+        "fn f(n: int) -> float:",
         "  o = { count: n, rate: 1.5 }",
         "  return o.count + (o.rate * 2.0)",
       ),

@@ -1,7 +1,13 @@
 import { astChildren, NodeType, type ASTNode, type ObjectPropertyNode } from "../ast/index.js";
-import { lookup, lookupSignature, type BoundProgram, type Scope } from "./binder.js";
+import {
+  lookup,
+  lookupSignature,
+  lookupWithinBoundary,
+  type BoundProgram,
+  type Scope,
+} from "./binder.js";
 import { diagnostic, type Diagnostic } from "./diagnostics.js";
-import { callSignatureForCallee, comprehensionElementType, comprehensionOf, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf } from "./infer.js";
+import { callSignatureForCallee, comprehensionElementType, comprehensionOf, declaredMemberType, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf, writesUnknownKey } from "./infer.js";
 import { acceptsTensorLeftArithmetic, acceptsTensorRightArithmetic, binaryOperatorSemantics, isTensorType } from "./operator-types.js";
 import type { ClassMemberNode, SemanticNode } from "./semantic-ast.js";
 import { arrayElementType, awaitedType, cleanType, compatible, indexKeyAssignable, indexedAccessType, indexKeyType, instantiateShapeForType, isIndexableType, isTupleType, iterableBindingType, leastUpperBound, promiseType, removeNullish, resolveType, tupleTypes, unionParts, unionType, type ObjectShape, type Signature, type TypeEnv, type TypeName } from "./type-system.js";
@@ -323,7 +329,7 @@ export class TypeChecker {
       this.checkExpression(node.value, scope, node.span.line, node.span.column);
       return;
     }
-    const previous = node.declaredType ? null : lookup(scope, node.name);
+    const previous = node.declaredType ? null : lookupWithinBoundary(scope, node.name);
     const declared = cleanType(node.declaredType);
     const expectedType = node.declaredType ? declared : previous?.type ?? null;
     const expected = expectedType && expectedType !== "any" ? functionSignatureForType(node.name, expectedType) : null;
@@ -346,10 +352,11 @@ export class TypeChecker {
       this.add(at.line, at.column, `Type '${actual}' is not assignable to '${previous.type}'`);
     }
     const stored = node.declaredType ? declared : previous?.declared ? previous.type : previous ? this.widenType(previous.type, actual) : actual;
-    scope.locals.set(node.name, { type: stored, optional: false, declared: !!node.declaredType || !!previous?.declared });
+    const owner = previous ? scope : functionScope(scope);
+    owner.locals.set(node.name, { type: stored, optional: false, declared: !!node.declaredType || !!previous?.declared });
     this.onDeclare?.({ name: node.name, line: node.nameSpan.line, column: node.nameSpan.column, type: stored });
     const callable = functionSignatureForType(node.name, stored);
-    if (callable) scope.signatures.set(node.name, callable);
+    if (callable) owner.signatures.set(node.name, callable);
   }
 
   checkDestructure(node: Extract<SemanticNode, { kind: "Destructure" }>, scope: Scope): void {
@@ -360,13 +367,14 @@ export class TypeChecker {
       const name = node.names[i];
       const at = node.variableSpans[i] ?? node.span;
       if (this.reportBuiltinRedeclaration(name, at.line, at.column)) continue;
-      const previous = lookup(scope, name);
+      const previous = lookupWithinBoundary(scope, name);
       const actual = itemTypes[i] ?? "unknown";
       if (previous && !this.isUnknownish(actual) && !compatible(actual, previous.type, this.bound.env)) {
         this.add(at.line, at.column, `Type '${actual}' is not assignable to '${previous.type}'`);
       }
       const stored = previous?.declared ? previous.type : previous ? this.widenType(previous.type, actual) : actual;
-      scope.locals.set(name, { type: stored, optional: false, declared: !!previous?.declared });
+      const owner = previous ? scope : functionScope(scope);
+      owner.locals.set(name, { type: stored, optional: false, declared: !!previous?.declared });
       this.onDeclare?.({ name, line: at.line, column: at.column, type: stored });
     }
   }
@@ -690,7 +698,7 @@ export class TypeChecker {
   checkAssignmentExpression(node: ASTNode, scope: Scope, line: number, column: number): void {
     const target = node.target as ASTNode;
     const value = node.value as ASTNode;
-    const expected = inferExpression(target, this.bound, scope);
+    const expected = declaredTargetType(target, this.bound, scope);
     const actual = inferExpression(value, this.bound, scope);
     this.checkExpression(target, scope, line, column);
     if (this.isUnknownish(expected) || this.widenElementWrite(target, actual, scope)) {
@@ -699,7 +707,10 @@ export class TypeChecker {
       this.checkAssignmentValue(expected, value, scope, line, column);
     }
     const name = flowName(target);
-    if (name && !this.isUnknownish(actual)) scope.locals.set(name, { type: actual, optional: false });
+    if (name && !this.isUnknownish(actual)) {
+      const owner = lookupWithinBoundary(scope, name) ? scope : functionScope(scope);
+      owner.locals.set(name, { type: actual, optional: false });
+    }
   }
 
   checkCompoundAssignment(node: ASTNode, scope: Scope, line: number, column: number): void {
@@ -1016,7 +1027,11 @@ export class TypeChecker {
 
 function classMethodType(fn: Extract<SemanticNode, { kind: "Function" }>, returns: TypeName): TypeName {
   const params = fn.params
-    .map((param) => (param.rest ? restParameterType(param.name, param.type) : param.type))
+    .map((param) =>
+      param.rest
+        ? restParameterType(param.name, param.type)
+        : `${param.name}${param.optional ? "?" : ""}: ${param.type}`,
+    )
     .join(", ");
   return cleanType(`(${params}) -> ${returns}`);
 }
@@ -1050,6 +1065,20 @@ function elementWriteTarget(node: ASTNode): { name: string; depth: number } | nu
     current = current.object as ASTNode;
   }
   return depth > 0 && current.type === NodeType.Identifier ? { name: String(current.name), depth } : null;
+}
+
+function functionScope(scope: Scope): Scope {
+  let current = scope;
+  while (!current.boundary && current.parent) current = current.parent;
+  return current;
+}
+
+function declaredTargetType(target: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
+  const member =
+    target.type === NodeType.MemberExpression || target.type === NodeType.OptionalMemberExpression;
+  if (writesUnknownKey(target, bound, scope)) return "any";
+  if (!member) return inferExpression(target, bound, scope);
+  return declaredMemberType(target, bound, scope);
 }
 
 function flowName(node: ASTNode): string | null {

@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { removeDirectory } from "./workspace.js";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect } from "vitest";
@@ -54,7 +55,7 @@ export const writeModuleProject = (files: ModuleFiles): string => {
 };
 
 export const cleanModuleProjects = (): void => {
-  while (moduleRoots.length > 0) rmSync(moduleRoots.pop()!, { recursive: true, force: true });
+  while (moduleRoots.length > 0) removeDirectory(moduleRoots.pop()!);
 };
 
 export const differentialModules = (

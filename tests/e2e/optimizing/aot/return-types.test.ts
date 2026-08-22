@@ -33,11 +33,10 @@ function bothAdmit(source: string): void {
 const MISMATCH = "function returns a value that does not match its return type";
 
 describe("AOT return types agree across every path", () => {
-  it("declines an array returned beside a number", () => {
-    bothDecline(
-      src("fn step(flag: bool) -> int[]:", "  if flag:", "    return [1, 2]", "  return 3"),
-      MISMATCH,
-    );
+  it("refuses an array returned beside a number", () => {
+    expect(() =>
+      reasons(src("fn step(flag: bool) -> int[]:", "  if flag:", "    return [1, 2]", "  return 3")),
+    ).toThrow("Type 'int' is not assignable to return type 'int[]'");
   });
 
   it("declines an object returned beside a number", () => {

@@ -21,6 +21,7 @@ beforeEach(() => resetIRNodeIds());
 
 function addOne(name: string): CFGFunction {
   const graph = new CFGFunction(name);
+  graph.declaredSignature = { params: ["float"], names: ["value"], returns: "float" };
   const p0 = graph.addParameter(0);
   const block = graph.addBlock();
   const one = irConstant(1);

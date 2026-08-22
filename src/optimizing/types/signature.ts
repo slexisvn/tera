@@ -2,6 +2,7 @@ export type DeclaredDefault = number | string | boolean | null;
 
 const SIGNATURE_ARROW = "->";
 const ANY_TYPE = "any";
+const GATHERED_PARAMETER_PREFIX = "gathered$";
 
 function topLevelParts(source: string): readonly string[] {
   const parts: string[] = [];
@@ -46,10 +47,38 @@ export function isUnwritten(declared: string | null | undefined): boolean {
   return declared === null || declared === undefined || declared.trim() === ANY_TYPE;
 }
 
+export interface RestParameter {
+  readonly name: string;
+  readonly type: string | null;
+}
+
 export interface DeclaredSignature {
   readonly params: readonly (string | null)[];
   readonly names?: readonly string[];
   readonly defaults?: readonly (DeclaredDefault | undefined)[];
   readonly variadic?: boolean;
+  readonly rest?: RestParameter | null;
   readonly returns: string | null;
+}
+
+export function gatheredParameterName(at: number): string {
+  return `${GATHERED_PARAMETER_PREFIX}${at}`;
+}
+
+export function isGatheredParameter(name: string | undefined): boolean {
+  return name !== undefined && name.startsWith(GATHERED_PARAMETER_PREFIX);
+}
+
+export interface ParameterLabel {
+  readonly name: string | null;
+  readonly gathered: boolean;
+}
+
+export function parameterLabelOf(
+  signature: DeclaredSignature | null | undefined,
+  index: number,
+): ParameterLabel {
+  const name = signature?.names?.[index];
+  if (!isGatheredParameter(name)) return { name: name ?? null, gathered: false };
+  return { name: signature?.rest?.name ?? name!, gathered: true };
 }

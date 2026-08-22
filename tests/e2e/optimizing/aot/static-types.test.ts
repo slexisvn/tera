@@ -160,8 +160,8 @@ describe("AOT static typing", () => {
     );
   });
 
-  it("declines a builtin method call on a receiver that is not declared", () => {
-    const program = compile(`fn code_at(s, i):\n  return s.char_code_at(i)\n`);
+  it("declines a builtin method call on a receiver whose type it cannot tell", () => {
+    const program = compile(`fn code_at(s: string, i: int):\n  return s.length.char_code_at(i)\n`);
 
     expect(program.compiled.map((fn) => fn.name)).toEqual(["tera_program"]);
     expect(program.skipped.map((fn) => fn.reason)).toContain(
@@ -196,8 +196,15 @@ describe("AOT static typing", () => {
     );
   });
 
-  itNative("falls back to floating point for undeclared parameters", () => {
-    const program = compile(`fn loose(a):\n  return a + 1\n`);
+  it("refuses a parameter the source left undeclared", () => {
+    expect(() => compile(`fn loose(a):\n  return a + 1\n`)).toThrow(
+      "loose: parameter 'a' has no declared type; declare it (for example 'a: int'), " +
+        "or keep this part interpreted",
+    );
+  });
+
+  itNative("compiles the same function once its parameter is declared", () => {
+    const program = compile(`fn loose(a: float) -> float:\n  return a + 1\n`);
 
     expect(program.skipped).toEqual([]);
     expect(cSource(program)).toContain("double loose(double p0)");

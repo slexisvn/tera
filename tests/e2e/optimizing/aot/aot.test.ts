@@ -17,7 +17,10 @@ import {
 import { detachNode } from "../../../../src/optimizing/ir/graph-edit.js";
 import { cBackend } from "../../../../src/optimizing/backends/c/backend.js";
 import { moduleFromGraphs } from "../../../../src/optimizing/compilation-unit.js";
-import { compileModule } from "../../../../src/optimizing/drivers/aot.js";
+import {
+  AotUndeclaredParameterError,
+  compileModule,
+} from "../../../../src/optimizing/drivers/aot.js";
 import { writeAotProgram } from "../../../../src/optimizing/drivers/write.js";
 import { compilerOptions } from "../../../../src/optimizing/options.js";
 import type { AotBackend } from "../../../../src/optimizing/target/backend.js";
@@ -28,8 +31,18 @@ beforeEach(() => resetIRNodeIds());
 
 const src = (...lines: string[]) => lines.join("\n");
 
-function addTwo(name: string): CFGFunction {
+function takingTwo(name: string, params: readonly string[], returns: string): CFGFunction {
   const graph = new CFGFunction(name);
+  graph.declaredSignature = {
+    params: [...params],
+    names: params.map((_, at) => `p${at}`),
+    returns,
+  };
+  return graph;
+}
+
+function addTwo(name: string): CFGFunction {
+  const graph = takingTwo(name, ["float", "float"], "float");
   const p0 = graph.addParameter(0);
   const p1 = graph.addParameter(1);
   const block = graph.addBlock();
@@ -40,7 +53,7 @@ function addTwo(name: string): CFGFunction {
 }
 
 function genericAdd(name: string): CFGFunction {
-  const graph = new CFGFunction(name);
+  const graph = takingTwo(name, ["float", "float"], "float");
   const p0 = graph.addParameter(0);
   const p1 = graph.addParameter(1);
   const block = graph.addBlock();
@@ -202,7 +215,7 @@ describe("Engine AOT", () => {
       tieringPolicy: { jitThreshold: 1e12, baselineThreshold: 1e12 },
     });
     const source = src(
-      "fn sum(n):",
+      "fn sum(n: int) -> int:",
       "  total = 0",
       "  i = 0",
       "  while i < n:",
@@ -222,13 +235,13 @@ describe("Engine AOT", () => {
     expect(runCFunction(cSource(program), "sum", [10])).toBe(45);
   });
 
-  itNative("de-speculates overflowing int32 arithmetic into sound float64", () => {
+  itNative("keeps overflowing arithmetic on declared floats out of int32", () => {
     const engine = nodeEngine({
       typecheck: "off",
       tieringPolicy: { jitThreshold: 1e12, baselineThreshold: 1e12 },
     });
     const source = src(
-      "fn add(a, b):",
+      "fn add(a: float, b: float) -> float:",
       "  return a + b",
       "add(1, 2)",
     );
@@ -287,14 +300,13 @@ describe("Engine AOT", () => {
   itNative("skips callers of functions the backend could not lower", () => {
     const program = nodeEngine({ typecheck: "off" }).compileAot(
       src(
-        "fn helper(n):",
-        "  o = {a: n}",
-        "  return o.a",
+        "fn helper(n: int) -> int:",
+        "  return n.to_fixed(2).length",
         "",
-        "fn caller(n):",
+        "fn caller(n: int) -> int:",
         "  return helper(n) + 1",
         "",
-        "fn unrelated(n):",
+        "fn unrelated(n: int) -> int:",
         "  return n * 2",
       ),
       { functionNames: ["helper", "caller", "unrelated"] },
@@ -319,6 +331,40 @@ describe("compileModule", () => {
     expect(program.compiled.map((fn) => fn.emitted.symbol)).toEqual(["sum", "answer"]);
     expect(runCFunction(cSource(program), "sum", [2.5, 7.5])).toBe(10);
     expect(runCFunction(cSource(program), "answer", [])).toBe(42);
+  });
+
+  it("refuses the whole program when a parameter has no declared type, naming each one", () => {
+    const loose = takingTwo("loose", ["any", "int"], "int");
+    const p0 = loose.addParameter(0);
+    loose.addParameter(1);
+    loose.addBlock().addNode(irReturn(p0));
+    const alsoLoose = takingTwo("also_loose", ["int", "any"], "int");
+    alsoLoose.addParameter(0);
+    const q1 = alsoLoose.addParameter(1);
+    alsoLoose.addBlock().addNode(irReturn(q1));
+
+    let thrown: unknown;
+    try {
+      compileModule(moduleOf([addTwo("sum"), loose, alsoLoose]), cBackend);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AotUndeclaredParameterError);
+    expect((thrown as AotUndeclaredParameterError).undeclared).toEqual([
+      {
+        name: "loose",
+        reason:
+          "parameter 'p0' has no declared type; declare it (for example 'p0: int'), " +
+          "or keep this part interpreted",
+      },
+      {
+        name: "also_loose",
+        reason:
+          "parameter 'p1' has no declared type; declare it (for example 'p1: int'), " +
+          "or keep this part interpreted",
+      },
+    ]);
   });
 
   itNative("runs the backend lowering pipeline before emission", () => {

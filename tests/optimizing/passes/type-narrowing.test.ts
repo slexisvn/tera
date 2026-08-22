@@ -8,6 +8,7 @@ import {
 } from "../../../src/optimizing/analyses/index.js";
 import {
   CFGFunction,
+  CFGInstruction,
   IRNode,
   irConstant,
   irCheckSmi,
@@ -29,8 +30,18 @@ import {
   resetIRNodeIds,
 } from "../../../src/optimizing/ir/index.js";
 import { link } from "../../../src/optimizing/ir/cfg-edit.js";
+import { FrameState } from "../../../src/deopt/frame-state.js";
 
 beforeEach(() => resetIRNodeIds());
+
+function guarded<T extends { frameState: FrameState | null }>(check: T): T {
+  check.frameState = new FrameState(null, 0);
+  return check;
+}
+
+const checkSmi = (value: CFGInstruction) => guarded(irCheckSmi(value));
+const checkNumber = (value: CFGInstruction) => guarded(irCheckNumber(value));
+const checkMap = (value: CFGInstruction, mapId: number) => guarded(irCheckMap(value, mapId));
 
 function narrowTypes(graph: CFGFunction): number {
   graph.rebuildUses();
@@ -49,8 +60,8 @@ describe("typeNarrowing", () => {
       const block = graph.addBlock();
       const p0 = graph.addParameter(0);
       const p1 = graph.addParameter(1);
-      const check0 = irCheckSmi(p0);
-      const check1 = irCheckSmi(p1);
+      const check0 = checkSmi(p0);
+      const check1 = checkSmi(p1);
       block.addNode(check0);
       block.addNode(check1);
       const add = irGenericAdd(check0, check1);
@@ -68,8 +79,8 @@ describe("typeNarrowing", () => {
       const block = graph.addBlock();
       const p0 = graph.addParameter(0);
       const p1 = graph.addParameter(1);
-      const check0 = irCheckSmi(p0);
-      const check1 = irCheckSmi(p1);
+      const check0 = checkSmi(p0);
+      const check1 = checkSmi(p1);
       block.addNode(check0);
       block.addNode(check1);
       const sub = irGenericSub(check0, check1);
@@ -86,8 +97,8 @@ describe("typeNarrowing", () => {
       const block = graph.addBlock();
       const p0 = graph.addParameter(0);
       const p1 = graph.addParameter(1);
-      const check0 = irCheckSmi(p0);
-      const check1 = irCheckSmi(p1);
+      const check0 = checkSmi(p0);
+      const check1 = checkSmi(p1);
       block.addNode(check0);
       block.addNode(check1);
       const cmp = irGenericCompare("<", check0, check1);
@@ -106,8 +117,8 @@ describe("typeNarrowing", () => {
       const block = graph.addBlock();
       const p0 = graph.addParameter(0);
       const p1 = graph.addParameter(1);
-      const check0 = irCheckNumber(p0);
-      const check1 = irCheckNumber(p1);
+      const check0 = checkNumber(p0);
+      const check1 = checkNumber(p1);
       block.addNode(check0);
       block.addNode(check1);
       const add = irGenericAdd(check0, check1);
@@ -141,7 +152,7 @@ describe("typeNarrowing", () => {
       const block = graph.addBlock();
       const p0 = graph.addParameter(0);
       const p1 = graph.addParameter(1);
-      const check0 = irCheckSmi(p0);
+      const check0 = checkSmi(p0);
       block.addNode(check0);
       const add = irGenericAdd(check0, p1);
       block.addNode(add);
@@ -160,8 +171,8 @@ describe("typeNarrowing", () => {
       const block = graph.addBlock();
       const p0 = graph.addParameter(0);
       const p1 = graph.addParameter(1);
-      const check0 = irCheckSmi(p0);
-      const check1 = irCheckNumber(p1);
+      const check0 = checkSmi(p0);
+      const check1 = checkNumber(p1);
       block.addNode(check0);
       block.addNode(check1);
       const add = irGenericAdd(check0, check1);
@@ -179,7 +190,7 @@ describe("typeNarrowing", () => {
       const graph = new CFGFunction("test");
       const block = graph.addBlock();
       const p0 = graph.addParameter(0);
-      const check = irCheckSmi(p0);
+      const check = checkSmi(p0);
       block.addNode(check);
       const c = irConstant(5);
       block.addNode(c);
@@ -200,8 +211,8 @@ describe("typeNarrowing", () => {
       const b1 = graph.addBlock();
       const p0 = graph.addParameter(0);
       const p1 = graph.addParameter(1);
-      const check0 = irCheckSmi(p0);
-      const check1 = irCheckSmi(p1);
+      const check0 = checkSmi(p0);
+      const check1 = checkSmi(p1);
       b0.addNode(check0);
       b0.addNode(check1);
       link(b0, b1);
@@ -238,7 +249,7 @@ describe("typeNarrowing", () => {
       link(b0, bFalse);
       b0.addNode(irBranch(cmp, bTrue, bFalse));
 
-      const check1 = irCheckSmi(p1);
+      const check1 = checkSmi(p1);
       bTrue.addNode(check1);
       const add = irGenericAdd(p0, check1);
       bTrue.addNode(add);
@@ -271,7 +282,7 @@ describe("typeNarrowing", () => {
       link(b0, bFalse);
       b0.addNode(irBranch(cmp, bTrue, bFalse));
 
-      const check1 = irCheckSmi(p1);
+      const check1 = checkSmi(p1);
       bTrue.addNode(check1);
       const add = irGenericAdd(p0, check1);
       bTrue.addNode(add);

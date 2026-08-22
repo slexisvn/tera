@@ -65,9 +65,9 @@ const INHERITED = [
 
 const GAUGE = [
   "class Gauge:",
-  "  public constructor(raw: int):",
+  "  public constructor(raw: float):",
   "    this.raw = raw",
-  "  public get scaled() -> int:",
+  "  public get scaled() -> float:",
   "    return this.raw * 10",
   "  public set scaled(value: int):",
   "    this.raw = value / 10",
@@ -406,7 +406,7 @@ describe("AOT classes", () => {
 
   itNative("reads a property through a getter", () => {
     expectMatchesInterpreter(
-      [...GAUGE, "fn go(a: int) -> int:", "  return Gauge(a).scaled"],
+      [...GAUGE, "fn go(a: int) -> float:", "  return Gauge(a).scaled"],
       "go",
       [7],
     );
@@ -416,7 +416,7 @@ describe("AOT classes", () => {
     expectMatchesInterpreter(
       [
         ...GAUGE,
-        "fn go(a: int) -> int:",
+        "fn go(a: int) -> float:",
         "  g = Gauge(a)",
         "  g.scaled = 250",
         "  return g.raw",
@@ -427,7 +427,7 @@ describe("AOT classes", () => {
   });
 
   it("calls the getter instead of loading a field at an offset", () => {
-    const program = compile([...GAUGE, "fn go(a: int) -> int:", "  return Gauge(a).scaled"]);
+    const program = compile([...GAUGE, "fn go(a: int) -> float:", "  return Gauge(a).scaled"]);
 
     expect(bodyOf(program, "go")).toContain("Gauge_get_scaled(");
   });
@@ -435,7 +435,7 @@ describe("AOT classes", () => {
   it("gives the setter the receiver and the written value", () => {
     const program = compile([
       ...GAUGE,
-      "fn go(a: int) -> int:",
+      "fn go(a: int) -> float:",
       "  g = Gauge(a)",
       "  g.scaled = 250",
       "  return g.raw",

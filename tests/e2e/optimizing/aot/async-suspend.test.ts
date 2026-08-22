@@ -1169,7 +1169,7 @@ const MATCHES: ReadonlyArray<readonly [string, string]> = [
 const DECLINES: ReadonlyArray<readonly [string, string, string]> = [
   [
     "a promise used as a plain value",
-    src(G, "fn mid() -> int:", "  return g()", "print(mid())"),
+    src(G, "fn mid() -> Promise<int>:", "  return g()", "mid()"),
     "used as a plain value",
   ],
   [

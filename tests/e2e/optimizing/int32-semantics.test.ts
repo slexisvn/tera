@@ -54,7 +54,7 @@ describe("declared int semantics across tiers", () => {
     expect(everyTier("a ^ b", INT32_MAX, INT32_MIN)).toBe(-1);
   });
 
-  itNative.fails("agrees on arithmetic that overflows int32", () => {
+  itNative("agrees on arithmetic that overflows int32", () => {
     everyTier("a + b", 1073741824, 1073741824);
     everyTier("a - b", INT32_MIN, 1);
     everyTier("a * b", 65536, 65536);
@@ -66,9 +66,14 @@ describe("declared int semantics across tiers", () => {
     expect(native("a * b", 65536, 65536)).toBe(0);
   });
 
-  it("keeps the interpreter, baseline and jit tiers consistent with each other", () => {
-    expect(differential(hot("a + b", 1073741824, 1073741824))).toBe(2147483648);
-    expect(differential(hot("a - b", INT32_MIN, 1))).toBe(-2147483649);
-    expect(differential(hot("a * b", 65536, 65536))).toBe(4294967296);
+  it("wraps a declared int return in every interpreted tier too", () => {
+    expect(differential(hot("a + b", 1073741824, 1073741824))).toBe(INT32_MIN);
+    expect(differential(hot("a - b", INT32_MIN, 1))).toBe(INT32_MAX);
+    expect(differential(hot("a * b", 65536, 65536))).toBe(0);
+  });
+
+  it("leaves a value the declaration does not describe alone", () => {
+    const engine = nodeEngine();
+    expect(engine.runNative(src("fn f(a: int) -> int:", "  return a / 2", "f(5)"))).toBe(2.5);
   });
 });

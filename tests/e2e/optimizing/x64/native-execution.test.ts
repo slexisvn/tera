@@ -191,14 +191,14 @@ describe("x64 native execution matches the interpreter", () => {
   });
 
   itAssembles("returns a comparison result directly", () => {
-    const source = src("fn same(a: float, b: float) -> int:", "  r = a == b", "  return r");
+    const source = src("fn same(a: float, b: float) -> bool:", "  r = a == b", "  return r");
     expect(runNativeFunction(compile(source), "same", [1.5, 1.5])).toBe(1);
     expect(runNativeFunction(compile(source), "same", [1.5, 2.5])).toBe(0);
     expect(runNativeFunction(compile(source), "same", [Number.NaN, Number.NaN])).toBe(0);
   });
 
   itAssembles("returns an ordered comparison result directly", () => {
-    const source = src("fn below(a: int, b: int) -> int:", "  r = a < b", "  return r");
+    const source = src("fn below(a: int, b: int) -> bool:", "  r = a < b", "  return r");
     expect(runNativeFunction(compile(source), "below", [2, 9])).toBe(1);
     expect(runNativeFunction(compile(source), "below", [9, 2])).toBe(0);
   });

@@ -79,7 +79,11 @@ import {
   type AotScalar,
 } from "../types/scalar.js";
 import { anyType, joinTypes, TypeKind, type LatticeType } from "../types/lattice.js";
-import { isUnwritten, type DeclaredSignature } from "../types/signature.js";
+import {
+  isUnwritten,
+  parameterLabelOf,
+  type DeclaredSignature,
+} from "../types/signature.js";
 import {
   ANY_SCALAR,
   builtinAcceptsArity,
@@ -558,6 +562,32 @@ export function isAsciiRepresentable(value: string): boolean {
 
 export function builtinOperandScalar(declared: string | null): AotScalar | null {
   return aotScalarOf(nominalLatticeType(declared, null));
+}
+
+export function undeclaredParameterOf(graph: CFGFunction): number | null {
+  const declared = graph.declaredSignature;
+  for (const parameter of graph.parameters) {
+    const index = Number(parameter.props.index);
+    if (isUnwritten(declared?.params[index])) return index;
+  }
+  return null;
+}
+
+export function undeclaredParameterReason(
+  signature: DeclaredSignature | null,
+  index: number,
+): string {
+  const { name, gathered } = parameterLabelOf(signature, index);
+  if (name === null) {
+    return (
+      `parameter #${index + 1} has no declared type; declare it, or keep this part interpreted`
+    );
+  }
+  return gathered
+    ? `rest parameter '${name}' has no declared type; declare the type its arguments have ` +
+        `(for example '...${name}: int'), or keep this part interpreted`
+    : `parameter '${name}' has no declared type; declare it (for example '${name}: int'), ` +
+        `or keep this part interpreted`;
 }
 
 class LegalityAnalyzer implements AotLegality {
@@ -1134,6 +1164,11 @@ class LegalityAnalyzer implements AotLegality {
     this.returnScalar = returnScalar;
     this.checkReturnScalarAgreement();
     if (this.failure !== null) return;
+    const undeclared = undeclaredParameterOf(this.graph);
+    if (undeclared !== null) {
+      this.fail(undeclaredParameterReason(this.graph.declaredSignature, undeclared));
+      return;
+    }
     for (const param of this.graph.parameters) {
       const scalar = isStorableScalar(aotScalarOf(this.types.typeOf(param)));
       if (scalar === null) {

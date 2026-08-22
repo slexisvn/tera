@@ -1,10 +1,12 @@
+type Order = { sku: string, qty: int, price: float }
+
 class ValidationError extends Error:
   public constructor(field: string):
     super(`invalid field: ${field}`)
     this.name = "ValidationError"
     this.field = field
 
-fn validate_order(order):
+fn validate_order(order: Order) -> bool:
   if order.qty <= 0:
     throw ValidationError("qty")
   if order.price < 0.0:
@@ -22,7 +24,7 @@ async fn charge(amount: float) -> string:
     throw "card declined"
   return `charged $${amount}`
 
-async fn place_order(order) -> string:
+async fn place_order(order: Order) -> string:
   validate_order(order)
   stock = await fetch_stock(order.sku)
   if stock < order.qty:
@@ -30,7 +32,7 @@ async fn place_order(order) -> string:
   receipt = await charge(order.price * order.qty)
   return `OK ${order.sku} x${order.qty} -> ${receipt}`
 
-async fn safe_place(order) -> string:
+async fn safe_place(order: Order) -> string:
   audit = "start"
   try:
     result = await place_order(order)

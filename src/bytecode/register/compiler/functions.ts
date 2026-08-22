@@ -72,6 +72,7 @@ type FunctionNode = ASTNode & {
   _classStaticMemberVisibility?: Record<string, ClassVisibility>;
   _classAbstract?: boolean;
   _classImplementedInterfaces?: string[];
+  _runtimeBridge?: boolean;
   _classInstancePublicMembers?: bytecode.RuntimeNameMap;
   _classStaticPublicMembers?: bytecode.RuntimeNameMap;
 };
@@ -144,8 +145,17 @@ type DestructuringNode = ASTNode & {
 
 type FunctionCompiledFunction = bytecode.RegisterCompiledFunction & {
   selfBindingSlot?: number;
-  isArrow?: boolean;
 };
+
+const FORWARDED_REST_NAME = "args";
+
+function restParameterOf(
+  info: readonly FunctionParamInfo[] | undefined,
+): bytecode.RestParameter | null {
+  const entry = info?.find((candidate) => candidate?.rest === true);
+  if (entry === undefined || typeof entry.name !== "string") return null;
+  return { name: entry.name, type: typeof entry.type === "string" ? entry.type : null };
+}
 
 function declaredSignatureOf(
   fn: ParameterizedNode,
@@ -171,6 +181,7 @@ function declaredSignatureOf(
     names: [...paramNames],
     defaults: [...paramDefaults],
     variadic,
+    rest: restParameterOf(hasInfo ? (info as FunctionParamInfo[]) : undefined),
     returns: typeof returns === "string" ? returns : null,
   };
 }
@@ -237,6 +248,46 @@ function forwardingConstructorOf(
     forwarded._paramInfo = parent.info.filter((entry) => forwardedNames.has(entry.name));
   }
   return forwarded;
+}
+
+function gatheringForwarderOf(
+  className: string,
+  parent: ConstructorSurface | null,
+): FunctionNode {
+  const forwarded: FunctionNode = {
+    type: NodeType.FunctionDeclaration,
+    name: className,
+    params: [{ name: FORWARDED_REST_NAME, rest: true }],
+    body: {
+      type: NodeType.BlockStatement,
+      body: [{
+        type: NodeType.ExpressionStatement,
+        expression: {
+          type: NodeType.SuperCallExpression,
+          args: [{
+            type: NodeType.SpreadElement,
+            argument: { type: NodeType.Identifier, name: FORWARDED_REST_NAME },
+          }],
+        },
+      }],
+    },
+  } as FunctionNode;
+  const rest = parent === null ? null : restParameterOf(parent.info ?? undefined);
+  if (rest !== null && parent!.params.length === 1) {
+    forwarded._paramInfo = [
+      { name: FORWARDED_REST_NAME, type: rest.type ?? undefined, optional: true, rest: true },
+    ];
+  }
+  return forwarded;
+}
+
+function emptyConstructorOf(className: string): FunctionNode {
+  return {
+    type: NodeType.FunctionDeclaration,
+    name: className,
+    params: [],
+    body: { type: NodeType.BlockStatement, body: [] },
+  } as FunctionNode;
 }
 
 function constructorSurfaceOf(ctor: FunctionNode): ConstructorSurface {
@@ -481,17 +532,15 @@ function lowerModelDeclaration(node: ModelNode): ClassNode {
   }
   for (const name of MODULE_METHODS) {
     if (methodNames.has(name)) continue;
-    methods.push({
-      name,
-      kind: null,
-      func: FunctionDeclaration(name, ["args"], BlockStatement([
-        ReturnStatement(CallExpression(Identifier("model_native"), [
-          ThisExpression(),
-          Literal(name, "string"),
-          Identifier("args"),
-        ])),
-      ])) as FunctionNode & { name: string; params: ParamNode[] },
-    });
+    const bridge = FunctionDeclaration(name, ["args"], BlockStatement([
+      ReturnStatement(CallExpression(Identifier("model_native"), [
+        ThisExpression(),
+        Literal(name, "string"),
+        Identifier("args"),
+      ])),
+    ])) as FunctionNode & { name: string; params: ParamNode[] };
+    (bridge as ParameterizedNode)._runtimeBridge = true;
+    methods.push({ name, kind: null, func: bridge });
   }
   const ctorBody = [
     ExpressionStatement(
@@ -510,6 +559,7 @@ function lowerModelDeclaration(node: ModelNode): ClassNode {
     ),
   ];
   const constructorNode = FunctionDeclaration("constructor", node.params, BlockStatement(ctorBody)) as FunctionNode;
+  constructorNode._paramInfo = (node as ParameterizedNode)._paramInfo;
   return ClassDeclaration(node.name, null, constructorNode, methods, []) as ClassNode;
 }
 
@@ -695,6 +745,7 @@ export const functionMethods: FunctionMethodMap = {
     innerFunc.classStaticMemberVisibility = node._classStaticMemberVisibility;
     innerFunc.classAbstract = node._classAbstract;
     innerFunc.classImplementedInterfaces = node._classImplementedInterfaces;
+    innerFunc.runtimeBridge = node._runtimeBridge === true;
     innerFunc.classInstancePublicMembers = node._classInstancePublicMembers;
     innerFunc.classStaticPublicMembers = node._classStaticPublicMembers;
     innerFunc.isAsync = !!node.async;
@@ -927,26 +978,10 @@ export const functionMethods: FunctionMethodMap = {
       : null;
     const ctorNodeSource: FunctionNode =
       node.constructor ||
-      forwardingConstructorOf(node.name, inheritedConstructor) || (node.superClass ? {
-      type: NodeType.FunctionDeclaration,
-      name: node.name,
-      params: [{ name: "args", rest: true }],
-      body: {
-        type: NodeType.BlockStatement,
-        body: [{
-          type: NodeType.ExpressionStatement,
-          expression: {
-            type: NodeType.SuperCallExpression,
-            args: [{ type: NodeType.SpreadElement, argument: { type: NodeType.Identifier, name: "args" } }],
-          },
-        }],
-      },
-    } : {
-      type: NodeType.FunctionDeclaration,
-      name: node.name,
-      params: [],
-      body: { type: NodeType.BlockStatement, body: [] },
-    });
+      forwardingConstructorOf(node.name, inheritedConstructor) ||
+      (node.superClass
+        ? gatheringForwarderOf(node.name, inheritedConstructor)
+        : emptyConstructorOf(node.name));
     this.classConstructors.set(node.name, constructorSurfaceOf(ctorNodeSource));
     const ctorNode = injectInstanceFields(ctorNodeSource, node);
     ctorNode.name = node.name;
@@ -1011,6 +1046,7 @@ export const functionMethods: FunctionMethodMap = {
       methodFunc.classParentName = superClassName(node);
       methodFunc.classMemberKind = classMemberKindOfAccessor(method.kind);
       methodFunc.classMemberStatic = !!method.static;
+      methodFunc.runtimeBridge = (method.func as ParameterizedNode)._runtimeBridge === true;
       this.func = methodFunc;
       this.scope = new Scope(outerScope);
       this.scope.isFunctionBoundary = true;

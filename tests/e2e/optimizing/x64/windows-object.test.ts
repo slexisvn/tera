@@ -23,7 +23,7 @@ function objectOf(source: string): Uint8Array {
 }
 
 const ARITHMETIC = src("fn twice(n: int) -> int:", "  return n + n");
-const DIVIDING = src("fn half(n: int) -> int:", "  return n / 2");
+const DIVIDING = src("fn half(n: int) -> int:", "  return Math.floor(n / 2)");
 const FLOATING = src("fn scaled(x: float) -> float:", "  return x * 1.5");
 const ROUNDED = src("fn down(x: float) -> float:", "  return Math.floor(x)");
 

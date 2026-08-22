@@ -21,6 +21,7 @@ import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
 
 const LOCAL_CAPTURE = "local";
 const UPVALUE_CAPTURE = "upvalue";
+const CAPTURED_PARAMETER_NAME = "captured";
 const SINGLE_CAPTURE = 1;
 const CAPTURE_SLOT = 0;
 
@@ -104,9 +105,17 @@ function liftBody(closure: Closure): void {
     editor.replaceAllUses(node, parameter);
     editor.remove(node);
   }
+  const declared = graph.declaredSignature;
   graph.declaredSignature = {
-    params: [closure.capturedType, ...(graph.declaredSignature?.params ?? [])],
-    returns: graph.declaredSignature?.returns ?? null,
+    ...(declared ?? {}),
+    params: [closure.capturedType, ...(declared?.params ?? [])],
+    ...(declared?.names === undefined
+      ? {}
+      : { names: [CAPTURED_PARAMETER_NAME, ...declared.names] }),
+    ...(declared?.defaults === undefined
+      ? {}
+      : { defaults: [undefined, ...declared.defaults] }),
+    returns: declared?.returns ?? null,
   };
   graph.rebuildUses();
 }

@@ -18,12 +18,12 @@ const COUNTING_BODY = src(
   "  public get value() -> int:",
   "    return this.v",
   "fn total(n: int) -> int:",
-  "  sum = 0",
+  "  total = 0",
   "  i = 0",
   "  while i < n:",
-  "    sum = sum + Cell(i).value",
+  "    total = total + Cell(i).value",
   "    i = i + 1",
-  "  return sum",
+  "  return total",
 );
 
 const ROUNDS = 40000;

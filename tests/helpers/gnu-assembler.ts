@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { removeDirectory } from "./workspace.js";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { it } from "vitest";
@@ -17,7 +18,7 @@ function inBuildDirectory<T>(use: (directory: string) => T): T {
   try {
     return use(directory);
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    removeDirectory(directory);
   }
 }
 

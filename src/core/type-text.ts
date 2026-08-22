@@ -11,8 +11,9 @@ export function splitTopLevel(source: string, separator: string): string[] {
       continue;
     }
     if (ch === "\"" || ch === "'" || ch === "`") quote = ch;
-    else if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
     else if (ch === ")" || ch === "]" || ch === "}") depth--;
+    else if (ch === ">" && source[i - 1] !== "-") depth = Math.max(0, depth - 1);
     else if (depth === 0 && ch === separator) {
       out.push(source.slice(start, i));
       start = i + 1;

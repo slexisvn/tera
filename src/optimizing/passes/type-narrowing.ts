@@ -166,9 +166,15 @@ class Narrower {
           : undefined;
     if (specialized === undefined) return;
 
+    const generic = node.type;
     node.type = specialized;
     if (this.isSpeculative(node)) {
-      if (!node.frameState) node.frameState = frameStateFromInputs(node);
+      const frameState = node.frameState ?? frameStateFromInputs(node);
+      if (frameState === null && ir.irRequiresFrameState(node)) {
+        node.type = generic;
+        return;
+      }
+      node.frameState = frameState;
     } else {
       node.props.noOverflow = true;
     }

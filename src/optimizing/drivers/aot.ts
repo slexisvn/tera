@@ -20,7 +20,12 @@ import {
 } from "../metadata/call-signatures.js";
 import { THROW_BUILTIN } from "../metadata/builtin-methods.js";
 import { ModuleFunctions } from "../metadata/module-functions.js";
-import { aotLegalityAnalysisId, summarizeStringEscapes } from "../analyses/aot-legality.js";
+import {
+  aotLegalityAnalysisId,
+  summarizeStringEscapes,
+  undeclaredParameterOf,
+  undeclaredParameterReason,
+} from "../analyses/aot-legality.js";
 import { AWAITED_CALL_PROP } from "../builder/ir-builder.js";
 import { forwardsPendingThrow, isPendingThrowReturn } from "../builder/throw-recovery.js";
 import { callReachability, markReentrantFunctions } from "../metadata/call-graph.js";
@@ -75,6 +80,20 @@ export interface AotProgram {
   readonly compiled: readonly LinkableFunction[];
   readonly skipped: readonly AotSkippedFunction[];
   readonly moduleInits?: readonly string[];
+}
+
+export class AotUndeclaredParameterError extends Error {
+  readonly undeclared: readonly AotSkippedFunction[];
+  constructor(undeclared: readonly AotSkippedFunction[]) {
+    super(
+      [
+        "compiling ahead of time needs every parameter to have a declared type",
+        ...undeclared.map((fn) => `  ${fn.name}: ${fn.reason}`),
+      ].join("\n"),
+    );
+    this.name = "AotUndeclaredParameterError";
+    this.undeclared = undeclared;
+  }
 }
 
 export class AotLinkError extends BackendLoweringError {
@@ -508,6 +527,21 @@ function splitCoroutines(
   return added;
 }
 
+function requireDeclaredParameters(module: ModuleIR): void {
+  const undeclared: AotSkippedFunction[] = [];
+  for (const unit of module.units) {
+    if (unit.compiledFunction?.isArrow === true) continue;
+    if (unit.compiledFunction?.runtimeBridge === true) continue;
+    const index = undeclaredParameterOf(unit.graph);
+    if (index === null) continue;
+    undeclared.push({
+      name: unit.graph.name,
+      reason: undeclaredParameterReason(unit.graph.declaredSignature, index),
+    });
+  }
+  if (undeclared.length > 0) throw new AotUndeclaredParameterError(undeclared);
+}
+
 export function compileModule(
   module: ModuleIR,
   backend: AotBackend,
@@ -543,6 +577,7 @@ export function compileModule(
     };
   }
   adoptInferredTypes(module, classes);
+  requireDeclaredParameters(module);
   if (classes !== null) declareGlobalVariables(module, classes);
 
   const plan = planCoroutines(module, classes);

@@ -41,6 +41,20 @@ function run(graph: CFGFunction, args: number[] = []): number {
   return runCFunction(result.source, result.symbol, args);
 }
 
+function declaring(
+  name: string,
+  params: readonly string[],
+  returns: string,
+): CFGFunction {
+  const graph = new CFGFunction(name);
+  graph.declaredSignature = {
+    params: [...params],
+    names: params.map((_, at) => `p${at}`),
+    returns,
+  };
+  return graph;
+}
+
 function returningConstant(name: string, value: number): CFGFunction {
   const graph = new CFGFunction(name);
   const block = graph.addBlock();
@@ -52,7 +66,7 @@ function returningConstant(name: string, value: number): CFGFunction {
 
 describe("emitNumericFunction executable subset", () => {
   itNative("executes float64 arithmetic over parameters", () => {
-    const graph = new CFGFunction("add_two");
+    const graph = declaring("add_two", ["float", "float"], "float");
     const p0 = graph.addParameter(0);
     const p1 = graph.addParameter(1);
     const block = graph.addBlock();
@@ -101,7 +115,7 @@ describe("emitNumericFunction executable subset", () => {
   });
 
   itNative("uses defined int32 wraparound for integer arithmetic", () => {
-    const add = new CFGFunction("wrap_add");
+    const add = declaring("wrap_add", ["int"], "int");
     const p0 = add.addParameter(0);
     const addBlock = add.addBlock();
     const one = irConstant(1);
@@ -110,7 +124,7 @@ describe("emitNumericFunction executable subset", () => {
     addBlock.addNode(sum);
     addBlock.addNode(irReturn(sum));
 
-    const mul = new CFGFunction("wrap_mul");
+    const mul = declaring("wrap_mul", ["int"], "int");
     const p1 = mul.addParameter(0);
     const mulBlock = mul.addBlock();
     const four = irConstant(4);
@@ -127,7 +141,7 @@ describe("emitNumericFunction executable subset", () => {
 
 describe("emitNumericFunction control flow", () => {
   itNative("executes both arms of a branch", () => {
-    const graph = new CFGFunction("pick_max");
+    const graph = declaring("pick_max", ["float", "float"], "float");
     const p0 = graph.addParameter(0);
     const p1 = graph.addParameter(1);
     const entry = graph.addBlock();

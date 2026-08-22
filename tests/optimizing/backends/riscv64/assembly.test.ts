@@ -94,7 +94,7 @@ describe("riscv64 assembly", () => {
 
   it("emits IEEE aware float comparisons without a parity fixup", () => {
     const assembly = assemblyOf(
-      src("fn same(a: float, b: float) -> int:", "  r = a == b", "  return r"),
+      src("fn same(a: float, b: float) -> bool:", "  r = a == b", "  return r"),
     );
 
     expect(assembly).toContain("feq.d");

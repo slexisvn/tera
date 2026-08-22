@@ -23,6 +23,10 @@ function bothDecline(source: string, expected: string): void {
   expect(c).toContain(expected);
 }
 
+function bothRefuse(source: string, expected: string): void {
+  expect(() => reasons(source)).toThrow(expected);
+}
+
 function bothAdmit(source: string): void {
   const { x64, c } = reasons(source);
   expect(x64).toBe("");
@@ -71,10 +75,10 @@ describe("the AOT string ceiling", () => {
     );
   });
 
-  it("declines storing a string into a numeric array", () => {
-    bothDecline(
+  it("refuses storing a string into a numeric array", () => {
+    bothRefuse(
       src("fn f(i: int) -> string:", "  cells = [0, 0]", '  cells[i] = "H"', "  return cells[i]"),
-      "array has an unsupported element type",
+      "Type 'string' is not assignable to 'int'",
     );
   });
 
@@ -290,10 +294,10 @@ describe("the AOT string ceiling", () => {
     bothAdmit(src("fn f():", '  return "hi"'));
   });
 
-  it("declines when the declared return type disagrees with the string returned", () => {
-    bothDecline(
+  it("refuses when the declared return type disagrees with the string returned", () => {
+    bothRefuse(
       src("fn f(a: string, b: string) -> int:", "  return a + b"),
-      "function returns a string but its return type is not a string",
+      "Type 'string' is not assignable to return type 'int'",
     );
   });
 });

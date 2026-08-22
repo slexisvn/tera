@@ -149,15 +149,15 @@ const PROGRAMS: readonly (readonly [string, string])[] = [
     "  public right: Branch | null = null",
     "  public constructor(v: int):",
     "    this.v = v",
-    "root = Branch(1)",
-    "root.left = Branch(2)",
-    "root.right = Branch(3)",
-    "sum = root.v",
-    "if root.left != null:",
-    "  sum = sum + root.left.v",
-    "if root.right != null:",
-    "  sum = sum + root.right.v",
-    "print(sum)",
+    "tree = Branch(1)",
+    "tree.left = Branch(2)",
+    "tree.right = Branch(3)",
+    "total = tree.v",
+    "if tree.left != null:",
+    "  total = total + tree.left.v",
+    "if tree.right != null:",
+    "  total = total + tree.right.v",
+    "print(total)",
   )],
 ];
 
@@ -274,10 +274,10 @@ describe("AOT nullable references", () => {
     expect(run.stdout).toBe("true 1\n");
   });
 
-  it("declines returning null where a number is declared", () => {
-    expect(
+  it("refuses returning null where a number is declared", () => {
+    expect(() =>
       declined(src("fn pick(f: bool) -> int:", "  if f:", "    return 1", "  return null")),
-    ).toContain("answers null where its return type has no null");
+    ).toThrow("Type 'null' is not assignable to return type 'int'");
   });
   itRunsPe("short-circuits an optional field read to null", () => {
     agrees(

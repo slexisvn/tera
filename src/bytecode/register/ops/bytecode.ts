@@ -8,9 +8,10 @@ import type { Environment } from "../../../runtime/intrinsics/environment.js";
 import type {
   DeclaredDefault,
   DeclaredSignature,
+  RestParameter,
 } from "../../../optimizing/types/signature.js";
 
-export type { DeclaredDefault, DeclaredSignature };
+export type { DeclaredDefault, DeclaredSignature, RestParameter };
 
 export const ROP_LDA_CONST = 0x01;
 export const ROP_LDA_REG = 0x02;
@@ -419,6 +420,7 @@ export class RegisterCompiledFunction {
   isAsync: boolean;
   explicitAsync: boolean;
   isGenerator: boolean;
+  isArrow: boolean;
   isClassConstructor: boolean;
   isStrict: boolean;
   callMode?: number;
@@ -434,6 +436,8 @@ export class RegisterCompiledFunction {
   hoistedVarNames: string[] | null;
   paramNames: string[] | null;
   declaredSignature: DeclaredSignature | null;
+  declaredInt32Return?: boolean;
+  runtimeBridge?: boolean;
   constructorStub?: ((args: TaggedValue[]) => TaggedValue) | null;
   simpleConstructorInfo?: SimpleConstructorField[] | null;
   classOwnerName?: string | null;
@@ -492,6 +496,7 @@ export class RegisterCompiledFunction {
     this.isAsync = false;
     this.explicitAsync = false;
     this.isGenerator = false;
+    this.isArrow = false;
     this.isClassConstructor = false;
     this.isStrict = false;
     this.isLazy = false;

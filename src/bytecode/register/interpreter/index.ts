@@ -241,6 +241,23 @@ export function updateCallMode(compiled: CompiledFunctionLike): void {
   else compiled.callMode = CALL_INTERPRETED;
 }
 
+const DECLARED_INT_TYPE = "int";
+
+function declaredInt32Return(compiledFn: bytecode.RegisterCompiledFunction): boolean {
+  const known = compiledFn.declaredInt32Return;
+  if (known !== undefined) return known;
+  const declared = compiledFn.declaredSignature?.returns === DECLARED_INT_TYPE;
+  compiledFn.declaredInt32Return = declared;
+  return declared;
+}
+
+function asDeclaredInt32(value: TaggedValue, interpreter: InterpreterLike): TaggedValue {
+  if (isSmi(value)) return value;
+  if (!isDouble(value)) return value;
+  const answered = interpreter.toNumberValue(value);
+  return Number.isInteger(answered) ? mkNumber(answered | 0) : value;
+}
+
 function missingGlobalMessage(
   key: string,
   cell: GlobalCell | undefined,
@@ -581,6 +598,8 @@ function callFunction(
   }
 
   const compiled = fn.compiled;
+  const answered = (result: TaggedValue): TaggedValue =>
+    declaredInt32Return(compiled) ? asDeclaredInt32(result, interpreter) : result;
   compiled.invocationCount = (compiled.invocationCount || 0) + 1;
 
   if (compiled.isLazy && interpreter.jitEngine && typeof interpreter.jitEngine.compileLazy === "function") {
@@ -592,12 +611,12 @@ function callFunction(
 
   if (!debugInterpreted && compiled.callMode === CALL_OPTIMIZED) {
     if (compiled.optimizedCode) {
-      const result = compiled.optimizedCode(
+      const result = answered(compiled.optimizedCode(
         args,
         thisValue,
         interpreter,
         fn.closure || null,
-      );
+      ));
       recordReturnFeedback(slot, result);
       return result;
     }
@@ -631,21 +650,22 @@ function callFunction(
     if (!debugInterpreted) {
       const tierResult = tryTierUp(compiled, fn, callee, args, thisValue, interpreter);
       if (tierResult !== null) {
-        recordReturnFeedback(slot, tierResult);
-        return tierResult;
+        const tiered = answered(tierResult);
+        recordReturnFeedback(slot, tiered);
+        return tiered;
       }
       if (compiled.baselineCode) {
-        const result = compiled.baselineCode(
+        const result = answered(compiled.baselineCode(
           args,
           thisValue,
           interpreter,
           fn.closure || null,
-        );
+        ));
         recordReturnFeedback(slot, result);
         return result;
       }
     }
-    const result = interpretCall(compiled, fn, callee, args, thisValue, interpreter);
+    const result = answered(interpretCall(compiled, fn, callee, args, thisValue, interpreter));
     recordReturnFeedback(slot, result);
     return result;
   }
@@ -2031,7 +2051,9 @@ export class RegisterInterpreter {
 
             case bytecode.ROP_RETURN: {
               frame.closeUpvalues();
-              return frame.acc;
+              return declaredInt32Return(compiledFn)
+                ? asDeclaredInt32(frame.acc, this)
+                : frame.acc;
             }
 
             case bytecode.ROP_ARRAY_REST: {

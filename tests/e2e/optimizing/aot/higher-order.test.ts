@@ -132,7 +132,7 @@ describe("AOT higher-order functions", () => {
       src(
         "fn apply(f: (float) -> float, x: float) -> float:",
         "  return f(x)",
-        "fn f(n: int) -> int:",
+        "fn f(n: int) -> float:",
         "  return apply(v => v / 2.0, 9.0) + apply(v => v + 0.5, 1.0) + n",
       ),
       "f",
@@ -153,8 +153,8 @@ describe("AOT higher-order functions", () => {
     ).toContain("unsupported generic call");
   });
 
-  it("declines a callback used at two different written types", () => {
-    expect(
+  it("refuses a callback used at two different written types", () => {
+    expect(() =>
       declined(
         src(
           "fn ints(f: (int) -> int, x: int) -> int:",
@@ -163,10 +163,10 @@ describe("AOT higher-order functions", () => {
           "  return f(x)",
           "fn shared(v: int) -> int:",
           "  return v",
-          "fn f(n: int) -> int:",
+          "fn f(n: int) -> float:",
           "  return ints(shared, n) + floats(shared, 1.0)",
         ),
       ),
-    ).not.toBe("");
+    ).toThrow("Type '(int) -> int' is not assignable to parameter 'f: (float) -> float'");
   });
 });

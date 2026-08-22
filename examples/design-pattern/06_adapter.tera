@@ -7,7 +7,7 @@ class LegacyPrinter:
 
 class PrinterAdapter implements Printer:
   private legacy: LegacyPrinter = LegacyPrinter()
-  public constructor(legacy):
+  public constructor(legacy: LegacyPrinter):
     this.legacy = legacy
   public print(message: string) -> string:
     return this.legacy.printText(message)

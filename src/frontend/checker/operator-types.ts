@@ -65,6 +65,7 @@ function acceptsOrderedComparison(left: TypeName, right: TypeName, env: TypeEnv)
 }
 
 function acceptsEquality(left: TypeName, right: TypeName, env: TypeEnv): boolean {
+  if (isNullish(left) || isNullish(right)) return true;
   for (const leftPart of unionParts(left, env)) {
     for (const rightPart of unionParts(right, env)) {
       if (isNullish(leftPart) && isNullish(rightPart)) return true;

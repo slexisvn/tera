@@ -25,6 +25,6 @@ class Folder implements FileSystemNode:
       total += child.size()
     return total
 
-root = Folder("root").add(FileItem("a.txt", 3)).add(Folder("src").add(FileItem("main.tera", 7)))
+tree = Folder("root").add(FileItem("a.txt", 3)).add(Folder("src").add(FileItem("main.tera", 7)))
 
-print("composite:", root.size())
+print("composite:", tree.size())

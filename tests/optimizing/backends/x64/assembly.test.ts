@@ -72,7 +72,7 @@ describe("x64 assembly", () => {
 
   it("guards float equality against unordered operands", () => {
     const assembly = assemblyOf(
-      src("fn same(a: float, b: float) -> int:", "  r = a == b", "  return r"),
+      src("fn same(a: float, b: float) -> bool:", "  r = a == b", "  return r"),
     );
 
     expect(assembly).toContain("ucomisd");

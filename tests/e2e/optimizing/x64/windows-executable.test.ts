@@ -170,7 +170,7 @@ describe("x64 windows executables with classes", () => {
         "  public get label() -> int:",
         "    return this.n * 100",
         "  public set label(value: int):",
-        "    this.n = value / 100",
+        "    this.n = Math.floor(value / 100)",
         "class Square extends Shape:",
         "  public constructor(n: int):",
         "    super(n=n)",

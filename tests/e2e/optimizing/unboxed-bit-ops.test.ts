@@ -50,7 +50,7 @@ describe("unboxed representation for bitwise and power operations", () => {
     expect(
       differential(
         src(
-          "fn run(n: int) -> int:",
+          "fn run(n: int) -> float:",
           "  acc = 0",
           "  i = 0",
           "  while (i < n):",

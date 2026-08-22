@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { removeDirectory } from "./workspace.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { it } from "vitest";
@@ -15,7 +16,7 @@ function inRunDirectory<T>(use: (path: string) => T): T {
   try {
     return use(join(directory, "program.exe"));
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    removeDirectory(directory);
   }
 }
 

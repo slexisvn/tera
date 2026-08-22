@@ -1,0 +1,8 @@
+fn pick(a: int, b: int) -> int:
+  if a < b:
+    r = b - a
+  else:
+    r = a - b
+  return r
+
+print(pick(3, 11))

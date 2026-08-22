@@ -71,9 +71,9 @@ const SQUARES = src(
 const CALLS_ASYNC = src(
   "async fn later(n: int) -> int:",
   "  return n + 1",
-  "fn mid(n: int) -> int:",
+  "fn mid(n: int) -> Promise<int>:",
   "  return later(n)",
-  "print(mid(1))",
+  "mid(1)",
 );
 
 const REACTIVE = src(
@@ -85,11 +85,11 @@ const REACTIVE = src(
 const CALLS_ASYNC_THROUGH = src(
   "async fn later(n: int) -> int:",
   "  return n + 1",
-  "fn mid(n: int) -> int:",
+  "fn mid(n: int) -> Promise<int>:",
   "  return later(n)",
-  "fn outer(n: int) -> int:",
+  "fn outer(n: int) -> Promise<int>:",
   "  return mid(n)",
-  "print(outer(1))",
+  "outer(1)",
 );
 
 describe("tera compile", () => {
@@ -338,6 +338,49 @@ describe("tera compile entry reporting", () => {
         "entry function tera_program could not be lowered to native code: it calls outer -> mid, " +
           "skipped because the promise later returns is used as a plain value here",
       );
+    });
+  });
+
+  it("refuses a program whose parameters have no declared type", () => {
+    inWorkspace((dir) => {
+      const built = compile(
+        dir,
+        src("fn twice(v):", "  return v + v", "", "print(twice(21))"),
+      );
+
+      expect(built.status).toBe(1);
+      expect(built.errors.join("\n")).toContain(
+        "compiling ahead of time needs every parameter to have a declared type",
+      );
+      expect(built.errors.join("\n")).toContain(
+        "twice: parameter 'v' has no declared type",
+      );
+      expect(existsSync(built.output)).toBe(false);
+    });
+  });
+
+  it("refuses an untyped function even when nothing the entry needs calls it", () => {
+    inWorkspace((dir) => {
+      const built = compile(
+        dir,
+        src("fn unused(v):", "  return v + v", "", "print(21)"),
+      );
+
+      expect(built.status).toBe(1);
+      expect(built.errors.join("\n")).toContain("unused: parameter 'v' has no declared type");
+      expect(existsSync(built.output)).toBe(false);
+    });
+  });
+
+  itBuildsNatively("builds the same program once its parameters are declared", () => {
+    inWorkspace((dir) => {
+      const built = compile(
+        dir,
+        src("fn twice(v: int) -> int:", "  return v + v", "", "print(twice(21))"),
+      );
+
+      expect(built.status).toBe(0);
+      expect(output(built.output)).toBe("42");
     });
   });
 

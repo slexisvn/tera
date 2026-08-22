@@ -283,7 +283,11 @@ function linkWithCompiler(
     if (config.keepTemps) {
       console.error(`tera compile: kept intermediates in ${buildDir}`);
     } else {
-      fs.rmSync(buildDir, { recursive: true, force: true });
+      try {
+        fs.rmSync(buildDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      } catch {
+        console.error(`tera compile: could not remove ${buildDir}`);
+      }
     }
   }
 }
@@ -296,10 +300,7 @@ function compile(config: CompileConfig): number {
   const resolved = path.resolve(input);
   if (!fs.existsSync(resolved)) throw new CompileError(`file not found: ${input}`);
   const moduleName = path.basename(resolved, path.extname(resolved));
-  const engine = new Engine({
-    ...hostEngineOptions(),
-    ...(config.typecheck === null ? {} : { typecheck: config.typecheck }),
-  });
+  const engine = new Engine(hostEngineOptions());
   const backend = resolveBackend(engine, config);
   const toolchain = usesToolchain(config, backend);
   const format = toolchain ? "assembly" : FORMATS[config.emit];

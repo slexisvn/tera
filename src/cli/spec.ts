@@ -394,7 +394,6 @@ export const COMPILE_COMMAND: CommandSpec<CompileConfig> = {
       summary: "keep the generated intermediates",
       apply: (config) => (config.keepTemps = true),
     },
-    TYPECHECK_FLAG,
     {
       name: "module-path",
       value: "dir",
@@ -416,7 +415,6 @@ export const COMPILE_COMMAND: CommandSpec<CompileConfig> = {
     cc: null,
     heapBytes: null,
     keepTemps: false,
-    typecheck: null,
     modulePaths: [],
   }),
   accept: acceptSingleFile("compile"),

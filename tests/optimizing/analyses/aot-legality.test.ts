@@ -30,6 +30,7 @@ import { callReachability } from "../../../src/optimizing/metadata/call-graph.js
 import { AnalysisManager } from "../../../src/optimizing/infra/analysis-manager.js";
 import { createAnalysisRegistry } from "../../../src/optimizing/analyses/index.js";
 import { typeInferenceAnalysisId } from "../../../src/optimizing/analyses/type-inference.js";
+import { gatheredParameterName } from "../../../src/optimizing/types/signature.js";
 import { BUFFER_ELEMENTS_OFFSET } from "../../../src/optimizing/metadata/class-table.js";
 import {
   SCALAR_FLOAT64,
@@ -503,6 +504,7 @@ describe("AOT legality signatures", () => {
 
   it("infers a return type when the signature declares none", () => {
     const graph = new CFGFunction("inferred");
+    graph.declaredSignature = { params: ["int"], names: ["left"], returns: null };
     const left = graph.addParameter(0);
     const block = graph.addBlock();
     const one = irConstant(1);
@@ -513,6 +515,45 @@ describe("AOT legality signatures", () => {
 
     const legality = admitted(graph);
     expect(legality.declaredReturn).toBe(false);
+  });
+
+  it("refuses a parameter whose type the source never declared", () => {
+    const graph = new CFGFunction("loose");
+    graph.declaredSignature = { params: ["any"], names: ["a"], returns: "int" };
+    const value = graph.addParameter(0);
+    const block = graph.addBlock();
+    const one = irConstant(1);
+    const sum = irInt32Add(value, one);
+    block.addNode(one);
+    block.addNode(sum);
+    block.addNode(irReturn(sum));
+
+    expect(reasonOf(graph)).toBe(
+      "parameter 'a' has no declared type; declare it (for example 'a: int'), " +
+        "or keep this part interpreted",
+    );
+  });
+
+  it("names the rest parameter when a gathered argument has no declared type", () => {
+    const graph = new CFGFunction("gathering");
+    graph.declaredSignature = {
+      params: [null],
+      names: [gatheredParameterName(0)],
+      rest: { name: "values", type: null },
+      returns: "int",
+    };
+    const value = graph.addParameter(0);
+    const block = graph.addBlock();
+    const one = irConstant(1);
+    const sum = irInt32Add(value, one);
+    block.addNode(one);
+    block.addNode(sum);
+    block.addNode(irReturn(sum));
+
+    expect(reasonOf(graph)).toBe(
+      "rest parameter 'values' has no declared type; declare the type its arguments have " +
+        "(for example '...values: int'), or keep this part interpreted",
+    );
   });
 
   it("collects each distinct constant once", () => {

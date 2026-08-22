@@ -357,6 +357,7 @@ export const TERA_PRIMITIVE_TYPES = [
   "Array",
   "Object",
   "Promise",
+  "Error",
   "Tensor",
   "IndexTensor",
   "Module",
@@ -1286,6 +1287,12 @@ export const TERA_BUILTINS = {
     "kind": "function",
     "returns": "float",
     "params": [param("value", "any")]
+  },
+  "Error": {
+    "description": "Create an error value carrying a message.",
+    "kind": "function",
+    "returns": "Error",
+    "params": [optionalParam("message", "string")]
   },
   "String": {
     "description": "Convert a value to its string representation.",
@@ -4777,11 +4784,11 @@ export const TERA_PSEUDO_TYPES = {
   "Math": {
     "methods": [
       { "name": "abs", "params": [param("x", "float")], "returns": "float" },
-      { "name": "floor", "params": [param("x", "float")], "returns": "float" },
-      { "name": "ceil", "params": [param("x", "float")], "returns": "float" },
-      { "name": "round", "params": [param("x", "float")], "returns": "float" },
-      { "name": "trunc", "params": [param("x", "float")], "returns": "float" },
-      { "name": "sign", "params": [param("x", "float")], "returns": "float" },
+      { "name": "floor", "params": [param("x", "float")], "returns": "int" },
+      { "name": "ceil", "params": [param("x", "float")], "returns": "int" },
+      { "name": "round", "params": [param("x", "float")], "returns": "int" },
+      { "name": "trunc", "params": [param("x", "float")], "returns": "int" },
+      { "name": "sign", "params": [param("x", "float")], "returns": "int" },
       { "name": "sqrt", "params": [param("x", "float")], "returns": "float" },
       { "name": "log", "params": [param("x", "float")], "returns": "float" },
       { "name": "pow", "params": [param("base", "float"), param("exponent", "float")], "returns": "float" },
@@ -4885,6 +4892,13 @@ export const TERA_PSEUDO_TYPES = {
         "isGetter": false,
         "description": "Return the boolean primitive value."
       }
+    ]
+  },
+  "Error": {
+    "methods": [
+      { "name": "message", "params": [], "returns": "string", "isGetter": true },
+      { "name": "name", "params": [], "returns": "string", "isGetter": true },
+      { "name": "to_string", "params": [], "returns": "string" }
     ]
   },
   "Promise": {

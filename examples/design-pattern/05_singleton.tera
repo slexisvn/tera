@@ -3,7 +3,7 @@ interface AppConfig:
 
 class Config implements AppConfig:
   private static instance: AppConfig = Config("prod")
-  private constructor(env):
+  private constructor(env: string):
     this.env = env
   public static getInstance() -> AppConfig:
     return Config.instance

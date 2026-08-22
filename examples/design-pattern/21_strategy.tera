@@ -3,11 +3,11 @@ interface SortStrategy:
 
 class QuickSort implements SortStrategy:
   public sort(values: int[]) -> string:
-    return values.slice().sort((a, b) => a - b).join(",")
+    return values.slice().sort((a: int, b: int) => a - b).join(",")
 
 class ReverseSort implements SortStrategy:
   public sort(values: int[]) -> string:
-    return values.slice().sort((a, b) => b - a).join(",")
+    return values.slice().sort((a: int, b: int) => b - a).join(",")
 
 class Sorter:
   public constructor(strategy: SortStrategy):

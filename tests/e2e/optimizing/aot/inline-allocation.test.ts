@@ -61,12 +61,12 @@ describe("AOT inline allocation", () => {
     const counted = src(
       BOX,
       "fn total(n: int) -> int:",
-      "  sum = 0",
+      "  total = 0",
       "  i = 0",
       "  while i < n:",
-      "    sum = sum + Box(i % 7).v",
+      "    total = total + Box(i % 7).v",
       "    i = i + 1",
-      "  return sum",
+      "  return total",
     );
     const expected = nodeEngine({ typecheck: "off" }).runNative(`${counted}\ntotal(300000)\n`);
     const run = runPe(image(src(counted, "print(total(300000))")));

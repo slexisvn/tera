@@ -33,7 +33,7 @@ function ran(source: string) {
 const BAG = src(
   "class Bag:",
   "  public size: int = 0",
-  "  public constructor(...items):",
+  "  public constructor(...items: int):",
   "    this.size = items.length",
 );
 
@@ -41,7 +41,7 @@ const COUNTER = src(
   "class Counter:",
   "  public constructor():",
   "    this.n = 0",
-  "  public add(...values) -> int:",
+  "  public add(...values: int) -> int:",
   "    return values.length",
 );
 
@@ -49,10 +49,10 @@ const CONE = src(
   "class Base:",
   "  public constructor():",
   "    this.tag = 1",
-  "  public add(...values) -> int:",
+  "  public add(...values: int) -> int:",
   "    return values.length",
   "class Child extends Base:",
-  "  public add(...values) -> int:",
+  "  public add(...values: int) -> int:",
   "    return values.length * 10",
   "fn dispatch(shape: Base) -> int:",
   "  return shape.add(1, 2)",
@@ -61,7 +61,7 @@ const CONE = src(
 describe("AOT rest parameters", () => {
   itNative("counts the arguments a call gathered", () => {
     matchesInterpreter(
-      src("fn total(...rest) -> int:", "  return rest.length", "fn go(n: int) -> int:", "  return total(n, n, n)"),
+      src("fn total(...rest: int) -> int:", "  return rest.length", "fn go(n: int) -> int:", "  return total(n, n, n)"),
       "go",
       [4],
     );
@@ -70,7 +70,7 @@ describe("AOT rest parameters", () => {
   itNative("reads a gathered argument by index", () => {
     matchesInterpreter(
       src(
-        "fn second(...rest) -> int:",
+        "fn second(...rest: int) -> int:",
         "  return rest[1]",
         "fn go(n: int) -> int:",
         "  return second(n, n + 5)",
@@ -83,7 +83,7 @@ describe("AOT rest parameters", () => {
   itNative("walks the gathered arguments with for-of", () => {
     matchesInterpreter(
       src(
-        "fn sum(...values) -> int:",
+        "fn sum(...values: int) -> int:",
         "  total = 0",
         "  for value of values:",
         "    total = total + value",
@@ -99,7 +99,7 @@ describe("AOT rest parameters", () => {
   itNative("gathers only the arguments after the declared parameters", () => {
     matchesInterpreter(
       src(
-        "fn tail(first: int, ...rest) -> int:",
+        "fn tail(first: int, ...rest: int) -> int:",
         "  return first * 100 + rest.length",
         "fn go(n: int) -> int:",
         "  return tail(n, n, n)",
@@ -138,7 +138,7 @@ describe("AOT rest parameters", () => {
   itNative("gathers a different count for each arity a call site uses", () => {
     matchesInterpreter(
       src(
-        "fn total(...rest) -> int:",
+        "fn total(...rest: int) -> int:",
         "  return rest.length",
         "fn go(n: int) -> int:",
         "  return total(n) + total(n, n) + total(n, n, n)",
@@ -151,7 +151,7 @@ describe("AOT rest parameters", () => {
   it("compiles one clone per arity and no clone nobody calls", () => {
     const program = compile(
       src(
-        "fn total(...rest) -> int:",
+        "fn total(...rest: int) -> int:",
         "  return rest.length",
         "fn go(n: int) -> int:",
         "  return total(n) + total(n, n)",
@@ -185,11 +185,25 @@ describe("AOT rest parameters", () => {
     );
   });
 
-  itRunsPe("reads a field whose type comes from an unannotated rest parameter", () => {
+  it("refuses a rest parameter the source left undeclared", () => {
+    expect(() =>
+      nodeEngine({ typecheck: "off" }).compileAot(
+        src(
+          "fn total(...rest) -> int:",
+          "  return rest.length",
+          "fn go(n: int) -> int:",
+          "  return total(n, n)",
+        ) + "\n",
+        { backend: "c" },
+      ),
+    ).toThrow("rest parameter 'rest' has no declared type");
+  });
+
+  itRunsPe("reads a field whose type comes from a rest parameter", () => {
     const run = ran(
       src(
         "class Tally:",
-        "  public constructor(...items):",
+        "  public constructor(...items: int):",
         "    this.n = items.length",
         "print(Tally(1, 2, 3).n)",
       ),

@@ -16,7 +16,7 @@ import { compilerOptions, type CompilerOptions } from "./options.js";
 import type { ClassTable } from "./metadata/class-table.js";
 import { hasClassReceiver } from "./metadata/class-symbols.js";
 import { declaredMemberSignature } from "./metadata/class-table.js";
-import type { DeclaredSignature } from "./types/signature.js";
+import { gatheredParameterName, type DeclaredSignature } from "./types/signature.js";
 import { DominatorTree } from "./analyses/dominance.js";
 import { LoopForest } from "./analyses/loops.js";
 import type { AnalysisManager } from "./infra/analysis-manager.js";
@@ -27,8 +27,6 @@ type RequiredCompilerExtension = Required<TeraCompilerExtension>;
 
 const STATIC_OPTIONS = compilerOptions("speed", { scalarReplaceAggregates: false });
 
-const GATHERED_PARAMETER_PREFIX = "gathered$";
-
 function gatheringSignature(
   declared: DeclaredSignature | null,
   gatheredArguments: number | null,
@@ -37,8 +35,8 @@ function gatheringSignature(
   const gathered = Array.from({ length: gatheredArguments }, (_, at) => at);
   return {
     ...declared,
-    params: [...declared.params, ...gathered.map(() => null)],
-    names: [...(declared.names ?? []), ...gathered.map((at) => `${GATHERED_PARAMETER_PREFIX}${at}`)],
+    params: [...declared.params, ...gathered.map(() => declared.rest?.type ?? null)],
+    names: [...(declared.names ?? []), ...gathered.map(gatheredParameterName)],
     variadic: false,
   };
 }

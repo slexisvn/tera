@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { removeDirectory } from "./workspace.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { it } from "vitest";
@@ -122,7 +123,7 @@ export function nativeStdout(
     return run.stdout;
   } finally {
     try {
-      rmSync(directory, { recursive: true, force: true });
+      removeDirectory(directory);
     } catch {
       void 0;
     }
@@ -194,7 +195,7 @@ export function runNativeStringBatch(
     return parts;
   } finally {
     try {
-      rmSync(directory, { recursive: true, force: true });
+      removeDirectory(directory);
     } catch {
       void 0;
     }

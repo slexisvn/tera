@@ -80,6 +80,7 @@ export function memberSignature(member: ClassMemberFunction): DeclaredSignature 
     names: [CLASS_RECEIVER_PARAM, ...(declared?.names ?? [])],
     defaults: [undefined, ...(declared?.defaults ?? [])],
     variadic: declared?.variadic === true,
+    rest: declared?.rest ?? null,
     returns: member.classMemberKind === "constructor" ? owner : declared?.returns ?? null,
   };
 }
