@@ -221,6 +221,7 @@ export interface TypeContext {
   typeOf(value: CFGInstruction): LatticeType;
   returnTypeOf(node: TransferNode): LatticeType;
   declaredTypeOf?(declared: string): LatticeType;
+  memberTypeOf?(receiver: LatticeType, name: string): LatticeType | null;
 }
 
 export type Transfer = (node: TransferNode, context: TypeContext) => LatticeType;
@@ -520,7 +521,11 @@ function memberOf(node: TransferNode, context: TypeContext): BuiltinMemberType |
 
 function memberTransfer(node: TransferNode, context: TypeContext): LatticeType {
   const member = memberOf(node, context);
-  return member !== null && member.getter ? member.type : anyType();
+  if (member !== null) return member.getter ? member.type : anyType();
+  const receiver = node.inputs[0];
+  if (receiver === undefined || context.memberTypeOf === undefined) return anyType();
+  const named = context.memberTypeOf(context.typeOf(receiver), String(node.props.propName));
+  return named ?? anyType();
 }
 
 function callTransfer(node: TransferNode, context: TypeContext): LatticeType {

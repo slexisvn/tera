@@ -151,7 +151,10 @@ function proveOrGeneric(
   }
   for (const node of genericCalls) {
     const name = genericCalleeName(node)!;
-    const known = stamp(irCallKnownFunction({ name } as never, node.inputs.slice(1)));
+    const answered = node.props.target as Record<string, unknown> | undefined;
+    const known = stamp(
+      irCallKnownFunction({ ...answered, name } as never, node.inputs.slice(1)),
+    );
     carryNamedArguments(node, known);
     replaceNode(editor, node, known);
     changed++;

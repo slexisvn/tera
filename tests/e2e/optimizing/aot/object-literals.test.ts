@@ -222,3 +222,63 @@ describe("AOT arrays of spelled-out strings", () => {
     );
   });
 });
+
+describe("AOT object types on parameters", () => {
+  const ORDER = "type Order = { sku: string, qty: int, price: float }";
+
+  itNative("reads a field through a declared object type alias", () => {
+    matchesInterpreter(
+      src(
+        ORDER,
+        "fn total(order: Order) -> float:",
+        "  return order.price * order.qty",
+        "fn f(n: int) -> float:",
+        '  return total({ sku: "A1", qty: n, price: 2.5 })',
+      ),
+      "f",
+      [4],
+    );
+  });
+
+  itNative("reads a field through an object type written in place", () => {
+    matchesInterpreter(
+      src(
+        "fn total(order: { qty: int, price: float }) -> float:",
+        "  return order.price * order.qty",
+        "fn f(n: int) -> float:",
+        "  return total({ qty: n, price: 0.5 })",
+      ),
+      "f",
+      [7],
+    );
+  });
+
+  itNative("lays a literal out as declared when its fields are written out of order", () => {
+    matchesInterpreter(
+      src(
+        ORDER,
+        "fn total(order: Order) -> float:",
+        "  return order.price * order.qty",
+        "fn f(n: int) -> float:",
+        '  return total({ price: 2.5, sku: "A1", qty: n })',
+      ),
+      "f",
+      [4],
+    );
+  });
+
+  it("declines an object it cannot lay out the way the callee declares", () => {
+    expect(
+      declined(
+        src(
+          ORDER,
+          "fn qty_of(order: Order) -> int:",
+          "  return order.qty",
+          "fn f(n: int) -> int:",
+          '  orders = [{ sku: "A1", qty: n, price: 2.0 }]',
+          "  return qty_of(orders[0])",
+        ),
+      ),
+    ).toContain("passes an object laid out differently from the order it declares");
+  });
+});

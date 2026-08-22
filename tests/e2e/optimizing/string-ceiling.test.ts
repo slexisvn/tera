@@ -124,15 +124,29 @@ describe("the AOT string ceiling", () => {
     );
   });
 
-  it("declines string building in a function that can re-enter itself", () => {
-    bothDecline(
+  it("admits string building in a function that can re-enter itself", () => {
+    bothAdmit(
       src(
         "fn tag(n: int) -> string:",
         "  if n <= 0:",
         '    return "."',
         '  return "x" + tag(n - 1)',
       ),
-      "can re-enter itself",
+    );
+  });
+
+  it("declines a string it built that is held across a call that can re-enter", () => {
+    bothDecline(
+      src(
+        "fn tag(n: int) -> string:",
+        '  out = ""',
+        "  for i of range(0, n):",
+        '    out = out + "x"',
+        "  if n > 0:",
+        "    tag(n - 1)",
+        "  return out",
+      ),
+      "tag keeps the string it built across a call to tag",
     );
   });
 
@@ -166,8 +180,8 @@ describe("the AOT string ceiling", () => {
     );
   });
 
-  it("declines reading a line in a function that can re-enter itself", () => {
-    bothDecline(
+  it("admits reading a line in a function that can re-enter itself", () => {
+    bothAdmit(
       src(
         "fn read(n: int) -> int:",
         "  a = input()",
@@ -176,7 +190,6 @@ describe("the AOT string ceiling", () => {
         "  print(a)",
         "  return 0",
       ),
-      "can re-enter itself",
     );
   });
 

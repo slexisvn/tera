@@ -306,4 +306,34 @@ describe("AOT nullable references", () => {
   itRunsPe("answers null from a find over numbers", () => {
     agrees(src("xs: int[] = [1, 2, 3]", "print(xs.find(v => v > 1))", "print(xs.find(v => v > 9))"));
   });
+
+  itRunsPe("adds to a nullable int once a default has filled it in", () => {
+    agrees(
+      src(
+        "fn bump(x: int | null) -> int:",
+        "  return (x ?? 0) + 1",
+        "print(bump(5), bump(null))",
+      ),
+    );
+  });
+
+  itNative("adds to a nullable int the same way through the C backend", () => {
+    agreesInC(
+      src(
+        "fn bump(x: int | null) -> int:",
+        "  return (x ?? 0) + 1",
+        "print(bump(5), bump(null))",
+      ),
+    );
+  });
+
+  itRunsPe("compares a nullable float a default has filled in", () => {
+    agrees(
+      src(
+        "fn over(x: float | null, limit: float) -> bool:",
+        "  return (x ?? 0.0) > limit",
+        "print(over(2.5, 1.0), over(null, 1.0))",
+      ),
+    );
+  });
 });

@@ -78,4 +78,56 @@ describe("AOT interface dispatch", () => {
       ),
     );
   });
+
+  itRunsPe("dispatches over an array literal of unrelated implementations", () => {
+    agrees(
+      src(
+        "interface Shape:",
+        "  area() -> float",
+        "class Circle implements Shape:",
+        "  public radius: float",
+        "  public constructor(radius: float):",
+        "    this.radius = radius",
+        "  public area() -> float:",
+        "    return 3.14 * this.radius * this.radius",
+        "class Square implements Shape:",
+        "  public size: float",
+        "  public constructor(size: float):",
+        "    this.size = size",
+        "  public area() -> float:",
+        "    return this.size * this.size",
+        "shapes = [Circle(2.0), Square(3.0)]",
+        "areas = []",
+        "for shape of shapes:",
+        "  areas.push(shape.area())",
+        'print(areas.join(","))',
+      ),
+    );
+  });
+
+  itRunsPe("keeps a shared base class as the element type when there is one", () => {
+    agrees(
+      src(
+        "class Animal:",
+        "  public legs: int",
+        "  public constructor(legs: int):",
+        "    this.legs = legs",
+        "  public speak() -> string:",
+        '    return "..."',
+        "class Dog extends Animal:",
+        "  public constructor():",
+        "    super(4)",
+        "  public speak() -> string:",
+        '    return "woof"',
+        "class Bird extends Animal:",
+        "  public constructor():",
+        "    super(2)",
+        "  public speak() -> string:",
+        '    return "tweet"',
+        "pets = [Dog(), Bird()]",
+        "for pet of pets:",
+        "  print(pet.speak(), pet.legs)",
+      ),
+    );
+  });
 });

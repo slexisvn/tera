@@ -18,6 +18,9 @@ import {
   transferType,
   type TypeContext,
 } from "../ir/operations.js";
+import type { ClassCallableKind } from "../../core/class-member.js";
+
+const GETTER_CALLABLE: ClassCallableKind = "getter";
 
 export interface TypeInference {
   typeOf(value: ir.CFGInstruction): LatticeType;
@@ -126,6 +129,18 @@ class TypeSolver implements TypeInference, TypeContext {
 
   declaredTypeOf(declared: string): LatticeType {
     return nominalLatticeType(declared, this.graph.classes);
+  }
+
+  memberTypeOf(receiver: LatticeType, name: string): LatticeType | null {
+    const classes = this.graph.classes;
+    if (classes === null) return null;
+    if (receiver.kind !== TypeKind.Object || typeof receiver.map !== "number") return null;
+    const shape = classes.shapeById(receiver.map);
+    if (shape === null) return null;
+    const field = shape.fields.get(name);
+    if (field !== undefined) return nominalLatticeType(field.declaredType, classes);
+    const getter = shape.callables.get(GETTER_CALLABLE)?.get(name);
+    return getter === undefined ? null : nominalLatticeType(getter.signature.returns, classes);
   }
 
   private evaluate(node: ir.CFGInstruction): LatticeType {

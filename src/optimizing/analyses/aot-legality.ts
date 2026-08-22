@@ -52,7 +52,13 @@ import {
   heapElementScalarOf,
 } from "../ir/index.js";
 import { compiledFunctionConstant } from "../ir/compiled-function.js";
-import { declaredAotScalar, FIELD_SCALAR_PROP } from "../metadata/class-table.js";
+import {
+  declaredAotScalar,
+  isLiteralShapeName,
+  shapeForDeclared,
+  FIELD_SCALAR_PROP,
+  VALUE_CLASS_PROP,
+} from "../metadata/class-table.js";
 
 export function isAbsenceConstant(value: CFGInstruction | undefined): boolean {
   return value !== undefined && value.type === IR_CONSTANT && value.props.value === null;
@@ -316,6 +322,7 @@ export interface StringEscapeSummary {
 export interface StringEscapeModel {
   summaryOf(name: string): StringEscapeSummary | null;
   refills(callee: string, owner: string): boolean;
+  reenters(callee: string, owner: string): boolean;
   storesText(callee: string): boolean;
   producesText(callee: string): boolean;
   readonly throwsBuffer: boolean;
@@ -490,6 +497,7 @@ export function summarizeStringEscapes(
   const model: StringEscapeModel = {
     summaryOf: (name) => summaries.get(name) ?? null,
     refills: (callee, owner) => reachability.overlaps(callee, owner),
+    reenters: (callee, owner) => reachability.reaches(callee, owner),
     throwsBuffer,
     storesText: (callee) => {
       const cached = writesText.get(callee);
@@ -722,8 +730,7 @@ class LegalityAnalyzer implements AotLegality {
         }
       }
     }
-    if (owned.length > 0) this.checkBufferReentrancy();
-    if (this.failure === null) this.checkBorrowedLifetimes();
+    this.checkStringLifetimes();
   }
 
   private bindBorrowedAliases(origin: CFGInstruction): boolean {
@@ -736,8 +743,8 @@ class LegalityAnalyzer implements AotLegality {
     return true;
   }
 
-  private checkBorrowedLifetimes(): void {
-    if (this.borrowedFrom.size === 0) return;
+  private checkStringLifetimes(): void {
+    if (this.borrowedFrom.size === 0 && this.bufferByValue.size === 0) return;
     const liveness = computeValueLiveness(this.graph);
     for (const block of this.graph.blocks) {
       const live = new Set(liveness.liveOut(block));
@@ -752,21 +759,71 @@ class LegalityAnalyzer implements AotLegality {
     }
   }
 
+  private buildsHere(node: CFGInstruction): boolean {
+    return this.bufferByValue.get(node)?.producer === node;
+  }
+
+  private exposedAt(
+    node: CFGInstruction,
+    liveAfter: ReadonlySet<CFGInstruction>,
+  ): Iterable<CFGInstruction> {
+    return this.buildsHere(node) ? new Set([...liveAfter, ...node.inputs]) : liveAfter;
+  }
+
+  private stringOriginOf(value: CFGInstruction): CFGInstruction | null {
+    return this.borrowedFrom.get(value) ?? this.bufferByValue.get(value)?.producer ?? null;
+  }
+
   private checkInvalidation(node: CFGInstruction, liveAfter: ReadonlySet<CFGInstruction>): void {
-    if (node.type !== IR_CALL_KNOWN_FUNCTION && node.type !== IR_STORE_TEXT) return;
-    for (const value of liveAfter) {
-      const origin = this.borrowedFrom.get(value);
-      if (origin === undefined || origin === node) continue;
+    if (
+      !this.buildsHere(node) &&
+      node.type !== IR_CALL_KNOWN_FUNCTION &&
+      node.type !== IR_STORE_TEXT
+    ) {
+      return;
+    }
+    for (const value of this.exposedAt(node, liveAfter)) {
+      const origin = this.stringOriginOf(value);
+      if (origin === null || origin === node) continue;
       const overwrites = this.invalidates(node, origin);
       if (overwrites === null) continue;
       this.fail(
         `${this.graph.name} keeps ${this.borrowedName(origin)} across ${overwrites}, which ` +
-          `can overwrite it; a borrowed string lives only until the storage behind it is ` +
+          `can overwrite it; a string lives only until the storage behind it is ` +
           `written again, so use it before that point, copy it into an object field, or keep ` +
           `this part interpreted`,
       );
       return;
     }
+  }
+
+  private argumentsMatchShapes(
+    node: CFGInstruction,
+    declared: DeclaredSignature,
+    name: string,
+  ): boolean {
+    const classes = this.graph.classes;
+    if (classes === null) return true;
+    for (const [at, param] of declared.params.entries()) {
+      const asked = shapeForDeclared(classes, param);
+      if (asked === null || !isLiteralShapeName(asked.name)) continue;
+      const held = this.shapeIdOfValue(node.inputs[at]!);
+      if (held === null || held === asked.id) continue;
+      this.fail(
+        `call to ${name} passes an object laid out differently from the ` +
+          `${parameterLabelOf(declared, at).name ?? `argument ${at + 1}`} it declares; give the ` +
+          `object the declared type where it is written, or keep this part interpreted`,
+      );
+      return false;
+    }
+    return true;
+  }
+
+  private shapeIdOfValue(value: CFGInstruction): number | null {
+    const carried = value.props[VALUE_CLASS_PROP];
+    if (typeof carried === "number") return carried;
+    const held = this.types.typeOf(value);
+    return held.kind === TypeKind.Object && typeof held.map === "number" ? held.map : null;
   }
 
   private borrowsPrivateStorage(origin: CFGInstruction): boolean {
@@ -778,9 +835,26 @@ class LegalityAnalyzer implements AotLegality {
     return held;
   }
 
+  private reentersFrom(node: CFGInstruction): boolean {
+    const model = this.graph.stringEscapes;
+    const callee = calleeSymbolName(node);
+    return model !== null && callee !== null && model.reenters(callee, this.graph.name);
+  }
+
   private invalidates(node: CFGInstruction, origin: CFGInstruction): string | null {
     const model = this.graph.stringEscapes;
-    if (model === null || this.borrowsPrivateStorage(origin)) return null;
+    if (model === null) return null;
+    if (this.rules.ownsBuffer(origin)) {
+      if (node.type !== IR_CALL_KNOWN_FUNCTION || !this.reentersFrom(node)) return null;
+      return `a call to ${calleeSymbolName(node)}`;
+    }
+    if (this.borrowsPrivateStorage(origin)) return null;
+    if (this.buildsHere(node)) {
+      const owner = calleeSymbolName(origin);
+      return owner !== null && model.reenters(owner, this.graph.name)
+        ? `more string building in ${this.graph.name}`
+        : null;
+    }
     if (node.type === IR_STORE_TEXT) {
       if (writesElsewhere(node, origin)) return null;
       const field = node.props.propName;
@@ -797,6 +871,7 @@ class LegalityAnalyzer implements AotLegality {
   }
 
   private borrowedName(origin: CFGInstruction): string {
+    if (this.rules.ownsBuffer(origin)) return "the string it built";
     if (takesPendingThrow(origin)) return "the value it caught";
     if (origin.type === IR_LOAD_TEXT) {
       const field = origin.props.propName;
@@ -821,19 +896,6 @@ class LegalityAnalyzer implements AotLegality {
     return `keeps the string ${calleeSymbolName(origin) ?? "a call"} returned`;
   }
 
-  private checkBufferReentrancy(): void {
-    if (!this.graph.reentrant) return;
-    for (const block of this.graph.blocks) {
-      for (const node of block.nodes) {
-        if (node.type !== IR_CALL_KNOWN_FUNCTION) continue;
-        this.fail(
-          `string building cannot cross a call in ${this.graph.name} because it can re-enter itself`,
-        );
-        return;
-      }
-    }
-  }
-
   private bindStringBufferAliases(model: AotStringBuffer): boolean {
     const walk = this.rules.walk(model.producer);
     if (walk.phis > 1) {
@@ -856,10 +918,16 @@ class LegalityAnalyzer implements AotLegality {
     return SCALAR_POINTER;
   }
 
+  private passedAsNumber(use: CFGInstruction, absence: CFGInstruction): boolean {
+    const declared = calleeDeclaredSignature(use)?.params[use.inputs.indexOf(absence)] ?? null;
+    return declaredAotScalar(declared, this.graph.classes) === SCALAR_FLOAT64;
+  }
+
   private readsAbsenceAsNumber(use: CFGInstruction, absence: CFGInstruction): boolean {
     if (use.type === IR_STORE_FIELD) return use.props[FIELD_SCALAR_PROP] === SCALAR_FLOAT64;
     if (use.type === IR_STORE_ELEMENT) return heapElementScalarOf(use) === SCALAR_FLOAT64;
     if (use.type === IR_RETURN) return this.declaredReturnScalar() === SCALAR_FLOAT64;
+    if (use.type === IR_CALL_KNOWN_FUNCTION && this.passedAsNumber(use, absence)) return true;
     return use.inputs.some((input) => {
       if (input === absence) return false;
       const scalar = this.numericScalarOf(input);
@@ -1004,6 +1072,7 @@ class LegalityAnalyzer implements AotLegality {
         this.fail(`call to ${name} passes ${node.inputs.length} of ${declared.params.length} arguments`);
         return;
       }
+      if (declared !== null && !this.argumentsMatchShapes(node, declared, name)) return;
     }
     if (node.type === IR_CALL_BUILTIN) {
       this.checkBuiltin(node);

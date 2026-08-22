@@ -31,7 +31,7 @@ import {
   arrayBufferBytes,
   bufferElementOffset,
   callableOf,
-  commonAncestorOf,
+  commonShapeOf,
   declaredTypeOf,
   ARRAY_CAPACITY_OFFSET,
   ARRAY_ELEMENT_SCALAR_PROP,
@@ -212,7 +212,7 @@ function sharedClass(
     if (shape === null) return null;
     shapes.push(shape);
   }
-  const common = commonAncestorOf(classes, shapes);
+  const common = commonShapeOf(classes, shapes);
   return common === null ? null : objectType(common.id);
 }
 

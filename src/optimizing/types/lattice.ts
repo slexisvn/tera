@@ -113,9 +113,31 @@ export function nullableStringType(): SingletonType {
   return NULLABLE_STRING;
 }
 
+const NUMERIC_KINDS: ReadonlySet<string> = new Set<string>([
+  TypeKind.Smi,
+  TypeKind.Double,
+  TypeKind.Number,
+]);
+
+const NULLABLE_NUMERICS: ReadonlyMap<string, SingletonType> = new Map(
+  [...NUMERIC_KINDS].map((kind) => [
+    kind,
+    Object.freeze({ kind, nullable: true }) as SingletonType,
+  ]),
+);
+
+export function isNumericKind(type: LatticeType): boolean {
+  return NUMERIC_KINDS.has(type.kind);
+}
+
+export function nullableNumericType(type: LatticeType): SingletonType {
+  return NULLABLE_NUMERICS.get(type.kind) ?? nullishType();
+}
+
 export function withoutNull(type: LatticeType): LatticeType {
   if (type.kind === TypeKind.Object && type.nullable) return objectType(type.map);
   if (type.kind === TypeKind.String && type.nullable === true) return stringType();
+  if (isNumericKind(type) && acceptsNull(type)) return singleton(type.kind as SingletonKind);
   return type;
 }
 
@@ -151,8 +173,11 @@ export function isSubtype(
   if (subtype.kind === TypeKind.Never) return true;
   if (supertype.kind === TypeKind.Any) return true;
   if (supertype.kind === TypeKind.Tagged) return subtype.kind !== TypeKind.Any;
-  if (supertype.kind === TypeKind.Number) {
-    return subtype.kind === TypeKind.Smi || subtype.kind === TypeKind.Double;
+  if (isNumericKind(supertype)) {
+    if (subtype.kind === TypeKind.Nullish) return acceptsNull(supertype);
+    if (!isNumericKind(subtype)) return false;
+    if (acceptsNull(subtype) && !acceptsNull(supertype)) return false;
+    return supertype.kind === TypeKind.Number || subtype.kind === supertype.kind;
   }
   if (supertype.kind === TypeKind.String) {
     if (subtype.kind === TypeKind.Nullish) return acceptsNull(supertype);
@@ -185,15 +210,16 @@ export function joinTypes(
   if (isSubtype(right, left)) return left;
   if (left.kind === TypeKind.Never) return right;
   if (right.kind === TypeKind.Never) return left;
-  if (
-    (left.kind === TypeKind.Smi ||
-      left.kind === TypeKind.Double ||
-      left.kind === TypeKind.Number) &&
-    (right.kind === TypeKind.Smi ||
-      right.kind === TypeKind.Double ||
-      right.kind === TypeKind.Number)
-  ) {
-    return numberType();
+  if (isNumericKind(left) && isNumericKind(right)) {
+    return acceptsNull(left) || acceptsNull(right)
+      ? nullableNumericType(numberType())
+      : numberType();
+  }
+  if (isNumericKind(left) && right.kind === TypeKind.Nullish) {
+    return nullableNumericType(left);
+  }
+  if (left.kind === TypeKind.Nullish && isNumericKind(right)) {
+    return nullableNumericType(right);
   }
   if (left.kind === TypeKind.String && right.kind === TypeKind.Nullish) {
     return nullableStringType();

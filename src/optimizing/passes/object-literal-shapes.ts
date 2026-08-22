@@ -1,59 +1,33 @@
 import {
+  IR_CALL_KNOWN_FUNCTION,
+  IR_GENERIC_CALL,
   IR_GENERIC_SET_PROP,
   IR_NEW_OBJECT,
   IR_RETURN,
   type CFGFunction,
   type CFGInstruction,
 } from "../ir/index.js";
-import { CLASS_DATA_MEMBER } from "../../core/class-member.js";
-import type { ClassMemberSurface, ClassSurface } from "../../frontend/modules/interface.js";
 import {
   CLASS_ID_PROP,
   declaredTypeOf,
   INSTANCE_SIZE_PROP,
+  isLiteralShapeName,
+  literalShapeSurface,
+  shapeForDeclared,
   VALUE_CLASS_PROP,
+  type ClassShape,
   type ClassTable,
+  type LiteralField,
 } from "../metadata/class-table.js";
+import { calleeDeclaredSignature } from "../analyses/aot-legality.js";
+import type { DeclaredSignature } from "../types/signature.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 import { nominalLatticeType } from "../types/declared.js";
 import { arrayElementNameOf } from "./array-shapes.js";
 
-const LITERAL_SHAPE_PREFIX = "tera_literal";
 const ANY_TYPE = "any";
-
-interface LiteralField {
-  readonly name: string;
-  readonly declaredType: string;
-}
-
-function member(owner: string, field: LiteralField): ClassMemberSurface {
-  return {
-    name: field.name,
-    declaredType: field.declaredType,
-    member: CLASS_DATA_MEMBER,
-    owner,
-    abstract: false,
-    visibility: "public",
-    static: false,
-  };
-}
-
-function surfaceOf(name: string, fields: readonly LiteralField[]): ClassSurface {
-  return {
-    name,
-    parent: null,
-    abstract: false,
-    members: fields.map((field) => member(name, field)),
-    constructorParams: [],
-    constructorParamNames: [],
-  };
-}
-
-function shapeNameOf(fields: readonly LiteralField[]): string {
-  const layout = fields.map((field) => `${field.name}_${field.declaredType}`).join("$");
-  return `${LITERAL_SHAPE_PREFIX}$${layout}`;
-}
+const CALLEE_INPUT = 1;
 
 function storedTypeName(
   stored: CFGInstruction,
@@ -108,7 +82,7 @@ export function literalReturnShapeOf(graph: CFGFunction): string | null {
       const carried = returned?.props[VALUE_CLASS_PROP];
       const name =
         typeof carried === "number" ? graph.classes?.shapeById(carried)?.name ?? null : null;
-      if (name === null || !name.startsWith(`${LITERAL_SHAPE_PREFIX}$`)) return null;
+      if (name === null || !isLiteralShapeName(name)) return null;
       if (shaped !== null && shaped !== name) return null;
       shaped = name;
     }
@@ -116,7 +90,52 @@ export function literalReturnShapeOf(graph: CFGFunction): string | null {
   return shaped;
 }
 
-export function shapeObjectLiterals(graph: CFGFunction, types: TypeInference): number {
+function argumentIndexOf(call: CFGInstruction, argument: CFGInstruction): number {
+  if (call.type === IR_CALL_KNOWN_FUNCTION) return call.inputs.indexOf(argument);
+  if (call.type !== IR_GENERIC_CALL || call.props.isMethod === true) return -1;
+  const at = call.inputs.indexOf(argument);
+  return at < CALLEE_INPUT ? -1 : at - CALLEE_INPUT;
+}
+
+export type CalleeSignatures = (call: CFGInstruction) => DeclaredSignature | null;
+
+function passedAs(
+  allocation: CFGInstruction,
+  use: CFGInstruction,
+  classes: ClassTable,
+  signatureOf: CalleeSignatures,
+): ClassShape | null {
+  const at = argumentIndexOf(use, allocation);
+  if (at < 0) return null;
+  return shapeForDeclared(classes, signatureOf(use)?.params[at] ?? null);
+}
+
+function holdsExactly(shape: ClassShape, fields: readonly LiteralField[]): boolean {
+  if (shape.fields.size !== fields.length) return false;
+  return fields.every((field) => shape.fields.has(field.name));
+}
+
+function declaredShapeOf(
+  allocation: CFGInstruction,
+  fields: readonly LiteralField[],
+  classes: ClassTable,
+  signatureOf: CalleeSignatures,
+): ClassShape | null {
+  let agreed: ClassShape | null = null;
+  for (const use of allocation.uses) {
+    const asked = passedAs(allocation, use, classes, signatureOf);
+    if (asked === null) continue;
+    if (agreed !== null && agreed !== asked) return null;
+    agreed = asked;
+  }
+  return agreed !== null && holdsExactly(agreed, fields) ? agreed : null;
+}
+
+export function shapeObjectLiterals(
+  graph: CFGFunction,
+  types: TypeInference,
+  signatureOf: CalleeSignatures = calleeDeclaredSignature,
+): number {
   const classes = graph.classes;
   if (classes === null) return 0;
   let shaped = 0;
@@ -126,7 +145,9 @@ export function shapeObjectLiterals(graph: CFGFunction, types: TypeInference): n
       if (node.props[CLASS_ID_PROP] !== undefined) continue;
       const fields = initializerOf(node, graph, classes, types);
       if (fields === null) continue;
-      const shape = classes.defineSynthetic(surfaceOf(shapeNameOf(fields), fields));
+      const shape =
+        declaredShapeOf(node, fields, classes, signatureOf) ??
+        classes.defineSynthetic(literalShapeSurface(fields));
       if (shape.fields.size !== fields.length) continue;
       node.props[CLASS_ID_PROP] = shape.id;
       node.props[INSTANCE_SIZE_PROP] = shape.size;

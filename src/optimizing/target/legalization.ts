@@ -14,6 +14,7 @@ import { lowerBooleanText } from "../passes/boolean-text.js";
 import { expandAggregatePrints } from "../passes/print-expansion.js";
 import { lowerBuiltinMethods } from "../passes/builtin-method-lowering.js";
 import {
+  answerCallSignatures,
   lowerClassMembers,
   resolveCalleeSignatures,
 } from "../passes/class-member-lowering.js";
@@ -84,6 +85,14 @@ export function targetLegalizationPipeline(
 ): ReadonlyArray<TransformPass<CFGFunction>> {
   const tagged = target.capabilities.has("tagged-values");
   return [
+    {
+      name: "callee-returns",
+      preserves: preservesControlFlow,
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: answerCallSignatures(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
     {
       name: "type-narrowing",
       preserves: preservesControlFlow,

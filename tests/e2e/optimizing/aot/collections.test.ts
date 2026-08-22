@@ -182,4 +182,58 @@ describe("AOT maps and sets", () => {
   it("declines a map that escapes to a call", () => {
     declines(src("m = Map()", 'm.set("a", 1)', "print(m)"));
   });
+
+  itRunsPe("reads a map through a function that declares it", () => {
+    agrees(
+      src(
+        "fn lookup(table: Map, key: string) -> int:",
+        "  return table.get(key) ?? 0",
+        "counts = Map()",
+        'counts.set("a", 4)',
+        'counts.set("b", 7)',
+        'print(lookup(counts, "a"), lookup(counts, "b"), lookup(counts, "z"))',
+      ),
+    );
+  });
+
+  itRunsPe("reads a map through a method on another class", () => {
+    agrees(
+      src(
+        "class Lookup:",
+        "  public key: string",
+        "  public constructor(key: string):",
+        "    this.key = key",
+        "  public of(table: Map) -> int:",
+        "    return table.get(this.key) ?? 0",
+        "prices = Map()",
+        'prices.set("apple", 3)',
+        'print(Lookup("apple").of(prices), Lookup("pear").of(prices))',
+      ),
+    );
+  });
+
+  itRunsPe("fills a map inside one function and reads it in another", () => {
+    agrees(
+      src(
+        "fn fill(table: Map, word: string) -> void:",
+        "  table.set(word, (table.get(word) ?? 0) + 1)",
+        "counts = Map()",
+        'for word of ["a", "b", "a"]:',
+        "  fill(counts, word)",
+        'print(counts.get("a"), counts.get("b"), counts.size)',
+      ),
+    );
+  });
+
+  it("declines a map handed to a function that does not declare one", () => {
+    declines(
+      src(
+        "fn show(value: int) -> int:",
+        "  return value",
+        "m = Map()",
+        'm.set("a", 1)',
+        "print(show(m.size), m)",
+      ),
+    );
+  });
 });

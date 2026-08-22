@@ -91,20 +91,50 @@ function livesAcrossCall(value: CFGInstruction, positions: Positions): boolean {
   return false;
 }
 
+export type ReenteringCall = (node: CFGInstruction) => boolean;
+
+const NEVER_REENTERS: ReenteringCall = () => false;
+
+function feedsBuilder(value: CFGInstruction, rules: StringBufferRules): boolean {
+  for (const alias of rules.walk(value).aliases) {
+    if (alias.uses.some((use) => rules.buildsString(use))) return true;
+  }
+  return false;
+}
+
+function aliasesOwnBuffer(
+  value: CFGInstruction,
+  rules: StringBufferRules,
+  reenters: ReenteringCall,
+): boolean {
+  return (
+    value.type === IR_CALL_KNOWN_FUNCTION &&
+    reenters(value) &&
+    rules.borrowsBuffer(value) &&
+    feedsBuilder(value, rules)
+  );
+}
+
 function boxable(
   value: CFGInstruction,
   rules: StringBufferRules,
   types: TypeInference,
   positions: Positions,
+  reenters: ReenteringCall,
 ): boolean {
   if (acceptsNull(types.typeOf(value))) return false;
   if (!answersString(value, rules)) return false;
   if (value.uses.length === 0) return false;
+  if (aliasesOwnBuffer(value, rules, reenters)) return true;
   if (value.uses.every((use) => use.type === IR_RETURN || use.type === IR_PHI)) return false;
   return rules.walk(value).phis === 0 && livesAcrossCall(value, positions);
 }
 
-export function boxEscapingStrings(graph: CFGFunction, types: TypeInference): number {
+export function boxEscapingStrings(
+  graph: CFGFunction,
+  types: TypeInference,
+  reenters: ReenteringCall = NEVER_REENTERS,
+): number {
   const classes = graph.classes;
   if (classes === null) return 0;
   const rules = new StringBufferRules(types, null);
@@ -112,7 +142,7 @@ export function boxEscapingStrings(graph: CFGFunction, types: TypeInference): nu
   const boxed: CFGInstruction[] = [];
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      if (boxable(node, rules, types, positions)) boxed.push(node);
+      if (boxable(node, rules, types, positions, reenters)) boxed.push(node);
     }
   }
   if (boxed.length === 0) return 0;

@@ -1,4 +1,4 @@
-import { TypeKind, type LatticeType } from "./lattice.js";
+import { acceptsNull, isNumericKind, TypeKind, type LatticeType } from "./lattice.js";
 import { latticeFromElementsKind } from "./elements.js";
 
 export const SCALAR_INT32 = "int32";
@@ -45,6 +45,7 @@ export function aotScalarOf(type: LatticeType): AotScalar | null {
   if (type.kind === TypeKind.Object) {
     return type.map === null ? null : SCALAR_POINTER;
   }
+  if (isNumericKind(type) && acceptsNull(type)) return SCALAR_FLOAT64;
   return SCALAR_BY_KIND.get(type.kind) ?? null;
 }
 

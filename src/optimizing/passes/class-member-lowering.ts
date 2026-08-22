@@ -15,6 +15,7 @@ import {
   IR_LOAD_FIELD,
   IR_NEW_OBJECT,
   IR_PHI,
+  type IRMetadataValue,
   irBranch,
   irCallKnownFunction,
   irConstant,
@@ -175,23 +176,58 @@ export function carryValueClass(
   return true;
 }
 
-function calleeResultClass(
+function stampedSignatureOf(node: CFGInstruction): DeclaredSignature | null {
+  const target = node.props.target as { declaredSignature?: DeclaredSignature } | undefined;
+  return target?.declaredSignature ?? null;
+}
+
+function agreedMemberSignature(
   graph: CFGFunction,
   node: CFGInstruction,
   classes: ClassTable,
   types: TypeInference,
-): string | null {
-  if (node.type === IR_CALL_KNOWN_FUNCTION) {
-    const target = node.props.target as
-      | { declaredSignature?: { returns?: string | null } | null }
-      | undefined;
-    return target?.declaredSignature?.returns ?? null;
-  }
+): DeclaredSignature | null {
   const call = memberCallFor(graph, node, classes, types);
-  if (call === null) return null;
-  const answered = call.targets[0]?.signature.returns ?? null;
-  const agreed = call.targets.every((target) => target.signature.returns === answered);
-  return agreed ? answered : null;
+  const first = call?.targets[0];
+  if (call === null || first === undefined) return null;
+  const answered = targetSignatureOf(graph, first);
+  return call.targets.every(
+    (target) => targetSignatureOf(graph, target).returns === answered.returns,
+  )
+    ? answered
+    : null;
+}
+
+function calleeSignatureOf(
+  graph: CFGFunction,
+  node: CFGInstruction,
+  classes: ClassTable,
+  types: TypeInference,
+): DeclaredSignature | null {
+  if (node.type === IR_CALL_KNOWN_FUNCTION) return stampedSignatureOf(node);
+  return agreedMemberSignature(graph, node, classes, types);
+}
+
+function adoptAnsweredSignature(node: CFGInstruction, answered: DeclaredSignature): boolean {
+  if (node.type !== IR_GENERIC_CALL || stampedSignatureOf(node) === answered) return false;
+  const target = node.props.target as Record<string, unknown> | undefined;
+  node.props.target = { ...target, declaredSignature: answered } as unknown as IRMetadataValue;
+  return true;
+}
+
+function adoptAnsweredSignatures(
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): number {
+  let stamped = 0;
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      const answered = agreedMemberSignature(graph, node, classes, types);
+      if (answered !== null && adoptAnsweredSignature(node, answered)) stamped += 1;
+    }
+  }
+  return stamped;
 }
 
 function carryCalleeResultClasses(
@@ -202,7 +238,7 @@ function carryCalleeResultClasses(
   let carried = 0;
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      const returns = calleeResultClass(graph, node, classes, types);
+      const returns = calleeSignatureOf(graph, node, classes, types)?.returns ?? null;
       if (returns !== null && carryValueClass(node, returns, classes)) carried += 1;
     }
   }
@@ -604,11 +640,17 @@ export function memberCallTargets(
   };
 }
 
-export function resolveCalleeSignatures(graph: CFGFunction, types: TypeInference): number {
+export function answerCallSignatures(graph: CFGFunction, types: TypeInference): number {
   if (graph.calleeSignatures === null) return 0;
-  const resolved = stampCalleeSignatures(graph, graph.calleeSignatures);
-  if (graph.classes === null) return resolved;
-  return resolved + carryCalleeResultClasses(graph, graph.classes, types);
+  const named = stampCalleeSignatures(graph, graph.calleeSignatures);
+  if (graph.classes === null) return named;
+  return named + adoptAnsweredSignatures(graph, graph.classes, types);
+}
+
+export function resolveCalleeSignatures(graph: CFGFunction, types: TypeInference): number {
+  const answered = answerCallSignatures(graph, types);
+  if (graph.calleeSignatures === null || graph.classes === null) return answered;
+  return answered + carryCalleeResultClasses(graph, graph.classes, types);
 }
 
 const KEYED_ACCESS: ReadonlyMap<string, boolean> = new Map<string, boolean>([

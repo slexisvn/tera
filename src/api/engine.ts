@@ -1064,7 +1064,7 @@ ${collectionPrelude()}`, compileOptions, true)
     if (aot) {
       const checked = checkSourceProgram(source, { ...checkerOptions, mode });
       this.diagnostics = checked.diagnostics;
-      this.aotClasses = buildClassTable(classSurfacesOf(checked.bound));
+      this.aotClasses = buildClassTable(classSurfacesOf(checked.bound), checked.bound.env);
     } else {
       this.diagnostics = checkSource(source, { ...checkerOptions, mode });
     }
@@ -1257,7 +1257,7 @@ ${collectionPrelude()}`)
       collectClasses: aot,
     });
     this.diagnostics = [...checked.diagnostics];
-    if (aot) this.aotClasses = buildClassTable(checked.classes);
+    if (aot) this.aotClasses = buildClassTable(checked.classes, checked.types);
     if (mode === STRICT_TYPECHECK && this.diagnostics.length > 0) {
       throw new TypecheckError(this.diagnostics);
     }

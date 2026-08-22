@@ -49,6 +49,7 @@ import { createAnalysisRegistry } from "../analyses/index.js";
 import { elideAwaits } from "../passes/await-elision.js";
 import { specializeFunctionArguments } from "../passes/function-argument-specialization.js";
 import { adoptInferredTypes } from "../passes/inferred-types.js";
+import { boxEscapingStrings } from "../passes/string-boxing.js";
 import { lowerPromiseSurface } from "../passes/promise-surface.js";
 import {
   buildDispatch,
@@ -669,6 +670,18 @@ export function compileModule(
   const graphs = emitting.map((unit) => unit.graph);
   const reachability = callReachability(graphs);
   markReentrantFunctions(graphs, reachability);
+  for (const { graph, analyses } of emitting) {
+    const reentering = (node: CFGInstruction): boolean => {
+      const callee = calleeSymbolName(node);
+      return callee !== null && reachability.reaches(callee, graph.name);
+    };
+    const copied = boxEscapingStrings(
+      graph,
+      analyses.get(typeInferenceAnalysisId),
+      reentering,
+    );
+    if (copied > 0) analyses.invalidateAll();
+  }
   const escapes = summarizeStringEscapes(
     emitting.map(({ graph, analyses }) => ({
       graph,

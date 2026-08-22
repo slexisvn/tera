@@ -4,6 +4,7 @@ import {
   type ClassCallableKind,
 } from "../../core/class-member.js";
 import type { ClassMemberSurface, ClassSurface } from "../../frontend/modules/interface.js";
+import { resolveType, typeLiteralShape, type TypeEnv } from "../../frontend/checker/type-system.js";
 import {
   TERA_LINK_BYTES,
   TERA_MARK_FLAG,
@@ -52,6 +53,7 @@ export const INSTANCE_SIZE_PROP = "instanceSize";
 export const VALUE_CLASS_PROP = "valueClassId";
 export const ARRAY_ELEMENT_SCALAR_PROP = "elementScalar";
 
+const LITERAL_SHAPE_PREFIX = "tera_literal";
 const ARRAY_SHAPE_PREFIX = "tera_array";
 const ARRAY_BUFFER_PREFIX = "tera_array_buffer";
 const ARRAY_LENGTH_FIELD = "length";
@@ -156,6 +158,46 @@ function arrayBufferShape(id: number, name: string, element: AotScalar): ClassSh
   };
 }
 
+export interface LiteralField {
+  readonly name: string;
+  readonly declaredType: string;
+}
+
+export function shapeForDeclared(
+  classes: ClassTable,
+  declared: string | null | undefined,
+): ClassShape | null {
+  if (declared === null || declared === undefined) return null;
+  const id = classes.shapeIdOf(declared);
+  return id === null ? null : classes.shapeById(id);
+}
+
+export function isLiteralShapeName(name: string): boolean {
+  return name.startsWith(`${LITERAL_SHAPE_PREFIX}$`);
+}
+
+export function literalShapeSurface(fields: readonly LiteralField[]): ClassSurface {
+  const name = `${LITERAL_SHAPE_PREFIX}$${fields
+    .map((field) => `${field.name}_${field.declaredType}`)
+    .join("$")}`;
+  return {
+    name,
+    parent: null,
+    abstract: false,
+    members: fields.map((field) => ({
+      name: field.name,
+      declaredType: field.declaredType,
+      member: CLASS_DATA_MEMBER,
+      owner: name,
+      abstract: false,
+      visibility: "public",
+      static: false,
+    })),
+    constructorParams: [],
+    constructorParamNames: [],
+  };
+}
+
 export interface ClassField {
   readonly name: string;
   readonly declaredType: string;
@@ -226,6 +268,7 @@ export interface ClassTable extends NominalTypes {
   defineArray(element: LatticeType): ClassShape | null;
   arrayLayoutOf(shape: ClassShape): ArrayLayout | null;
   dispatchConeOf(name: string): readonly ClassShape[];
+  standInsFor(shape: ClassShape): readonly ClassShape[];
   implementationsOf(
     name: string,
     member: string,
@@ -243,7 +286,7 @@ function ancestryOf(classes: ClassTable, shape: ClassShape): readonly ClassShape
   return line;
 }
 
-export function commonAncestorOf(
+function commonAncestorOf(
   classes: ClassTable,
   shapes: readonly ClassShape[],
 ): ClassShape | null {
@@ -256,6 +299,40 @@ export function commonAncestorOf(
     common = shared;
   }
   return common;
+}
+
+function narrowestOf(classes: ClassTable, shapes: readonly ClassShape[]): ClassShape | null {
+  let narrowest: ClassShape | null = null;
+  let reached = Infinity;
+  for (const shape of shapes) {
+    const covered = classes.dispatchConeOf(shape.name).length;
+    if (covered >= reached) continue;
+    narrowest = shape;
+    reached = covered;
+  }
+  return narrowest;
+}
+
+function commonStandInOf(
+  classes: ClassTable,
+  shapes: readonly ClassShape[],
+): ClassShape | null {
+  let shared: ClassShape[] | null = null;
+  for (const shape of shapes) {
+    const carried = new Set(classes.standInsFor(shape).map((entry) => entry.name));
+    shared = (shared ?? classes.standInsFor(shapes[0]!)).filter((entry) =>
+      carried.has(entry.name),
+    );
+    if (shared.length === 0) return null;
+  }
+  return shared === null ? null : narrowestOf(classes, shared);
+}
+
+export function commonShapeOf(
+  classes: ClassTable,
+  shapes: readonly ClassShape[],
+): ClassShape | null {
+  return commonAncestorOf(classes, shapes) ?? commonStandInOf(classes, shapes);
 }
 
 export function callableOf(
@@ -379,13 +456,19 @@ class Table implements ClassTable {
   private readonly ids = new Map<string, number>();
   private readonly cones = new Map<string, readonly ClassShape[]>();
   private readonly byMember = new Map<string, ClassShape[]>();
+  private readonly abstractByMember = new Map<string, ClassShape[]>();
+  private readonly standIns = new Map<string, readonly ClassShape[]>();
   private readonly staticOffsets = new Map<string, number>();
   private readonly arrays = new Map<string, ArrayLayout>();
   private readonly globalVariables = new Map<string, GlobalVariable>();
   private readonly generatorShapes = new Map<string, GeneratorShape>();
+  private readonly structural = new Map<string, ClassShape | null>();
   private staticsSize = 0;
 
-  constructor(surfaces: readonly ClassSurface[]) {
+  constructor(
+    surfaces: readonly ClassSurface[],
+    private readonly env: TypeEnv = builtinTypeEnv(),
+  ) {
     let nextId = FIRST_CLASS_ID;
     for (const surface of surfaces) this.ids.set(surface.name, nextId++);
     for (const surface of orderedByInheritance(surfaces)) this.define(surface);
@@ -397,6 +480,7 @@ class Table implements ClassTable {
     this.ids.set(surface.name, FIRST_CLASS_ID + this.byId.size);
     this.define(surface);
     this.cones.clear();
+    this.standIns.clear();
     return this.byName.get(surface.name)!;
   }
 
@@ -430,7 +514,30 @@ class Table implements ClassTable {
   }
 
   shapeIdOf(name: string): number | null {
-    return this.ids.get(name) ?? null;
+    const known = this.ids.get(name);
+    return known ?? this.structuralShapeOf(name)?.id ?? null;
+  }
+
+  private structuralShapeOf(name: string): ClassShape | null {
+    const cached = this.structural.get(name);
+    if (cached !== undefined) return cached;
+    this.structural.set(name, null);
+    const minted = this.mintStructural(name);
+    this.structural.set(name, minted);
+    return minted;
+  }
+
+  private mintStructural(name: string): ClassShape | null {
+    const literal = typeLiteralShape(resolveType(name, this.env));
+    if (literal === null || literal.fields.size === 0) return null;
+    if ((literal.indexers ?? []).length > 0) return null;
+    const fields: LiteralField[] = [];
+    for (const [field, binding] of literal.fields) {
+      if (binding.optional) return null;
+      fields.push({ name: field, declaredType: String(binding.type) });
+    }
+    const shape = this.defineSynthetic(literalShapeSurface(fields));
+    return shape.fields.size === fields.length ? shape : null;
   }
 
   shapeOf(name: string): ClassShape | null {
@@ -595,12 +702,28 @@ class Table implements ClassTable {
   }
 
   private index(shape: ClassShape): void {
-    if (shape.abstract) return;
+    const carriedBy = shape.abstract ? this.abstractByMember : this.byMember;
     for (const member of memberNamesOf(shape)) {
-      const carriers = this.byMember.get(member);
-      if (carriers === undefined) this.byMember.set(member, [shape]);
+      const carriers = carriedBy.get(member);
+      if (carriers === undefined) carriedBy.set(member, [shape]);
       else carriers.push(shape);
     }
+  }
+
+  standInsFor(shape: ClassShape): readonly ClassShape[] {
+    const cached = this.standIns.get(shape.name);
+    if (cached !== undefined) return cached;
+    const seen = new Set<string>();
+    const carried: ClassShape[] = [];
+    for (const member of memberNamesOf(shape)) {
+      for (const candidate of this.abstractByMember.get(member) ?? []) {
+        if (seen.has(candidate.name)) continue;
+        seen.add(candidate.name);
+        if (conformsTo(shape, candidate)) carried.push(candidate);
+      }
+    }
+    this.standIns.set(shape.name, carried);
+    return carried;
   }
 
   private conformingShapes(shape: ClassShape): readonly ClassShape[] {
@@ -678,8 +801,11 @@ export function declaredMemberSignature(
   return { ...declared, returns: target.signature.returns };
 }
 
-export function buildClassTable(surfaces: readonly ClassSurface[]): ClassTable {
-  return new Table(surfaces);
+export function buildClassTable(
+  surfaces: readonly ClassSurface[],
+  env?: TypeEnv,
+): ClassTable {
+  return new Table(surfaces, env);
 }
 
 export function referenceFieldOffsets(shape: ClassShape): readonly number[] {

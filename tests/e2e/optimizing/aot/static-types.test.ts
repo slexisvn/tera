@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
-import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
+import {
+  cSource,
+  itNative,
+  runCFunction,
+  runCStringFunction,
+} from "../../../helpers/c-executor.js";
 
 function compile(source: string) {
   return nodeEngine().compileAot(source);
@@ -265,5 +270,75 @@ describe("AOT static typing", () => {
 
     expect(program.skipped).toEqual([]);
     expect(runCFunction(cSource(program), "boom", [41])).toBe(42);
+  });
+});
+
+describe("AOT typing of declared class members", () => {
+  const REPORT = [
+    "class Report:",
+    "  public opening: string",
+    "  public closing: string",
+    "  public constructor(opening: string, closing: string):",
+    "    this.opening = opening",
+    "    this.closing = closing",
+    "  public header() -> string:",
+    "    return this.opening",
+    "  public footer() -> string:",
+    "    return this.closing",
+  ];
+
+  const sourceOf = (...lines: readonly string[]): string =>
+    `${[...REPORT, ...lines].join("\n")}\n`;
+
+  itNative("joins two declared string method results as text", () => {
+    const program = compile(
+      sourceOf(
+        "fn render() -> string:",
+        '  page = Report("[", "]")',
+        "  return page.header() + page.footer()",
+      ),
+    );
+
+    expect(program.skipped).toEqual([]);
+    expect(bodyOf(program, "render")).not.toContain("tera_f64_add(");
+    expect(runCStringFunction(cSource(program), "render", [])).toBe("[]");
+  });
+
+  itNative("compares two declared string fields as text", () => {
+    const program = compile(
+      sourceOf(
+        "fn matches(left: string, right: string) -> int:",
+        '  one = Report(left, "]")',
+        '  other = Report(right, "]")',
+        "  if one.opening == other.opening:",
+        "    return 1",
+        "  return 0",
+      ),
+    );
+
+    expect(program.skipped).toEqual([]);
+    expect(bodyOf(program, "matches")).not.toContain("tera_f64_compare(");
+    expect(runCFunction(cSource(program), "matches", ["ab", "ab"])).toBe(1);
+    expect(runCFunction(cSource(program), "matches", ["ab", "cd"])).toBe(0);
+  });
+
+  itNative("reads a declared getter result at its declared type", () => {
+    const program = compile(
+      [
+        "class Label:",
+        "  public text: string",
+        "  public constructor(text: string):",
+        "    this.text = text",
+        "  public get shown() -> string:",
+        "    return this.text",
+        "fn both(left: string, right: string) -> string:",
+        "  return Label(left).shown + Label(right).shown",
+        "",
+      ].join("\n"),
+    );
+
+    expect(program.skipped).toEqual([]);
+    expect(bodyOf(program, "both")).not.toContain("tera_f64_add(");
+    expect(runCStringFunction(cSource(program), "both", ["ab", "cd"])).toBe("abcd");
   });
 });

@@ -10,11 +10,13 @@ import { inferredReturnName } from "../analyses/returned-type.js";
 import { typeInferenceAnalysisId, type TypeInference } from "../analyses/type-inference.js";
 import { declaredTypeOf, type ClassTable } from "../metadata/class-table.js";
 import { FUNCTION_TARGET_PROP, ModuleFunctions } from "../metadata/module-functions.js";
-import { isUnwritten } from "../types/signature.js";
+import { isUnwritten, type DeclaredSignature } from "../types/signature.js";
 import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
 import { adoptWrittenTypes } from "./function-argument-specialization.js";
 import { arrayElementNameOf } from "./array-shapes.js";
 import { literalReturnShapeOf, shapeObjectLiterals } from "./object-literal-shapes.js";
+import { shapeModuleCollections } from "./collection-surface.js";
+import { calleeDeclaredSignature } from "../analyses/aot-legality.js";
 
 const INDEX_TYPE = "int";
 const CALLBACK_INDEX = 0;
@@ -69,8 +71,16 @@ class TypeAdoption {
   }
 
   run(): void {
+    this.shapeCollections();
     for (const unit of this.module.units) this.shapeLiterals(unit);
     while (this.adoptCallbackParameters() + this.adoptReturns() > 0);
+  }
+
+  private shapeCollections(): void {
+    const shaped = shapeModuleCollections(
+      this.module.units.map((unit) => ({ graph: unit.graph, types: this.types(unit) })),
+    );
+    for (const graph of shaped) this.retype(graph);
   }
 
   private analyses(unit: CompilationUnit): AnalysisManager<CFGFunction> {
@@ -93,7 +103,13 @@ class TypeAdoption {
 
   private shapeLiterals(unit: CompilationUnit): void {
     if (unit.graph.classes === null) return;
-    if (shapeObjectLiterals(unit.graph, this.types(unit)) > 0) this.retype(unit.graph);
+    const signatureOf = (call: CFGInstruction): DeclaredSignature | null =>
+      calleeDeclaredSignature(call) ??
+      this.functions.referenced(call.inputs[0])?.declaredSignature ??
+      null;
+    if (shapeObjectLiterals(unit.graph, this.types(unit), signatureOf) > 0) {
+      this.retype(unit.graph);
+    }
   }
 
   private elementNameOf(

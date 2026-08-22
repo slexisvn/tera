@@ -9,6 +9,7 @@ import {
   type ModuleInterface,
 } from "./interface.js";
 import { isNativeSpec, nativeName } from "./resolver.js";
+import { createTypeEnv, type TypeEnv } from "../checker/type-system.js";
 
 export type ModuleDiagnostic = Diagnostic & {
   module: string;
@@ -25,6 +26,7 @@ export type ModuleCheckResult = {
   diagnostics: readonly ModuleDiagnostic[];
   interfaces: ReadonlyMap<string, ModuleInterface>;
   classes: readonly ClassSurface[];
+  types: TypeEnv;
 };
 
 const SUGGESTION_DISTANCE = 3;
@@ -99,6 +101,8 @@ function assignedTopLevelNames(node: SemanticNode): Array<{ name: string; line: 
 class ModuleChecker {
   private readonly diagnostics: ModuleDiagnostic[] = [];
   private readonly interfaces = new Map<string, ModuleInterface>();
+  private readonly types: TypeEnv = createTypeEnv();
+  private readonly disputed = new Set<string>();
 
   constructor(
     private readonly graph: ModuleGraph,
@@ -126,8 +130,28 @@ class ModuleChecker {
       if (!silent) for (const diagnostic of diagnostics) this.report(record, diagnostic);
       this.interfaces.set(record.spec, moduleInterfaceOf(record, bound));
       if (collectClasses) classes.push(...classSurfacesOf(bound));
+      this.adoptAliases(bound.env);
     }
-    return { diagnostics: this.diagnostics, interfaces: this.interfaces, classes };
+    return {
+      diagnostics: this.diagnostics,
+      interfaces: this.interfaces,
+      classes,
+      types: this.types,
+    };
+  }
+
+  private adoptAliases(env: TypeEnv): void {
+    for (const [name, alias] of env.aliases) {
+      if (this.disputed.has(name)) continue;
+      const seen = this.types.aliases.get(name);
+      if (seen === undefined) {
+        this.types.aliases.set(name, alias);
+        continue;
+      }
+      if (seen.type === alias.type) continue;
+      this.disputed.add(name);
+      this.types.aliases.delete(name);
+    }
   }
 
   private report(record: ModuleRecord, diagnostic: Diagnostic): void {
