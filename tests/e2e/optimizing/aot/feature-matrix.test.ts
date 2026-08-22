@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import type { AotCompileOptions } from "../../../../src/api/engine.js";
+import { compilerOptions } from "../../../../src/optimizing/options.js";
 
 const src = (...lines: string[]) => `${lines.join("\n")}\n`;
 
@@ -87,9 +88,11 @@ const FEATURES: ReadonlyArray<readonly [string, string]> = [
   ["template interpolation", src("n: int = 2", "print(`n is ${n}`)")],
 ];
 
+const VERIFIED = compilerOptions("speed", { verifyEachPass: true });
+
 const BACKENDS: ReadonlyArray<readonly [string, AotCompileOptions]> = [
-  ["c", { backend: "c", format: "assembly" }],
-  ["x64-windows", { backend: "x64-windows", format: "executable" }],
+  ["c", { backend: "c", format: "assembly", compilerOptions: VERIFIED }],
+  ["x64-windows", { backend: "x64-windows", format: "executable", compilerOptions: VERIFIED }],
 ];
 
 describe("AOT language surface", () => {

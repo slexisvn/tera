@@ -237,3 +237,29 @@ describe("AOT arrays that outlive the frame", () => {
       "3\n",
     ));
 });
+
+describe("AOT array spread", () => {
+  itNative("copies an array a spread starts from", prints(
+      ["a: int[] = [1, 2]", "b = [...a]", "print(b.length)", "print(b[0])", "print(b[1])"],
+      "2\n1\n2\n",
+    ));
+
+  itNative("appends the elements written after a spread", prints(
+      ["a: int[] = [1, 2]", "b = [...a, 3, 4]", "print(b.length)", "print(b[2])", "print(b[3])"],
+      "4\n3\n4\n",
+    ));
+
+  itNative("leaves the array the spread copied alone", prints(
+      ["a: int[] = [1, 2]", "b = [...a, 3]", "a.push(9)", "print(a.length)", "print(b.length)"],
+      "3\n3\n",
+    ));
+
+  it("declines a spread that does not start the array", () => {
+    const program = nodeEngine().compileAot(
+      "a: int[] = [1, 2]\nb = [0, ...a]\nprint(b.length)\n",
+      { wholeProgram: true },
+    );
+
+    expect(program.skipped.map((fn) => fn.reason).join("; ")).toContain("SpreadArray");
+  });
+});

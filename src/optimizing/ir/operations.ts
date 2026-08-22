@@ -101,6 +101,7 @@ export const IR_NOT = "Not";
 export const IR_NEG = "Neg";
 export const IR_GENERIC_GET_INDEX = "GenericGetIndex";
 export const IR_GENERIC_SET_INDEX = "GenericSetIndex";
+export const IR_COPY_PROPERTIES = "CopyProperties";
 export const IR_INT32_SHL = "Int32Shl";
 export const IR_INT32_SHR = "Int32Shr";
 export const IR_INT32_USHR = "Int32Ushr";
@@ -761,6 +762,7 @@ export type Opcode =
   | typeof IR_NEG
   | typeof IR_GENERIC_GET_INDEX
   | typeof IR_GENERIC_SET_INDEX
+  | typeof IR_COPY_PROPERTIES
   | typeof IR_INT32_SHL
   | typeof IR_INT32_SHR
   | typeof IR_INT32_USHR
@@ -914,6 +916,7 @@ export const OPERATIONS = {
   },
   [IR_GENERIC_GET_INDEX]: { ...load(READS_HEAP, TWO_INPUTS, RESULT_HANDLE, loadElementTransfer), access: ACCESS_PROPERTY, opaqueMemory: true },
   [IR_GENERIC_SET_INDEX]: { ...store(WRITES_HEAP, THREE_INPUTS), access: ACCESS_PROPERTY, opaqueMemory: true },
+  [IR_COPY_PROPERTIES]: { ...store(WRITES_HEAP, TWO_INPUTS), access: ACCESS_PROPERTY, opaqueMemory: true },
 
   [IR_LOAD_GLOBAL]: { ...load(READS_GLOBALS, NO_INPUTS, RESULT_HANDLE, ANY), access: ACCESS_GLOBAL },
   [IR_STORE_GLOBAL]: { ...store(WRITES_GLOBALS, ONE_INPUT), access: ACCESS_GLOBAL },

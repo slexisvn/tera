@@ -81,7 +81,7 @@ export function escapeAnalysisAndScalarReplacement(
     );
     const safeUses = safeReceiverUses(aliases);
     if (hasUnsupportedAliasUses(aliases, safeUses)) continue;
-    if (hasDynamicElementIndex(safeUses)) continue;
+    if (hasUnresolvedElementIndex(safeUses)) continue;
     if (hasUntrackedLoopStore(graph, safeUses, aliases, dominance)) continue;
     if (callerFrameStatesReferenceAliases(graph, aliases)) continue;
 
@@ -679,13 +679,21 @@ function elementKey(node: EscapeNode): string {
   return "i" + String(slotOf(node));
 }
 
-function hasDynamicElementIndex(safeUses: ReadonlySet<EscapeNode>): boolean {
+function slotBeyondTheArray(node: EscapeNode, slot: number): boolean {
+  const root = receiverRoot(node.inputs[0]);
+  if (!root || root.type !== ir.IR_NEW_ARRAY) return false;
+  return slot >= root.inputs.length;
+}
+
+function hasUnresolvedElementIndex(safeUses: ReadonlySet<EscapeNode>): boolean {
   for (const use of safeUses) {
     if (!ELEMENT_ACCESSES.has(use.type)) continue;
     if (use.props.index !== undefined) continue;
     const index = use.inputs[1];
     if (!index || index.type !== ir.IR_CONSTANT) return true;
-    if (slotOf(use) === null) return true;
+    const slot = slotOf(use);
+    if (slot === null) return true;
+    if (slotBeyondTheArray(use, slot)) return true;
   }
   return false;
 }

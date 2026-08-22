@@ -50,8 +50,7 @@ function harness(analyses: Array<AnalysisPass<Graph, number>> = []) {
   const manager = new AnalysisManager<Graph>(graph, registry);
   const records: PassTraceRecord[] = [];
   const traced = new PassManager<Graph>(manager, compilerOptions(), {
-    probe,
-    sink: (record) => records.push(record),
+    tracer: { probe, sink: (record) => records.push(record) },
   });
   const untraced = new PassManager<Graph>(manager, compilerOptions());
   return { graph, manager, records, traced, untraced };

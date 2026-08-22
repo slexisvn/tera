@@ -108,6 +108,8 @@ describe("x64 assembly", () => {
   it("reserves Win64 shadow space and no more than needed on SysV", () => {
     const source = src(
       "fn leaf(x: float) -> float:",
+      "  if x < 0.0:",
+      "    return 0.0",
       "  return x + 1.0",
       "fn caller(x: float) -> float:",
       "  return leaf(x)",

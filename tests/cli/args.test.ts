@@ -119,6 +119,11 @@ describe("compile defaults", () => {
     });
   });
 
+  it("checks SSA form after every pass only when asked to", () => {
+    expect(compileConfig(["compile", "a.tera"]).verify).toBe(false);
+    expect(compileConfig(["compile", "a.tera", "--verify"]).verify).toBe(true);
+  });
+
   it("still takes an explicit entry function and result mode", () => {
     expect(compileConfig(["compile", "a.tera", "--entry=main", "--result=exit"])).toMatchObject({
       result: "exit",

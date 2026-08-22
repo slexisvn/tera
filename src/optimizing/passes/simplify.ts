@@ -1,7 +1,12 @@
 import * as ir from "../ir/index.js";
 
 import { tracer } from "../../core/tracing/index.js";
-import { detachInputs, replaceValueUses, retainNodes } from "../ir/graph-edit.js";
+import {
+  detachInputs,
+  detachUsesOf,
+  replaceValueUses,
+  retainNodes,
+} from "../ir/graph-edit.js";
 import { INT32_SHIFT_MASK } from "../target/integer.js";
 
 type SimplifyNode = ir.CFGInstruction;
@@ -119,6 +124,7 @@ export function strengthReduction(graph: SimplifyGraph): number {
     index: number,
   ): void => {
     replaceValueUses(graph, node, replacement);
+    detachUsesOf(node);
     replacement.block = block;
     block.nodes[index] = replacement;
   };
@@ -131,6 +137,7 @@ export function strengthReduction(graph: SimplifyGraph): number {
   ): void => {
     const replacement = sequence[sequence.length - 1]!;
     replaceValueUses(graph, node, replacement);
+    detachUsesOf(node);
     for (const item of sequence) item.block = block;
     block.nodes.splice(index, 1, ...sequence);
   };

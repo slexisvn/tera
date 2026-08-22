@@ -185,14 +185,14 @@ describe("AOT arrays mutated across loop back-edges", () => {
     "  return s",
   ];
 
-  it("keeps local arrays concrete instead of scalar replacing them", () => {
+  it("scalar replaces a local array that never leaves the function", () => {
     const program = compile(CONCRETE_LOCAL);
 
     expect(bodyOf(program, "f")).toContain("int32_t v");
-    expect(bodyOf(program, "f")).toContain("tera_alloc(");
+    expect(bodyOf(program, "f")).not.toContain("tera_alloc(");
   });
 
-  itNative("reads a concrete local array in a loop", native.matches(CONCRETE_LOCAL, "f", [3]));
+  itNative("reads a scalar replaced local array in a loop", native.matches(CONCRETE_LOCAL, "f", [3]));
 });
 
 describe("AOT for-of over a local array", () => {

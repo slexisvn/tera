@@ -72,6 +72,8 @@ const CALLS_ASYNC = src(
   "async fn later(n: int) -> int:",
   "  return n + 1",
   "fn mid(n: int) -> Promise<int>:",
+  "  if n < 0:",
+  "    return later(0)",
   "  return later(n)",
   "mid(1)",
 );
@@ -86,8 +88,12 @@ const CALLS_ASYNC_THROUGH = src(
   "async fn later(n: int) -> int:",
   "  return n + 1",
   "fn mid(n: int) -> Promise<int>:",
+  "  if n < 0:",
+  "    return later(0)",
   "  return later(n)",
   "fn outer(n: int) -> Promise<int>:",
+  "  if n < 0:",
+  "    return mid(0)",
   "  return mid(n)",
   "outer(1)",
 );

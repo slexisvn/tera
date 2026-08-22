@@ -7,11 +7,14 @@ import { cCompiler, cSource, itNative } from "../../../helpers/c-executor.js";
 import {
   CFGFunction,
   irConstant,
+  irBranch,
   irFloat64Add,
+  irFloat64Compare,
   irCallKnownFunction,
   irReturn,
   resetIRNodeIds,
 } from "../../../../src/optimizing/ir/index.js";
+import { link } from "../../../../src/optimizing/ir/cfg-edit.js";
 import { moduleFromGraphs } from "../../../../src/optimizing/compilation-unit.js";
 import { compileModule, type AotProgram } from "../../../../src/optimizing/drivers/aot.js";
 import { writeAotProgram } from "../../../../src/optimizing/drivers/write.js";
@@ -23,12 +26,23 @@ function addOne(name: string): CFGFunction {
   const graph = new CFGFunction(name);
   graph.declaredSignature = { params: ["float"], names: ["value"], returns: "float" };
   const p0 = graph.addParameter(0);
-  const block = graph.addBlock();
+  const entry = graph.addBlock();
+  const zero = irConstant(0);
+  const negative = irFloat64Compare("<", p0, zero);
+  const raised = graph.addBlock();
+  const kept = graph.addBlock();
+  entry.addNode(zero);
+  entry.addNode(negative);
+  entry.addNode(irBranch(negative, raised, kept));
+  link(entry, raised);
+  link(entry, kept);
+  raised.addNode(irReturn(zero));
   const one = irConstant(1);
   const sum = irFloat64Add(p0, one);
-  block.addNode(one);
-  block.addNode(sum);
-  block.addNode(irReturn(sum));
+  kept.addNode(one);
+  kept.addNode(sum);
+  kept.addNode(irReturn(sum));
+  graph.rebuildUses();
   return graph;
 }
 

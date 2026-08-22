@@ -1,4 +1,5 @@
-import { NodeType, type ASTNode, type ObjectPropertyNode } from "../ast/index.js";
+import { declaredParamInfo, NodeType, type ASTNode, type ObjectPropertyNode } from "../ast/index.js";
+import { isUnwrittenType } from "../../core/type-text.js";
 import { lookup, lookupSignature, type BoundProgram, type Scope } from "./binder.js";
 import { binaryOperatorSemantics, isTensorType } from "./operator-types.js";
 import {
@@ -118,21 +119,45 @@ function literalType(node: ASTNode): TypeName {
   return node.value === undefined ? "undefined" : "any";
 }
 
-function inferArray(node: ASTNode, bound: BoundProgram, scope: Scope, expectedType?: TypeName | null): TypeName {
-  const elements = (node.elements as Array<ASTNode | null>).filter((item): item is ASTNode => !!item);
-  const elementTypes = elements.flatMap((item) => arrayElementTypes(item, bound, scope));
-  const expected = expectedType ? resolveType(expectedType, bound.env) : null;
-  if (expected && isTupleType(expected)) return `[${elementTypes.join(", ")}]`;
-  if (!elementTypes.length) {
-    const expectedElement = expected ? arrayElementType(expected) : null;
-      return expectedElement ? `${expectedElement}[]` : "any[]";
-  }
-  const common = leastUpperBound(elementTypes, bound.env);
-  return common ? `${common}[]` : `[${elementTypes.join(", ")}]`;
+function arrayTypeOf(element: TypeName): TypeName {
+  return parseFunctionType(element) === null ? `${element}[]` : `(${element})[]`;
 }
 
-function arrayElementTypes(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName[] {
-  if (node.type !== NodeType.SpreadElement) return [inferExpression(node, bound, scope)];
+function inferArray(node: ASTNode, bound: BoundProgram, scope: Scope, expectedType?: TypeName | null): TypeName {
+  const elements = (node.elements as Array<ASTNode | null>).filter((item): item is ASTNode => !!item);
+  const expected = expectedType ? resolveType(expectedType, bound.env) : null;
+  const tuple = expected !== null && isTupleType(expected);
+  const expectedElement = expected === null || tuple ? null : arrayElementType(expected);
+  const elementTypes = elements.flatMap((item) =>
+    arrayElementTypes(item, bound, scope, expectedElement),
+  );
+  if (tuple) return `[${elementTypes.join(", ")}]`;
+  if (!elementTypes.length) {
+    return expectedElement ? arrayTypeOf(expectedElement) : "any[]";
+  }
+  const common = leastUpperBound(elementTypes, bound.env);
+  return common ? arrayTypeOf(common) : `[${elementTypes.join(", ")}]`;
+}
+
+function arrayElementTypes(
+  node: ASTNode,
+  bound: BoundProgram,
+  scope: Scope,
+  expectedElement: TypeName | null = null,
+): TypeName[] {
+  if (node.type !== NodeType.SpreadElement) {
+    return [
+      inferExpression(
+        node,
+        bound,
+        scope,
+        expectedElement === null
+          ? null
+          : parseFunctionType(resolveType(expectedElement, bound.env)),
+        expectedElement,
+      ),
+    ];
+  }
   const spreadType = inferExpression(node.argument as ASTNode, bound, scope);
   const resolved = resolveType(spreadType, bound.env);
   if (isTupleType(resolved)) return tupleTypes(resolved);
@@ -372,18 +397,45 @@ function inferSequence(
   return last ? inferExpression(last, bound, scope, expected, expectedType) : "undefined";
 }
 
+function writtenType(...candidates: Array<TypeName | undefined>): TypeName | null {
+  for (const candidate of candidates) {
+    if (!isUnwrittenType(candidate)) return candidate as TypeName;
+  }
+  return null;
+}
+
+function arrowParameterTypes(node: ASTNode, expected: Signature | null): TypeName[] {
+  const declared = declaredParamInfo(node);
+  return (node.params as Array<string | { name?: string }>).map(
+    (_, i) =>
+      writtenType(expected?.params.get(expected.positional[i])?.type, declared?.[i]?.type) ?? "any",
+  );
+}
+
 function inferArrow(node: ASTNode, bound: BoundProgram, scope: Scope, expected: Signature | null): TypeName {
   const child: Scope = { parent: scope, locals: new Map(), signatures: new Map(), signature: expected ?? undefined };
   const params = node.params as Array<string | { name?: string }>;
+  const paramTypes = arrowParameterTypes(node, expected);
   for (let i = 0; i < params.length; i++) {
     const paramName = typeof params[i] === "string" ? params[i] as string : String((params[i] as { name?: string }).name ?? `arg${i}`);
-    const expectedType = expected?.params.get(expected.positional[i])?.type ?? "any";
-    child.locals.set(paramName, { type: expectedType, optional: false });
+    child.locals.set(paramName, { type: paramTypes[i]!, optional: false });
   }
+  const contextReturn = writtenType(
+    expected?.returns,
+    typeof node._returnType === "string" ? node._returnType : undefined,
+  );
   const body = node.body as ASTNode | ASTNode[];
-  const returnType = Array.isArray(body) || body.type === NodeType.BlockStatement ? "any" : inferExpression(body, bound, child);
-  const paramTypes = params.map((_, i) => expected?.params.get(expected.positional[i])?.type ?? "any").join(", ");
-  return `(${paramTypes}) -> ${returnType}`;
+  const returnType =
+    Array.isArray(body) || body.type === NodeType.BlockStatement
+      ? contextReturn ?? "any"
+      : inferExpression(
+          body,
+          bound,
+          child,
+          contextReturn === null ? null : parseFunctionType(resolveType(contextReturn, bound.env)),
+          contextReturn,
+        );
+  return `(${paramTypes.join(", ")}) -> ${returnType}`;
 }
 
 export function narrowScope(test: ASTNode | undefined, bound: BoundProgram, parent: Scope, target?: Scope): Scope {
@@ -470,6 +522,7 @@ export type Comprehension = {
   variableNode: ASTNode;
   iterable: ASTNode;
   projection: ASTNode | null;
+  arrow: ASTNode;
 };
 
 export function comprehensionOf(node: ASTNode): Comprehension | null {
@@ -494,6 +547,7 @@ export function comprehensionOf(node: ASTNode): Comprehension | null {
     variableNode: variable as unknown as ASTNode,
     iterable: loop.iterable as ASTNode,
     projection: comprehensionProjection(loop.body as ASTNode, name),
+    arrow: callee,
   };
 }
 
@@ -502,13 +556,20 @@ export function comprehensionElementType(comp: Comprehension, bound: BoundProgra
   return iterableBindingType(iterable, "of", bound.env);
 }
 
-function arrayComprehensionType(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName | null {
-  const comp = comprehensionOf(node);
-  if (!comp) return null;
+export function comprehensionArrayType(
+  comp: Comprehension,
+  bound: BoundProgram,
+  scope: Scope,
+): TypeName {
   const loopScope: Scope = { parent: scope, locals: new Map(), signatures: new Map(), signature: scope.signature };
   loopScope.locals.set(comp.variable, { type: comprehensionElementType(comp, bound, scope), optional: false });
   const element = comp.projection ? inferExpression(comp.projection, bound, loopScope) : "any";
-  return `${element}[]`;
+  return arrayTypeOf(element);
+}
+
+function arrayComprehensionType(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName | null {
+  const comp = comprehensionOf(node);
+  return comp === null ? null : comprehensionArrayType(comp, bound, scope);
 }
 
 function isAstNode(value: unknown): value is ASTNode {
@@ -522,6 +583,9 @@ function isBindingIdentifier(value: unknown): value is { kind: "id"; name: strin
 function comprehensionProjection(body: ASTNode, accumulator: string): ASTNode | null {
   if (body.type !== NodeType.BlockStatement) return null;
   const statement = (body.body as ASTNode[])[0];
+  if (statement?.type === NodeType.IfStatement && statement.alternate == null) {
+    return comprehensionProjection(statement.consequent as ASTNode, accumulator);
+  }
   const expression = statement?.type === NodeType.ExpressionStatement ? statement.expression as ASTNode : null;
   if (!expression || expression.type !== NodeType.CallExpression) return null;
   const callee = expression.callee as ASTNode;

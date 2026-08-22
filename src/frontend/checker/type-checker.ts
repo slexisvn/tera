@@ -7,11 +7,12 @@ import {
   type Scope,
 } from "./binder.js";
 import { diagnostic, type Diagnostic } from "./diagnostics.js";
-import { callSignatureForCallee, comprehensionElementType, comprehensionOf, declaredMemberType, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf, writesUnknownKey } from "./infer.js";
+import { callSignatureForCallee, comprehensionArrayType, comprehensionElementType, comprehensionOf, declaredMemberType, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf, writesUnknownKey } from "./infer.js";
 import { acceptsTensorLeftArithmetic, acceptsTensorRightArithmetic, binaryOperatorSemantics, isTensorType } from "./operator-types.js";
 import type { ClassMemberNode, SemanticNode } from "./semantic-ast.js";
 import { arrayElementType, awaitedType, cleanType, compatible, indexKeyAssignable, indexedAccessType, indexKeyType, instantiateShapeForType, isIndexableType, isTupleType, iterableBindingType, leastUpperBound, promiseType, removeNullish, resolveType, tupleTypes, unionParts, unionType, type ObjectShape, type Signature, type TypeEnv, type TypeName } from "./type-system.js";
 import { restParameterType } from "../type-source.js";
+import { isUnwrittenType } from "../../core/type-text.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
 import { CLASS_DATA_MEMBER } from "../../core/class-member.js";
 
@@ -261,6 +262,10 @@ export class TypeChecker {
       scopeStartColumn: start.column,
     });
     if (comp.projection) this.checkExpression(comp.projection, loopScope, at.line, at.column);
+    const listed = comprehensionArrayType(comp, this.bound, scope);
+    if (!isUnwrittenType(arrayElementType(listed) ?? "any")) {
+      adoptContextualSignature(comp.arrow, [], listed);
+    }
   }
 
   memberReturnType(fn: Extract<SemanticNode, { kind: "Function" }>, scope: Scope): TypeName {
@@ -333,6 +338,7 @@ export class TypeChecker {
     const declared = cleanType(node.declaredType);
     const expectedType = node.declaredType ? declared : previous?.type ?? null;
     const expected = expectedType && expectedType !== "any" ? functionSignatureForType(node.name, expectedType) : null;
+    if (node.declaredType && expected) this.bindDeclared(scope, node.name, declared, expected);
     const actual = inferExpression(node.value, this.bound, scope, expected, expectedType);
     const before = this.diagnostics.length;
     if (node.declaredType) {
@@ -357,6 +363,12 @@ export class TypeChecker {
     this.onDeclare?.({ name: node.name, line: node.nameSpan.line, column: node.nameSpan.column, type: stored });
     const callable = functionSignatureForType(node.name, stored);
     if (callable) owner.signatures.set(node.name, callable);
+  }
+
+  private bindDeclared(scope: Scope, name: string, declared: TypeName, callable: Signature): void {
+    const owner = functionScope(scope);
+    owner.locals.set(name, { type: declared, optional: false, declared: true });
+    owner.signatures.set(name, callable);
   }
 
   checkDestructure(node: Extract<SemanticNode, { kind: "Destructure" }>, scope: Scope): void {
@@ -438,6 +450,13 @@ export class TypeChecker {
     if (node.type === NodeType.SequenceExpression) {
       this.checkSequence(node, scope, line, column, expected, expectedType);
       for (const expr of node.expressions as ASTNode[]) this.checkExpression(expr, scope, line, column);
+      return;
+    }
+    if (
+      node.type === NodeType.ArrayExpression &&
+      expectedType &&
+      this.checkArrayElements(node, scope, line, column, expectedType)
+    ) {
       return;
     }
     if (node.type === NodeType.AssignmentExpression) {
@@ -567,10 +586,36 @@ export class TypeChecker {
       this.checkArrow(node, scope, expected, line, column);
       return;
     }
+    if (node.type === NodeType.ArrayExpression && this.checkArrayElements(node, scope, line, column, expectedType)) {
+      return;
+    }
     const actual = inferExpression(node, this.bound, scope, expected, expectedType);
     if (this.isUnknownish(actual) || compatible(actual, expectedType, this.bound.env)) return;
     const at = nodePosition(node, line, column);
     this.add(at.line, at.column, `Type '${actual}' is not assignable to '${expectedType}'`);
+  }
+
+  private checkArrayElements(
+    node: ASTNode,
+    scope: Scope,
+    line: number,
+    column: number,
+    expectedType: TypeName,
+  ): boolean {
+    const resolved = resolveType(expectedType, this.bound.env);
+    if (isTupleType(resolved)) return false;
+    const element = arrayElementType(resolved);
+    if (element === null || element === "any") return false;
+    const elementSignature = functionSignatureForType("<element>", element);
+    for (const item of node.elements as Array<ASTNode | null>) {
+      if (!item) continue;
+      if (item.type === NodeType.SpreadElement) {
+        this.checkExpression(item, scope, line, column);
+        continue;
+      }
+      this.checkExpression(item, scope, line, column, elementSignature, element);
+    }
+    return true;
   }
 
   checkArrow(node: ASTNode, scope: Scope, expected: Signature | null, line: number, column: number): void {
@@ -867,6 +912,7 @@ export class TypeChecker {
     const instantiated = instantiateForCall(sig, node.args as ASTNode[], this.bound, scope, typeArgsOf(node.callee as ASTNode));
     const seen = new Set<string>();
     let positional = 0;
+    let spread = false;
     for (const arg of node.args as ASTNode[]) {
       if (arg.type === NodeType.NamedArgument) {
         const argName = String(arg.name);
@@ -887,11 +933,16 @@ export class TypeChecker {
         if (param) {
           this.checkAssignableValue(arg.value as ASTNode, param.type, scope, line, column, `parameter '${argName}: ${param.type}'`, argName);
         }
+      } else if (arg.type === NodeType.SpreadElement) {
+        this.checkSpreadArgument(arg, instantiated, positional, seen, scope, line, column);
+        positional = instantiated.positional.length;
+        spread = true;
       } else {
         const argName = instantiated.positional[positional++];
         const param = argName ? instantiated.params.get(argName) : undefined;
         if (!argName || !param) {
           if (!instantiated.rest || instantiated.rest.named) {
+            if (spread) continue;
             const at = nodePosition(arg, line, column);
             this.add(at.line, at.column, `Too many positional arguments for ${instantiated.name}()`);
           } else {
@@ -908,6 +959,28 @@ export class TypeChecker {
         const at = callDiagnosticPosition(node, line, column);
         this.add(at.line, at.column, `Missing required argument '${required}' for ${instantiated.name}()`);
       }
+    }
+  }
+
+  private checkSpreadArgument(
+    arg: ASTNode,
+    instantiated: Signature,
+    positional: number,
+    seen: Set<string>,
+    scope: Scope,
+    line: number,
+    column: number,
+  ): void {
+    this.checkExpression(arg, scope, line, column);
+    const spreadType = inferExpression(arg.argument as ASTNode, this.bound, scope);
+    const element = iterableBindingType(spreadType, "of", this.bound.env);
+    const at = nodePosition(arg, line, column);
+    for (const name of instantiated.positional.slice(positional)) {
+      seen.add(name);
+      const param = instantiated.params.get(name);
+      if (!param || this.isUnknownish(element)) continue;
+      if (compatible(element, param.type, this.bound.env)) continue;
+      this.add(at.line, at.column, `Type '${element}' is not assignable to parameter '${name}: ${param.type}'`);
     }
   }
 

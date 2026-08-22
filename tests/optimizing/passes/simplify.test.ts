@@ -31,6 +31,7 @@ import {
   IR_INT32_MUL,
   resetIRNodeIds,
 } from "../../../src/optimizing/ir/index.js";
+import { validateGraphInvariants } from "../../../src/optimizing/validation/graph-validator.js";
 
 function makeGraph(name = "test") {
   const graph = new CFGFunction(name);
@@ -293,5 +294,54 @@ describe("strengthReduction", () => {
     strengthReduction(graph);
     expect(ret.inputs[0].type).toBe(IR_INT32_SHL);
     expect(ret.inputs[0].inputs[1].props.value).toBe(2);
+  });
+});
+
+describe("strengthReduction def-use bookkeeping", () => {
+  it("drops the replaced multiply from the use lists of its inputs", () => {
+    const { graph, block } = makeGraph();
+    const p = graph.addParameter(0);
+    const c = irConstant(8);
+    block.addNode(c);
+    const mul = irInt32Mul(p, c);
+    mul.props.noOverflow = true;
+    block.addNode(mul);
+    block.addNode(irReturn(mul));
+
+    strengthReduction(graph);
+
+    expect(p.uses).not.toContain(mul);
+    expect(c.uses).not.toContain(mul);
+    expect(validateGraphInvariants(graph)).toBe(true);
+  });
+
+  it("drops the replaced multiply when it decomposes into a shift and an add", () => {
+    const { graph, block } = makeGraph();
+    const p = graph.addParameter(0);
+    const c = irConstant(3);
+    block.addNode(c);
+    const mul = irInt32Mul(p, c);
+    mul.props.noOverflow = true;
+    block.addNode(mul);
+    block.addNode(irReturn(mul));
+
+    strengthReduction(graph);
+
+    expect(p.uses).not.toContain(mul);
+    expect(c.uses).not.toContain(mul);
+    expect(validateGraphInvariants(graph)).toBe(true);
+  });
+
+  it("drops a subtraction of a value from itself from that value's use list", () => {
+    const { graph, block } = makeGraph();
+    const p = graph.addParameter(0);
+    const sub = irInt32Sub(p, p);
+    block.addNode(sub);
+    block.addNode(irReturn(sub));
+
+    strengthReduction(graph);
+
+    expect(p.uses).not.toContain(sub);
+    expect(validateGraphInvariants(graph)).toBe(true);
   });
 });

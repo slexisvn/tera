@@ -169,9 +169,9 @@ describe("PassManager", () => {
     const maintained: number[] = [];
     const graph = { value: 1 };
     const manager = new AnalysisManager<Graph>(graph, new AnalysisRegistry<Graph>());
-    const passes = new PassManager<Graph>(manager, compilerOptions(), null, (g) =>
-      maintained.push(g.value),
-    );
+    const passes = new PassManager<Graph>(manager, compilerOptions(), {
+      maintain: (g) => maintained.push(g.value),
+    });
 
     passes.run(graph, [
       { name: "noop", preserves: { kind: "all" }, run: () => ({ changed: false }) },
@@ -193,8 +193,10 @@ describe("PassManager", () => {
     let maintenanceRuns = 0;
     const graph = { value: 1 };
     const manager = new AnalysisManager<Graph>(graph, new AnalysisRegistry<Graph>());
-    const passes = new PassManager<Graph>(manager, compilerOptions(), null, () => {
-      maintenanceRuns++;
+    const passes = new PassManager<Graph>(manager, compilerOptions(), {
+      maintain: () => {
+        maintenanceRuns++;
+      },
     });
 
     const inert: TransformPass<Graph> = {

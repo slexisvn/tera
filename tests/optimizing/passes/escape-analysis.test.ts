@@ -9,6 +9,8 @@ import {
   CFGFunction,
   irConstant,
   irNewObject,
+  irGenericGetIndex,
+  irGenericSetIndex,
   irNewArray,
   irLoadArrayLength,
   irGenericSetProp,
@@ -111,6 +113,42 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     const count = runEscapeAnalysis(graph);
     expect(count).toBe(0);
     expect(block.nodes.some(n => n === alloc)).toBe(true);
+  });
+
+  it("does NOT replace an array read past its last element", () => {
+    const graph = new CFGFunction("test");
+    const block = graph.addBlock();
+    const value = block.addNode(irConstant(1));
+    const alloc = block.addNode(irNewArray([value]));
+    const read = block.addNode(irGenericGetIndex(alloc, block.addNode(irConstant(3))));
+    block.addNode(irReturn(read));
+
+    expect(runEscapeAnalysis(graph)).toBe(0);
+    expect(block.nodes).toContain(alloc);
+  });
+
+  it("does NOT replace an array written past its last element", () => {
+    const graph = new CFGFunction("test");
+    const block = graph.addBlock();
+    const value = block.addNode(irConstant(1));
+    const alloc = block.addNode(irNewArray([value, value]));
+    block.addNode(irGenericSetIndex(alloc, block.addNode(irConstant(2)), value));
+    block.addNode(irReturn(value));
+
+    expect(runEscapeAnalysis(graph)).toBe(0);
+    expect(block.nodes).toContain(alloc);
+  });
+
+  it("still replaces an array read at its last element", () => {
+    const graph = new CFGFunction("test");
+    const block = graph.addBlock();
+    const value = block.addNode(irConstant(1));
+    const alloc = block.addNode(irNewArray([value, value]));
+    const read = block.addNode(irGenericGetIndex(alloc, block.addNode(irConstant(1))));
+    block.addNode(irReturn(read));
+
+    expect(runEscapeAnalysis(graph)).toBe(1);
+    expect(block.nodes).not.toContain(alloc);
   });
 
   it("does NOT replace when object is returned (escapes)", () => {

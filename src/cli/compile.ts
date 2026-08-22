@@ -18,6 +18,7 @@ import {
   type ProgramEntryShape,
 } from "../optimizing/target/entry.js";
 import { PROGRAM_ENTRY_NAME } from "../optimizing/target/program-entry.js";
+import { compilerOptions } from "../optimizing/options.js";
 import type { CompileConfig, EmitKind } from "./config.js";
 import {
   aotBackends,
@@ -317,6 +318,9 @@ function compile(config: CompileConfig): number {
       ...(config.entry === null ? {} : { entry: config.entry }),
       ...(config.result === null ? {} : { result: config.result }),
       ...(config.heapBytes === null ? {} : { heapBytes: config.heapBytes }),
+      ...(config.verify
+        ? { compilerOptions: compilerOptions("speed", { verifyEachPass: true }) }
+        : {}),
     });
   } catch (error) {
     if (error instanceof AotLinkError) warnSkipped(error.skipped);

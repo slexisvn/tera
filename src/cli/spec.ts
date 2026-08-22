@@ -401,6 +401,12 @@ export const COMPILE_COMMAND: CommandSpec<CompileConfig> = {
       summary: "add a directory to the module search path (repeatable)",
       apply: (config: CompileConfig, value: string) => config.modulePaths.push(value),
     },
+    {
+      name: "verify",
+      group: "Optimization",
+      summary: "check SSA form after every pass that changes the graph",
+      apply: (config) => (config.verify = true),
+    },
   ],
   defaults: () => ({
     command: "compile",
@@ -415,6 +421,7 @@ export const COMPILE_COMMAND: CommandSpec<CompileConfig> = {
     cc: null,
     heapBytes: null,
     keepTemps: false,
+    verify: false,
     modulePaths: [],
   }),
   accept: acceptSingleFile("compile"),

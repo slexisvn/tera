@@ -25,7 +25,18 @@ type CompiledFunctionLike = RegisterCompiledFunction;
 type OptimizedGraph = CFGFunction;
 type RequiredCompilerExtension = Required<TeraCompilerExtension>;
 
-const STATIC_OPTIONS = compilerOptions("speed", { scalarReplaceAggregates: false });
+export interface StaticCompileRequest {
+  readonly classes?: ClassTable | null;
+  readonly recoversThrows?: boolean;
+  readonly gatheredArguments?: number | null;
+  readonly options?: CompilerOptions;
+}
+
+export function staticCompilerOptions(
+  base: CompilerOptions = compilerOptions("speed"),
+): CompilerOptions {
+  return { ...base, sinkAllocations: false };
+}
 
 function gatheringSignature(
   declared: DeclaredSignature | null,
@@ -93,18 +104,16 @@ export class Optimizer {
 
   compileStatic(
     compiledFn: CompiledFunctionLike,
-    classes: ClassTable | null = null,
-    recoversThrows = false,
-    gatheredArguments: number | null = null,
+    request: StaticCompileRequest = {},
   ): SpeculativeCompileResult {
     return this.build(
       compiledFn,
       null,
       null,
-      STATIC_OPTIONS,
-      classes,
-      recoversThrows,
-      gatheredArguments,
+      staticCompilerOptions(request.options),
+      request.classes ?? null,
+      request.recoversThrows ?? false,
+      request.gatheredArguments ?? null,
     );
   }
 

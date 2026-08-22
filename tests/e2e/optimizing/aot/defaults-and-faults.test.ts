@@ -71,6 +71,39 @@ describe("AOT default arguments", () => {
       [],
     ));
 
+  itNative("leaves an omitted optional parameter absent", native.matches(
+      src(
+        "fn f(a: int, b?: int) -> int:",
+        "  return b == null ? a : a + b",
+        "fn go(n: int) -> int:",
+        "  return f(n)",
+      ),
+      "go",
+      [7],
+    ));
+
+  itNative("passes an optional parameter that is supplied", native.matches(
+      src(
+        "fn f(a: int, b?: int) -> int:",
+        "  return b == null ? a : a + b",
+        "fn go(n: int) -> int:",
+        "  return f(n, 5)",
+      ),
+      "go",
+      [7],
+    ));
+
+  itNative("leaves an omitted optional string absent", native.matches(
+      src(
+        "fn f(a: int, s?: string) -> string:",
+        '  return s == null ? "none" : s',
+        "fn go(n: int) -> int:",
+        "  return f(n).length",
+      ),
+      "go",
+      [1],
+    ));
+
   it("declines a call whose omitted parameter has no literal default", () => {
     const program = nodeEngine({ typecheck: "off" }).compileAot(
       src(

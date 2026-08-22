@@ -182,16 +182,17 @@ describe("direct set iteration", () => {
     expect(globalLoads(built.graph)).toContain(setClassName("int"));
   });
 
-  it("declines a map that is iterated directly", () => {
-    const built = build({ kind: "Map", key: "a", value: 1, iterate: "directly" });
-
-    expect(shape(built)).toEqual([]);
-  });
-
-  it("leaves a declined map construction unnamed", () => {
+  it("lists a map that is iterated directly through its entries", () => {
     const built = build({ kind: "Map", key: "a", value: 1, iterate: "directly" });
     shape(built);
 
-    expect(constructedName(built)).toBe("Map");
+    expect(iteratedMember(built)).toBe("entries");
+  });
+
+  it("points a directly iterated map at its own class", () => {
+    const built = build({ kind: "Map", key: "a", value: 1, iterate: "directly" });
+    shape(built);
+
+    expect(constructedName(built)).toBe(mapClassName("string", "int"));
   });
 });

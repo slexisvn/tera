@@ -238,11 +238,27 @@ describe("string methods as compiled builtins", () => {
     expect(Number(run.stdout.trim())).toBe(TEXT_STORAGE_BYTES - 1);
   });
 
+  it("compiles a split whose separator reaches the call site as a literal", () => {
+    expect(() =>
+      nodeEngine({ typecheck: "off" }).compileAot(
+        src(
+          "fn parts(s: string, sep: string) -> int:",
+          "  return s.split(sep).length",
+          'print(parts("a,b", ","))',
+          "",
+        ),
+        { backend: "x64-windows", format: "executable" },
+      ),
+    ).not.toThrow();
+  });
+
   it("declines a split whose separator is not one spelled-out character", () => {
     expect(() =>
       nodeEngine({ typecheck: "off" }).compileAot(
         src(
           "fn parts(s: string, sep: string) -> int:",
+          "  if sep.length == 0:",
+          "    return 0",
           "  return s.split(sep).length",
           'print(parts("a,b", ","))',
           "",

@@ -157,10 +157,21 @@ export function cleanType(type: string | undefined | null): TypeName {
     .replace(/\s*\|\s*/g, " | ")
     .replace(/\s*&\s*/g, " & ")
     .replace(/\s+/g, " ");
-  const fn = parseFunctionTypeSource(normalized);
-  if (!fn) return normalized;
+  const unwrapped = withoutRedundantParens(normalized);
+  const fn = parseFunctionTypeSource(unwrapped);
+  if (!fn) return unwrapped;
   const params = splitTopLevel(fn.params, ",").map((param) => param.trim()).filter(Boolean).map((param) => cleanType(param)).join(", ");
   return `(${params}) -> ${cleanType(fn.returns)}`;
+}
+
+function withoutRedundantParens(source: string): string {
+  let text = source;
+  while (text.startsWith("(") && matchingParen(text, 0) === text.length - 1) {
+    const inner = text.slice(1, -1).trim();
+    if (!inner) return text;
+    text = inner;
+  }
+  return text;
 }
 
 function parseFunctionTypeSource(source: string): { params: string; returns: string } | null {

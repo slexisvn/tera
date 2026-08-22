@@ -297,10 +297,29 @@ describe("Engine AOT", () => {
     expect(runCFunction(cSource(program), "f", [4])).toBe(10);
   });
 
+  it("inlines a small callee instead of calling it", () => {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(
+      src(
+        "fn twice(n: int) -> int:",
+        "  return n * 2",
+        "fn go(n: int) -> int:",
+        "  return twice(n) + twice(n + 1)",
+        "print(go(3))",
+      ),
+      { backend: "c", format: "assembly" },
+    );
+
+    expect(program.skipped).toEqual([]);
+    const body = cSource(program).slice(cSource(program).indexOf("int32_t go"));
+    expect(body.slice(0, body.indexOf("}"))).not.toContain("twice(");
+  });
+
   itNative("skips callers of functions the backend could not lower", () => {
     const program = nodeEngine({ typecheck: "off" }).compileAot(
       src(
         "fn helper(n: int) -> int:",
+        "  if n < 0:",
+        "    return 0",
         "  return n.to_fixed(2).length",
         "",
         "fn caller(n: int) -> int:",

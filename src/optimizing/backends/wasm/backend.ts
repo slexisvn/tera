@@ -1,9 +1,8 @@
 import type { CFGFunction } from "../../ir/index.js";
 import { AnalysisManager } from "../../infra/analysis-manager.js";
-import { PassManager } from "../../infra/pass-manager.js";
 import { createAnalysisRegistry } from "../../analyses/index.js";
 import { compilerOptions, type CompilerOptions } from "../../options.js";
-import { cfgPassTracer, maintainGraph } from "../../pipeline.js";
+import { cfgPassManager } from "../../pipeline.js";
 import type { TargetModel } from "../../target/model.js";
 import { targetLegalizationPipeline } from "../../target/legalization.js";
 import type {
@@ -49,10 +48,7 @@ export class WasmBackend implements JitBackend {
   ): CompileRejection | null {
     const manager = analyses ?? new AnalysisManager(graph, createAnalysisRegistry());
     try {
-      new PassManager(manager, options, cfgPassTracer(options), maintainGraph).run(
-        graph,
-        this.loweringPipeline(),
-      );
+      cfgPassManager(manager, options).run(graph, this.loweringPipeline());
       return null;
     } catch (error) {
       if (!isBackendLoweringError(error)) throw error;

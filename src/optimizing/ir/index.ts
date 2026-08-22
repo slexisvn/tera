@@ -684,6 +684,13 @@ export function irGenericSetIndex(obj: IRValueLike, index: IRValueLike, value: I
   return node;
 }
 
+export function irCopyProperties(target: IRValueLike, source: IRValueLike) {
+  const node = new IRNode(ops.IR_COPY_PROPERTIES);
+  node.addInput(target);
+  node.addInput(source);
+  return node;
+}
+
 export function irInt32Or(left: IRValueLike, right: IRValueLike) {
   const node = new IRNode(ops.IR_INT32_OR);
   node.addInput(left);

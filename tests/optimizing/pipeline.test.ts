@@ -7,11 +7,14 @@ import {
   resetIRNodeIds,
 } from "../../src/optimizing/ir/index.js";
 import {
+  cfgPassManager,
   cfgPassTracer,
   middleEndPhases,
   middleEndPipeline,
   runMiddleEnd,
 } from "../../src/optimizing/pipeline.js";
+import { createAnalysisRegistry } from "../../src/optimizing/analyses/index.js";
+import type { TransformPass } from "../../src/optimizing/infra/pass-manager.js";
 import {
   AnalysisManager,
   AnalysisRegistry,
@@ -149,5 +152,45 @@ describe("printAfterAll pass tracing", () => {
     const sections = captureConsole(() => runMiddleEnd(foldedGraph(), compilerOptions("speed")));
 
     expect(sections).toEqual([]);
+  });
+});
+
+describe("cfgPassManager graph verification", () => {
+  const dropsAUseEntry = (name: string): TransformPass<CFGFunction> => ({
+    name,
+    preserves: { kind: "all" },
+    run: (graph) => {
+      graph.blocks[0]!.nodes[0]!.uses.pop();
+      return { changed: true };
+    },
+  });
+
+  const managerWith = (graph: CFGFunction, verifyEachPass: boolean) =>
+    cfgPassManager(
+      new AnalysisManager(graph, createAnalysisRegistry()),
+      compilerOptions("speed", { verifyEachPass }),
+    );
+
+  it("names the pass that left the graph inconsistent", () => {
+    const graph = foldedGraph();
+    graph.rebuildUses();
+
+    expect(() => managerWith(graph, true).run(graph, [dropsAUseEntry("wrecker")])).toThrow(
+      /folded after wrecker/,
+    );
+  });
+
+  it("leaves the graph unchecked when verification is off", () => {
+    const graph = foldedGraph();
+    graph.rebuildUses();
+
+    expect(() => managerWith(graph, false).run(graph, [dropsAUseEntry("wrecker")])).not.toThrow();
+  });
+
+  it("accepts a pass that keeps the graph consistent", () => {
+    const graph = foldedGraph();
+    graph.rebuildUses();
+
+    expect(managerWith(graph, true).run(graph, [passNamed("sccp")])).toBe(true);
   });
 });

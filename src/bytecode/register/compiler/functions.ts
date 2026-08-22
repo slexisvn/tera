@@ -157,6 +157,11 @@ function restParameterOf(
   return { name: entry.name, type: typeof entry.type === "string" ? entry.type : null };
 }
 
+function nullableType(type: string): string {
+  const parts = type.split("|").map((part) => part.trim());
+  return parts.includes("null") ? type : `${type} | null`;
+}
+
 function declaredSignatureOf(
   fn: ParameterizedNode,
   paramNames: readonly string[],
@@ -168,18 +173,28 @@ function declaredSignatureOf(
   const hasDefault = paramDefaults.some((value) => value !== undefined);
   const variadic = fn.params.some((param) => paramRecord(param)?.rest === true);
   if (!hasInfo && !hasDefault && !variadic && typeof returns !== "string") return null;
+  const written = new Set<string>();
+  for (const param of fn.params) {
+    const record = paramRecord(param);
+    if (record?.default !== undefined && typeof record.name === "string") written.add(record.name);
+  }
   const declared = new Map<string, string>();
+  const omittable = new Set<string>();
   if (hasInfo) {
     for (const entry of info as FunctionParamInfo[]) {
-      if (entry && typeof entry.name === "string" && typeof entry.type === "string") {
-        declared.set(entry.name, entry.type);
-      }
+      if (!entry || typeof entry.name !== "string") continue;
+      const absent = entry.optional === true && entry.rest !== true && !written.has(entry.name);
+      if (absent) omittable.add(entry.name);
+      if (typeof entry.type !== "string") continue;
+      declared.set(entry.name, absent ? nullableType(entry.type) : entry.type);
     }
   }
   return {
     params: paramNames.map((name) => declared.get(name) ?? null),
     names: [...paramNames],
-    defaults: [...paramDefaults],
+    defaults: paramNames.map((name, at) =>
+      paramDefaults[at] === undefined && omittable.has(name) ? null : paramDefaults[at],
+    ),
     variadic,
     rest: restParameterOf(hasInfo ? (info as FunctionParamInfo[]) : undefined),
     returns: typeof returns === "string" ? returns : null,

@@ -59,6 +59,7 @@ import { TypeKind } from "../types/lattice.js";
 import { nominalLatticeType } from "../types/declared.js";
 import { scalarWidth, SCALAR_INT32, SCALAR_TEXT } from "../types/scalar.js";
 import type { TypeInference } from "../analyses/type-inference.js";
+import { isPairClassName, PAIR_FIELDS } from "../prelude/collections.js";
 import type { DeclaredSignature } from "../types/signature.js";
 
 const SHAPE_ID_TYPE = "int";
@@ -658,11 +659,13 @@ const KEYED_ACCESS: ReadonlyMap<string, boolean> = new Map<string, boolean>([
   [IR_GENERIC_SET_INDEX, false],
 ]);
 
-function constantKeyOf(node: CFGInstruction): string | null {
+function memberKeyOf(node: CFGInstruction, shape: ClassShape): string | null {
   const key = node.inputs[1];
   if (key === undefined || key.type !== IR_CONSTANT) return null;
   const value = key.props.value;
-  return typeof value === "string" ? value : null;
+  if (typeof value === "string") return value;
+  if (typeof value !== "number" || !isPairClassName(shape.name)) return null;
+  return PAIR_FIELDS[value] ?? null;
 }
 
 function carriesMember(shape: ClassShape, name: string): boolean {
@@ -682,10 +685,10 @@ function namedAccessFor(
 ): CFGInstruction | null {
   const reading = KEYED_ACCESS.get(node.type);
   if (reading === undefined) return null;
-  const name = constantKeyOf(node);
-  if (name === null) return null;
   const shape = shapeOfReceiver(node.inputs[0], graph, classes, types);
-  if (shape === null || !shape.fields.has(name)) return null;
+  if (shape === null) return null;
+  const name = memberKeyOf(node, shape);
+  if (name === null || !shape.fields.has(name)) return null;
   const receiver = node.inputs[0]!;
   return stamp(
     reading ? irGenericGetProp(receiver, name) : irGenericSetProp(receiver, name, node.inputs[2]!),
@@ -722,10 +725,13 @@ function replaceWithNode(
   editor.remove(node);
 }
 
+type MemberRound = "all" | "reads";
+
 function lowerMemberRound(
   graph: CFGFunction,
   types: TypeInference,
   classes: ClassTable,
+  round: MemberRound = "all",
 ): number {
 
   const editor = new GraphEditor(graph);
@@ -745,23 +751,12 @@ function lowerMemberRound(
         }
         continue;
       }
-      const membership = membershipFor(node, graph, classes, types, stamp);
-      if (membership !== null) {
-        replaceWithNode(editor, node, membership);
-        count++;
-        continue;
-      }
-      const shape = constructedShape(node, classes);
-      if (shape !== null) {
-        applyConstruction(editor, node, shape, stamp);
-        count++;
-        continue;
-      }
-      const call = memberCallFor(graph, node, classes, types);
-      if (call !== null) {
-        applyMemberCall(editor, graph, call, classes, stamp);
-        count++;
-        continue;
+      if (round === "all") {
+        const whole = lowerWholeMember(editor, graph, node, classes, types, stamp);
+        if (whole > 0) {
+          count += whole;
+          continue;
+        }
       }
       const access = fieldAccessFor(node, graph, classes, types);
       if (access !== null) {
@@ -779,8 +774,38 @@ function lowerMemberRound(
   return count;
 }
 
+function lowerWholeMember(
+  editor: GraphEditor,
+  graph: CFGFunction,
+  node: CFGInstruction,
+  classes: ClassTable,
+  types: TypeInference,
+  stamp: Stamp,
+): number {
+  const membership = membershipFor(node, graph, classes, types, stamp);
+  if (membership !== null) {
+    replaceWithNode(editor, node, membership);
+    return 1;
+  }
+  const shape = constructedShape(node, classes);
+  if (shape !== null) {
+    applyConstruction(editor, node, shape, stamp);
+    return 1;
+  }
+  const call = memberCallFor(graph, node, classes, types);
+  if (call === null) return 0;
+  applyMemberCall(editor, graph, call, classes, stamp);
+  return 1;
+}
+
 export function lowerClassMembers(graph: CFGFunction, types: TypeInference): number {
   const classes = graph.classes;
   if (classes === null) return 0;
   return lowerMemberRound(graph, types, classes);
+}
+
+export function lowerElementMembers(graph: CFGFunction, types: TypeInference): number {
+  const classes = graph.classes;
+  if (classes === null) return 0;
+  return lowerMemberRound(graph, types, classes, "reads");
 }

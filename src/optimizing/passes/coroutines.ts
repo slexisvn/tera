@@ -43,7 +43,11 @@ import {
   takePendingThrow,
 } from "../builder/throw-recovery.js";
 import { TERA_CONTEXT, type TeraContextField } from "../target/runtime-layout.js";
-import { TERA_REJECTED_PREFIX, TERA_REJECTED_SEPARATOR } from "../target/faults.js";
+import {
+  TERA_NEVER_SETTLED,
+  TERA_REJECTED_PREFIX,
+  TERA_REJECTED_SEPARATOR,
+} from "../target/faults.js";
 import {
   builtinGlobalIntrinsicByName,
   builtinMethodCallMetadata,
@@ -317,6 +321,37 @@ function isPromiseShape(shape: ClassShape | null): boolean {
   return shape !== null && shape.parent === CORO_PROMISE_BASE;
 }
 
+interface RaiseBranch {
+  readonly raise: CFGBlock;
+  readonly resumed: CFGBlock;
+}
+
+function branchWhen(
+  graph: CFGFunction,
+  block: CFGBlock,
+  condition: CFGInstruction,
+): RaiseBranch {
+  const resumed = severAfter(graph, block, block.nodes.indexOf(condition));
+  unlink(block.getTerminator()!);
+  disconnect(block, resumed);
+  const raise = graph.addBlock();
+  block.addNode(irBranch(condition, raise, resumed));
+  link(block, raise);
+  link(block, resumed);
+  return { raise, resumed };
+}
+
+function stateIs(
+  classes: ClassTable,
+  out: Emitter,
+  awaited: CFGInstruction,
+  promise: ClassShape,
+  state: number,
+): CFGInstruction {
+  const settled = out.load(awaited, promise, CORO_STATE_FIELD);
+  return out.add(irInt32Compare("==", settled, out.constant(state)));
+}
+
 function raiseWhenRejected(
   graph: CFGFunction,
   classes: ClassTable,
@@ -324,25 +359,44 @@ function raiseWhenRejected(
   at: number,
   awaited: CFGInstruction,
   promise: ClassShape,
-): void {
-  if (!graph.recoversThrows) return;
+): CFGBlock {
+  if (!graph.recoversThrows) return block;
   const out = new Emitter(classes, block, at);
-  const settled = out.load(awaited, promise, CORO_STATE_FIELD);
-  const rejected = out.add(irInt32Compare("==", settled, out.constant(CORO_STATE_REJECTED)));
-
-  const resumed = severAfter(graph, block, block.nodes.indexOf(rejected));
-  unlink(block.getTerminator()!);
-  disconnect(block, resumed);
-  const raise = graph.addBlock();
-  block.addNode(irBranch(rejected, raise, resumed));
-  link(block, raise);
-  link(block, resumed);
+  const rejected = stateIs(classes, out, awaited, promise, CORO_STATE_REJECTED);
+  const { raise, resumed } = branchWhen(graph, block, rejected);
 
   const raised = new Emitter(classes, raise);
   raised.store(awaited, promise, CORO_UNREPORTED_FIELD, raised.constant(CORO_REPORTED));
   recordPendingThrow(raise, raised.load(awaited, promise, CORO_ERROR_FIELD));
   raise.addNode(irJump(resumed));
   link(raise, resumed);
+  return resumed;
+}
+
+function stopWhenPending(
+  graph: CFGFunction,
+  classes: ClassTable,
+  block: CFGBlock,
+  at: number,
+  awaited: CFGInstruction,
+  promise: ClassShape,
+): CFGBlock {
+  const out = new Emitter(classes, block, at);
+  const pending = stateIs(classes, out, awaited, promise, CORO_STATE_PENDING);
+  const { raise, resumed } = branchWhen(graph, block, pending);
+
+  const stopped = new Emitter(classes, raise);
+  const intrinsic = builtinGlobalIntrinsicByName(THROW_BUILTIN)!;
+  raise.addNode(
+    irCallBuiltin(
+      THROW_BUILTIN,
+      [stopped.add(irConstant(TERA_NEVER_SETTLED))],
+      builtinMethodCallMetadata(intrinsic),
+    ),
+  );
+  raise.addNode(irJump(resumed));
+  link(raise, resumed);
+  return resumed;
 }
 
 function suspendPointsOf(
@@ -1084,7 +1138,8 @@ export function lowerAwaitedPromises(
         out.add(irCallKnownFunction({ name: CORO_DRAIN } as never, []));
         deliverSettled(graph, out, node, awaited, shape);
         unlink(node);
-        raiseWhenRejected(graph, classes, block, out.position(), awaited, shape);
+        const settledHere = stopWhenPending(graph, classes, block, out.position(), awaited, shape);
+        raiseWhenRejected(graph, classes, settledHere, 0, awaited, shape);
         lowered++;
       }
     }

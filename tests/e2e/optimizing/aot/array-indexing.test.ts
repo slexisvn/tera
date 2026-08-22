@@ -121,6 +121,34 @@ describe("negative array subscripts count back from the end", () => {
   }
 });
 
+describe("AOT slice syntax", () => {
+  itNative("takes a slice with both bounds", native.agrees(
+      src("xs: int[] = [1, 2, 3, 4]", "ys = xs[1:3]", "print(ys[0] + ys[1])"),
+    ));
+
+  itNative("takes a slice from a start to the end", native.agrees(
+      src("xs: int[] = [1, 2, 3, 4]", "ys = xs[2:]", "print(ys[0] + ys[1])"),
+    ));
+
+  itNative("takes a slice from the start to a stop", native.agrees(
+      src("xs: int[] = [1, 2, 3, 4]", "ys = xs[:2]", "print(ys[0] + ys[1])"),
+    ));
+
+  itNative("takes a slice of a string", native.agrees(
+      src('t = "hello"', "print(t[1:3])"),
+    ));
+
+  it("still declines a slice that steps", () => {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(
+      `${src("xs: int[] = [1, 2, 3]", "ys = xs[0:3:2]", "print(ys[0])")}
+`,
+      { backend: "c" },
+    );
+
+    expect(program.skipped.map((fn) => fn.reason).join("; ")).toContain("LdaKeyedSlice");
+  });
+});
+
 describe("array subscripts beyond either end fault, where the interpreter answers undefined", () => {
   for (const [name, source] of BEYOND_THE_ENDS) {
     itRunsPe(`faults on ${name}`, () => {
@@ -219,4 +247,22 @@ describe("array subscripts beyond either end fault, where the interpreter answer
       ),
     );
   });
+
+  itNative("reads an element out of a comprehension", native.agrees(
+      src("xs: int[] = [i * 2 for i in range(0, 4)]", "print(xs[0] + xs[3])"),
+    ));
+
+  itNative("walks a comprehension", native.agrees(
+      src(
+        "xs: int[] = [i * 2 for i in range(0, 4)]",
+        "total = 0",
+        "for v of xs:",
+        "  total = total + v",
+        "print(total)",
+      ),
+    ));
+
+  itNative("reads the length of a comprehension", native.agrees(
+      src("xs: int[] = [i for i in range(0, 5) if i % 2 == 0]", "print(xs.length)"),
+    ));
 });

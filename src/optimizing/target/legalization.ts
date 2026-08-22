@@ -16,6 +16,7 @@ import { lowerBuiltinMethods } from "../passes/builtin-method-lowering.js";
 import {
   answerCallSignatures,
   lowerClassMembers,
+  lowerElementMembers,
   resolveCalleeSignatures,
 } from "../passes/class-member-lowering.js";
 import { capabilityCheck } from "../passes/capability-check.js";
@@ -236,6 +237,14 @@ export function targetLegalizationPipeline(
       preserves: { kind: "none" },
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
       run: (graph, analyses) => ({ changed: lowerHeapIteration(graph, analyses) }),
+    },
+    {
+      name: "element-member-lowering",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerElementMembers(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
     },
     {
       name: "array-method-lowering",

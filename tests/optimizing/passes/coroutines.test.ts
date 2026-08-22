@@ -7,6 +7,7 @@ import {
   irReturn,
   resetIRNodeIds,
   IR_BRANCH,
+  IR_CALL_BUILTIN,
   IR_CALL_KNOWN_FUNCTION,
   IR_NEW_OBJECT,
   IR_STORE_FIELD,
@@ -15,6 +16,7 @@ import {
   type CFGBlock,
 } from "../../../src/optimizing/ir/index.js";
 import {
+  lowerAwaitedPromises,
   splitCoroutine,
   type PromiseOf,
 } from "../../../src/optimizing/passes/coroutines.js";
@@ -24,9 +26,12 @@ import {
   CORO_ERROR_FIELD,
   CORO_NEXT_FIELD,
   CORO_STATE_FIELD,
+  CORO_STATE_PENDING,
   CORO_STATE_REJECTED,
   CORO_VALUE_FIELD,
 } from "../../../src/optimizing/metadata/coroutines.js";
+import { TERA_NEVER_SETTLED } from "../../../src/optimizing/target/faults.js";
+import { validateGraphInvariants } from "../../../src/optimizing/validation/graph-validator.js";
 import { recordPendingThrow, returnPendingThrow } from "../../../src/optimizing/builder/throw-recovery.js";
 import {
   buildClassTable,
@@ -231,5 +236,60 @@ describe("splitCoroutine", () => {
     }
 
     expect(states).toEqual([0, 1, 2]);
+  });
+});
+
+describe("lowerAwaitedPromises", () => {
+  function awaitingOutsideACoroutine(classes: ClassTable) {
+    const graph = new CFGFunction("g");
+    graph.classes = classes;
+    graph.declaredSignature = { params: [], returns: "int" };
+    const block = graph.addBlock();
+    const promise = block.addNode(irConstant(1));
+    const awaited = block.addNode(irAwait(promise));
+    block.addNode(irReturn(awaited));
+    graph.rebuildUses();
+    return { graph, promise };
+  }
+
+  function lower(carries: string) {
+    const classes = table();
+    const shape = coroutinePromiseShape(classes, "f", carries);
+    const { graph, promise } = awaitingOutsideACoroutine(classes);
+    const lowered = lowerAwaitedPromises(graph, classes, (node) =>
+      node === promise ? shape : null,
+    );
+    return { graph, classes, shape, lowered };
+  }
+
+  function branchOnPendingState(graph: CFGFunction, shape: ClassShape): CFGBlock | null {
+    const offset = shape.fields.get(CORO_STATE_FIELD)!.offset;
+    for (const block of graph.blocks) {
+      const branch = block.nodes.find((node) => node.type === IR_BRANCH);
+      if (branch === undefined) continue;
+      const compare = branch.inputs[0]!;
+      const state = compare.inputs[0];
+      const against = compare.inputs[1];
+      if (state?.props.offset !== offset) continue;
+      if (against?.props.value !== CORO_STATE_PENDING) continue;
+      return block.successors[0] ?? null;
+    }
+    return null;
+  }
+
+  it("stops instead of reading the value of a promise that is still pending", () => {
+    const { graph, shape, lowered } = lower("int");
+
+    expect(lowered).toBe(1);
+    const stop = branchOnPendingState(graph, shape);
+    expect(stop).not.toBeNull();
+    const thrown = stop!.nodes.find((node) => node.type === IR_CALL_BUILTIN);
+    expect(thrown?.inputs[0]?.props.value).toBe(TERA_NEVER_SETTLED);
+  });
+
+  it("leaves the lowered graph in SSA form", () => {
+    const { graph } = lower("int");
+
+    expect(validateGraphInvariants(graph)).toBe(true);
   });
 });

@@ -91,6 +91,43 @@ describe("contextual lambda signatures", () => {
     ]);
   });
 
+  it("accepts a curried lambda that matches the declared return type", () => {
+    const source = src(
+      "fn outer(a: int) -> (int) -> (int) -> int:",
+      "  return b => c => a + b + c",
+    );
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("accepts a curried lambda that spells its own parameter types out", () => {
+    const source = src(
+      "fn outer(a: int) -> (int) -> (int) -> int:",
+      "  return (b: int) => (c: int) => a + b + c",
+    );
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("types a lambda inside an array literal from the declared element type", () => {
+    expect(diagnose(src("fs: ((int) -> int)[] = [n => n + 1]"))).toEqual([]);
+    expect(signatures(src("fs: ((int) -> int)[] = [n => n + 1]"))).toEqual([
+      { params: ["int"], returns: "int" },
+    ]);
+  });
+
+  it("points at the lambda in an array literal whose result does not match", () => {
+    expect(diagnose(src('fs: ((int) -> int)[] = [n => "text"]'))).toEqual([
+      "Type 'string' is not assignable to return type 'int'",
+    ]);
+  });
+
+  it("lets a lambda with a declared function type call itself", () => {
+    expect(diagnose(src("fact: (int) -> int = n => n < 2 ? 1 : n * fact(n - 1)"))).toEqual([]);
+  });
+
+  it("still reports a name a declaration without a function type cannot see yet", () => {
+    expect(diagnose(src("n: int = n + 1"))).toEqual(["undefined name 'n'"]);
+  });
+
   it("records nothing when the lambda has no contextual type", () => {
     expect(signatures(src("inc = n => n + 1", "print(inc(4))"))).toEqual([
       { params: [], returns: undefined },
@@ -208,5 +245,50 @@ describe("collection iteration", () => {
     expect(diagnose(src("n: int = 1", "for v of n:", "  print(v)"))).toEqual([
       "Type 'int' is not iterable",
     ]);
+  });
+});
+
+describe("spread arguments", () => {
+  it("lets a spread stand in for the parameters it fills", () => {
+    const source = src(
+      "fn add(a: int, b: int) -> int:",
+      "  return a + b",
+      "xs: int[] = [1, 2]",
+      "print(add(...xs))",
+    );
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("reports a spread whose elements do not fit the parameters", () => {
+    const source = src(
+      "fn add(a: int, b: int) -> int:",
+      "  return a + b",
+      'xs: string[] = ["a"]',
+      "print(add(...xs))",
+    );
+    expect(diagnose(source)).toEqual([
+      "Type 'string' is not assignable to parameter 'a: int'",
+      "Type 'string' is not assignable to parameter 'b: int'",
+    ]);
+  });
+
+  it("still reports spreading something that is not iterable", () => {
+    const source = src(
+      "fn add(a: int, b: int) -> int:",
+      "  return a + b",
+      "n: int = 1",
+      "print(add(...n))",
+    );
+    expect(diagnose(source)).toEqual(["Type 'int' is not iterable"]);
+  });
+
+  it("gathers a spread into a rest parameter", () => {
+    const source = src(
+      "fn total(...ns: int) -> int:",
+      "  return 0",
+      "xs: int[] = [1, 2]",
+      "print(total(...xs))",
+    );
+    expect(diagnose(source)).toEqual([]);
   });
 });

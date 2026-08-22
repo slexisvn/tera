@@ -2,7 +2,7 @@ export const MAP_GLOBAL = "Map";
 export const SET_GLOBAL = "Set";
 export const COLLECTION_GLOBALS: ReadonlySet<string> = new Set<string>([MAP_GLOBAL, SET_GLOBAL]);
 
-const KEY_KINDS = ["string", "int"] as const;
+const KEY_KINDS = ["string", "int", "float"] as const;
 const VALUE_KINDS = ["int", "float", "string"] as const;
 
 export type KeyKind = (typeof KEY_KINDS)[number];
@@ -32,12 +32,41 @@ export function setClassName(key: KeyKind): string {
   return `TeraSet${TITLE[key]}`;
 }
 
+export function pairClassName(key: KeyKind, value: ValueKind): string {
+  return `TeraPair${TITLE[key]}${TITLE[value]}`;
+}
+
+export const PAIR_FIELDS: readonly string[] = ["key", "value"];
+
+const PAIR_PREFIX = "TeraPair";
+
+export function isPairClassName(name: string): boolean {
+  return name.startsWith(PAIR_PREFIX);
+}
+
+function pairSource(key: KeyKind, value: ValueKind): string {
+  return [
+    `class ${pairClassName(key, value)}:`,
+    `  public constructor(${PAIR_FIELDS[0]}: ${key}, ${PAIR_FIELDS[1]}: ${value}):`,
+    `    this.${PAIR_FIELDS[0]} = ${PAIR_FIELDS[0]}`,
+    `    this.${PAIR_FIELDS[1]} = ${PAIR_FIELDS[1]}`,
+  ].join("\n");
+}
+
 function marker(key: KeyKind, value: ValueKind | null): string {
   return `holds_${key}_${value ?? "member"}`;
 }
 
 function hashBody(key: KeyKind): readonly string[] {
   if (key === "int") return ["    return key & this.mask"];
+  if (key === "float") {
+    return [
+      "    if key != key:",
+      "      return 0",
+      `    scaled: int = Math.floor(key * ${HASH_MULTIPLIER})`,
+      `    return (scaled & ${HASH_MASK}) & this.mask`,
+    ];
+  }
   return [
     "    h: int = 0",
     "    i: int = 0",
@@ -97,6 +126,11 @@ function initialiser(key: KeyKind, value: ValueKind | null): readonly string[] {
   ];
 }
 
+function sameKey(key: KeyKind): string {
+  if (key !== "float") return "this.slots[slot] == key";
+  return "this.slots[slot] == key or (key != key and this.slots[slot] != this.slots[slot])";
+}
+
 function lookup(key: KeyKind): readonly string[] {
   return [
     `  public hashed(key: ${key}) -> int:`,
@@ -105,7 +139,7 @@ function lookup(key: KeyKind): readonly string[] {
     "    slot: int = this.hashed(key)",
     "    while this.taken[slot] != 0:",
     "      if this.taken[slot] == 1:",
-    "        if this.slots[slot] == key:",
+    `        if ${sameKey(key)}:`,
     "          return slot",
     "      slot = (slot + 1) & this.mask",
     "    return slot",
@@ -241,6 +275,14 @@ function mapSource(key: KeyKind, value: ValueKind): string {
     "        held.push(this.cells[this.at(this.order[j])])",
     "      j += 1",
     "    return held",
+    `  public entries() -> ${pairClassName(key, value)}[]:`,
+    `    listed: ${pairClassName(key, value)}[] = []`,
+    "    j = 0",
+    "    while j < this.order.length:",
+    "      if this.live[j] == 1:",
+    `        listed.push(${pairClassName(key, value)}(this.order[j], this.cells[this.at(this.order[j])]))`,
+    "      j += 1",
+    "    return listed",
   ].join("\n");
 }
 
@@ -269,7 +311,10 @@ function setSource(key: KeyKind): string {
 export function collectionPrelude(): string {
   const sources: string[] = [];
   for (const key of KEY_KINDS) {
-    for (const value of VALUE_KINDS) sources.push(mapSource(key, value));
+    for (const value of VALUE_KINDS) {
+      sources.push(pairSource(key, value));
+      sources.push(mapSource(key, value));
+    }
     sources.push(setSource(key));
   }
   return `${sources.join("\n")}\n`;

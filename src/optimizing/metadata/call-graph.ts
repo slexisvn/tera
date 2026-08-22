@@ -80,3 +80,32 @@ export function markReentrantFunctions(
   }
   return marked;
 }
+
+export function bottomUpCallOrder(graphs: readonly CFGFunction[]): readonly CFGFunction[] {
+  const byName = new Map<string, CFGFunction>();
+  for (const graph of graphs) byName.set(graph.name, graph);
+  const edges = new Map<CFGFunction, readonly CFGFunction[]>();
+  for (const graph of graphs) {
+    const called: CFGFunction[] = [];
+    for (const name of calleesOf(graph)) {
+      const callee = byName.get(name);
+      if (callee !== undefined && callee !== graph) called.push(callee);
+    }
+    edges.set(graph, called);
+  }
+
+  const ordered: CFGFunction[] = [];
+  const state = new Map<CFGFunction, "visiting" | "placed">();
+  const visit = (graph: CFGFunction): void => {
+    if (state.has(graph)) return;
+    state.set(graph, "visiting");
+    for (const callee of edges.get(graph) ?? []) {
+      if (state.get(callee) === "visiting") continue;
+      visit(callee);
+    }
+    state.set(graph, "placed");
+    ordered.push(graph);
+  };
+  for (const graph of graphs) visit(graph);
+  return ordered;
+}

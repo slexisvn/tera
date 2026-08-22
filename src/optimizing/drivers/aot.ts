@@ -28,7 +28,12 @@ import {
 } from "../analyses/aot-legality.js";
 import { AWAITED_CALL_PROP } from "../builder/ir-builder.js";
 import { forwardsPendingThrow, isPendingThrowReturn } from "../builder/throw-recovery.js";
-import { callReachability, markReentrantFunctions } from "../metadata/call-graph.js";
+import {
+  bottomUpCallOrder,
+  callReachability,
+  markReentrantFunctions,
+} from "../metadata/call-graph.js";
+import { inlineKnownCalls } from "../passes/inlining.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
 import { inferredReturnName } from "../analyses/returned-type.js";
 import type { AotBackend, LinkableFunction } from "../target/backend.js";
@@ -42,9 +47,8 @@ export type { AotSkippedFunction };
 import type { EntryDelivery } from "../target/entry.js";
 import { BackendLoweringError, isBackendLoweringError } from "../target/errors.js";
 import { AnalysisManager } from "../infra/analysis-manager.js";
-import { PassManager } from "../infra/pass-manager.js";
 import { compilerOptions, type CompilerOptions } from "../options.js";
-import { cfgPassTracer, maintainGraph } from "../pipeline.js";
+import { cfgPassManager, runMiddleEnd } from "../pipeline.js";
 import { createAnalysisRegistry } from "../analyses/index.js";
 import { elideAwaits } from "../passes/await-elision.js";
 import { specializeFunctionArguments } from "../passes/function-argument-specialization.js";
@@ -543,6 +547,23 @@ function requireDeclaredParameters(module: ModuleIR): void {
   if (undeclared.length > 0) throw new AotUndeclaredParameterError(undeclared);
 }
 
+
+function inlineModuleCalls(
+  module: ModuleIR,
+  options: CompilerOptions,
+  declined: ReadonlySet<string>,
+): void {
+  const graphs = module.units
+    .map((unit) => unit.graph)
+    .filter((graph) => !declined.has(graph.name));
+  const functions = new ModuleFunctions(module);
+  for (const graph of bottomUpCallOrder(graphs)) {
+    if (inlineKnownCalls(graph, functions, options) === 0) continue;
+    functions.unitOf(graph)?.analyses?.invalidateAll();
+    runMiddleEnd(graph, options);
+  }
+}
+
 export function compileModule(
   module: ModuleIR,
   backend: AotBackend,
@@ -614,10 +635,7 @@ export function compileModule(
       unit.analyses ?? new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
     try {
       graph.calleeSignatures = signatures;
-      new PassManager<CFGFunction>(analyses, opts, cfgPassTracer(opts), maintainGraph).run(
-        graph,
-        backend.loweringPipeline(opts),
-      );
+      cfgPassManager(analyses, opts).run(graph, backend.loweringPipeline(opts));
       if (stampCalleeSignatures(graph, signatures) > 0) {
         analyses.invalidate(typeInferenceAnalysisId);
       }
@@ -640,6 +658,8 @@ export function compileModule(
     const name = calleeOf(node);
     return name === null ? null : settled.get(name) ?? null;
   };
+
+  inlineModuleCalls(module, opts, declined);
 
   for (const unit of module.units) {
     const graph = unit.graph;

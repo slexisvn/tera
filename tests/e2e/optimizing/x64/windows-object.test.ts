@@ -81,6 +81,8 @@ describe("x64 coff object emission", () => {
   itDumpsObjects("relocates a call to another compiled function", () => {
     const source = src(
       "fn triple(n: int) -> int:",
+      "  if n < 0:",
+      "    return 0",
       "  return n * 3",
       "fn main() -> int:",
       "  return triple(4)",

@@ -293,9 +293,93 @@ describe("AOT maps and sets", () => {
     );
   });
 
-  it("declines a map that is iterated directly", () => {
-    declines(
-      src("m = Map()", 'm.set("a", 1)', "for e of m:", "  print(e)"),
+  itRunsPe("keeps a set of fractions", () => {
+    agrees(
+      src(
+        "t = Set()",
+        "t.add(1.5)",
+        "t.add(2.5)",
+        "t.add(1.5)",
+        "print(t.has(1.5))",
+        "print(t.has(3.5))",
+        "print(t.size)",
+      ),
     );
+  });
+
+  itRunsPe("keys a map by a fraction", () => {
+    agrees(
+      src(
+        "m = Map()",
+        "m.set(1.5, 10)",
+        "m.set(2.5, 20)",
+        "print(m.get(1.5))",
+        "print(m.get(2.5))",
+        "print(m.size)",
+      ),
+    );
+  });
+
+  itRunsPe("walks a map through entries", () => {
+    agrees(
+      src(
+        "m = Map()",
+        'm.set("a", 1)',
+        'm.set("b", 2)',
+        "total = 0",
+        "for e of m.entries():",
+        "  total = total + e[1]",
+        "print(total)",
+      ),
+    );
+  });
+
+  itRunsPe("walks a map directly the way it walks entries", () => {
+    agrees(
+      src(
+        "m = Map()",
+        'm.set("a", 1)',
+        'm.set("b", 2)',
+        "keys = 0",
+        "values = 0",
+        "for e of m:",
+        "  keys = keys + e[0].length",
+        "  values = values + e[1]",
+        "print(keys)",
+        "print(values)",
+      ),
+    );
+  });
+
+  itRunsPe("walks an int-keyed map directly", () => {
+    agrees(
+      src(
+        "m = Map()",
+        "m.set(1, 10)",
+        "m.set(2, 20)",
+        "total = 0",
+        "for e of m:",
+        "  total = total + e[0] + e[1]",
+        "print(total)",
+      ),
+    );
+  });
+
+  it("says what it could not lay out when a map is held in a static field", () => {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(
+      `${src(
+        "class C:",
+        "  public static cache = Map()",
+        "  public static put(k: string, v: int) -> void:",
+        "    C.cache.set(k, v)",
+        'C.put("a", 1)',
+      )}
+`,
+      { backend: "c" },
+    );
+    const reasons = program.skipped.map((fn) => fn.reason).join("; ");
+
+    expect(reasons).toContain("C.cache is a value the compiler could not lay out");
+    expect(reasons).not.toContain("async and await");
   });
 });

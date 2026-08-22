@@ -67,6 +67,8 @@ describe("riscv64 assembly", () => {
     const assembly = assemblyOf(
       src(
         "fn leaf(x: float) -> float:",
+        "  if x < 0.0:",
+        "    return 0.0",
         "  return x + 1.0",
         "fn caller(x: float) -> float:",
         "  return leaf(x) * 2.0",

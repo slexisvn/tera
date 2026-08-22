@@ -1,9 +1,15 @@
 import type { CFGFunction } from "./ir/index.js";
 import { AnalysisManager, type AnalysisId } from "./infra/analysis-manager.js";
-import { PassManager, type Preservation, type TransformPass } from "./infra/pass-manager.js";
+import {
+  PassManager,
+  type GraphVerification,
+  type Preservation,
+  type TransformPass,
+} from "./infra/pass-manager.js";
 import { consolePassTraceSink, type PassTracer } from "./infra/pass-trace.js";
 import { cfgGraphProbe } from "./ir/probe.js";
 import { compilerOptions, type CompilerOptions } from "./options.js";
+import { GraphValidationError, validateGraphInvariants } from "./validation/graph-validator.js";
 import { buildFrameStateIndex } from "./ir/frame-state-values.js";
 import { homeFloatingValues } from "./ir/graph-edit.js";
 import { hoistLoopInvariants, loopUnrolling } from "./passes/loop-opts.js";
@@ -94,8 +100,10 @@ function phase(
 export function middleEndPhases(
   options: CompilerOptions = compilerOptions(),
 ): OptimizationPhase<CFGFunction>[] {
+  const enabledPasses = (on: boolean, passes: readonly TransformPass<CFGFunction>[]) =>
+    on ? passes : [];
   const aggregatePasses = (passes: readonly TransformPass<CFGFunction>[]) =>
-    options.scalarReplaceAggregates ? passes : [];
+    enabledPasses(options.scalarReplaceAggregates, passes);
   return [
     phase("high-level-optimization", [
       step(
@@ -172,6 +180,8 @@ export function middleEndPhases(
             ),
           [dominanceId, pointsToId],
         ),
+      ]),
+      ...enabledPasses(options.sinkAllocations, [
         step("allocation-sinking", preservesControlFlow, (g) => allocationSinking(g)),
       ]),
       step("sccp-after-escape", invalidatesAnalyses, (g) => sparseConditionalConstantPropagation(g)),
@@ -253,17 +263,34 @@ export function cfgPassTracer(options: CompilerOptions): PassTracer<CFGFunction>
   return { probe: cfgGraphProbe, sink: consolePassTraceSink };
 }
 
+const verifyAfterPass: GraphVerification<CFGFunction> = (graph, pass) => {
+  try {
+    validateGraphInvariants(graph);
+  } catch (error) {
+    if (!(error instanceof GraphValidationError)) throw error;
+    throw new GraphValidationError(
+      error.errors.map((message) => `${graph.name} after ${pass}: ${message}`),
+    );
+  }
+};
+
+export function cfgPassManager(
+  analyses: AnalysisManager<CFGFunction>,
+  options: CompilerOptions,
+): PassManager<CFGFunction> {
+  return new PassManager<CFGFunction>(analyses, options, {
+    tracer: cfgPassTracer(options),
+    maintain: maintainGraph,
+    verify: options.verifyEachPass ? verifyAfterPass : null,
+  });
+}
+
 export function runMiddleEnd(
   graph: CFGFunction,
   options: CompilerOptions = compilerOptions(),
 ): AnalysisManager<CFGFunction> {
   const analyses = new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
-  const passManager = new PassManager<CFGFunction>(
-    analyses,
-    options,
-    cfgPassTracer(options),
-    maintainGraph,
-  );
+  const passManager = cfgPassManager(analyses, options);
   for (const pipelinePhase of middleEndPhases(options)) {
     passManager.run(graph, pipelinePhase.passes);
   }

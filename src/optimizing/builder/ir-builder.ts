@@ -245,6 +245,21 @@ function capturedLocalSlots(
   return slots;
 }
 
+const SLICE_MEMBER = "slice";
+const PUSH_MEMBER = "push";
+
+interface SliceBounds {
+  readonly start: boolean;
+  readonly stop: boolean;
+}
+
+function sliceBounds(descriptor: unknown): SliceBounds | null {
+  if (!Array.isArray(descriptor) || descriptor.length !== 1) return null;
+  const token = descriptor[0];
+  if (typeof token !== "string" || token[0] !== "s" || token[3] === "1") return null;
+  return { start: token[1] === "1", stop: token[2] === "1" };
+}
+
 function genericGetPropWithHint(
   obj: ir.CFGInstruction,
   propName: string,
@@ -1996,6 +2011,60 @@ function compileInstruction(
       break;
     }
 
+    case bytecode.ROP_ARRAY_PUSH: {
+      const target = regs.get(operands[0]!);
+      const pushed = block._lastAcc ?? acc;
+      if (target === undefined || target === null || !pushed || feedback.vector !== null) {
+        bailOut(graph, compiledFn, op, bytecodeIdx);
+        break;
+      }
+      const callee = ir.irGenericGetProp(target, PUSH_MEMBER);
+      block.addNode(callee);
+      const node = ir.irGenericCall(callee, [target, pushed]);
+      node.props.isMethod = true;
+      node.frameState = captureFrameState(compiledFn, bytecodeIdx, regs, [callee], frameStates);
+      block.addNode(node);
+      break;
+    }
+
+    case bytecode.ROP_SPREAD_ARRAY: {
+      const target = regs.get(operands[0]!);
+      const source = block._lastAcc ?? acc;
+      if (
+        target === undefined ||
+        target === null ||
+        !source ||
+        feedback.vector !== null ||
+        target.type !== ir.IR_NEW_ARRAY ||
+        target.inputs.length > 0 ||
+        target.uses.length > 0
+      ) {
+        bailOut(graph, compiledFn, op, bytecodeIdx);
+        break;
+      }
+      const callee = ir.irGenericGetProp(source, SLICE_MEMBER);
+      block.addNode(callee);
+      const copied = ir.irGenericCall(callee, [source, ir.homeInstruction(ir.irConstant(0), block)]);
+      copied.props.isMethod = true;
+      copied.frameState = captureFrameState(compiledFn, bytecodeIdx, regs, [callee], frameStates);
+      block.addNode(copied);
+      regs.set(operands[0]!, copied);
+      break;
+    }
+
+    case bytecode.ROP_COPY_PROPS: {
+      const target = regs.get(operands[0]!);
+      const source = block._lastAcc ?? acc;
+      if (target === undefined || target === null || !source || feedback.vector !== null) {
+        bailOut(graph, compiledFn, op, bytecodeIdx);
+        break;
+      }
+      const node = ir.irCopyProperties(target, source);
+      node.frameState = captureFrameState(compiledFn, bytecodeIdx, regs, [], frameStates);
+      block.addNode(node);
+      break;
+    }
+
     case bytecode.ROP_NEW_REGEX: {
       const node = ir.irNewRegex(operands[0]);
       node.frameState = captureFrameState(
@@ -2110,6 +2179,34 @@ function compileInstruction(
         awaited.props[AWAITED_CALL_PROP] = true;
       }
       const node = ir.irAwait(awaited);
+      block.addNode(node);
+      block._lastAcc = node;
+      break;
+    }
+
+    case bytecode.ROP_LDA_KEYED_SLICE: {
+      const receiver = regs.get(operands[0]!);
+      const bounds =
+        receiver === undefined || feedback.vector !== null
+          ? null
+          : sliceBounds(compiledFn.constants[operands[1]!]);
+      if (receiver === undefined || bounds === null) {
+        bailOut(graph, compiledFn, op, bytecodeIdx);
+        break;
+      }
+      const args = [
+        bounds.start ? regs.get(operands[2]!)! : ir.homeInstruction(ir.irConstant(0), block),
+        ...(bounds.stop ? [regs.get(operands[bounds.start ? 3 : 2]!)!] : []),
+      ];
+      if (args.some((argument) => argument === undefined)) {
+        bailOut(graph, compiledFn, op, bytecodeIdx);
+        break;
+      }
+      const callee = ir.irGenericGetProp(receiver, SLICE_MEMBER);
+      block.addNode(callee);
+      const node = ir.irGenericCall(callee, [receiver, ...args]);
+      node.props.isMethod = true;
+      node.frameState = captureFrameState(compiledFn, bytecodeIdx, regs, [callee], frameStates);
       block.addNode(node);
       block._lastAcc = node;
       break;

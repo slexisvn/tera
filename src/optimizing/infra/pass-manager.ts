@@ -22,16 +22,29 @@ export interface TransformPass<G> {
 const NOTHING_INVALIDATED: readonly AnalysisId<unknown>[] = [];
 
 export type GraphMaintenance<G> = (graph: G) => void;
+export type GraphVerification<G> = (graph: G, pass: string) => void;
+
+export interface PassManagerHooks<G> {
+  readonly tracer?: PassTracer<G> | null;
+  readonly maintain?: GraphMaintenance<G> | null;
+  readonly verify?: GraphVerification<G> | null;
+}
 
 export class PassManager<G> {
   private ordinal = 0;
+  private readonly tracer: PassTracer<G> | null;
+  private readonly maintain: GraphMaintenance<G> | null;
+  private readonly verify: GraphVerification<G> | null;
 
   constructor(
     private readonly analyses: AnalysisManager<G>,
     private readonly options: CompilerOptions,
-    private readonly tracer: PassTracer<G> | null = null,
-    private readonly maintain: GraphMaintenance<G> | null = null,
-  ) {}
+    hooks: PassManagerHooks<G> = {},
+  ) {
+    this.tracer = hooks.tracer ?? null;
+    this.maintain = hooks.maintain ?? null;
+    this.verify = hooks.verify ?? null;
+  }
 
   run(graph: G, pipeline: Iterable<TransformPass<G>>): boolean {
     const tracer = this.tracer;
@@ -41,6 +54,7 @@ export class PassManager<G> {
       const nodesBefore = tracer === null ? 0 : tracer.probe.nodeCount(graph);
       const outcome = pass.run(graph, this.analyses, this.options);
       if (outcome.changed && this.maintain !== null) this.maintain(graph);
+      if (outcome.changed && this.verify !== null) this.verify(graph, pass.name);
       const invalidated = outcome.changed
         ? this.applyInvalidation(pass.preserves)
         : NOTHING_INVALIDATED;

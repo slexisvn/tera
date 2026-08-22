@@ -59,6 +59,7 @@ import {
   shapeForDeclared,
   FIELD_SCALAR_PROP,
   VALUE_CLASS_PROP,
+  type ClassTable,
 } from "../metadata/class-table.js";
 
 export function isAbsenceConstant(value: CFGInstruction | undefined): boolean {
@@ -221,16 +222,27 @@ function isConstantText(value: CFGInstruction | undefined): boolean {
   return value?.type === IR_CONSTANT && typeof value.props.value === "string";
 }
 
-function globalValueReason(node: CFGInstruction): string {
+const PROMISE_GLOBAL = "Promise";
+
+function globalValueReason(node: CFGInstruction, classes: ClassTable | null): string {
   const owner = node.props.name;
   if (typeof owner !== "string") return "load of a global value";
   const read = node.uses.find((use) => use.type === IR_GENERIC_GET_PROP);
   const member = read?.props.propName;
   if (typeof member !== "string") return `load of the global value ${owner}`;
+  if (classes !== null && classes.shapeOf(owner) !== null) {
+    return (
+      `${owner}.${member} is a value the compiler could not lay out; hold it in a ` +
+      `module-level variable instead, or keep this part interpreted`
+    );
+  }
+  const advice =
+    owner === PROMISE_GLOBAL
+      ? "write the same thing with async and await, or keep this part interpreted"
+      : "keep this part interpreted";
   return (
     `${owner}.${member} is part of the runtime rather than of the program, so there is ` +
-    `nothing to compile for it; write the same thing with async and await, or keep this ` +
-    `part interpreted`
+    `nothing to compile for it; ${advice}`
   );
 }
 
@@ -934,7 +946,7 @@ class LegalityAnalyzer implements AotLegality {
     if (use.type === IR_STORE_FIELD) return use.props[FIELD_SCALAR_PROP] === SCALAR_FLOAT64;
     if (use.type === IR_STORE_ELEMENT) return heapElementScalarOf(use) === SCALAR_FLOAT64;
     if (use.type === IR_RETURN) return this.declaredReturnScalar() === SCALAR_FLOAT64;
-    if (use.type === IR_CALL_KNOWN_FUNCTION && this.passedAsNumber(use, absence)) return true;
+    if (use.type === IR_CALL_KNOWN_FUNCTION) return this.passedAsNumber(use, absence);
     return use.inputs.some((input) => {
       if (input === absence) return false;
       const scalar = this.numericScalarOf(input);
@@ -1057,7 +1069,7 @@ class LegalityAnalyzer implements AotLegality {
       return;
     }
     if (node.type === IR_LOAD_GLOBAL) {
-      if (node.uses.length > 0) this.fail(globalValueReason(node));
+      if (node.uses.length > 0) this.fail(globalValueReason(node, this.graph.classes));
       return;
     }
     if (node.type === IR_RUNTIME_BASE) {

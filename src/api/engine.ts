@@ -398,6 +398,14 @@ type CallSitesByTarget = ReadonlyMap<string, readonly GatheringCallSite[]>;
 
 type GatheredClones = ReadonlyMap<string, ReadonlyMap<number, string>>;
 
+interface AotUnitRequest {
+  readonly isProgram: boolean;
+  readonly internal: boolean;
+  readonly recoversThrows: boolean;
+  readonly gatheredArguments: number | null;
+  readonly options: CompilerOptions | undefined;
+}
+
 type UnitBuilder = (
   compiledFn: RegisterCompiledFunction,
   gathered: number | null,
@@ -930,13 +938,13 @@ ${collectionPrelude()}`, compileOptions, true)
     const internalOf = (compiledFn: RegisterCompiledFunction) =>
       options.internalSymbols?.has(compiledFn.name ?? "") ?? false;
     const build: UnitBuilder = (compiledFn, gathered, internal) =>
-      this.compileAotUnit(
-        compiledFn,
-        compiledFn === options.program,
-        internal ?? internalOf(compiledFn),
+      this.compileAotUnit(compiledFn, {
+        isProgram: compiledFn === options.program,
+        internal: internal ?? internalOf(compiledFn),
         recoversThrows,
-        gathered,
-      );
+        gatheredArguments: gathered,
+        options: options.compilerOptions,
+      });
 
     const gathering: GatheringFunction[] = [];
     for (const compiledFn of selected) {
@@ -1012,23 +1020,20 @@ ${collectionPrelude()}`, compileOptions, true)
 
   private compileAotUnit(
     compiledFn: RegisterCompiledFunction,
-    isProgram: boolean,
-    internal = isModulePrivateName(compiledFn.name),
-    recoversThrows = false,
-    gatheredArguments: number | null = null,
+    request: AotUnitRequest,
   ): CompilationUnit {
     if (compiledFn.isLazy) this.compileLazy(compiledFn);
     this.verifyClassShape(compiledFn);
     resetIRNodeIds();
     this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
-    const unit = this.optimizer.compileStatic(
-      compiledFn,
-      this.aotClasses,
-      recoversThrows,
-      gatheredArguments,
-    ).unit;
-    unit.graph.internal = !isProgram && internal;
-    if (!isProgram) return unit;
+    const unit = this.optimizer.compileStatic(compiledFn, {
+      classes: this.aotClasses,
+      recoversThrows: request.recoversThrows,
+      gatheredArguments: request.gatheredArguments,
+      ...(request.options === undefined ? {} : { options: request.options }),
+    }).unit;
+    unit.graph.internal = !request.isProgram && request.internal;
+    if (!request.isProgram) return unit;
     markProgramEntry(unit.graph);
     return { ...unit, name: unit.graph.name };
   }

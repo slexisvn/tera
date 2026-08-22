@@ -87,23 +87,47 @@ function validateStamp(
   errors.push(`${where} v${node.id} ${node.type} has no representation`);
 }
 
+function isEmptyGraph(graph: ValidationGraph): boolean {
+  return !graph || !Array.isArray(graph.blocks) || graph.blocks.length === 0;
+}
+
+function collectStructuralErrors(
+  graph: ValidationGraph,
+  dominators: Map<DominatorBlock, DominatorBlock>,
+  locations: Map<ValidationNode, ValueLocation>,
+  errors: string[],
+): void {
+  validateOpcodes(graph, errors);
+  validateNodeOwnership(graph, errors);
+  validatePhis(graph, errors);
+  validateControlFlow(graph, errors);
+  validateUseDefDominanceWith(graph, dominators, locations, errors);
+  validateUseLists(graph, errors);
+}
+
+export function validateGraphInvariants(graph: ValidationGraph): true {
+  const errors: string[] = [];
+  if (isEmptyGraph(graph)) {
+    errors.push("graph is empty");
+  } else {
+    collectStructuralErrors(graph, computeDominators(graph), valueLocations(graph), errors);
+  }
+  if (errors.length > 0) throw new GraphValidationError(errors);
+  return true;
+}
+
 export function validateOptimizedGraph(
   graph: ValidationGraph,
   frameStates: ValidationFrameState[] = [],
 ): true {
   const errors: string[] = [];
-  if (!graph || !Array.isArray(graph.blocks) || graph.blocks.length === 0) {
+  if (isEmptyGraph(graph)) {
     errors.push("graph is empty");
   } else {
     const dominators = computeDominators(graph);
     const locations = valueLocations(graph);
     validateFrameStates(graph, frameStates, errors);
-    validateOpcodes(graph, errors);
-    validateNodeOwnership(graph, errors);
-    validatePhis(graph, errors);
-    validateControlFlow(graph, errors);
-    validateUseDefDominanceWith(graph, dominators, locations, errors);
-    validateUseLists(graph, errors);
+    collectStructuralErrors(graph, dominators, locations, errors);
     validateFrameStateValueDominanceWith(graph, dominators, locations, errors);
   }
   if (errors.length > 0) throw new GraphValidationError(errors);

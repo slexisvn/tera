@@ -1,5 +1,8 @@
 import {
+  irGenericGetProp,
+  irGenericSetProp,
   IR_CALL_KNOWN_FUNCTION,
+  IR_COPY_PROPERTIES,
   IR_GENERIC_CALL,
   IR_GENERIC_SET_PROP,
   IR_NEW_OBJECT,
@@ -7,6 +10,8 @@ import {
   type CFGFunction,
   type CFGInstruction,
 } from "../ir/index.js";
+import { GraphEditor } from "../ir/editor.js";
+import { nodeIdStamper } from "../ir/graph-edit.js";
 import {
   CLASS_ID_PROP,
   declaredTypeOf,
@@ -131,6 +136,41 @@ function declaredShapeOf(
   return agreed !== null && holdsExactly(agreed, fields) ? agreed : null;
 }
 
+function shapeHeldBy(
+  value: CFGInstruction | undefined,
+  classes: ClassTable,
+  types: TypeInference,
+): ClassShape | null {
+  if (value === undefined) return null;
+  const carried = value.props[VALUE_CLASS_PROP];
+  if (typeof carried === "number") return classes.shapeById(carried);
+  const type = types.typeOf(value);
+  if (type.kind !== TypeKind.Object || typeof type.map !== "number") return null;
+  return classes.shapeById(type.map);
+}
+
+function spreadFieldsInto(
+  allocation: CFGInstruction,
+  classes: ClassTable,
+  types: TypeInference,
+  editor: GraphEditor,
+  stamp: (node: CFGInstruction) => CFGInstruction,
+): boolean {
+  for (const use of [...allocation.uses]) {
+    if (use.type !== IR_COPY_PROPERTIES || use.inputs[0] !== allocation) continue;
+    const source = use.inputs[1];
+    const shape = shapeHeldBy(source, classes, types);
+    if (shape === null || source === undefined) return false;
+    for (const name of shape.fields.keys()) {
+      const read = stamp(irGenericGetProp(source, name));
+      editor.insertBefore(use, read);
+      editor.insertBefore(use, stamp(irGenericSetProp(allocation, name, read)));
+    }
+    editor.remove(use);
+  }
+  return true;
+}
+
 export function shapeObjectLiterals(
   graph: CFGFunction,
   types: TypeInference,
@@ -138,11 +178,14 @@ export function shapeObjectLiterals(
 ): number {
   const classes = graph.classes;
   if (classes === null) return 0;
+  const editor = new GraphEditor(graph);
+  const stamp = nodeIdStamper(graph);
   let shaped = 0;
   for (const block of graph.blocks) {
-    for (const node of block.nodes) {
+    for (const node of [...block.nodes]) {
       if (node.type !== IR_NEW_OBJECT) continue;
       if (node.props[CLASS_ID_PROP] !== undefined) continue;
+      if (!spreadFieldsInto(node, classes, types, editor, stamp)) continue;
       const fields = initializerOf(node, graph, classes, types);
       if (fields === null) continue;
       const shape =

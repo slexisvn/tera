@@ -29,7 +29,13 @@ function compile(files: Record<string, string>): AotProgram {
   return nodeEngine().compileAotModule(path.join(root, "main.tera"), { root });
 }
 
-const MATHLIB = ["fn square(n: int) -> int:", "  return n * n", ""].join("\n");
+const MATHLIB = [
+  "fn square(n: int) -> int:",
+  "  if n < 0:",
+  "    return 0",
+  "  return n * n",
+  "",
+].join("\n");
 
 const MAIN = [
   "from mathlib import square",

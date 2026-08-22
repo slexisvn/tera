@@ -37,7 +37,8 @@ type Stamp = (node: CFGInstruction) => CFGInstruction;
 const KEYED_MEMBERS: ReadonlySet<string> = new Set(["set", "get", "has", "add", "delete"]);
 const CALLEE_INPUT = 1;
 const VALUES_MEMBER = "values";
-const LISTED_MEMBERS: ReadonlySet<string> = new Set(["keys", VALUES_MEMBER]);
+const ENTRIES_MEMBER = "entries";
+const LISTED_MEMBERS: ReadonlySet<string> = new Set(["keys", VALUES_MEMBER, ENTRIES_MEMBER]);
 const SIZE_MEMBER = "size";
 const VALUED_MEMBER = "set";
 const RECEIVER = 1;
@@ -48,11 +49,13 @@ const COUNTED_VALUE: ValueKind = "int";
 const KEY_BY_KIND: ReadonlyMap<string, KeyKind> = new Map<string, KeyKind>([
   [TypeKind.String, "string"],
   [TypeKind.Smi, "int"],
+  [TypeKind.Double, "float"],
 ]);
 
 const KEY_BY_ELEMENT: ReadonlyMap<string, KeyKind> = new Map<string, KeyKind>([
   ["string", "string"],
   ["int", "int"],
+  ["float", "float"],
 ]);
 
 const VALUE_BY_KIND: ReadonlyMap<string, ValueKind> = new Map<string, ValueKind>([
@@ -112,7 +115,11 @@ function aliasesOf(node: CFGInstruction): ReadonlySet<CFGInstruction> {
 }
 
 function iteratesDirectly(use: CFGInstruction, kind: string): boolean {
-  return use.type === IR_ITERATOR_INIT && kind === SET_GLOBAL;
+  return use.type === IR_ITERATOR_INIT;
+}
+
+function listingMemberFor(kind: string): string {
+  return kind === SET_GLOBAL ? VALUES_MEMBER : ENTRIES_MEMBER;
 }
 
 function heldWithin(aliases: ReadonlySet<CFGInstruction>, kind: string): boolean {
@@ -232,7 +239,7 @@ function listDirectIteration(
   for (const alias of aliases) {
     for (const use of [...alias.uses]) {
       if (!iteratesDirectly(use, kind)) continue;
-      const member = stamp(irGenericGetProp(alias, VALUES_MEMBER));
+      const member = stamp(irGenericGetProp(alias, listingMemberFor(kind)));
       const call = stamp(irGenericCall(member, [alias]));
       call.props.isMethod = true;
       call.frameState = use.frameState;

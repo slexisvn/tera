@@ -7,12 +7,18 @@ export interface CompilerOptions {
   readonly unrollFactor: number;
   readonly maxInObjectProperties: number;
   readonly scalarReplaceAggregates: boolean;
+  readonly sinkAllocations: boolean;
   readonly printAfterAll: boolean;
+  readonly verifyEachPass: boolean;
 }
 
 type OptLevelPreset = Omit<
   CompilerOptions,
-  "optLevel" | "scalarReplaceAggregates" | "printAfterAll"
+  | "optLevel"
+  | "scalarReplaceAggregates"
+  | "sinkAllocations"
+  | "printAfterAll"
+  | "verifyEachPass"
 >;
 
 const presets: Record<OptLevel, OptLevelPreset> = {
@@ -29,7 +35,9 @@ export function compilerOptions(
   return {
     optLevel,
     scalarReplaceAggregates: true,
+    sinkAllocations: true,
     printAfterAll: false,
+    verifyEachPass: false,
     ...presets[optLevel],
     ...overrides,
   };

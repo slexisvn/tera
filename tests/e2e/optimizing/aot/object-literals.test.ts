@@ -232,16 +232,53 @@ describe("AOT object types on parameters", () => {
       [4],
     ));
 
-  it("declines an object it cannot lay out the way the callee declares", () => {
+  itNative("reads a literal back out of a local array", native.matches(
+      src(
+        ORDER,
+        "fn qty_of(order: Order) -> int:",
+        "  return order.qty",
+        "fn f(n: int) -> int:",
+        '  orders = [{ sku: "A1", qty: n, price: 2.0 }]',
+        "  return qty_of(orders[0])",
+      ),
+      "f",
+      [7],
+    ));
+
+  itNative("spreads one literal into another", native.matches(
+      src(
+        "fn f(n: int) -> int:",
+        "  a = { x: n, y: 2 }",
+        "  b = { ...a, y: 5, z: 7 }",
+        "  return b.x + b.y + b.z",
+      ),
+      "f",
+      [1],
+    ));
+
+  itNative("lets a later field win over the one a spread copied", native.matches(
+      src(
+        "fn f(n: int) -> int:",
+        "  a = { x: n }",
+        "  b = { ...a, x: 9 }",
+        "  return b.x",
+      ),
+      "f",
+      [1],
+    ));
+
+  it("declines an escaping object it cannot lay out the way the callee declares", () => {
     expect(
       declined(
         src(
           ORDER,
           "fn qty_of(order: Order) -> int:",
+          "  if order.qty < 0:",
+          "    return 0",
           "  return order.qty",
+          'kept = [{ sku: "A1", qty: 1, price: 2.0 }]',
           "fn f(n: int) -> int:",
-          '  orders = [{ sku: "A1", qty: n, price: 2.0 }]',
-          "  return qty_of(orders[0])",
+          "  return qty_of(kept[0])",
         ),
       ),
     ).toContain("passes an object laid out differently from the order it declares");

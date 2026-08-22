@@ -260,6 +260,8 @@ describe("the AOT string ceiling", () => {
         "  public constructor(n: string):",
         "    this.n = n",
         "fn rename(p: P, s: string):",
+        "  if s.length == 0:",
+        "    return",
         "  p.n = s",
         "fn f(p: P) -> int:",
         "  s = p.n",
