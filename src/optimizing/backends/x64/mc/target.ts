@@ -245,7 +245,12 @@ function encodeInstruction(node: MachineInstruction, form: number): EncodedInstr
   }
 
   if (operands.length === 3 && operands[2]!.kind === "immediate") {
-    const withImmediate = requireForm(group, "rmi", node.opcode);
+    const value = (operands[2] as { value: number | bigint }).value;
+    const short = group.rmi8;
+    const withImmediate =
+      short !== undefined && fitsSigned(value, 8)
+        ? short
+        : requireForm(group, "rmi", node.opcode);
     const out = sink();
     emitForm(
       out,
@@ -254,7 +259,7 @@ function encodeInstruction(node: MachineInstruction, form: number): EncodedInstr
       rmOf(operands[1]!, node.opcode),
       node.opcode,
     );
-    emitImmediate(out, (operands[2] as { value: number }).value, withImmediate.immediateBytes ?? 4);
+    emitImmediate(out, value, withImmediate.immediateBytes ?? 4);
     return encoded(out.bytes, out.fixups);
   }
 

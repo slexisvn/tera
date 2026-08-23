@@ -82,6 +82,55 @@ export function assembleText(text: string): Uint8Array {
   });
 }
 
+export interface DecodedLine {
+  readonly file: string;
+  readonly line: number;
+  readonly address: number;
+}
+
+const DECODED_LINE = /^(\S+)\s+(\d+)\s+(0x[0-9a-f]+)/;
+const OBJDUMPS = ["objdump", "llvm-objdump"];
+
+function decodedLinesAt(path: string): DecodedLine[] {
+  const dumper = locate(OBJDUMPS, (name) => {
+    const probe = spawnSync(name, ["--version"], { encoding: "utf8" });
+    return probe.status === 0;
+  });
+  if (dumper === null) throw new Error("no objdump is available");
+  const dumped = spawnSync(dumper, ["--dwarf=decodedline", path], { encoding: "utf8" });
+  if (dumped.status !== 0) throw new Error(`decoding lines failed:\n${dumped.stderr}`);
+  const rows: DecodedLine[] = [];
+  for (const row of dumped.stdout.split("\n")) {
+    const match = DECODED_LINE.exec(row.trim());
+    if (match !== null) {
+      rows.push({ file: match[1]!, line: Number(match[2]), address: Number(match[3]) });
+    }
+  }
+  return rows;
+}
+
+export function decodedLinesOf(text: string): DecodedLine[] {
+  if (gnuToolchain === null) throw new Error("no assembler toolchain is available");
+  return inBuildDirectory((directory) => {
+    const source = join(directory, "unit.s");
+    const object = join(directory, "unit.o");
+    writeFileSync(source, text);
+    const built = spawnSync(gnuToolchain.compiler, ["-c", source, "-o", object], {
+      encoding: "utf8",
+    });
+    if (built.status !== 0) throw new Error(`assembling failed:\n${built.stderr}`);
+    return decodedLinesAt(object);
+  });
+}
+
+export function decodedLinesOfImage(image: Uint8Array, extension: string): DecodedLine[] {
+  return inBuildDirectory((directory) => {
+    const path = join(directory, `image.${extension}`);
+    writeFileSync(path, image);
+    return decodedLinesAt(path);
+  });
+}
+
 export function hex(bytes: ArrayLike<number>): string {
   return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join(" ");
 }

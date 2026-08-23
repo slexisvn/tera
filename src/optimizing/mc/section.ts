@@ -1,7 +1,7 @@
 import { ByteBuffer } from "./buffer.js";
 import { paddingFor, type McFragment } from "./fragment.js";
 
-export type SectionKind = "text" | "rodata" | "data" | "bss";
+export type SectionKind = "text" | "rodata" | "data" | "bss" | "debug";
 
 export interface SectionPermissions {
   readonly read: boolean;
@@ -14,7 +14,12 @@ const PERMISSIONS: Record<SectionKind, SectionPermissions> = {
   rodata: { read: true, write: false, execute: false },
   data: { read: true, write: true, execute: false },
   bss: { read: true, write: true, execute: false },
+  debug: { read: true, write: false, execute: false },
 };
+
+export function isLoadable(section: McSection): boolean {
+  return section.kind !== "debug";
+}
 
 export type PaddingProvider = (byteCount: number) => readonly number[];
 

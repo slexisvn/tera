@@ -5,6 +5,7 @@ import type { AotScalar } from "../types/scalar.js";
 import type { MachineTargetModel } from "../target/model.js";
 import type { RegisterClassId } from "../target/registers.js";
 import type { FrameLayout } from "./frame.js";
+import type { InstructionEffect } from "./schedule.js";
 import type {
   MachineBlock,
   MachineDataPool,
@@ -75,6 +76,7 @@ export interface MachineLowering {
   loadIncoming(destination: RegisterOperand, slot: StackSlot): MachineInstruction;
   storeOutgoing(offset: number, source: RegisterOperand): MachineInstruction;
   jump(target: MachineBlock): MachineInstruction;
+  effectOf(node: MachineInstruction): InstructionEffect;
   fusedInputOf(node: CFGInstruction): CFGInstruction | null;
   fusesFlagsOf(consumer: CFGInstruction, condition: CFGInstruction): boolean;
   invertBranch(node: MachineInstruction, target: MachineBlock): MachineInstruction | null;

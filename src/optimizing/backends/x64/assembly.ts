@@ -7,12 +7,15 @@ import { x64RegisterName } from "./registers.js";
 import type { ObjectFormat } from "./format.js";
 import type { X64TargetModel } from "./target.js";
 import { annotateCfi, CFI_END, CFI_START } from "../../machine/cfi-text.js";
+import { annotateLines, SourceFiles } from "../../machine/line-text.js";
 import { prologueEffectOf, x64CfiTarget } from "./unwind.js";
 
 const ADDRESS_WIDTH = 8;
 const INDIRECT_MARKER = "*";
 
 export class X64AssemblyWriter {
+  readonly sourceFiles = new SourceFiles();
+
   constructor(private readonly target: X64TargetModel) {}
 
   private get format(): ObjectFormat {
@@ -78,10 +81,11 @@ export class X64AssemblyWriter {
       `${symbol}:`,
       ...(cfi.describes ? [CFI_START] : []),
     ];
+    const located = annotateLines(this.sourceFiles);
     for (const block of fn.blocks) {
       lines.push(`${block.label}:`);
       for (const node of block.instructions) {
-        lines.push(...this.instructionText(node), ...cfi.after(node));
+        lines.push(...located(node), ...this.instructionText(node), ...cfi.after(node));
       }
     }
     if (cfi.describes) lines.push(CFI_END);

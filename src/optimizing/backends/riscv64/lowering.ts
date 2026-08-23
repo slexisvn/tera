@@ -99,6 +99,7 @@ import {
 } from "../../machine/ir.js";
 import type { SelectionContext, SelectionHandler } from "../../machine/lowering.js";
 import { MachineLoweringBase, readOf, writeOf } from "../../machine/lowering-base.js";
+import type { InstructionEffect } from "../../machine/schedule.js";
 import { fusedConditionOf } from "../../machine/select.js";
 import { nativeArgumentScalar, nativeReturnScalar } from "../../machine/signature.js";
 import { RISCV_FPR, RISCV_GPR, RISCV_STACK_SCRATCH } from "./registers.js";
@@ -182,6 +183,32 @@ const INT_SHIFT = new Map<string, string>([
   [IR_INT32_USHR, "srlw"],
 ]);
 
+const MULTIPLY_LATENCY = 3;
+const LOAD_LATENCY = 3;
+const FLOAT_LATENCY = 4;
+const FLOAT_DIVIDE_LATENCY = 14;
+
+const LATENCIES: ReadonlyMap<string, number> = new Map<string, number>([
+  ["mulw", MULTIPLY_LATENCY],
+  ["mul", MULTIPLY_LATENCY],
+  ["ld", LOAD_LATENCY],
+  ["lw", LOAD_LATENCY],
+  ["lbu", LOAD_LATENCY],
+  ["fld", LOAD_LATENCY],
+  ["fadd.d", FLOAT_LATENCY],
+  ["fsub.d", FLOAT_LATENCY],
+  ["fmul.d", FLOAT_LATENCY],
+  ["feq.d", FLOAT_LATENCY],
+  ["flt.d", FLOAT_LATENCY],
+  ["fle.d", FLOAT_LATENCY],
+  ["fcvt.d.w", FLOAT_LATENCY],
+  ["fcvt.d.l", FLOAT_LATENCY],
+  ["fcvt.w.d", FLOAT_LATENCY],
+  ["fcvt.l.d", FLOAT_LATENCY],
+  ["fdiv.d", FLOAT_DIVIDE_LATENCY],
+  ["fsqrt.d", FLOAT_DIVIDE_LATENCY],
+]);
+
 const INT_HELPERS = new Map<string, string>([
   [IR_INT32_DIV, RISCV_RUNTIME_SYMBOLS.divide],
   [IR_INT32_MOD, RISCV_RUNTIME_SYMBOLS.modulo],
@@ -224,6 +251,11 @@ function log2(value: number): number {
 }
 
 export class RiscvLowering extends MachineLoweringBase<RiscvTargetModel> {
+
+  effectOf(node: MachineInstruction): InstructionEffect {
+    const latency = LATENCIES.get(node.opcode);
+    return latency === undefined ? {} : { latency };
+  }
 
   protected floatBinaryRules(): ReadonlyMap<string, string> {
     return FLOAT_BINARY;

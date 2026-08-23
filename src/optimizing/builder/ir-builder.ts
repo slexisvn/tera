@@ -286,6 +286,19 @@ function landingOf(handlers: readonly number[], blockMap: BlockMap): PendingThro
   return handler === undefined ? null : { handler, target };
 }
 
+function positionAt(
+  compiledFn: AnyCompiledFunction,
+  pc: number,
+): ir.IRSourcePosition | null {
+  const entry = compiledFn.sourceMap?.[pc];
+  if (entry === undefined) return null;
+  const line = entry.line;
+  const column = entry.column;
+  if (typeof line !== "number" || typeof column !== "number") return null;
+  const file = entry.sourceName ?? compiledFn.sourceName;
+  return { file: typeof file === "string" ? file : "", line, column };
+}
+
 export function buildIR(
   graph: AnyGraph,
   currentBlock: AnyBlock,
@@ -407,22 +420,24 @@ export function buildIR(
     const instr = instructions[i];
     if (currentBlock.isTerminated()) continue;
     const handlers = handlerStacks[i] ?? [];
-    currentBlock = compileInstruction(
-      instr,
-      i,
-      graph,
-      currentBlock,
-      acc,
-      regs,
-      compiledFn,
-      nexus,
-      blockMap,
-      loopPhiMap,
-      frameStates,
-      savedBlockRegs,
-      intrinsicMetadata,
-      contextSlots,
-      handlers,
+    currentBlock = ir.withIRSourcePosition(positionAt(compiledFn, i), () =>
+      compileInstruction(
+        instr,
+        i,
+        graph,
+        currentBlock,
+        acc,
+        regs,
+        compiledFn,
+        nexus,
+        blockMap,
+        loopPhiMap,
+        frameStates,
+        savedBlockRegs,
+        intrinsicMetadata,
+        contextSlots,
+        handlers,
+      ),
     );
     acc = currentBlock._lastAcc !== undefined ? currentBlock._lastAcc : acc;
     if (recovers && RECOVERABLE_CALLS.has(instr.opcode) && !currentBlock.isTerminated()) {

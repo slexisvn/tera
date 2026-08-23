@@ -11,6 +11,7 @@ import type { McModule } from "./module.js";
 import type { McSection, SectionKind } from "./section.js";
 import type { SymbolBinding } from "./symbol.js";
 import type { McTarget } from "./target.js";
+import type { SourceLine } from "./dwarf/line-table.js";
 
 export const TEXT_SECTION = ".text";
 export const RODATA_SECTION = ".rodata";
@@ -22,7 +23,27 @@ export interface AssembledFunction {
   readonly entry: McFragment;
   readonly end: McFragment;
   readonly prologue: readonly McInstructionFragment[];
+  readonly lines: readonly SourceLine[];
   readonly instructions: number;
+}
+
+function locate(
+  lines: SourceLine[],
+  fragment: McInstructionFragment,
+  node: MachineInstruction,
+): void {
+  const source = node.source;
+  if (source === null || source.file.length === 0) return;
+  const previous = lines[lines.length - 1]?.source;
+  if (
+    previous !== undefined &&
+    previous.file === source.file &&
+    previous.line === source.line &&
+    previous.column === source.column
+  ) {
+    return;
+  }
+  lines.push({ fragment, source });
 }
 
 function anchor(section: McSection): McFragment {
@@ -55,16 +76,18 @@ export function assembleFunction(
   module.symbols.define(fn.symbol, entry, binding, "function");
 
   const prologue: McInstructionFragment[] = [];
+  const lines: SourceLine[] = [];
   let instructions = 0;
   for (const block of fn.blocks) {
     module.symbols.define(block.label, anchor(section), "local", "none");
     for (const node of block.instructions) {
       const fragment = place(module, target, section, node);
       if (node.flags.prologue === true) prologue.push(fragment);
+      locate(lines, fragment, node);
       instructions++;
     }
   }
-  return { section, entry, end: anchor(section), prologue, instructions };
+  return { section, entry, end: anchor(section), prologue, lines, instructions };
 }
 
 function isUninitialized(datum: MachineDatum): boolean {
@@ -99,5 +122,12 @@ export function assembleRoutine(
   const entry = anchor(section);
   module.symbols.define(symbol, entry, binding, "function");
   for (const node of body) place(module, target, section, node);
-  return { section, entry, end: anchor(section), prologue: [], instructions: body.length };
+  return {
+    section,
+    entry,
+    end: anchor(section),
+    prologue: [],
+    lines: [],
+    instructions: body.length,
+  };
 }

@@ -6,6 +6,7 @@ import {
   IR_PARAMETER,
   IR_PHI,
   IR_RUNTIME_BASE,
+  type IRSourcePosition,
 } from "../ir/index.js";
 import { buildDispatch } from "../infra/dispatch.js";
 import { isRootedPointer } from "../analyses/aot-legality.js";
@@ -57,6 +58,7 @@ class Selector {
   private readonly fusionOf = new Map<CFGInstruction, CFGInstruction>();
   private current: MachineBlock;
   private currentCfg: CFGBlock;
+  private source: IRSourcePosition | null = null;
   private guards = 0;
 
   constructor(
@@ -84,6 +86,7 @@ class Selector {
       this.currentCfg = block;
       this.current = this.machineOf.get(block)!;
       for (const node of block.nodes) {
+        this.source = node.position;
         if (STRUCTURAL.has(node.type)) continue;
         if (this.fusedConditions.has(node)) continue;
         if (!this.dispatch(node.type, this.contextFor(node))) {
@@ -212,6 +215,7 @@ class Selector {
   }
 
   private emit(node: MachineInstruction): MachineInstruction {
+    if (node.source === null) node.source = this.source;
     this.current.instructions.push(node);
     return node;
   }
@@ -409,6 +413,10 @@ export function selectMachineFunction(
 ): MachineFunction {
   if (layout.length === 0) throw new MachineSelectionError("function has no reachable blocks");
   return new Selector(graph, legality, lowering, layout, symbol).run();
+}
+
+export function emittedOpcodesOf(lowering: MachineLowering): ReadonlySet<string> {
+  return new Set([...lowering.rules()].map(([opcode]) => opcode));
 }
 
 export function fusedConditionOf(

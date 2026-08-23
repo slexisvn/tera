@@ -32,6 +32,7 @@ export function cloneBlocks(
     for (const node of [...block.phis, ...block.nodes]) {
       if (valueOf.has(node)) continue;
       const copy = stamp(new CFGInstruction(node.type, { ...node.props }));
+      copy.position = node.position;
       copy.rep = node.rep;
       copy.frameState = node.frameState;
       for (const key of BLOCK_TARGET_PROPS) {
@@ -126,6 +127,7 @@ export function cloneGraph(source: CFGFunction, name: string): GraphClone {
   const valueOf = new Map<CFGInstruction, CFGInstruction>();
   const copyOf = (node: CFGInstruction): CFGInstruction => {
     const copy = new CFGInstruction(node.type, { ...node.props });
+    copy.position = node.position;
     copy.rep = node.rep;
     for (const key of BLOCK_TARGET_PROPS) {
       const id = copy.props[key];

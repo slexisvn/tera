@@ -22,6 +22,11 @@ function namesOf(operands: readonly RegisterOperand[]): string[] {
   });
 }
 
+function answeredBy(node: MachineInstruction, answered: ReadonlySet<string>): string[] {
+  const named = namesOf(usedOperandsOf(node));
+  return named.length === 0 ? [...answered] : named;
+}
+
 function stepBackwards(
   node: MachineInstruction,
   live: Set<string>,
@@ -32,7 +37,7 @@ function stepBackwards(
     return;
   }
   if (node.flags.returns === true) {
-    for (const name of answered) live.add(name);
+    for (const name of answeredBy(node, answered)) live.add(name);
     return;
   }
   for (const name of namesOf(definedOperandsOf(node))) live.delete(name);
@@ -47,12 +52,18 @@ function sameNames(left: ReadonlySet<string>, right: ReadonlySet<string>): boole
   return true;
 }
 
+function namesTheReturn(block: MachineBlock): boolean {
+  return block.instructions[block.instructions.length - 1]?.flags.returns === true;
+}
+
 function liveOutOf(
   block: MachineBlock,
   liveIn: ReadonlyMap<MachineBlock, ReadonlySet<string>>,
   answered: ReadonlySet<string>,
 ): Set<string> {
-  if (block.successors.length === 0) return new Set(answered);
+  if (block.successors.length === 0) {
+    return namesTheReturn(block) ? new Set<string>() : new Set(answered);
+  }
   const live = new Set<string>();
   for (const successor of block.successors) {
     for (const name of liveIn.get(successor) ?? []) live.add(name);

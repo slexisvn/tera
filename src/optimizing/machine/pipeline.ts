@@ -12,6 +12,7 @@ import { rewriteAllocations } from "./rewrite.js";
 import { coalesceRoundTrips } from "./coalesce.js";
 import { peepholeMachineCode } from "./peephole.js";
 import { placeLoopHeadersAfterBodies } from "./placement.js";
+import { scheduleMachineCode } from "./schedule.js";
 import { selectMachineFunction } from "./select.js";
 import { lowerTwoAddress } from "./two-address.js";
 
@@ -31,6 +32,7 @@ export function compileMachineFunction(
 ): CompiledMachineFunction {
   const layout = analyses.get(dominanceAnalysisId).reversePostorder();
   const fn = selectMachineFunction(graph, legality, lowering, layout, symbol);
+  scheduleMachineCode(fn, lowering);
   lowerTwoAddress(fn, lowering);
   assignPositions(fn);
   const liveness = computeLiveness(fn);

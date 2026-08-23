@@ -4,7 +4,7 @@ import { relocationTypeOf } from "../fixup.js";
 import type { McFragment } from "../fragment.js";
 import { layoutModule } from "../layout.js";
 import { relocationsBySection, type McModule, type McRelocation } from "../module.js";
-import { fragmentOwners, type McSection } from "../section.js";
+import { fragmentOwners, isLoadable, type McSection } from "../section.js";
 import type { McSymbol } from "../symbol.js";
 import type { McTarget } from "../target.js";
 import type { McExecutableWriter, McObjectWriter } from "./container.js";
@@ -93,6 +93,7 @@ interface PlacedSection {
 }
 
 function sectionFlags(section: McSection): number {
+  if (!isLoadable(section)) return 0;
   const permissions = section.permissions;
   let flags = SHF_ALLOC;
   if (permissions.write) flags |= SHF_WRITE;
@@ -437,6 +438,7 @@ export function writeElf64Executable(
 export function elf64Object(machine: number): McObjectWriter {
   return {
     extension: ELF_OBJECT_EXTENSION,
+    carriesDebug: true,
     image(module, target) {
       layoutModule(module, target, { mode: "object" });
       return writeElf64Object(module, target, { machine });
@@ -447,6 +449,7 @@ export function elf64Object(machine: number): McObjectWriter {
 export function elf64Executable(machine: number): McExecutableWriter {
   return {
     extension: ELF_EXECUTABLE_EXTENSION,
+    carriesDebug: false,
     image(module, target, entrySymbol) {
       const options = { machine, entrySymbol };
       layoutElf64Executable(module, target, options);

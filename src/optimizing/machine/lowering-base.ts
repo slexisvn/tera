@@ -49,6 +49,7 @@ import {
   type VirtualRegister,
 } from "./ir.js";
 import type { MachineLowering, SelectionContext, SelectionHandler } from "./lowering.js";
+import { UNMODELLED_EFFECT, type InstructionEffect } from "./schedule.js";
 import { nativeArgumentScalar, nativeReturnScalar } from "./signature.js";
 
 const COMPARISONS: ReadonlySet<string> = new Set<string>([
@@ -144,6 +145,10 @@ export abstract class MachineLoweringBase<TTarget extends MachineTargetModel>
 
   protected conditionalMove(): SelectionHandler | null {
     return null;
+  }
+
+  effectOf(_node: MachineInstruction): InstructionEffect {
+    return UNMODELLED_EFFECT;
   }
 
   fusesFlagsOf(consumer: CFGInstruction, condition: CFGInstruction): boolean {

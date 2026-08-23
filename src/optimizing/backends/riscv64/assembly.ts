@@ -9,11 +9,14 @@ import {
 import type { FrameLayout } from "../../machine/frame.js";
 import { machineDataText } from "../../machine/data.js";
 import { annotateCfi, CFI_END, CFI_START } from "../../machine/cfi-text.js";
+import { annotateLines, SourceFiles } from "../../machine/line-text.js";
 import { prologueEffectOf, riscvCfiTarget } from "./unwind.js";
 import { BackendLoweringError } from "../../target/errors.js";
 import { fitsImmediate } from "./immediates.js";
 
 export class RiscvAssemblyWriter {
+  readonly sourceFiles = new SourceFiles();
+
   private registerText(operand: MachineOperand): string {
     if (operand.kind !== "register") throw new Error("expected a register operand");
     if (operand.register.kind !== "physical") {
@@ -64,10 +67,11 @@ export class RiscvAssemblyWriter {
       `${symbol}:`,
       ...(cfi.describes ? [CFI_START] : []),
     ];
+    const located = annotateLines(this.sourceFiles);
     for (const block of fn.blocks) {
       lines.push(`${block.label}:`);
       for (const node of block.instructions) {
-        lines.push(...this.instructionText(node), ...cfi.after(node));
+        lines.push(...located(node), ...this.instructionText(node), ...cfi.after(node));
       }
     }
     if (cfi.describes) lines.push(CFI_END);

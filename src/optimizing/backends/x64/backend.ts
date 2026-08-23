@@ -15,10 +15,18 @@ import { operatingSystemOf, type ObjectFormatName } from "./format.js";
 import { X64Lowering } from "./lowering.js";
 import { x64Target, type X64TargetOptions } from "./target.js";
 import { x64McTarget } from "./mc/target.js";
+import { X64_ABSOLUTE_64 } from "./mc/fixups.js";
+import { TERA_POINTER_BYTES } from "../../target/runtime-layout.js";
+import type { DebugLineTarget } from "../../mc/dwarf/line-table.js";
 import { X64_PROGRAM_ENTRY, x64ProgramEntry } from "./runtime.js";
 import { WINDOWS_IMPORTS, WINDOWS_PROGRAM_ENTRY, windowsProgramEntry } from "./windows.js";
 
 export const X64_HEADER_PREAMBLE = "#include <stdint.h>";
+
+const X64_DEBUG_LINES: DebugLineTarget = {
+  addressFixup: X64_ABSOLUTE_64,
+  addressBytes: TERA_POINTER_BYTES,
+};
 
 export interface X64BackendOptions extends X64TargetOptions {
   readonly id?: string;
@@ -72,6 +80,7 @@ export function createX64Backend(options: X64BackendOptions = {}): AotBackend {
       object: containers?.object ?? null,
       program: containers?.program(target.io, target.registers) ?? null,
       unwind: format === "coff" ? appendWin64Unwind : ehFrameFor(format),
+      debugLines: X64_DEBUG_LINES,
     },
   });
 }

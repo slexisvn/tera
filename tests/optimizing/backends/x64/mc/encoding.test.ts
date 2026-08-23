@@ -130,6 +130,62 @@ const CASES: readonly (readonly [string, MachineInstruction])[] = [
       mem(8, { base: use(reg("rbx"), 8), index: use(reg("rcx"), 8), scale: 4, displacement: 16 }),
     ]),
   ],
+  [
+    "mask by a small immediate",
+    instruction("andl", [def(reg("rax"), 4), use(reg("rax"), 4), imm(7)], { tied: true }),
+  ],
+  [
+    "mask by a wide immediate",
+    instruction("andl", [def(reg("rbx"), 4), use(reg("rbx"), 4), imm(70000)], { tied: true }),
+  ],
+  [
+    "multiply by an immediate into another register",
+    instruction("imull", [def(reg("rax"), 4), use(reg("rsi"), 4), imm(3)]),
+  ],
+  [
+    "multiply by a wide immediate into another register",
+    instruction("imull", [def(reg("r9"), 4), use(reg("r12"), 4), imm(70000)]),
+  ],
+  [
+    "add a loaded field",
+    instruction(
+      "addl",
+      [def(reg("rcx"), 4), use(reg("rcx"), 4), mem(4, { base: use(reg("rax"), 8), displacement: 8 })],
+      { tied: true },
+    ),
+  ],
+  [
+    "multiply by a loaded field",
+    instruction(
+      "imull",
+      [def(reg("rcx"), 4), use(reg("rcx"), 4), mem(4, { base: use(reg("rax"), 8), displacement: 8 })],
+      { tied: true },
+    ),
+  ],
+  [
+    "scale by a loaded double",
+    instruction(
+      "mulsd",
+      [
+        def(reg("xmm0"), 8),
+        use(reg("xmm0"), 8),
+        mem(8, { base: use(reg("rax"), 8), displacement: 16 }),
+      ],
+      { tied: true },
+    ),
+  ],
+  [
+    "accumulate a loaded array element",
+    instruction(
+      "addsd",
+      [
+        def(reg("xmm0"), 8),
+        use(reg("xmm0"), 8),
+        mem(8, { base: use(reg("rax"), 8), index: use(reg("rcx"), 8), scale: 8, displacement: 8 }),
+      ],
+      { tied: true },
+    ),
+  ],
   ["sign extend", instruction("movslq", [def(reg("rax"), 8), use(reg("rdi"), 4)])],
   ["no operand", instruction("cltd", [])],
 ];

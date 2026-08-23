@@ -13,7 +13,7 @@ import {
   type McModule,
   type McRelocation,
 } from "../module.js";
-import { fragmentOwners, type McSection } from "../section.js";
+import { fragmentOwners, isLoadable, type McSection } from "../section.js";
 import type { McSymbol } from "../symbol.js";
 import type { McTarget } from "../target.js";
 import type { McExecutableWriter, McObjectWriter } from "./container.js";
@@ -64,6 +64,7 @@ const IMAGE_SCN_CNT_UNINITIALIZED_DATA = 0x00000080;
 const IMAGE_SCN_MEM_EXECUTE = 0x20000000;
 const IMAGE_SCN_MEM_READ = 0x40000000;
 const IMAGE_SCN_MEM_WRITE = 0x80000000;
+const IMAGE_SCN_MEM_DISCARDABLE = 0x02000000;
 
 const SUBSYSTEM_WINDOWS_CUI = 3;
 const DLL_NX_COMPAT = 0x0100;
@@ -274,6 +275,11 @@ function headerBytes(sectionCount: number): number {
 }
 
 function sectionCharacteristics(section: McSection): number {
+  if (!isLoadable(section)) {
+    return (
+      IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_DISCARDABLE
+    ) >>> 0;
+  }
   const permissions = section.permissions;
   let flags = permissions.execute
     ? IMAGE_SCN_CNT_CODE
@@ -286,15 +292,20 @@ function sectionCharacteristics(section: McSection): number {
   return flags >>> 0;
 }
 
-function sectionNameBytes(section: McSection): Uint8Array {
+function sectionNameBytes(section: McSection, strings: CoffStringTable): Uint8Array {
+  const padded = new Uint8Array(SECTION_NAME_BYTES);
   const encoded = encoder.encode(section.name);
-  if (encoded.length > SECTION_NAME_BYTES) {
+  if (encoded.length <= SECTION_NAME_BYTES) {
+    padded.set(encoded);
+    return padded;
+  }
+  const reference = encoder.encode(`/${strings.intern(section.name)}`);
+  if (reference.length > SECTION_NAME_BYTES) {
     throw new MachineCodeError(
       `section name ${section.name} does not fit a pe section header`,
     );
   }
-  const padded = new Uint8Array(SECTION_NAME_BYTES);
-  padded.set(encoded);
+  padded.set(reference);
   return padded;
 }
 
@@ -399,6 +410,7 @@ function writeOptionalHeader(
 }
 
 interface SectionHeader {
+  readonly name: Uint8Array;
   readonly section: McSection;
   readonly virtualSize: number;
   readonly address: number;
@@ -410,7 +422,7 @@ interface SectionHeader {
 }
 
 function writeSectionHeader(out: ByteBuffer, header: SectionHeader): void {
-  out.bytes(sectionNameBytes(header.section));
+  out.bytes(header.name);
   out.integer(header.virtualSize, 4);
   out.integer(header.address, 4);
   out.integer(header.rawSize, 4);
@@ -479,13 +491,17 @@ export function writePeExecutable(
     entry: entry - imageBase,
   };
 
-  const out = new ByteBuffer(cursor);
+  const strings = new CoffStringTable();
+  const names = placed.map((item) => sectionNameBytes(item.section, strings));
+  const stringBytes = strings.bytes;
+  const named = stringBytes.length > STRING_TABLE_SIZE_BYTES;
+  const out = new ByteBuffer(cursor + (named ? stringBytes.length : 0));
   writeDosHeader(out);
   out.bytes(PE_SIGNATURE);
   writeCoffHeader(out, {
     machine: options.machine,
     sectionCount: placed.length,
-    symbolTableOffset: 0,
+    symbolTableOffset: named ? cursor : 0,
     symbolCount: 0,
     optionalHeaderBytes: OPTIONAL_HEADER_BYTES,
     characteristics:
@@ -510,8 +526,9 @@ export function writePeExecutable(
           ] as const)),
     ]),
   );
-  for (const item of placed) {
+  placed.forEach((item, position) => {
     writeSectionHeader(out, {
+      name: names[position]!,
       section: item.section,
       virtualSize: item.section.size,
       address: item.address,
@@ -521,13 +538,14 @@ export function writePeExecutable(
       relocationCount: 0,
       characteristics: sectionCharacteristics(item.section),
     });
-  }
+  });
   for (const item of placed) {
     if (item.rawSize === 0) continue;
     out.fill(item.fileOffset - out.length, 0);
     out.bytes(item.section.contents());
   }
   out.fill(cursor - out.length, 0);
+  if (named) out.bytes(stringBytes);
   return out.toBytes();
 }
 
@@ -676,6 +694,7 @@ export function writeCoffObject(
     indexOfSection,
     strings,
   );
+  const names = sections.map((section) => sectionNameBytes(section, strings));
 
   let cursor = COFF_HEADER_BYTES + SECTION_HEADER_BYTES * sections.length;
   const placed: PlacedObjectSection[] = sections.map((section) => {
@@ -707,8 +726,9 @@ export function writeCoffObject(
     optionalHeaderBytes: 0,
     characteristics: 0,
   });
-  for (const item of placed) {
+  placed.forEach((item, position) => {
     writeSectionHeader(out, {
+      name: names[position]!,
       section: item.section,
       virtualSize: 0,
       address: 0,
@@ -721,7 +741,7 @@ export function writeCoffObject(
           alignmentCharacteristics(item.section.alignment)) >>>
         0,
     });
-  }
+  });
   for (const item of placed) {
     out.fill(item.fileOffset - out.length, 0);
     out.bytes(item.contents);
@@ -736,6 +756,7 @@ export function writeCoffObject(
 export function coffObject(machine: number): McObjectWriter {
   return {
     extension: COFF_OBJECT_EXTENSION,
+    carriesDebug: true,
     image(module, target) {
       layoutModule(module, target, { mode: "object" });
       return writeCoffObject(module, target, { machine });
@@ -749,6 +770,7 @@ export function peExecutable(
 ): McExecutableWriter {
   return {
     extension: PE_EXECUTABLE_EXTENSION,
+    carriesDebug: true,
     image(module, target, entrySymbol) {
       const options = {
         machine,

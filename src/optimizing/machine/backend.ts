@@ -22,9 +22,16 @@ import { heapData, heapImageOf, type HeapImage } from "./heap-data.js";
 import type { ClassTable } from "../metadata/class-table.js";
 import type { McExecutableWriter, McObjectWriter } from "../mc/formats/container.js";
 import { McModule } from "../mc/module.js";
+import {
+  appendDebugLine,
+  type DebugLineTarget,
+  type SourceUnit,
+} from "../mc/dwarf/line-table.js";
 import type { McTarget } from "../mc/target.js";
 import type { MachineLowering } from "./lowering.js";
+import type { SourceFiles } from "./line-text.js";
 import { compileMachineFunction } from "./pipeline.js";
+import { emittedOpcodesOf } from "./select.js";
 import { nativeReturnScalar } from "./signature.js";
 import {
   defaultDelivery,
@@ -43,6 +50,7 @@ export interface NativeTargetModel extends MachineTargetModel {
 }
 
 export interface NativeAssemblyWriter {
+  readonly sourceFiles: SourceFiles;
   functionText(fn: MachineFunction, exported?: boolean): string;
   dataText(items: readonly MachineDatum[]): string;
 }
@@ -51,6 +59,16 @@ export interface NativeProgramImage {
   readonly entrySymbol: string;
   readonly writer: McExecutableWriter;
   programEntry(callee: string, shape: ProgramEntryShape): MachineFunction;
+}
+
+function describeLines(
+  module: McModule,
+  support: NativeMachineCodeSupport,
+  described: readonly SourceUnit[],
+): void {
+  const target = support.debugLines;
+  if (target === undefined) return;
+  module.afterLayout.push(appendDebugLine(module, target, described));
 }
 
 export interface NativeMachineCodeSupport {
@@ -62,6 +80,7 @@ export interface NativeMachineCodeSupport {
     functions: readonly AssembledUnwind[],
     image: ImageKind,
   ) => () => void;
+  readonly debugLines?: DebugLineTarget;
 }
 
 export type ImageKind = "object" | "executable";
@@ -155,6 +174,7 @@ function populate(
   routines: ReadonlyMap<string, NativeRuntimeRoutine>,
   heap: HeapImage,
   image: ImageKind,
+  describes: boolean,
 ): void {
   const unwound: AssembledUnwind[] = [];
   assembleData(module, heapData(heap));
@@ -175,6 +195,17 @@ function populate(
   if (support.unwind !== undefined && unwound.length > 0) {
     module.afterLayout.push(support.unwind(module, unwound, image));
   }
+  if (!describes) return;
+  describeLines(
+    module,
+    support,
+    unwound.map(({ symbol, assembled }) => ({
+      symbol,
+      entry: assembled.entry,
+      end: assembled.end,
+      lines: assembled.lines,
+    })),
+  );
 }
 
 function objectImage(
@@ -185,7 +216,15 @@ function objectImage(
   heap: HeapImage,
 ): Uint8Array {
   const module = new McModule();
-  populate(module, support, parts, requiredRoutines(parts, available), heap, "object");
+  populate(
+    module,
+    support,
+    parts,
+    requiredRoutines(parts, available),
+    heap,
+    "object",
+    writer.carriesDebug,
+  );
   return writer.image(module, support.target);
 }
 
@@ -208,7 +247,7 @@ function executableImage(
   ];
   const routines = closeOverRoutines(seeds, available);
   const module = new McModule();
-  populate(module, support, parts, routines, heap, "executable");
+  populate(module, support, parts, routines, heap, "executable", program.writer.carriesDebug);
   assembleFunction(module, support.target, start, "global");
   assembleData(module, start.data.items);
   return program.writer.image(module, support.target, program.entrySymbol);
@@ -264,7 +303,7 @@ export function createNativeBackend(options: NativeBackendOptions): AotBackend {
     mode: "aot",
     outputs: outputsOf(options.machineCode),
     platform: options.platform,
-    emits: new Set([...lowering.rules()].map(([opcode]) => opcode)),
+    emits: emittedOpcodesOf(lowering),
     target,
     symbolOf: (name: string) => target.symbolOf(name),
     loweringPipeline: (options) => targetLegalizationPipeline(target, options),
@@ -368,7 +407,7 @@ export function createNativeBackend(options: NativeBackendOptions): AotBackend {
         ];
       }
 
-      const assembly = [
+      const bodies = [
         ...[...requiredRoutines(parts, target.runtime).values()].map(
           (routine) =>
             writer.functionText(routine.fn, false) + writer.dataText(routine.fn.data.items),
@@ -378,7 +417,8 @@ export function createNativeBackend(options: NativeBackendOptions): AotBackend {
             writer.functionText(part.fn, !part.internal) + writer.dataText(part.fn.data.items),
         ),
         writer.dataText(heapData(heapImageOf(linkOptions.classes ?? null, linkOptions.heapBytes))),
-      ].join("\n");
+      ];
+      const assembly = [...writer.sourceFiles.directives, ...bodies].join("\n");
       return [
         { name: headerName, contents: header },
         { name: `${linkOptions.moduleName}.s`, contents: assembly },

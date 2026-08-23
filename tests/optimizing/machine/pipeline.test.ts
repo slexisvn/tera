@@ -11,8 +11,10 @@ import {
   irJump,
   irLoadElement,
   irReturn,
+  irSelect,
   irStoreElement,
   resetIRNodeIds,
+  IR_SELECT,
   type CFGBlock,
 } from "../../../src/optimizing/ir/index.js";
 import { BUFFER_ELEMENTS_OFFSET } from "../../../src/optimizing/metadata/class-table.js";
@@ -26,6 +28,8 @@ import {
 } from "../../../src/optimizing/analyses/aot-legality.js";
 import { compileMachineFunction } from "../../../src/optimizing/machine/pipeline.js";
 import { isVirtual, registerOperandsOf } from "../../../src/optimizing/machine/ir.js";
+import { emittedOpcodesOf } from "../../../src/optimizing/machine/select.js";
+import { legalizeOperations } from "../../../src/optimizing/passes/operation-legalization.js";
 import type { MachineLowering } from "../../../src/optimizing/machine/lowering.js";
 import { X64Lowering } from "../../../src/optimizing/backends/x64/lowering.js";
 import { x64Target } from "../../../src/optimizing/backends/x64/target.js";
@@ -52,6 +56,8 @@ function legalityOf(graph: CFGFunction): {
 }
 
 function compile(graph: CFGFunction, lowering: MachineLowering) {
+  graph.emits = emittedOpcodesOf(lowering);
+  legalizeOperations(graph);
   const { legality, analyses } = legalityOf(graph);
   return compileMachineFunction(graph, legality, lowering, analyses, graph.name);
 }
@@ -140,7 +146,23 @@ function subtraction(name: string): CFGFunction {
   return graph;
 }
 
+function choice(name: string): CFGFunction {
+  const graph = new CFGFunction(name);
+  graph.declaredSignature = { params: ["int", "int"], returns: "int" };
+  const left = graph.addParameter(0);
+  const right = graph.addParameter(1);
+  const block = graph.addBlock();
+  const smaller = irInt32Compare("<", left, right);
+  const chosen = irSelect(smaller, left, right);
+  block.addNode(smaller);
+  block.addNode(chosen);
+  block.addNode(irReturn(chosen));
+  graph.rebuildUses();
+  return graph;
+}
+
 const shapes: Array<readonly [string, (name: string) => CFGFunction]> = [
+  ["choice", choice],
   ["counting loop", countingLoop],
   ["array access", arraySum],
   ["float branch", floatBranch],
@@ -183,6 +205,18 @@ describe.each(targets)("machine pipeline on %s", (_name, build) => {
       expect(slot.offset).toBeGreaterThanOrEqual(compiled.frame.outgoingBytes);
       expect(slot.offset + slot.size).toBeLessThanOrEqual(compiled.frame.frameSize);
     }
+  });
+
+  it("compiles a select whether or not the target has a conditional move", () => {
+    const compiled = compile(choice("chosen"), lowering);
+    const opcodes = compiled.fn.blocks.flatMap((block) =>
+      block.instructions.map((node) => node.opcode),
+    );
+    const moves = opcodes.filter((opcode) => opcode.startsWith("cmov"));
+
+    expect(opcodes).not.toContain("Select");
+    if (emittedOpcodesOf(lowering).has(IR_SELECT)) expect(moves).not.toEqual([]);
+    else expect(moves).toEqual([]);
   });
 
   it("moves incoming parameters out of the argument registers before use", () => {

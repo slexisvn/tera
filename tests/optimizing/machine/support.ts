@@ -162,6 +162,7 @@ export function testLowering(target: MachineTargetModel): MachineLowering {
     storeOutgoing: (offset, source) =>
       instruction("store", [mem(source.width, { displacement: offset }), source]),
     jump: (block) => instruction("jump", [label(block)], { terminator: true }),
+    effectOf: () => ({}),
     fusedInputOf: () => null,
     invertBranch: (node, block) => {
       const opposite = OPPOSITE_TEST_CONDITIONS.get(node.opcode);

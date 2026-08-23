@@ -23,6 +23,7 @@ import { capabilityCheck } from "../passes/capability-check.js";
 import { deadCodeElimination } from "../passes/dce.js";
 import { elideFrameStates } from "../passes/frame-state-elision.js";
 import { ifConversion, valuesTargetSelects } from "../passes/if-conversion.js";
+import { legalizeOperations } from "../passes/operation-legalization.js";
 import { lowerGlobalBuiltins } from "../passes/global-builtin-lowering.js";
 import { lowerCollectionSurface } from "../passes/collection-surface.js";
 import { lowerJsonSurface } from "../passes/json-surface.js";
@@ -339,6 +340,11 @@ export function targetLegalizationPipeline(
             options.ifConversionBudget,
           ) > 0,
       }),
+    },
+    {
+      name: "operation-legalization",
+      preserves: { kind: "none" },
+      run: (graph) => ({ changed: legalizeOperations(graph) > 0 }),
     },
     {
       name: "dead-code-elimination",

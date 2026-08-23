@@ -1,3 +1,4 @@
+import type { IRSourcePosition } from "../ir/index.js";
 import type { PhysicalRegister, RegisterClassId } from "../target/registers.js";
 import type { MachineDataItem } from "./data.js";
 
@@ -78,6 +79,7 @@ export interface InstructionFlags {
 
 export class MachineInstruction {
   position = -1;
+  source: IRSourcePosition | null = null;
 
   constructor(
     readonly opcode: string,

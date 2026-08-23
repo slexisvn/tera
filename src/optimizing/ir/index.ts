@@ -50,6 +50,31 @@ export function getDefaultIRNodeIdAllocator(): IRNodeIdAllocator {
   return defaultIRNodeIdAllocator;
 }
 
+export interface IRSourcePosition {
+  readonly file: string;
+  readonly line: number;
+  readonly column: number;
+}
+
+let activeSourcePosition: IRSourcePosition | null = null;
+
+export function withIRSourcePosition<T>(
+  position: IRSourcePosition | null,
+  run: () => T,
+): T {
+  const previous = activeSourcePosition;
+  activeSourcePosition = position;
+  try {
+    return run();
+  } finally {
+    activeSourcePosition = previous;
+  }
+}
+
+export function currentIRSourcePosition(): IRSourcePosition | null {
+  return activeSourcePosition;
+}
+
 export type IRPrimitive = string | number | boolean | symbol | null | undefined;
 export type IRMetadataValue =
   | IRPrimitive
@@ -99,6 +124,7 @@ export class CFGInstruction {
   rep: IRMetadataValue | null;
   frameState: FrameState | null;
   block: CFGBlock | null;
+  position: IRSourcePosition | null;
   _deadForSelfRecursion?: boolean;
   _speculativeType?: string;
   _constPtrIndex?: number;
@@ -113,6 +139,7 @@ export class CFGInstruction {
     this.rep = props._rep || null;
     this.frameState = null;
     this.block = null;
+    this.position = activeSourcePosition;
   }
 
   addInput(value: IRValueLike) {

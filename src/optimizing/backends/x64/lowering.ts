@@ -1,6 +1,9 @@
 import {
+  type CFGBlock,
   type CFGInstruction,
   IR_BRANCH,
+  IR_PARAMETER,
+  IR_PHI,
   IR_CALL_BUILTIN,
   IR_CALL_KNOWN_FUNCTION,
   IR_FLOAT64_ADD,
@@ -113,6 +116,8 @@ import {
 } from "../../machine/ir.js";
 import type { SelectionContext, SelectionHandler } from "../../machine/lowering.js";
 import { MachineLoweringBase, readOf, writeOf } from "../../machine/lowering-base.js";
+import type { InstructionEffect } from "../../machine/schedule.js";
+import { opcodeEffectOf, opcodeGroup } from "./mc/opcodes.js";
 import { fusedConditionOf, fusedInputOf } from "../../machine/select.js";
 import { nativeArgumentScalar, nativeReturnScalar } from "../../machine/signature.js";
 import { X64_FPR, X64_GPR } from "./registers.js";
@@ -229,6 +234,69 @@ const INT_HELPERS = new Map<string, string>([
   [IR_INT32_DIV, X64_RUNTIME_SYMBOLS.divide],
   [IR_INT32_MOD, X64_RUNTIME_SYMBOLS.modulo],
 ]);
+
+const FOLDED_MEMORY_SCALARS: ReadonlyMap<string, AotScalar> = new Map<string, AotScalar>([
+  [IR_INT32_AND, SCALAR_INT32],
+  [IR_INT32_OR, SCALAR_INT32],
+  [IR_INT32_XOR, SCALAR_INT32],
+  [IR_INT32_MUL, SCALAR_INT32],
+  [IR_FLOAT64_ADD, SCALAR_FLOAT64],
+  [IR_FLOAT64_SUB, SCALAR_FLOAT64],
+  [IR_FLOAT64_MUL, SCALAR_FLOAT64],
+  [IR_FLOAT64_DIV, SCALAR_FLOAT64],
+]);
+
+const COMMUTATIVE: ReadonlySet<string> = new Set<string>([
+  IR_INT32_AND,
+  IR_INT32_OR,
+  IR_INT32_XOR,
+  IR_INT32_MUL,
+  IR_FLOAT64_ADD,
+  IR_FLOAT64_MUL,
+]);
+
+const EMITS_NOTHING: ReadonlySet<string> = new Set<string>([
+  IR_CONSTANT,
+  IR_PARAMETER,
+  IR_PHI,
+]);
+
+function isIntegerConstant(node: CFGInstruction): boolean {
+  if (node.type !== IR_CONSTANT) return false;
+  const held = node.props.value;
+  return typeof held === "boolean" || (typeof held === "number" && Number.isInteger(held));
+}
+
+function loadedScalarOf(node: CFGInstruction): AotScalar | null {
+  if (node.type === IR_LOAD_FIELD) return fieldScalarOf(node);
+  if (node.type === IR_LOAD_ELEMENT || node.type === IR_GENERIC_GET_INDEX) {
+    return heapElementScalarOf(node);
+  }
+  return null;
+}
+
+function reachesWithoutCode(
+  block: CFGBlock,
+  from: CFGInstruction,
+  to: CFGInstruction,
+): boolean {
+  const start = block.nodes.indexOf(from);
+  const end = block.nodes.indexOf(to);
+  if (start < 0 || end <= start) return false;
+  for (let at = start + 1; at < end; at++) {
+    if (!EMITS_NOTHING.has(block.nodes[at]!.type)) return false;
+  }
+  return true;
+}
+
+type ImmediateForm = "destructive" | "three";
+
+function immediateFormOf(mnemonic: string): ImmediateForm | null {
+  const group = opcodeGroup(mnemonic, "");
+  if (group === undefined) return null;
+  if (group.rmi !== undefined) return "three";
+  return group.mi !== undefined || group.mi8 !== undefined ? "destructive" : null;
+}
 
 const ROUND_TOWARD_NEGATIVE = 9;
 const ROUND_TOWARD_POSITIVE = 10;
@@ -548,32 +616,112 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
     return wide;
   }
 
+  private heldOperand(
+    ctx: SelectionContext,
+    folded: CFGInstruction | null,
+    scalar: AotScalar,
+  ): { destructive: VirtualRegister; source: MachineOperand } {
+    const [left, right] = ctx.node.inputs as [CFGInstruction, CFGInstruction];
+    if (folded === null) {
+      return {
+        destructive: this.coerce(ctx, left, scalar),
+        source: readOf(this.coerce(ctx, right, scalar)),
+      };
+    }
+    return {
+      destructive: this.coerce(ctx, folded === left ? right : left, scalar),
+      source: this.foldedMemoryOf(ctx, folded),
+    };
+  }
+
   protected selectFloatBinary(ctx: SelectionContext, mnemonic: string): void {
-    const left = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_FLOAT64);
-    const right = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_FLOAT64);
+    const folded = fusedInputOf(ctx);
+    const { destructive, source } = this.heldOperand(ctx, folded, SCALAR_FLOAT64);
     const result = this.destination(ctx, SCALAR_FLOAT64);
     ctx.emit(
-      instruction(mnemonic, [writeOf(result), readOf(left), readOf(right)], { tied: true }),
+      instruction(mnemonic, [writeOf(result), readOf(destructive), source], { tied: true }),
     );
     this.produce(ctx, result, SCALAR_FLOAT64);
   }
 
   protected selectIntBinary(ctx: SelectionContext, mnemonic: string): void {
-    const left = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_INT32);
-    const right = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_INT32);
+    const folded = fusedInputOf(ctx);
+    const immediate = folded === null ? this.foldedImmediate(ctx, mnemonic) : null;
+    if (immediate !== null) {
+      this.emitIntImmediate(ctx, mnemonic, immediate.other, immediate.value);
+      return;
+    }
+    const { destructive, source } = this.heldOperand(ctx, folded, SCALAR_INT32);
     const result = this.destination(ctx, SCALAR_INT32);
     ctx.emit(
-      instruction(mnemonic, [writeOf(result), readOf(left), readOf(right)], { tied: true }),
+      instruction(mnemonic, [writeOf(result), readOf(destructive), source], { tied: true }),
+    );
+    this.produce(ctx, result, SCALAR_INT32);
+  }
+
+  private foldedImmediate(
+    ctx: SelectionContext,
+    mnemonic: string,
+  ): { other: CFGInstruction; value: number } | null {
+    if (immediateFormOf(mnemonic) === null) return null;
+    const [left, right] = ctx.node.inputs as [CFGInstruction, CFGInstruction];
+    const held = this.intConstantOf(ctx, right);
+    if (held !== null && this.intConstantOf(ctx, left) === null) {
+      return { other: left, value: held };
+    }
+    const swapped = this.intConstantOf(ctx, left);
+    if (swapped === null || this.intConstantOf(ctx, right) !== null) return null;
+    return { other: right, value: swapped };
+  }
+
+  private emitIntImmediate(
+    ctx: SelectionContext,
+    mnemonic: string,
+    other: CFGInstruction,
+    value: number,
+  ): void {
+    const base = this.coerce(ctx, other, SCALAR_INT32);
+    const result = this.destination(ctx, SCALAR_INT32);
+    ctx.emit(
+      immediateFormOf(mnemonic) === "three"
+        ? instruction(mnemonic, [writeOf(result), readOf(base), imm(value)])
+        : instruction(mnemonic, [writeOf(result), readOf(base), imm(value)], { tied: true }),
     );
     this.produce(ctx, result, SCALAR_INT32);
   }
 
   fusedInputOf(node: CFGInstruction): CFGInstruction | null {
-    if (node.type !== IR_INT32_ADD) return null;
-    for (const input of node.inputs) {
-      if (scaleOf(input) !== null) return input;
+    if (node.type === IR_INT32_ADD) {
+      for (const input of node.inputs) {
+        if (scaleOf(input) !== null) return input;
+      }
+      return null;
     }
-    return null;
+    return this.foldedLoadOf(node);
+  }
+
+  private foldedLoadOf(node: CFGInstruction): CFGInstruction | null {
+    const held = FOLDED_MEMORY_SCALARS.get(node.type);
+    const block = node.block;
+    if (held === undefined || block === null) return null;
+    if (node.inputs.some((input) => isIntegerConstant(input))) return null;
+    const sources = COMMUTATIVE.has(node.type) ? node.inputs : node.inputs.slice(1);
+    const loaded = sources.find(
+      (input) => loadedScalarOf(input) === held && reachesWithoutCode(block, input, node),
+    );
+    return loaded ?? null;
+  }
+
+  private foldedMemoryOf(ctx: SelectionContext, loaded: CFGInstruction): MemoryOperand {
+    if (loaded.type === IR_LOAD_FIELD) {
+      const scalar = fieldScalarOf(loaded);
+      const receiver = ctx.registerOf(loaded.inputs[0]!);
+      return this.fieldAddress(receiver, ctx.widthOf(scalar), fieldOffsetOf(loaded));
+    }
+    if (loadedScalarOf(loaded) === null) {
+      throw new BackendLoweringError(`${loaded.type} was folded but is not a load`);
+    }
+    return this.elementPlaceOf(ctx, loaded).address;
   }
 
   private selectScaledAdd(ctx: SelectionContext, scaled: CFGInstruction): void {
@@ -713,6 +861,10 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
       ),
     );
     this.produce(ctx, result, SCALAR_FLOAT64);
+  }
+
+  effectOf(node: MachineInstruction): InstructionEffect {
+    return opcodeEffectOf(node.opcode);
   }
 
   protected conditionalMove(): SelectionHandler {
@@ -1086,17 +1238,24 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
   }
 
   private elementPlace(ctx: SelectionContext): { element: AotScalar; address: MemoryOperand } {
-    const element = heapElementScalarOf(ctx.node)!;
+    return this.elementPlaceOf(ctx, ctx.node);
+  }
+
+  private elementPlaceOf(
+    ctx: SelectionContext,
+    node: CFGInstruction,
+  ): { element: AotScalar; address: MemoryOperand } {
+    const element = heapElementScalarOf(node)!;
     const width = ctx.widthOf(element);
-    const receiver = this.coerce(ctx, ctx.node.inputs[0]!, SCALAR_POINTER);
-    const index = this.index(ctx, ctx.node.inputs[1]!);
+    const receiver = this.coerce(ctx, node.inputs[0]!, SCALAR_POINTER);
+    const index = this.index(ctx, node.inputs[1]!);
     return {
       element,
       address: mem(width, {
         base: use(receiver, POINTER_WIDTH),
         index: index === null ? null : use(index, POINTER_WIDTH),
         scale: width,
-        displacement: fieldOffsetOf(ctx.node),
+        displacement: fieldOffsetOf(node),
       }),
     };
   }

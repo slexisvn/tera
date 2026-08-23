@@ -69,6 +69,21 @@ describe("physicalLiveness", () => {
     expect(liveness.liveAfter(body, 0, "a2")).toBe(false);
   });
 
+  it("keeps alive only the register the return names, not every return register", () => {
+    const { fn, blocks } = functionOf(["only"]);
+    const answers = convention.returnRegisters;
+    const integer = answers.get(lowering.target.integerClass.id)!.name;
+    const float = answers.get(lowering.target.floatClass.id)!.name;
+    blocks[0]!.instructions.push(
+      instruction("load", [def(physical(integer), 8)]),
+      instruction("ret", [use(physical(float), 8)], { returns: true }),
+    );
+
+    const liveness = physicalLiveness(fn, convention);
+    expect(liveness.liveAfter(blocks[0]!, 0, float)).toBe(true);
+    expect(liveness.liveAfter(blocks[0]!, 0, integer)).toBe(false);
+  });
+
   it("treats everything as live across a call", () => {
     const { fn, blocks } = functionOf(["only"]);
     blocks[0]!.instructions.push(
