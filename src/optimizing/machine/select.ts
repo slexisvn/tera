@@ -5,9 +5,6 @@ import {
   IR_CONSTANT,
   IR_PARAMETER,
   IR_PHI,
-  IR_INT32_COMPARE,
-  IR_FLOAT64_COMPARE,
-  IR_BRANCH,
   IR_RUNTIME_BASE,
 } from "../ir/index.js";
 import { buildDispatch } from "../infra/dispatch.js";
@@ -35,11 +32,6 @@ import {
 } from "./ir.js";
 import type { MachineLowering, SelectionContext, SelectionFork } from "./lowering.js";
 import { sequenceParallelCopies } from "./parallel-copy.js";
-
-const FUSABLE_CONDITIONS: ReadonlySet<string> = new Set<string>([
-  IR_INT32_COMPARE,
-  IR_FLOAT64_COMPARE,
-]);
 
 const STRUCTURAL: ReadonlySet<string> = new Set<string>([
   IR_PARAMETER,
@@ -107,14 +99,15 @@ class Selector {
 
   private planFusion(): void {
     for (const block of this.layout) {
-      const terminator = block.getTerminator();
-      if (terminator === null || terminator.type !== IR_BRANCH) continue;
-      const condition = terminator.inputs[0];
-      if (condition === undefined || !FUSABLE_CONDITIONS.has(condition.type)) continue;
-      if (condition.uses.length !== 1 || condition.block !== block) continue;
-      if (block.nodes[block.nodes.indexOf(terminator) - 1] !== condition) continue;
-      this.fusedConditions.add(condition);
-      this.fusionOf.set(terminator, condition);
+      for (let at = 1; at < block.nodes.length; at++) {
+        const node = block.nodes[at]!;
+        const condition = node.inputs[0];
+        if (condition === undefined || condition !== block.nodes[at - 1]) continue;
+        if (condition.uses.length !== 1) continue;
+        if (!this.lowering.fusesFlagsOf(node, condition)) continue;
+        this.fusedConditions.add(condition);
+        this.fusionOf.set(node, condition);
+      }
     }
     this.planTargetFusion();
   }

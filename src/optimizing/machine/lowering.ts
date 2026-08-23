@@ -76,6 +76,7 @@ export interface MachineLowering {
   storeOutgoing(offset: number, source: RegisterOperand): MachineInstruction;
   jump(target: MachineBlock): MachineInstruction;
   fusedInputOf(node: CFGInstruction): CFGInstruction | null;
+  fusesFlagsOf(consumer: CFGInstruction, condition: CFGInstruction): boolean;
   invertBranch(node: MachineInstruction, target: MachineBlock): MachineInstruction | null;
   call(target: MachineOperand, operands: MachineOperand[]): MachineInstruction;
   storeRoot(

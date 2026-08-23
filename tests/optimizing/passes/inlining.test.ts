@@ -91,11 +91,46 @@ describe("inlineKnownCalls", () => {
     expect(sum.inputs[0]!.type).toBe("Int32Mul");
   });
 
-  it("leaves a callee with control flow alone", () => {
+  it("splices a callee that branches, and merges its answers into one phi", () => {
     const { graph } = callerOf("branching");
 
-    expect(inline(graph, branching("branching"))).toBe(0);
-    expect(callsIn(graph)).toHaveLength(1);
+    expect(inline(graph, branching("branching"))).toBe(1);
+    expect(callsIn(graph)).toEqual([]);
+    const merged = graph.blocks.flatMap((block) => block.phis);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.inputs).toHaveLength(2);
+    expect(validateGraphInvariants(graph)).toBe(true);
+  });
+
+  it("leaves the caller reading the phi wherever it read the call", () => {
+    const { graph } = callerOf("branching");
+    inline(graph, branching("branching"));
+
+    const answered = graph.blocks.flatMap((block) => block.phis)[0]!;
+    const sum = answered.uses.find((use) => use.type === "Int32Add")!;
+    expect(sum.inputs[0]).toBe(answered);
+  });
+
+  it("keeps the code that followed the call after the spliced body", () => {
+    const { graph } = callerOf("branching");
+    inline(graph, branching("branching"));
+
+    const returned = graph.blocks.find(
+      (block) => block.getTerminator()?.type === "Return",
+    )!;
+    expect(returned.predecessors).toHaveLength(2);
+    expect(returned.nodes.some((node) => node.type === "Int32Add")).toBe(true);
+  });
+
+  it("refuses a callee whose entry a back edge re-enters", () => {
+    const callee = branching("branching");
+    const entry = callee.blocks[0]!;
+    const low = callee.blocks[1]!;
+    link(low, entry);
+    callee.rebuildUses();
+    const { graph } = callerOf("branching");
+
+    expect(inline(graph, callee)).toBe(0);
   });
 
   it("leaves a call that passes the wrong number of arguments alone", () => {

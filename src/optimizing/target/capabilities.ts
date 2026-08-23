@@ -3,7 +3,9 @@ export type Capability =
   | "osr"
   | "tagged-values"
   | "terminating-throw"
-  | "float-text";
+  | "float-text"
+  | "select-integer"
+  | "select-float";
 
 export type CapabilitySet = ReadonlySet<Capability>;
 

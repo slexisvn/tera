@@ -4,11 +4,11 @@ import {
   IR_CALL_BUILTIN,
   IR_CALL_KNOWN_FUNCTION,
   IR_GENERIC_CALL,
-  IR_FLOAT64_COMPARE,
   IR_GENERIC_ADD,
   IR_GENERIC_COMPARE,
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
+  IR_FLOAT64_COMPARE,
   IR_INT32_COMPARE,
   IR_INT32_NOT,
   IR_JUMP,
@@ -22,6 +22,7 @@ import {
   IR_NOT,
   IR_RETURN,
   IR_RUNTIME_BASE,
+  IR_SELECT,
   IR_STORE_ELEMENT,
   IR_STORE_FIELD,
   IR_STORE_TEXT,
@@ -49,6 +50,11 @@ import {
 } from "./ir.js";
 import type { MachineLowering, SelectionContext, SelectionHandler } from "./lowering.js";
 import { nativeArgumentScalar, nativeReturnScalar } from "./signature.js";
+
+const COMPARISONS: ReadonlySet<string> = new Set<string>([
+  IR_INT32_COMPARE,
+  IR_FLOAT64_COMPARE,
+]);
 
 export function readOf(register: VirtualRegister): RegisterOperand {
   return use(register, register.width);
@@ -136,6 +142,14 @@ export abstract class MachineLoweringBase<TTarget extends MachineTargetModel>
   protected abstract selectIntBinary(ctx: SelectionContext, mnemonic: string): void;
   protected abstract selectShift(ctx: SelectionContext, mnemonic: string): void;
 
+  protected conditionalMove(): SelectionHandler | null {
+    return null;
+  }
+
+  fusesFlagsOf(consumer: CFGInstruction, condition: CFGInstruction): boolean {
+    return consumer.type === IR_BRANCH && COMPARISONS.has(condition.type);
+  }
+
   rules(): Iterable<readonly [string, SelectionHandler]> {
     const entries: Array<readonly [string, SelectionHandler]> = [
       [IR_LOAD_GLOBAL, () => undefined],
@@ -165,6 +179,8 @@ export abstract class MachineLoweringBase<TTarget extends MachineTargetModel>
       [IR_GENERIC_ADD, (ctx) => this.selectStringConcat(ctx)],
       [IR_GENERIC_COMPARE, (ctx) => this.selectStringCompare(ctx)],
     ];
+    const conditional = this.conditionalMove();
+    if (conditional !== null) entries.push([IR_SELECT, conditional]);
     for (const [opcode, mnemonic] of this.floatBinaryRules()) {
       entries.push([opcode, (ctx) => this.selectFloatBinary(ctx, mnemonic)]);
     }

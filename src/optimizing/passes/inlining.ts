@@ -1,22 +1,38 @@
 import {
+  irJump,
   irRequiresFrameState,
+  isTerminator,
   IR_AWAIT,
+  IR_BRANCH,
+  IR_CALL_BUILTIN,
   IR_CALL_KNOWN_FUNCTION,
+  IR_CONSTANT,
+  IR_FLOAT64_DIV,
+  IR_FLOAT64_POW,
   IR_GENERIC_CALL,
   IR_DEOPTIMIZE,
+  IR_INT32_DIV,
+  IR_INT32_MOD,
+  IR_JUMP,
   IR_LOAD_CONTEXT_SLOT,
   IR_LOAD_TEXT,
+  IR_PHI,
   IR_RETURN,
   IR_STORE_CONTEXT_SLOT,
   IR_STORE_TEXT,
   IR_YIELD,
+  type CFGBlock,
   type CFGFunction,
   type CFGInstruction,
 } from "../ir/index.js";
-import { cloneGraph } from "../ir/clone.js";
+import { cloneBlocks, cloneGraph } from "../ir/clone.js";
 import { GraphEditor } from "../ir/editor.js";
-import { nodeIdStamper } from "../ir/graph-edit.js";
+import { addPhi, link, splitBlockBefore } from "../ir/cfg-edit.js";
+import { detachInputs, nodeIdStamper, type Stamp } from "../ir/graph-edit.js";
 import { calleeSymbolName, NAMED_ARGUMENTS_PROP } from "../metadata/call-signatures.js";
+import { declaredAcceptsNull } from "../types/declared.js";
+import { declaredAotScalar } from "../metadata/class-table.js";
+import { isNumericScalar } from "../types/scalar.js";
 import type { ModuleFunctions } from "../metadata/module-functions.js";
 import type { CompilerOptions } from "../options.js";
 
@@ -32,29 +48,85 @@ const OPAQUE_TO_INLINING: ReadonlySet<string> = new Set<string>([
 
 const STRING_TYPE = "string";
 
+const STEP_COST = 1;
+const FREE = 0;
+const CALL_COST = 8;
+const ROUTINE_COST = 16;
+const ARGUMENT_COST = 1;
+const CONSTANT_ARGUMENT_BONUS = 4;
+const FOLDED_BRANCH_BONUS = 12;
+
+const COSTED: ReadonlyMap<string, number> = new Map<string, number>([
+  [IR_CONSTANT, FREE],
+  [IR_PHI, FREE],
+  [IR_JUMP, FREE],
+  [IR_RETURN, FREE],
+  [IR_CALL_KNOWN_FUNCTION, CALL_COST],
+  [IR_GENERIC_CALL, CALL_COST],
+  [IR_CALL_BUILTIN, CALL_COST],
+  [IR_INT32_DIV, ROUTINE_COST],
+  [IR_INT32_MOD, ROUTINE_COST],
+  [IR_FLOAT64_DIV, ROUTINE_COST],
+  [IR_FLOAT64_POW, ROUTINE_COST],
+]);
+
 export interface CallSite {
   readonly callee: CFGFunction;
   readonly args: readonly CFGInstruction[];
 }
 
-interface StraightLineBody {
-  readonly nodes: readonly CFGInstruction[];
-  readonly returned: CFGInstruction | null;
+interface CalleeBody {
+  readonly entry: CFGBlock;
+  readonly returns: readonly CFGInstruction[];
+  readonly size: number;
+  readonly cost: number;
 }
 
-function straightLineBody(callee: CFGFunction): StraightLineBody | null {
-  if (callee.blocks.length !== 1) return null;
-  const block = callee.blocks[0]!;
-  if (block.phis.length > 0) return null;
-  const terminator = block.terminator;
-  if (terminator === null || terminator.type !== IR_RETURN) return null;
-  const nodes: CFGInstruction[] = [];
-  for (const node of block.nodes) {
-    if (node === terminator) continue;
-    if (OPAQUE_TO_INLINING.has(node.type)) return null;
-    nodes.push(node);
+function nodeCost(node: CFGInstruction): number {
+  return COSTED.get(node.type) ?? STEP_COST;
+}
+
+function calleeBody(callee: CFGFunction): CalleeBody | null {
+  const entry = callee.entry ?? callee.blocks[0];
+  if (entry === undefined || entry.predecessors.length > 0 || entry.phis.length > 0) return null;
+  const returns: CFGInstruction[] = [];
+  let size = 0;
+  let cost = 0;
+  for (const block of callee.blocks) {
+    const terminator = block.getTerminator();
+    if (terminator === null) return null;
+    if (terminator.type === IR_RETURN) returns.push(terminator);
+    for (const node of block.nodes) {
+      if (OPAQUE_TO_INLINING.has(node.type)) return null;
+      if (isTerminator(node.type)) continue;
+      size++;
+      cost += nodeCost(node);
+    }
   }
-  return { nodes, returned: terminator.inputs[0] ?? null };
+  return returns.length === 0 ? null : { entry, returns, size, cost };
+}
+
+function decidesABranch(parameter: CFGInstruction): boolean {
+  return parameter.uses.some(
+    (use) => use.type === IR_BRANCH || use.uses.some((then) => then.type === IR_BRANCH),
+  );
+}
+
+function foldingBonus(site: CallSite): number {
+  let bonus = 0;
+  site.args.forEach((argument, at) => {
+    if (argument.type !== IR_CONSTANT) return;
+    bonus += CONSTANT_ARGUMENT_BONUS;
+    const parameter = site.callee.parameters[at];
+    if (parameter !== undefined && decidesABranch(parameter)) bonus += FOLDED_BRANCH_BONUS;
+  });
+  return bonus;
+}
+
+export function inlineCostOf(site: CallSite, body: CalleeBody): number {
+  return (
+    body.cost - CALL_COST - site.args.length * ARGUMENT_COST - foldingBonus(site)
+  );
 }
 
 export function callSiteOf(
@@ -75,43 +147,111 @@ function inlinable(
   site: CallSite,
   call: CFGInstruction,
   caller: CFGFunction,
-  body: StraightLineBody,
-  budget: number,
+  body: CalleeBody,
 ): boolean {
   const callee = site.callee;
   if (call.props[NAMED_ARGUMENTS_PROP] !== undefined) return false;
   if (callee === caller) return false;
-  if (callee.isAsync || callee.isGenerator) return false;
+  if (callee.isAsync || callee.isGenerator || callee.recoversThrows) return false;
+  if (callee.resumable) return false;
   if (callee.gatheredArguments !== null) return false;
   if (callee.declaredSignature?.returns === STRING_TYPE) return false;
+  if ((callee.declaredSignature?.params ?? []).some((param) => declaredAcceptsNull(param)))
+    return false;
   if (callee.parameters.length !== site.args.length) return false;
-  if (body.nodes.length > budget) return false;
-  return body.returned !== null || call.uses.length === 0;
+  if (call.uses.length === 0) return true;
+  if (body.returns.some((returned) => returned.inputs[0] === undefined)) return false;
+  return body.returns.length === 1 || mergesANumber(callee);
 }
 
-function spliceBody(
+function mergesANumber(callee: CFGFunction): boolean {
+  const scalar = declaredAotScalar(callee.declaredSignature?.returns, callee.classes);
+  return scalar !== null && isNumericScalar(scalar);
+}
+
+function substituteParameters(
+  spliced: Iterable<CFGInstruction>,
+  parameters: readonly CFGInstruction[],
+  args: readonly CFGInstruction[],
+): void {
+  const passed = new Map<CFGInstruction, CFGInstruction>();
+  parameters.forEach((parameter, at) => {
+    const argument = args[at];
+    if (argument !== undefined) passed.set(parameter, argument);
+  });
+  for (const node of spliced) {
+    node.inputs.forEach((input, at) => {
+      const argument = passed.get(input);
+      if (argument !== undefined) node.replaceInput(at, argument);
+    });
+  }
+}
+
+function adoptFrameState(node: CFGInstruction, call: CFGInstruction): void {
+  node.frameState = irRequiresFrameState(node) ? call.frameState : null;
+}
+
+function spliceStraightLine(
   caller: CFGFunction,
   call: CFGInstruction,
   site: CallSite,
   editor: GraphEditor,
-  stamp: (node: CFGInstruction) => CFGInstruction,
+  stamp: Stamp,
 ): boolean {
   const copy = cloneGraph(site.callee, `${caller.name}$inline`);
-  if (straightLineBody(copy.graph) === null) return false;
+  const block = copy.graph.blocks[0];
+  const terminator = block?.getTerminator();
+  if (block === undefined || terminator === undefined || terminator === null) return false;
 
-  const parameters = copy.graph.parameters;
-  const inside = new GraphEditor(copy.graph);
-  for (let at = 0; at < parameters.length; at++) {
-    inside.replaceAllUses(parameters[at]!, site.args[at]!);
-  }
-
-  const cloned = straightLineBody(copy.graph)!;
-  for (const node of cloned.nodes) {
+  substituteParameters(block.nodes, copy.graph.parameters, site.args);
+  const spliced = block.nodes.filter((node) => node !== terminator);
+  for (const node of spliced) {
     stamp(node);
-    if (node.frameState === null && irRequiresFrameState(node)) node.frameState = call.frameState;
+    adoptFrameState(node, call);
     editor.insertBefore(call, node);
   }
-  if (cloned.returned !== null) editor.replaceAllUses(call, cloned.returned);
+  const answered = terminator.inputs[0] ?? null;
+  if (answered !== null) editor.replaceAllUses(call, answered);
+  editor.remove(call);
+  return true;
+}
+
+function spliceRegion(
+  caller: CFGFunction,
+  call: CFGInstruction,
+  site: CallSite,
+  body: CalleeBody,
+  editor: GraphEditor,
+  stamp: Stamp,
+): boolean {
+  const entered = call.block;
+  if (entered === null) return false;
+  const continuation = splitBlockBefore(caller, entered, call);
+  const clone = cloneBlocks(caller, site.callee.blocks, stamp);
+  const spliced = [...clone.valueOf.values()];
+  substituteParameters(spliced, site.callee.parameters, site.args);
+  for (const node of spliced) adoptFrameState(node, call);
+
+  entered.addNode(stamp(irJump(clone.blockOf.get(body.entry)!)));
+  link(entered, clone.blockOf.get(body.entry)!);
+
+  const answers: CFGInstruction[] = [];
+  for (const returned of body.returns) {
+    const copy = clone.blockOf.get(returned.block!)!;
+    const terminator = copy.getTerminator()!;
+    const answered = terminator.inputs[0];
+    detachInputs(terminator);
+    terminator.type = IR_JUMP;
+    terminator.props = { targetBlock: continuation.id };
+    link(copy, continuation);
+    if (answered !== undefined) answers.push(answered);
+  }
+
+  if (call.uses.length > 0) {
+    const merged =
+      answers.length === 1 ? answers[0]! : stamp(addPhi(continuation, answers));
+    editor.replaceAllUses(call, merged);
+  }
   editor.remove(call);
   return true;
 }
@@ -127,15 +267,21 @@ export function inlineKnownCalls(
   let remaining = options.inlineBudget;
   let inlined = 0;
 
-  for (const block of graph.blocks) {
+  for (const block of [...graph.blocks]) {
     for (const node of [...block.nodes]) {
       if (node.block !== block) continue;
       const site = callSiteOf(node, functions);
       if (site === null) continue;
-      const body = straightLineBody(site.callee);
-      if (body === null || !inlinable(site, node, graph, body, remaining)) continue;
-      if (!spliceBody(graph, node, site, editor, stamp)) continue;
-      remaining -= body.nodes.length;
+      const body = calleeBody(site.callee);
+      if (body === null || body.size > remaining) continue;
+      if (!inlinable(site, node, graph, body)) continue;
+      if (inlineCostOf(site, body) > options.inlineThreshold) continue;
+      const spliced =
+        site.callee.blocks.length === 1
+          ? spliceStraightLine(graph, node, site, editor, stamp)
+          : spliceRegion(graph, node, site, body, editor, stamp);
+      if (!spliced) continue;
+      remaining -= body.size;
       inlined++;
     }
   }

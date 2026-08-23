@@ -65,12 +65,12 @@ describe("riscv64 assembly", () => {
   it("saves and restores the return address around a call", () => {
     const assembly = assemblyOf(
       src(
-        "fn leaf(x: float) -> float:",
-        "  if x < 0.0:",
-        "    return 0.0",
-        "  return x + 1.0",
+        "fn leaf(x: float, n: int) -> float:",
+        "  if n <= 0:",
+        "    return x",
+        "  return leaf(x, n - 1) + 1.0",
         "fn caller(x: float) -> float:",
-        "  return leaf(x) * 2.0",
+        "  return leaf(x, 3) * 2.0",
       ),
     );
 

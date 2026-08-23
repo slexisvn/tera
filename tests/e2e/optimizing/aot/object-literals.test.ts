@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { cSource, itNative } from "../../../helpers/c-executor.js";
 import { cCalls } from "../../../helpers/aot-agreement.js";
+import { compilerOptions } from "../../../../src/optimizing/options.js";
+
+const KEEPS_CALLS = compilerOptions("speed", { inlineBudget: 0 });
 
 const src = (...lines: string[]) => lines.join("\n");
 
@@ -20,7 +23,9 @@ ${call}
 });
 
 function declined(source: string): string {
-  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`);
+  const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
+    compilerOptions: KEEPS_CALLS,
+  });
   return program.skipped.map((entry) => entry.reason).join("; ");
 }
 

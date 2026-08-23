@@ -48,6 +48,7 @@ function addOne(name: string): CFGFunction {
 
 function callsAddOne(name: string, calleeName: string): CFGFunction {
   const graph = new CFGFunction(name);
+  graph.declaredSignature = { params: [], returns: "float" };
   const block = graph.addBlock();
   const arg = irConstant(41);
   const call = irCallKnownFunction({ name: calleeName } as never, [arg]);

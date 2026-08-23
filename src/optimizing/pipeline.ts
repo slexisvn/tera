@@ -13,6 +13,7 @@ import { GraphValidationError, validateGraphInvariants } from "./validation/grap
 import { buildFrameStateIndex } from "./ir/frame-state-values.js";
 import { homeFloatingValues } from "./ir/graph-edit.js";
 import { hoistLoopInvariants, loopUnrolling } from "./passes/loop-opts.js";
+import { loopUnswitching } from "./passes/unswitching.js";
 import {
   eliminateRedundantChecks,
   rangeAnalysisAndBoundsCheckElimination,
@@ -104,6 +105,7 @@ export function middleEndPhases(
     on ? passes : [];
   const aggregatePasses = (passes: readonly TransformPass<CFGFunction>[]) =>
     enabledPasses(options.scalarReplaceAggregates, passes);
+  const unswitchBudget = options.deoptimizes ? 0 : options.unswitchBudget;
   return [
     phase("high-level-optimization", [
       step(
@@ -135,6 +137,13 @@ export function middleEndPhases(
             analyses.get(modRefAnalysisId),
           ),
         [loopId, pointsToId, modRefId],
+      ),
+      step(
+        "loop-unswitching",
+        invalidatesAnalyses,
+        (g, analyses) =>
+          loopUnswitching(g, analyses.get(loopForestAnalysisId), unswitchBudget),
+        [loopId],
       ),
       step(
         "redundant-checks",
@@ -248,6 +257,8 @@ export function middleEndPhases(
       ),
       step("dead-code-elimination", preservesControlFlow, (g) => deadCodeElimination(g)),
       step("unreachable-block-elimination", invalidatesAnalyses, (g) => eliminateUnreachableBlocks(g)),
+      step("trivial-phi-elimination-after-unreachable", preservesControlFlow, (g) => eliminateTrivialPhis(g)),
+      step("dead-code-elimination-after-unreachable", preservesControlFlow, (g) => deadCodeElimination(g)),
     ]),
   ];
 }
@@ -262,6 +273,8 @@ export function cfgPassTracer(options: CompilerOptions): PassTracer<CFGFunction>
   if (!options.printAfterAll) return null;
   return { probe: cfgGraphProbe, sink: consolePassTraceSink };
 }
+
+const BUILT = "it was built";
 
 const verifyAfterPass: GraphVerification<CFGFunction> = (graph, pass) => {
   try {
@@ -290,6 +303,7 @@ export function runMiddleEnd(
   options: CompilerOptions = compilerOptions(),
 ): AnalysisManager<CFGFunction> {
   const analyses = new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
+  if (options.verifyEachPass) verifyAfterPass(graph, BUILT);
   const passManager = cfgPassManager(analyses, options);
   for (const pipelinePhase of middleEndPhases(options)) {
     passManager.run(graph, pipelinePhase.passes);

@@ -36,6 +36,7 @@ import {
   IR_LOAD_FIELD,
   IR_NEW_OBJECT,
   IR_RUNTIME_BASE,
+  IR_SELECT,
   IR_STORE_FIELD,
   IR_NOT,
   IR_RETURN,
@@ -712,6 +713,66 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
       ),
     );
     this.produce(ctx, result, SCALAR_FLOAT64);
+  }
+
+  protected conditionalMove(): SelectionHandler {
+    return (ctx) => this.selectConditional(ctx);
+  }
+
+  fusesFlagsOf(consumer: CFGInstruction, condition: CFGInstruction): boolean {
+    if (consumer.type !== IR_SELECT) return super.fusesFlagsOf(consumer, condition);
+    return condition.type === IR_INT32_COMPARE;
+  }
+
+  private selectConditional(ctx: SelectionContext): void {
+    const [condition, whenTrue, whenFalse] = ctx.node.inputs as [
+      CFGInstruction,
+      CFGInstruction,
+      CFGInstruction,
+    ];
+    const scalar = ctx.scalarOf(ctx.node);
+    const chosen = this.destination(ctx, scalar);
+    const taken = this.coerce(ctx, whenTrue, scalar);
+    const otherwise = this.coerce(ctx, whenFalse, scalar);
+    const code = this.emitChoiceCondition(ctx, condition);
+    ctx.emit(
+      instruction(
+        this.conditionalMoveFor(code, chosen),
+        [writeOf(chosen), readOf(otherwise), readOf(taken)],
+        { tied: true },
+      ),
+    );
+    this.produce(ctx, chosen, scalar);
+  }
+
+  private conditionalMoveFor(code: string, register: VirtualRegister): string {
+    return `cmov${code}${register.width === 8 ? "q" : "l"}`;
+  }
+
+  private emitChoiceCondition(
+    ctx: SelectionContext,
+    condition: CFGInstruction,
+  ): string {
+    const fused = fusedConditionOf(ctx);
+    if (fused !== null) {
+      const left = this.coerce(ctx, fused.inputs[0]!, SCALAR_INT32);
+      const right = this.comparedWith(ctx, fused.inputs[1]!);
+      return this.emitIntComparison(ctx, String(fused.props.op), left, right);
+    }
+    const flag = this.testedRegister(ctx, condition);
+    ctx.emit(instruction(this.testFor(flag), [readOf(flag), readOf(flag)]));
+    return "ne";
+  }
+
+  private testedRegister(
+    ctx: SelectionContext,
+    condition: CFGInstruction,
+  ): VirtualRegister {
+    if (ctx.scalarOf(condition) !== SCALAR_FLOAT64) return ctx.registerOf(condition);
+    const zero = this.loadNumber(ctx, 0, SCALAR_FLOAT64);
+    const flag = ctx.temp(SCALAR_INT32);
+    this.emitFloatCondition(ctx, "!=", ctx.registerOf(condition), zero, flag);
+    return flag;
   }
 
   protected selectLogicalNot(ctx: SelectionContext): void {

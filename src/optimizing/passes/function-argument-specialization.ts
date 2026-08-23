@@ -69,7 +69,7 @@ function nameFor(owner: string, handoffs: readonly Handoff[]): string {
   return `${owner}$${handoffs.map((handoff) => handoff.name).join("$")}`;
 }
 
-function replaceCall(
+export function replaceCall(
   owner: CFGFunction,
   node: CFGInstruction,
   target: CFGFunction,
@@ -119,7 +119,7 @@ function redirect(site: CallSite, target: CFGFunction, dropped: ReadonlySet<numb
   replaceCall(site.caller, site.node, target, args);
 }
 
-function unitOf(graph: CFGFunction): CompilationUnit {
+export function unitOf(graph: CFGFunction): CompilationUnit {
   return { name: graph.name, graph, frameStates: [], compiledFunction: null, osrOffset: null };
 }
 

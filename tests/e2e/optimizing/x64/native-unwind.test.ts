@@ -37,6 +37,39 @@ function fileOf(backend: string, format: "assembly" | "object" | "executable", e
   return file.contents;
 }
 
+interface SavedBase {
+  readonly at: number;
+  readonly allocated: number;
+  readonly saved: number;
+}
+
+function framesSavingBase(frames: string): readonly SavedBase[] {
+  const found: SavedBase[] = [];
+  for (const entry of frames.split(/\r?\n(?=[0-9a-f]{8} )/)) {
+    const range = /FDE cie=[0-9a-f]+ pc=([0-9a-f]+)\.\./.exec(entry);
+    const allocated = /DW_CFA_def_cfa_offset: (\d+)/.exec(entry);
+    const saved = /DW_CFA_offset: r3 \(rbx\) at cfa-(\d+)/.exec(entry);
+    if (range === null || allocated === null || saved === null) continue;
+    found.push({
+      at: Number.parseInt(range[1]!, 16),
+      allocated: Number(allocated[1]),
+      saved: Number(saved[1]),
+    });
+  }
+  return found;
+}
+
+function baseSlotIn(code: string, at: number): number | null {
+  const labelled = code.indexOf(`\n${at.toString(16).padStart(ADDRESS_DIGITS, "0")} <`);
+  if (labelled < 0) return null;
+  const body = code.slice(labelled).split(/\r?\n\r?\n/)[0]!;
+  const stored = /mov\s+%rbx,(0x[0-9a-f]+)?\(%rsp\)/.exec(body);
+  if (stored === null) return null;
+  return stored[1] === undefined ? 0 : Number(stored[1]);
+}
+
+const ADDRESS_DIGITS = 16;
+
 describe("unwind tables the host toolchain reads back", () => {
   itDumpsObjects("decodes our .eh_frame into the prologue we emitted", () => {
     const object = fileOf("x64-linux", "object", ".o") as Uint8Array;
@@ -56,17 +89,15 @@ describe("unwind tables the host toolchain reads back", () => {
 
   itDumpsObjects("agrees with the machine code about where a register was saved", () => {
     const object = fileOf("x64-linux", "object", ".o") as Uint8Array;
-    const frames = dumpObject(object, ["--dwarf=frames"]).output;
+    const frames = framesSavingBase(dumpObject(object, ["--dwarf=frames"]).output);
     const code = dumpObject(object, ["-d"]).output;
 
-    const saved = /DW_CFA_offset: r3 \(rbx\) at cfa-(\d+)/.exec(frames);
-    const allocated = /DW_CFA_def_cfa_offset: (\d+)/.exec(frames);
-    const stored = /mov\s+%rbx,(0x[0-9a-f]+)?\(%rsp\)/.exec(code);
-
-    expect(saved).not.toBeNull();
-    expect(stored).not.toBeNull();
-    const slot = stored![1] === undefined ? 0 : Number(stored![1]);
-    expect(Number(allocated![1]) - slot).toBe(Number(saved![1]));
+    expect(frames.length).toBeGreaterThan(0);
+    for (const frame of frames) {
+      const slot = baseSlotIn(code, frame.at);
+      expect(slot).not.toBeNull();
+      expect(frame.allocated - slot!).toBe(frame.saved);
+    }
   });
 
   itReadsElf("hands the executable a GNU_EH_FRAME segment", () => {

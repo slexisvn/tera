@@ -99,6 +99,7 @@ export const IR_MAKE_CLOSURE = "MakeClosure";
 export const IR_TYPEOF = "TypeOf";
 export const IR_NOT = "Not";
 export const IR_NEG = "Neg";
+export const IR_SELECT = "Select";
 export const IR_GENERIC_GET_INDEX = "GenericGetIndex";
 export const IR_GENERIC_SET_INDEX = "GenericSetIndex";
 export const IR_COPY_PROPERTIES = "CopyProperties";
@@ -407,6 +408,10 @@ function negationTransfer(node: TransferNode, context: TypeContext): LatticeType
   const operand = inputType(node, 0, context);
   if (operand.kind === TypeKind.Smi) return smiType();
   return isNumeric(operand) ? numberType() : anyType();
+}
+
+function selectionTransfer(node: TransferNode, context: TypeContext): LatticeType {
+  return joinTypes(inputType(node, 1, context), inputType(node, 2, context));
 }
 
 function phiTransfer(node: TransferNode, context: TypeContext): LatticeType {
@@ -761,6 +766,7 @@ export type Opcode =
   | typeof IR_TYPEOF
   | typeof IR_NOT
   | typeof IR_NEG
+  | typeof IR_SELECT
   | typeof IR_GENERIC_GET_INDEX
   | typeof IR_GENERIC_SET_INDEX
   | typeof IR_COPY_PROPERTIES
@@ -890,6 +896,7 @@ export const OPERATIONS = {
   [IR_TYPEOF]: pureValue(ONE_INPUT, RESULT_HANDLE, constant(stringType())),
   [IR_NOT]: pureValue(ONE_INPUT, RESULT_BOOL, constant(booleanType())),
   [IR_NEG]: pureValue(ONE_INPUT, RESULT_CONTEXTUAL, negationTransfer),
+  [IR_SELECT]: pureValue(THREE_INPUTS, RESULT_CONTEXTUAL, selectionTransfer),
   [IR_BOX]: { ...pureValue(ONE_INPUT, RESULT_CONTEXTUAL, boxTransfer), speculation: SPECULATION_NATIVE_GUARD },
   [IR_UNBOX]: { ...pureValue(ONE_INPUT, RESULT_CONTEXTUAL, unboxTransfer), speculation: SPECULATION_NATIVE_GUARD },
 

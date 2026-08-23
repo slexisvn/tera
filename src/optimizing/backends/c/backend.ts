@@ -68,7 +68,7 @@ export const cBackend: AotBackend = {
   emits: cEmittedOpcodes(),
   target: cTarget,
   symbolOf: cIdentifier,
-  loweringPipeline: () => targetLegalizationPipeline(cTarget),
+  loweringPipeline: (options) => targetLegalizationPipeline(cTarget, options),
   createEmitter(graph: CFGFunction, analyses: AnalysisManager<CFGFunction>): Emitter {
     return {
       emit: () => {

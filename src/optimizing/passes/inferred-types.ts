@@ -12,7 +12,13 @@ import { declaredTypeOf, type ClassTable } from "../metadata/class-table.js";
 import { FUNCTION_TARGET_PROP, ModuleFunctions } from "../metadata/module-functions.js";
 import { isUnwritten, type DeclaredSignature } from "../types/signature.js";
 import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
-import { adoptWrittenTypes } from "./function-argument-specialization.js";
+import {
+  adoptWrittenTypes,
+  replaceCall,
+  unitOf,
+  type Specialization,
+} from "./function-argument-specialization.js";
+import { cloneGraph } from "../ir/clone.js";
 import { arrayElementNameOf } from "./array-shapes.js";
 import { literalReturnShapeOf, shapeObjectLiterals } from "./object-literal-shapes.js";
 import { shapeModuleCollections } from "./collection-surface.js";
@@ -57,6 +63,20 @@ function memberIn(node: CFGInstruction, members: Iterable<string>): string | nul
   return null;
 }
 
+const NOTHING_SPECIALIZED: Specialization = { added: [], retired: new Set<string>() };
+
+interface DisagreeingSite {
+  readonly caller: CFGFunction;
+  readonly node: CFGInstruction;
+  readonly through: CFGInstruction | null;
+  readonly args: readonly CFGInstruction[];
+  readonly types: TypeInference;
+}
+
+function specializedName(owner: string, named: readonly string[]): string {
+  return `${owner}$${named.map((name) => name.replace(/[^A-Za-z0-9]+/g, "_")).join("$")}`;
+}
+
 function signatureOf(graph: CFGFunction): string {
   return JSON.stringify(graph.declaredSignature ?? null);
 }
@@ -72,9 +92,14 @@ class TypeAdoption {
     this.functions = new ModuleFunctions(module);
   }
 
-  run(): void {
+  run(): Specialization {
     this.shapeCollections();
     for (const unit of this.module.units) this.shapeLiterals(unit);
+    this.settle();
+    return this.specializeDisagreements();
+  }
+
+  private settle(): void {
     while (
       this.adoptCallbackParameters() + this.adoptCallSiteParameters() + this.adoptReturns() >
       0
@@ -213,6 +238,96 @@ class TypeAdoption {
     return adopted;
   }
 
+  private escapesItsCalls(
+    callee: CFGFunction,
+    sites: readonly DisagreeingSite[],
+  ): boolean {
+    const consumed = new Set(sites.map((site) => site.through));
+    for (const unit of this.module.units) {
+      for (const block of unit.graph.blocks) {
+        for (const node of block.nodes) {
+          for (const value of [node, ...node.inputs]) {
+            if (this.functions.referenced(value) !== callee) continue;
+            if (!consumed.has(value)) return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  private sitesCalling(callee: CFGFunction): readonly DisagreeingSite[] {
+    const sites: DisagreeingSite[] = [];
+    for (const unit of this.module.units) {
+      for (const block of unit.graph.blocks) {
+        for (const node of block.nodes) {
+          const site = callSiteOf(node, this.functions);
+          if (site === null || site.callee !== callee) continue;
+          sites.push({
+            caller: unit.graph,
+            node,
+            through: node.type === IR_GENERIC_CALL ? node.inputs[0]! : null,
+            args: site.args,
+            types: this.types(unit),
+          });
+        }
+      }
+    }
+    return sites;
+  }
+
+  private wantedAt(callee: CFGFunction, site: DisagreeingSite): readonly string[] | null {
+    if (site.args.length !== callee.parameters.length) return null;
+    const declared = callee.declaredSignature?.params ?? [];
+    const wanted: string[] = [];
+    for (let at = 0; at < site.args.length; at++) {
+      const own = declared[at] ?? null;
+      const named = isUnwritten(own)
+        ? declaredTypeOf(site.types.typeOf(site.args[at]!), this.classes)
+        : own;
+      if (named === null) return null;
+      wanted.push(named);
+    }
+    return wanted;
+  }
+
+  private splittable(callee: CFGFunction): boolean {
+    if (!(callee.declaredSignature?.params ?? []).some(isUnwritten)) return false;
+    if (callee.isAsync || callee.isGenerator || callee.resumable) return false;
+    if (callee.gatheredArguments !== null || callee.classOwner !== null) return false;
+    return callee.blocks.length > 0;
+  }
+
+  private specializeDisagreements(): Specialization {
+    const added: CompilationUnit[] = [];
+    const retired = new Set<string>();
+    for (const unit of this.module.units) {
+      const callee = unit.graph;
+      if (!this.splittable(callee)) continue;
+      const sites = this.sitesCalling(callee);
+      if (sites.length < 2 || this.escapesItsCalls(callee, sites)) continue;
+      if (sites.some((site) => site.caller === callee)) continue;
+      const wanted = sites.map((site) => this.wantedAt(callee, site));
+      if (wanted.some((named) => named === null)) continue;
+      const shapes = new Map<string, readonly string[]>();
+      for (const named of wanted) shapes.set(named!.join(","), named!);
+      if (shapes.size < 2) continue;
+
+      const clones = new Map<string, CFGFunction>();
+      for (const [key, named] of shapes) {
+        const clone = cloneGraph(callee, specializedName(callee.name, named)).graph;
+        clone.declaredSignature = { ...callee.declaredSignature!, params: [...named] };
+        added.push(unitOf(clone));
+        clones.set(key, clone);
+      }
+      sites.forEach((site, at) => {
+        replaceCall(site.caller, site.node, clones.get(wanted[at]!.join(","))!, site.args);
+      });
+      retired.add(callee.name);
+    }
+    return { added, retired };
+  }
+
   private adoptReturns(): number {
     let adopted = 0;
     for (const unit of this.module.units) {
@@ -234,7 +349,10 @@ class TypeAdoption {
   }
 }
 
-export function adoptInferredTypes(module: ModuleIR, classes: ClassTable | null): void {
-  if (classes === null) return;
-  new TypeAdoption(module, classes).run();
+export function adoptInferredTypes(
+  module: ModuleIR,
+  classes: ClassTable | null,
+): Specialization {
+  if (classes === null) return NOTHING_SPECIALIZED;
+  return new TypeAdoption(module, classes).run();
 }

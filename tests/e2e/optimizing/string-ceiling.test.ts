@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../helpers/engine.js";
 import { hostBackendId } from "../../../src/optimizing/backends/index.js";
+import { compilerOptions } from "../../../src/optimizing/options.js";
+
+const KEEPS_CALLS = compilerOptions("speed", { inlineBudget: 0 });
 
 const HOST_TARGET = hostBackendId()!;
 
@@ -9,8 +12,11 @@ const src = (...lines: string[]) => lines.join("\n");
 const engine = nodeEngine({ typecheck: "off" });
 
 function reasons(source: string): { x64: string; c: string } {
-  const x64 = engine.compileAot(source, { backend: HOST_TARGET });
-  const c = engine.compileAot(source);
+  const x64 = engine.compileAot(source, {
+    backend: HOST_TARGET,
+    compilerOptions: KEEPS_CALLS,
+  });
+  const c = engine.compileAot(source, { compilerOptions: KEEPS_CALLS });
   return {
     x64: x64.skipped.map((fn) => fn.reason).join("; "),
     c: c.skipped.map((fn) => fn.reason).join("; "),

@@ -9,6 +9,7 @@ import {
   IR_JUMP,
   IR_BRANCH,
   IR_NEG,
+  IR_SELECT,
   IR_NOT,
   IR_FLOAT64_ADD,
   IR_FLOAT64_SUB,
@@ -1623,6 +1624,7 @@ class CFunctionEmitter {
     entries.push([IR_STORE_ELEMENT, (ctx) => this.emitStoreElement(ctx)]);
     entries.push([IR_GENERIC_SET_INDEX, (ctx) => this.emitStoreElement(ctx)]);
     entries.push([IR_NEG, (ctx) => this.emitNegate(ctx)]);
+    entries.push([IR_SELECT, (ctx) => this.emitSelect(ctx)]);
     entries.push([IR_NOT, (ctx) => this.emitLogicalNot(ctx)]);
     entries.push([IR_INT32_NOT, (ctx) => this.define(ctx, `~${this.asInt32(ctx.node.inputs[0]!)}`)]);
     entries.push([IR_INT32_COMPARE, (ctx) => this.emitCompare(ctx, false)]);
@@ -1665,6 +1667,18 @@ class CFunctionEmitter {
     }
 
     return entries;
+  }
+
+  private emitSelect(ctx: EmitContext): void {
+    const [condition, whenTrue, whenFalse] = ctx.node.inputs as [
+      CFGInstruction,
+      CFGInstruction,
+      CFGInstruction,
+    ];
+    const chosen = this.isInt32(ctx.node)
+      ? [this.asInt32(whenTrue), this.asInt32(whenFalse)]
+      : [this.asDouble(whenTrue), this.asDouble(whenFalse)];
+    this.define(ctx, `${this.nameOf(condition)} ? ${chosen[0]} : ${chosen[1]}`);
   }
 
   private printerFor(scalar: AotScalar): string {

@@ -267,7 +267,7 @@ export function createNativeBackend(options: NativeBackendOptions): AotBackend {
     emits: new Set([...lowering.rules()].map(([opcode]) => opcode)),
     target,
     symbolOf: (name: string) => target.symbolOf(name),
-    loweringPipeline: () => targetLegalizationPipeline(target),
+    loweringPipeline: (options) => targetLegalizationPipeline(target, options),
     createEmitter(graph: CFGFunction, analyses: AnalysisManager<CFGFunction>): Emitter {
       return {
         emit: () => {

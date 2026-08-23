@@ -328,7 +328,10 @@ describe("Engine AOT", () => {
         "fn unrelated(n: int) -> int:",
         "  return n * 2",
       ),
-      { functionNames: ["helper", "caller", "unrelated"] },
+      {
+        functionNames: ["helper", "caller", "unrelated"],
+        compilerOptions: compilerOptions("speed", { inlineBudget: 0 }),
+      },
     );
 
     expect(program.compiled.map((fn) => fn.name)).toEqual(["unrelated"]);

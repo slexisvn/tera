@@ -6,6 +6,7 @@ import { nodeEngine } from "../../../helpers/engine.js";
 import type { AotProgram } from "../../../../src/optimizing/drivers/aot.js";
 import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
+import { compilerOptions } from "../../../../src/optimizing/options.js";
 
 const roots: string[] = [];
 
@@ -27,6 +28,14 @@ function project(files: Record<string, string>): string {
 function compile(files: Record<string, string>): AotProgram {
   const root = project(files);
   return nodeEngine().compileAotModule(path.join(root, "main.tera"), { root });
+}
+
+function dispatched(files: Record<string, string>): AotProgram {
+  const root = project(files);
+  return nodeEngine().compileAotModule(path.join(root, "main.tera"), {
+    root,
+    compilerOptions: compilerOptions("speed", { inlineBudget: 0 }),
+  });
 }
 
 const MATHLIB = [
@@ -59,7 +68,9 @@ describe("whole-program AOT across modules", () => {
   });
 
   it("resolves the cross-module call to the qualified symbol", () => {
-    const source = cSource(compile({ "main.tera": MAIN, "mathlib.tera": MATHLIB }));
+    const source = cSource(
+      dispatched({ "main.tera": MAIN, "mathlib.tera": MATHLIB }),
+    );
     expect(source).toMatch(/int32_t total\(int32_t[\s\S]*mathlib_square\(/);
   });
 

@@ -81,11 +81,15 @@ describe("AOT parameter types read off the call sites", () => {
     ).toBe("double scale(double p0) {");
   });
 
-  it("refuses a parameter whose call sites disagree", () => {
-    const build = () =>
-      compiled(src("fn show(v):", "  return v", "print(show(1))", 'print(show("a"))'));
+  it("compiles one copy per type when the call sites disagree", () => {
+    const program = compiled(
+      src("fn show(v):", "  return v", "print(show(1))", 'print(show("a"))'),
+    );
 
-    expect(build).toThrow("needs every parameter to have a declared type");
+    expect(program.skipped).toEqual([]);
+    expect(program.compiled.map((fn) => fn.name)).toEqual(
+      expect.arrayContaining(["show$int", "show$string"]),
+    );
   });
 
   it("refuses a parameter no call site ever passes", () => {

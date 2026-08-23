@@ -93,10 +93,12 @@ describe("x64 assembly", () => {
   it("keeps the stack pointer aligned for a call", () => {
     const assembly = assemblyOf(
       src(
-        "fn leaf(x: float) -> float:",
-        "  return x + 1.0",
+        "fn leaf(x: float, n: int) -> float:",
+        "  if n <= 0:",
+        "    return x",
+        "  return leaf(x, n - 1) + 1.0",
         "fn caller(x: float) -> float:",
-        "  return leaf(x) * 2.0",
+        "  return leaf(x, 3) * 2.0",
       ),
     );
     const frame = assembly.match(/caller:\n(?:\t?[.][^\n]*\n)*\tsubq \$(\d+), %rsp/);
@@ -107,12 +109,12 @@ describe("x64 assembly", () => {
 
   it("reserves Win64 shadow space and no more than needed on SysV", () => {
     const source = src(
-      "fn leaf(x: float) -> float:",
-      "  if x < 0.0:",
-      "    return 0.0",
-      "  return x + 1.0",
+      "fn leaf(x: float, n: int) -> float:",
+      "  if n <= 0:",
+      "    return x",
+      "  return leaf(x, n - 1) + 1.0",
       "fn caller(x: float) -> float:",
-      "  return leaf(x)",
+      "  return leaf(x, 3)",
     );
     const frameOf = (text: string) =>
       Number(text.match(/caller:\n(?:\t?[.][^\n]*\n)*\tsubq \$(\d+), %rsp/)![1]);

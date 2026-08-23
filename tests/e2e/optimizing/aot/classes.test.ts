@@ -2,6 +2,17 @@ import { describe, it, expect } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
 import { cCalls } from "../../../helpers/aot-agreement.js";
+import { compilerOptions } from "../../../../src/optimizing/options.js";
+
+const KEEPS_CALLS = compilerOptions("speed", { inlineBudget: 0 });
+
+function dispatched(lines: readonly string[]) {
+  const program = nodeEngine().compileAot(`${lines.join("\n")}\n`, {
+    compilerOptions: KEEPS_CALLS,
+  });
+  expect(program.skipped).toEqual([]);
+  return program;
+}
 
 function compile(lines: readonly string[]) {
   const program = nodeEngine().compileAot(`${lines.join("\n")}\n`);
@@ -338,7 +349,7 @@ describe("AOT classes", () => {
   });
 
   it("calls the method directly instead of dispatching through a pointer", () => {
-    const program = compile([
+    const program = dispatched([
       ...POINT,
       "fn go(a: int, b: int) -> int:",
       "  p = Point(a, b)",
@@ -371,7 +382,7 @@ describe("AOT classes", () => {
     ]), "go", [7]));
 
   it("tests the shape id in the object header when the call site is polymorphic", () => {
-    const program = compile(SHAPES.concat([
+    const program = dispatched(SHAPES.concat([
       "fn measure(s: Shape) -> int:",
       "  return s.area()",
       "fn go(a: int) -> int:",
@@ -384,7 +395,7 @@ describe("AOT classes", () => {
   });
 
   it("calls the implementation directly when it can see the receiver allocated", () => {
-    const program = compile(SHAPES.concat([
+    const program = dispatched(SHAPES.concat([
       "fn go(a: int) -> int:",
       "  s = Shape(a)",
       "  return s.area()",
@@ -413,7 +424,7 @@ describe("AOT classes", () => {
     ));
 
   it("calls the getter instead of loading a field at an offset", () => {
-    const program = compile([...GAUGE, "fn go(a: int) -> float:", "  return Gauge(a).scaled"]);
+    const program = dispatched([...GAUGE, "fn go(a: int) -> float:", "  return Gauge(a).scaled"]);
 
     expect(bodyOf(program, "go")).toContain("Gauge_get_scaled(");
   });
@@ -443,7 +454,7 @@ describe("AOT classes", () => {
     ));
 
   it("tests the shape id when a getter site is polymorphic", () => {
-    const program = compile([
+    const program = dispatched([
       ...SIZED,
       "fn measure(s: Sized) -> int:",
       "  return s.width",
@@ -462,7 +473,7 @@ describe("AOT classes", () => {
     ]), "go", [7]));
 
   it("covers a class that only matches the receiver's surface", () => {
-    const program = compile(STATES.concat([
+    const program = dispatched(STATES.concat([
       "fn go(a: int) -> int:",
       "  d = Document(a)",
       "  return d.publish()",
@@ -490,7 +501,7 @@ describe("AOT classes", () => {
     ]), "go", [7]));
 
   it("names every implementation of the interface at the call site", () => {
-    const program = compile(SHAPED.concat([
+    const program = dispatched(SHAPED.concat([
       "fn measure(s: Shaped) -> int:",
       "  return s.area()",
       "fn go(a: int) -> int:",
@@ -516,7 +527,7 @@ describe("AOT classes", () => {
     ));
 
   it("calls a static method without passing a receiver", () => {
-    const program = compile([
+    const program = dispatched([
       "class M:",
       "  public constructor(v: int):",
       "    this.v = v",
@@ -569,7 +580,7 @@ describe("AOT classes", () => {
     ));
 
   it("binds a super call to the parent implementation rather than dispatching", () => {
-    const program = compile([
+    const program = dispatched([
       "class A:",
       "  public constructor(n: int):",
       "    this.n = n",

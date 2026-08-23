@@ -12,6 +12,7 @@ import { validateOptimizedGraph } from "./validation/graph-validator.js";
 import { buildFrameStateIndex, clearFrameStateIndex } from "./ir/frame-state-values.js";
 import { applyOsrTransform, repairFrameStateDominance } from "./passes/osr.js";
 import { runMiddleEnd } from "./pipeline.js";
+import { eliminateUnreachableBlocks } from "./passes/dce.js";
 import { compilerOptions, type CompilerOptions } from "./options.js";
 import type { ClassTable } from "./metadata/class-table.js";
 import { hasClassReceiver } from "./metadata/class-symbols.js";
@@ -35,7 +36,7 @@ export interface StaticCompileRequest {
 export function staticCompilerOptions(
   base: CompilerOptions = compilerOptions("speed"),
 ): CompilerOptions {
-  return { ...base, sinkAllocations: false };
+  return { ...base, sinkAllocations: false, deoptimizes: false };
 }
 
 function gatheringSignature(
@@ -155,6 +156,7 @@ export class Optimizer {
     buildIR(graph, entryBlock, compiledFn, feedback, this.frameStates, this.intrinsicMetadata);
     if (graph.bailout) return this.resultFor(graph, compiledFn, osrOffset);
     graph.rebuildUses();
+    eliminateUnreachableBlocks(graph);
     graph = this.runCompilerPasses("ir", graph);
     graph.rebuildUses();
 

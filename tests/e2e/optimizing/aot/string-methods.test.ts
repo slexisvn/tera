@@ -4,6 +4,9 @@ import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
 import { cSource, itNative } from "../../../helpers/c-executor.js";
 import { cCalls, cText } from "../../../helpers/aot-agreement.js";
 import { TEXT_STORAGE_BYTES } from "../../../../src/optimizing/types/scalar.js";
+import { compilerOptions } from "../../../../src/optimizing/options.js";
+
+const KEEPS_CALLS = compilerOptions("speed", { inlineBudget: 0 });
 
 const src = (...lines: string[]) => lines.join("\n");
 
@@ -263,7 +266,11 @@ describe("string methods as compiled builtins", () => {
           'print(parts("a,b", ","))',
           "",
         ),
-        { backend: "x64-windows", format: "executable" },
+        {
+          backend: "x64-windows",
+          format: "executable",
+          compilerOptions: KEEPS_CALLS,
+        },
       ),
     ).toThrow(/split/);
   });

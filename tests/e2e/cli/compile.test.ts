@@ -68,14 +68,10 @@ const SQUARES = src(
   "print(squares())",
 );
 
-const CALLS_ASYNC = src(
-  "async fn later(n: int) -> int:",
-  "  return n + 1",
-  "fn mid(n: int) -> Promise<int>:",
-  "  if n < 0:",
-  "    return later(0)",
-  "  return later(n)",
-  "mid(1)",
+const CALLS_UNLOWERABLE = src(
+  "fn describe(n: int) -> string:",
+  "  return n.to_string(16)",
+  "print(describe(255))",
 );
 
 const REACTIVE = src(
@@ -84,18 +80,12 @@ const REACTIVE = src(
   "print(total)",
 );
 
-const CALLS_ASYNC_THROUGH = src(
-  "async fn later(n: int) -> int:",
-  "  return n + 1",
-  "fn mid(n: int) -> Promise<int>:",
-  "  if n < 0:",
-  "    return later(0)",
-  "  return later(n)",
-  "fn outer(n: int) -> Promise<int>:",
-  "  if n < 0:",
-  "    return mid(0)",
-  "  return mid(n)",
-  "outer(1)",
+const CALLS_UNLOWERABLE_THROUGH = src(
+  "fn describe(n: int) -> string:",
+  "  return n.to_string(16)",
+  "fn label(n: int) -> string:",
+  "  return describe(n)",
+  "print(label(255))",
 );
 
 describe("tera compile", () => {
@@ -325,25 +315,29 @@ describe("tera compile entry reporting", () => {
 
   it("warns about every skipped function before reporting the failure", () => {
     inWorkspace((dir) => {
-      const built = compile(dir, CALLS_ASYNC);
+      const built = compile(dir, CALLS_UNLOWERABLE);
 
       expect(built.status).toBe(1);
-      expect(built.errors.slice(0, 2)).toEqual([
-        "tera compile: warning: skipped 'mid' (the promise later returns is used as a plain " +
-          "value here; await it before using it, or keep this part interpreted)",
-        "tera compile: warning: skipped 'tera_program' (calls unavailable function mid)",
-      ]);
+      expect(built.errors).toHaveLength(3);
+      expect(built.errors[0]).toContain(
+        "warning: skipped 'describe' (",
+      );
+      expect(built.errors[0]).toContain("int.to_string has an unsupported argument count");
+      expect(built.errors[1]).toBe(
+        "tera compile: warning: skipped 'tera_program' (calls unavailable function describe)",
+      );
     });
   });
 
   it("blames the first cause of a dropped entry rather than the call that dropped it", () => {
     inWorkspace((dir) => {
-      const built = compile(dir, CALLS_ASYNC_THROUGH);
+      const built = compile(dir, CALLS_UNLOWERABLE_THROUGH);
 
       expect(built.errors.at(-1)).toContain(
-        "entry function tera_program could not be lowered to native code: it calls outer -> mid, " +
-          "skipped because the promise later returns is used as a plain value here",
+        "entry function tera_program could not be lowered to native code: it calls label -> " +
+          "describe, skipped because",
       );
+      expect(built.errors.at(-1)).toContain("int.to_string has an unsupported argument count");
     });
   });
 
@@ -351,13 +345,7 @@ describe("tera compile entry reporting", () => {
     inWorkspace((dir) => {
       const built = compile(
         dir,
-        src(
-          "fn twice(v):",
-          "  return v + v",
-          "",
-          "print(twice(21))",
-          'print(twice("a"))',
-        ),
+        src("fn twice(v):", "  return v + v", "", "print(21)"),
       );
 
       expect(built.status).toBe(1);

@@ -208,6 +208,7 @@ function splitInPlace(
   const resume = new CFGFunction(generatorResumeName(graph.name));
   resume.classes = classes;
   resume.internal = true;
+  resume.resumable = true;
   resume.declaredSignature = { params: [frame.name], returns: INT };
   const self = resume.addParameter(0);
   resume.takeBlocks([...graph.blocks], body);

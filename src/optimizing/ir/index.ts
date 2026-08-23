@@ -234,6 +234,7 @@ export class CFGFunction {
   recoversThrows: boolean;
   isAsync: boolean;
   isGenerator: boolean;
+  resumable: boolean;
   gatheredArguments: number | null;
   private nextBlockId: number;
   _frameStateIndex?: Map<FrameValue, { replace(next: FrameValue): void }[]> | null;
@@ -263,6 +264,7 @@ export class CFGFunction {
     this.recoversThrows = false;
     this.isAsync = false;
     this.isGenerator = false;
+    this.resumable = false;
     this.gatheredArguments = null;
     this.nextBlockId = 0;
   }
@@ -806,6 +808,18 @@ export function irGenericIn(left: IRValueLike, right: IRValueLike) {
 export function irReturn(value: IRValueLike) {
   const node = new IRNode(ops.IR_RETURN);
   node.addInput(value);
+  return node;
+}
+
+export function irSelect(
+  condition: IRValueLike,
+  whenTrue: IRValueLike,
+  whenFalse: IRValueLike,
+) {
+  const node = new IRNode(ops.IR_SELECT);
+  node.addInput(condition);
+  node.addInput(whenTrue);
+  node.addInput(whenFalse);
   return node;
 }
 

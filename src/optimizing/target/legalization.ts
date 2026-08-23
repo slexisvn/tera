@@ -22,6 +22,7 @@ import {
 import { capabilityCheck } from "../passes/capability-check.js";
 import { deadCodeElimination } from "../passes/dce.js";
 import { elideFrameStates } from "../passes/frame-state-elision.js";
+import { ifConversion, valuesTargetSelects } from "../passes/if-conversion.js";
 import { lowerGlobalBuiltins } from "../passes/global-builtin-lowering.js";
 import { lowerCollectionSurface } from "../passes/collection-surface.js";
 import { lowerJsonSurface } from "../passes/json-surface.js";
@@ -42,6 +43,7 @@ import { coerceStringOperands } from "../passes/string-coercion.js";
 import { faultOnZeroDivisor } from "../passes/zero-divisor.js";
 import { faultOutsideBuiltinDomains } from "../passes/builtin-domains.js";
 import { validateRepresentations } from "../validation/graph-validator.js";
+import { compilerOptions, type CompilerOptions } from "../options.js";
 import type { TargetModel } from "./model.js";
 
 const preservesControlFlow = {
@@ -84,6 +86,7 @@ const representationCheckPass: TransformPass<CFGFunction> = {
 
 export function targetLegalizationPipeline(
   target: TargetModel,
+  options: CompilerOptions = compilerOptions(),
 ): ReadonlyArray<TransformPass<CFGFunction>> {
   const tagged = target.capabilities.has("tagged-values");
   return [
@@ -323,6 +326,19 @@ export function targetLegalizationPipeline(
       name: "frame-state-elision",
       preserves: { kind: "all" },
       run: (graph) => ({ changed: elideFrameStates(graph, target) > 0 }),
+    },
+    {
+      name: "if-conversion",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed:
+          ifConversion(
+            graph,
+            valuesTargetSelects(target, analyses.get(typeInferenceAnalysisId)),
+            options.ifConversionBudget,
+          ) > 0,
+      }),
     },
     {
       name: "dead-code-elimination",

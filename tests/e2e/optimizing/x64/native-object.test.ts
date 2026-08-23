@@ -112,9 +112,9 @@ describe("x64 elf object emission", () => {
   itReadsElf("relocates a call to another compiled function", () => {
     const source = src(
       "fn triple(n: int) -> int:",
-      "  if n < 0:",
+      "  if n <= 0:",
       "    return 0",
-      "  return n * 3",
+      "  return triple(n - 1) + 3",
       "fn main() -> int:",
       "  return triple(4)",
     );

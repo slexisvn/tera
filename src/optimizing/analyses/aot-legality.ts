@@ -724,13 +724,21 @@ class LegalityAnalyzer implements AotLegality {
         ? SCALAR_POINTER
         : this.laidOutScalarOf(value) ??
           this.answeredScalarOf(value) ??
-          aotScalarOf(this.types.typeOf(value));
+          aotScalarOf(this.types.typeOf(value)) ??
+          this.mergedReferenceOf(value);
     if (scalar === null) {
       this.fail(`value has an unsupported type in ${context}`);
       return null;
     }
     this.scalars.set(value, scalar);
     return scalar;
+  }
+
+  private mergedReferenceOf(value: CFGInstruction): AotScalar | null {
+    if (value.type !== IR_PHI || value.inputs.length === 0) return null;
+    if (this.types.typeOf(value).kind !== TypeKind.Object) return null;
+    const merged = value.inputs.map((input) => this.comparedScalarOf(input));
+    return merged.every((scalar) => scalar === SCALAR_POINTER) ? SCALAR_POINTER : null;
   }
 
   private requireStorable(value: CFGInstruction, context: string): AotScalar | null {

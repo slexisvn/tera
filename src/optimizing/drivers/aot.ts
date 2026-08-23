@@ -52,9 +52,13 @@ import { CODE_TARGET_PROP } from "../analyses/aot-legality.js";
 import { AnalysisManager } from "../infra/analysis-manager.js";
 import { compilerOptions, type CompilerOptions } from "../options.js";
 import { cfgPassManager, runMiddleEnd } from "../pipeline.js";
+import { staticCompilerOptions } from "../optimizer.js";
 import { createAnalysisRegistry } from "../analyses/index.js";
 import { elideAwaits } from "../passes/await-elision.js";
-import { specializeFunctionArguments } from "../passes/function-argument-specialization.js";
+import {
+  specializeFunctionArguments,
+  type Specialization,
+} from "../passes/function-argument-specialization.js";
 import { rewriteSelfTailCalls } from "../passes/tail-calls.js";
 import { adoptInferredTypes } from "../passes/inferred-types.js";
 import { boxEscapingStrings } from "../passes/string-boxing.js";
@@ -529,6 +533,17 @@ function splitCoroutines(
   return added;
 }
 
+function withSpecializations(module: ModuleIR, specialized: Specialization): ModuleIR {
+  if (specialized.added.length === 0) return module;
+  return {
+    ...module,
+    units: [
+      ...module.units.filter((unit) => !specialized.retired.has(unit.graph.name)),
+      ...specialized.added,
+    ],
+  };
+}
+
 function requireDeclaredParameters(module: ModuleIR): void {
   const undeclared: AotSkippedFunction[] = [];
   for (const unit of module.units) {
@@ -599,7 +614,7 @@ function inlineModuleCalls(
     const rewrote = inlineKnownCalls(graph, functions, options) + rewriteSelfTailCalls(graph, functions);
     if (rewrote === 0) continue;
     functions.unitOf(graph)?.analyses?.invalidateAll();
-    runMiddleEnd(graph, options);
+    runMiddleEnd(graph, staticCompilerOptions(options));
   }
 }
 
@@ -627,18 +642,13 @@ export function compileModule(
   convertClosures(module, classes);
   const promises = lowerPromiseSurface(module);
   if (promises.length > 0) module = { ...module, units: [...module.units, ...promises] };
-  const specialized = specializeFunctionArguments(module);
-  if (specialized.added.length > 0) {
-    module = {
-      ...module,
-      units: [
-        ...module.units.filter((unit) => !specialized.retired.has(unit.graph.name)),
-        ...specialized.added,
-      ],
-    };
-  }
+  module = withSpecializations(module, specializeFunctionArguments(module));
   nameFunctionValues(module, classes);
-  adoptInferredTypes(module, classes);
+  const byArgumentType = adoptInferredTypes(module, classes);
+  if (byArgumentType.added.length > 0) {
+    module = withSpecializations(module, byArgumentType);
+    adoptInferredTypes(module, classes);
+  }
   requireDeclaredParameters(module);
   if (classes !== null) declareGlobalVariables(module, classes);
 
