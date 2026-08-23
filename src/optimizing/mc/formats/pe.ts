@@ -71,6 +71,8 @@ const WINDOWS_VERSION_MAJOR = 6;
 const WINDOWS_VERSION_MINOR = 0;
 
 const IMPORT_DIRECTORY_INDEX = 1;
+const EXCEPTION_DIRECTORY_INDEX = 3;
+const EXCEPTION_SECTION = ".pdata";
 const IMPORT_ADDRESS_TABLE_INDEX = 12;
 
 const IMPORT_SECTION = ".idata";
@@ -491,12 +493,21 @@ export function writePeExecutable(
       IMAGE_FILE_EXECUTABLE_IMAGE |
       IMAGE_FILE_LARGE_ADDRESS_AWARE,
   });
+  const exceptions = placed.find((item) => item.section.name === EXCEPTION_SECTION);
   writeOptionalHeader(
     out,
     geometry,
     new Map([
       [IMPORT_DIRECTORY_INDEX, placement.directory],
       [IMPORT_ADDRESS_TABLE_INDEX, placement.addressTable],
+      ...(exceptions === undefined
+        ? []
+        : ([
+            [
+              EXCEPTION_DIRECTORY_INDEX,
+              { address: exceptions.address, size: exceptions.section.size },
+            ],
+          ] as const)),
     ]),
   );
   for (const item of placed) {

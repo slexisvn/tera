@@ -98,7 +98,7 @@ describe("x64 elf object emission", () => {
     const report = inspectElf(objectOf(ROUNDED), ["-s", "-r"]);
 
     expect(report.failed).toBe(false);
-    expect(report.output).toContain("There are no relocations in this file");
+    expect(report.output).not.toContain("Relocation section '.rela.text'");
     expect(report.output).not.toMatch(/UND +\S/);
   });
 

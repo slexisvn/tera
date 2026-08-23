@@ -98,6 +98,7 @@ function collectStructuralErrors(
   errors: string[],
 ): void {
   validateOpcodes(graph, errors);
+  validateNodeIdentity(graph, errors);
   validateNodeOwnership(graph, errors);
   validatePhis(graph, errors);
   validateControlFlow(graph, errors);
@@ -145,6 +146,21 @@ function validateOpcodes(graph: ValidationGraph, errors: string[]): void {
       if (!isOpcode(node.type)) {
         errors.push(`B${block.id} v${node.id} has no operation spec for ${node.type}`);
       }
+    }
+  }
+}
+
+function validateNodeIdentity(graph: ValidationGraph, errors: string[]): void {
+  const owners = new Map<number, ValidationNode>();
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      const held = owners.get(node.id);
+      if (held === undefined) {
+        owners.set(node.id, node);
+        continue;
+      }
+      if (held === node) continue;
+      errors.push(`v${node.id} names both ${held.type} and ${node.type}`);
     }
   }
 }

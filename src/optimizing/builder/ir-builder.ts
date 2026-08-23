@@ -159,15 +159,22 @@ function defineStaticField(
   regs: NodeMap,
   compiledFn: AnyCompiledFunction,
   operands: readonly number[],
+  initializes: boolean,
 ): void {
   const owner = regs.get(operands[0]!) ?? null;
   const name = classValueNameOf(owner);
   const shape = name === null ? null : graph.classes?.shapeOf(name) ?? null;
   const member = constantString(compiledFn.constants, operands[1]!);
-  if (shape === null || acc === null || !shape.staticFields.has(member)) return;
+  if (shape === null || acc === null) return;
+  const declares =
+    initializes &&
+    acc.type !== ir.IR_MAKE_CLOSURE &&
+    compiledFunctionConstant(acc.props.value) === null;
+  if (!declares && !shape.staticFields.has(member)) return;
   block.addNode(ir.irGenericSetProp(owner!, member, acc));
 }
 import { captureFrameState } from "./frame-state.js";
+import { compiledFunctionConstant } from "../ir/compiled-function.js";
 import {
   buildPolymorphicDispatch,
   selectInlineTarget,
@@ -2030,25 +2037,27 @@ function compileInstruction(
     case bytecode.ROP_SPREAD_ARRAY: {
       const target = regs.get(operands[0]!);
       const source = block._lastAcc ?? acc;
-      if (
-        target === undefined ||
-        target === null ||
-        !source ||
-        feedback.vector !== null ||
-        target.type !== ir.IR_NEW_ARRAY ||
-        target.inputs.length > 0 ||
-        target.uses.length > 0
-      ) {
+      if (target === undefined || target === null || !source || feedback.vector !== null) {
         bailOut(graph, compiledFn, op, bytecodeIdx);
         break;
       }
-      const callee = ir.irGenericGetProp(source, SLICE_MEMBER);
-      block.addNode(callee);
-      const copied = ir.irGenericCall(callee, [source, ir.homeInstruction(ir.irConstant(0), block)]);
-      copied.props.isMethod = true;
-      copied.frameState = captureFrameState(compiledFn, bytecodeIdx, regs, [callee], frameStates);
-      block.addNode(copied);
-      regs.set(operands[0]!, copied);
+      if (
+        target.type === ir.IR_NEW_ARRAY &&
+        target.inputs.length === 0 &&
+        target.uses.length === 0
+      ) {
+        const callee = ir.irGenericGetProp(source, SLICE_MEMBER);
+        block.addNode(callee);
+        const copied = ir.irGenericCall(callee, [source, ir.homeInstruction(ir.irConstant(0), block)]);
+        copied.props.isMethod = true;
+        copied.frameState = captureFrameState(compiledFn, bytecodeIdx, regs, [callee], frameStates);
+        block.addNode(copied);
+        regs.set(operands[0]!, copied);
+        break;
+      }
+      const spread = ir.irSpreadElements(target, source);
+      spread.frameState = captureFrameState(compiledFn, bytecodeIdx, regs, [], frameStates);
+      block.addNode(spread);
       break;
     }
 
@@ -2215,7 +2224,7 @@ function compileInstruction(
     default: {
       if (graph.classes !== null && CLASS_DECLARATION_OPCODES.has(op)) {
         if (op === bytecode.ROP_DEFINE_CLASS_MEMBER) {
-          defineStaticField(graph, block, acc, regs, compiledFn, operands);
+          defineStaticField(graph, block, acc, regs, compiledFn, operands, feedback.vector === null);
         }
         break;
       }

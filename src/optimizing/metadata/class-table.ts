@@ -25,6 +25,7 @@ import {
   isStorableScalar,
   scalarAlignment,
   scalarWidth,
+  SCALAR_CODE,
   SCALAR_FLOAT64,
   SCALAR_INT32,
   SCALAR_POINTER,
@@ -32,7 +33,7 @@ import {
   SCALAR_TEXT,
   type AotScalar,
 } from "../types/scalar.js";
-import type { DeclaredSignature } from "../types/signature.js";
+import { functionSignatureOf, type DeclaredSignature } from "../types/signature.js";
 import {
   classMemberSymbol,
   classStaticFieldSymbol,
@@ -258,6 +259,7 @@ export interface ClassShape {
 export interface ClassTable extends NominalTypes {
   defineSynthetic(surface: ClassSurface): ClassShape;
   declareGlobal(name: string, declaredType: string): GlobalVariable | null;
+  declareStaticField(owner: string, name: string, declaredType: string): boolean;
   globalOf(name: string): GlobalVariable | null;
   globals(): readonly GlobalVariable[];
   declareGenerator(producer: string, generator: GeneratorShape): void;
@@ -376,12 +378,14 @@ export function declaredAotScalar(
   nominal: NominalTypes | null,
 ): AotScalar | null {
   if (declared === null || declared === undefined) return null;
+  if (functionSignatureOf(declared) !== null) return SCALAR_CODE;
   return declaredAcceptsNull(declared)
     ? nullableScalarOf(declared, nominal)
     : aotScalarOf(latticeFromDeclaredType(declared, builtinTypeEnv(), nominal ?? undefined));
 }
 
 function fieldScalarOf(declaredType: string, nominal: NominalTypes): AotScalar | null {
+  if (functionSignatureOf(declaredType) !== null) return SCALAR_CODE;
   const type = latticeFromDeclaredType(declaredType, builtinTypeEnv(), nominal);
   if (declaredAcceptsNull(declaredType) || type.kind === TypeKind.Nullish) {
     return nullableScalarOf(declaredType, nominal);
@@ -599,6 +603,25 @@ class Table implements ClassTable {
     const variable: GlobalVariable = { name, declaredType, offset, scalar };
     this.globalVariables.set(name, variable);
     return variable;
+  }
+
+  declareStaticField(owner: string, name: string, declaredType: string): boolean {
+    const shape = this.byName.get(owner);
+    if (shape === undefined || shape.staticFields.has(name)) return false;
+    const scalar = fieldScalarOf(declaredType, this);
+    if (scalar === null) return false;
+    const symbol = classStaticFieldSymbol(owner, name);
+    const offset = this.reserveStatic(symbol, scalar);
+    if (offset === null) return false;
+    (shape.staticFields as Map<string, ClassStaticField>).set(name, {
+      name,
+      owner,
+      symbol,
+      declaredType,
+      offset,
+      scalar,
+    });
+    return true;
   }
 
   globalOf(name: string): GlobalVariable | null {

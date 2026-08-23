@@ -176,3 +176,7 @@ export function inspectElf(image: Uint8Array, flags: readonly string[]): ImageRe
 export function inspectPe(image: Uint8Array, flags: readonly string[]): ImageReport {
   return report(objectDumper, image, "image.exe", flags);
 }
+
+export function dumpObject(image: Uint8Array, flags: readonly string[]): ImageReport {
+  return report(objectDumper, image, "image.o", flags);
+}

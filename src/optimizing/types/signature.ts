@@ -60,6 +60,19 @@ export interface DeclaredSignature {
   readonly returns: string | null;
 }
 
+export function functionTypeTextOf(signature: DeclaredSignature | null | undefined): string | null {
+  if (signature === null || signature === undefined) return null;
+  if (signature.variadic === true || signature.rest != null) return null;
+  const params: string[] = [];
+  for (const param of signature.params) {
+    if (typeof param !== "string" || isUnwrittenType(param)) return null;
+    params.push(param);
+  }
+  const returns = signature.returns;
+  if (typeof returns !== "string" || isUnwrittenType(returns)) return null;
+  return `(${params.join(", ")}) ${SIGNATURE_ARROW} ${returns}`;
+}
+
 export function gatheredParameterName(at: number): string {
   return `${GATHERED_PARAMETER_PREFIX}${at}`;
 }

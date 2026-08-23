@@ -2,6 +2,7 @@ import {
   irBranch,
   irCallBuiltin,
   irCallKnownFunction,
+  irGenericCall,
   irConstant,
   irGenericAdd,
   irInt32Add,
@@ -54,6 +55,7 @@ import {
   THROW_BUILTIN,
 } from "../metadata/builtin-methods.js";
 import {
+  declaredAotScalar,
   CLASS_ID_PROP,
   FIELD_SCALAR_PROP,
   FIELD_TYPE_PROP,
@@ -90,11 +92,18 @@ import {
   coroutineCarriesValue,
   type CoroutineSlot,
 } from "../metadata/coroutines.js";
-import { aotScalarOf, scalarWidth, SCALAR_POINTER, SCALAR_TEXT } from "../types/scalar.js";
+import {
+  aotScalarOf,
+  scalarWidth,
+  SCALAR_CODE,
+  SCALAR_POINTER,
+  SCALAR_TEXT,
+  VALUE_SCALAR_PROP,
+} from "../types/scalar.js";
+import { CODE_TARGET_PROP } from "../analyses/aot-legality.js";
 import { nominalLatticeType } from "../types/declared.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 
-export const CORO_DISPATCH = "tera_dispatch";
 export const CORO_DRAIN = "tera_drain";
 export const CORO_REPORT = "tera_report_rejections";
 
@@ -118,7 +127,9 @@ export class CoroutineSplitError extends Error {}
 function typed(node: CFGInstruction, declaredType: string, classes: ClassTable): CFGInstruction {
   node.props[FIELD_TYPE_PROP] = declaredType;
   node.props[FIELD_SCALAR_PROP] =
-    aotScalarOf(nominalLatticeType(declaredType, classes)) ?? SCALAR_POINTER;
+    declaredAotScalar(declaredType, classes) ??
+    aotScalarOf(nominalLatticeType(declaredType, classes)) ??
+    SCALAR_POINTER;
   return node;
 }
 
@@ -155,6 +166,13 @@ export class Emitter {
 
   constant(value: number): CFGInstruction {
     return this.add(irConstant(value));
+  }
+
+  code(symbol: string): CFGInstruction {
+    const node = irConstant(0);
+    node.props[CODE_TARGET_PROP] = symbol;
+    node.props[VALUE_SCALAR_PROP] = SCALAR_CODE;
+    return this.add(node);
   }
 
   load(object: CFGInstruction, shape: ClassShape, name: string): CFGInstruction {
@@ -821,19 +839,15 @@ function settleInPlace(
 export function splitCoroutine(
   graph: CFGFunction,
   classes: ClassTable,
-  routine: number,
   promise: ClassShape,
   promiseOf: PromiseOf,
 ): CoroutineSplit {
-  return withFreshNodeIds(graph, () =>
-    splitInPlace(graph, classes, routine, promise, promiseOf),
-  );
+  return withFreshNodeIds(graph, () => splitInPlace(graph, classes, promise, promiseOf));
 }
 
 function splitInPlace(
   graph: CFGFunction,
   classes: ClassTable,
-  routine: number,
   promise: ClassShape,
   promiseOf: PromiseOf,
 ): CoroutineSplit {
@@ -881,7 +895,7 @@ function splitInPlace(
   const held = opening.allocate(promise);
   const created = opening.allocate(frame);
   opening.store(created, frame, CORO_RESULT_FIELD, held);
-  opening.store(created, frame, CORO_ROUTINE_FIELD, opening.constant(routine));
+  opening.store(created, frame, CORO_ROUTINE_FIELD, opening.code(resume.name));
   opening.store(created, frame, CORO_STATE_FIELD, opening.constant(CORO_ENTRY_STATE));
   opening.store(held, promise, CORO_STATE_FIELD, opening.constant(CORO_STATE_PENDING));
   opening.store(held, promise, CORO_WAITING_FIELD, opening.constant(CORO_NOBODY_WAITING));
@@ -1023,39 +1037,6 @@ export function buildReportRejections(classes: ClassTable): CFGFunction {
   return graph;
 }
 
-export function buildDispatch(
-  classes: ClassTable,
-  routines: ReadonlyMap<number, { readonly resume: string; readonly frame: ClassShape }>,
-): CFGFunction {
-  const graph = new CFGFunction(CORO_DISPATCH);
-  graph.classes = classes;
-  graph.internal = true;
-  graph.declaredSignature = { params: [CORO_FRAME_BASE], returns: INT };
-  graph.parameterCount = 1;
-  const self = graph.addParameter(0);
-  const base = classes.shapeOf(CORO_FRAME_BASE)!;
-
-  let block = graph.addBlock();
-  for (const [routine, target] of routines) {
-    const out = new Emitter(classes, block);
-    const which = out.load(self, base, CORO_ROUTINE_FIELD);
-    const matches = out.add(irInt32Compare("==", which, out.constant(routine)));
-    const taken = graph.addBlock();
-    const next = graph.addBlock();
-    block.addNode(irBranch(matches, taken, next));
-    link(block, taken);
-    link(block, next);
-    const call = irCallKnownFunction({ name: target.resume } as never, [self]);
-    taken.addNode(call);
-    taken.addNode(irReturn(call));
-    block = next;
-  }
-  const tail = new Emitter(classes, block);
-  block.addNode(irReturn(tail.constant(RESUME_DONE)));
-  graph.rebuildUses();
-  return graph;
-}
-
 export function buildDrain(classes: ClassTable): CFGFunction {
   const graph = new CFGFunction(CORO_DRAIN);
   graph.classes = classes;
@@ -1092,7 +1073,9 @@ export function buildDrain(classes: ClassTable): CFGFunction {
     INT,
     step.add(irInt32Sub(remaining, step.constant(1))),
   );
-  body.addNode(irCallKnownFunction({ name: CORO_DISPATCH } as never, [head]));
+  const routine = step.load(head, base, CORO_ROUTINE_FIELD);
+  const resumed = irGenericCall(routine, [head]);
+  body.addNode(resumed);
   body.addNode(irJump(test));
   link(body, test);
 

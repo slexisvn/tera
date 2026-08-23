@@ -9,6 +9,9 @@ import { allocateRegisters, type Allocation } from "./linear-scan.js";
 import { assignPositions, computeLiveness, type Liveness } from "./liveness.js";
 import type { MachineLowering } from "./lowering.js";
 import { rewriteAllocations } from "./rewrite.js";
+import { coalesceRoundTrips } from "./coalesce.js";
+import { peepholeMachineCode } from "./peephole.js";
+import { placeLoopHeadersAfterBodies } from "./placement.js";
 import { selectMachineFunction } from "./select.js";
 import { lowerTwoAddress } from "./two-address.js";
 
@@ -39,5 +42,8 @@ export function compileMachineFunction(
     ...usedScratch.filter((register) => preserved.has(register)),
   ]);
   insertFrameCode(fn, frame, lowering);
+  placeLoopHeadersAfterBodies(fn);
+  coalesceRoundTrips(fn, lowering.target.abi.callingConvention);
+  peepholeMachineCode(fn, lowering);
   return { fn, frame, liveness, allocation };
 }

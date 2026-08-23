@@ -36,6 +36,8 @@ const SHF_ALLOC = 0x2;
 const SHF_EXECINSTR = 0x4;
 
 const PT_LOAD = 1;
+const PT_GNU_EH_FRAME = 0x6474e550;
+const EH_FRAME_HEADER_SECTION = ".eh_frame_hdr";
 const PF_X = 0x1;
 const PF_W = 0x2;
 const PF_R = 0x4;
@@ -104,6 +106,14 @@ function segmentFlags(section: McSection): number {
   if (permissions.write) flags |= PF_W;
   if (permissions.execute) flags |= PF_X;
   return flags;
+}
+
+function unwindHeaderOf(sections: readonly McSection[]): McSection | undefined {
+  return sections.find((section) => section.name === EH_FRAME_HEADER_SECTION);
+}
+
+function programHeaderCount(sections: readonly McSection[]): number {
+  return sections.length + (unwindHeaderOf(sections) === undefined ? 0 : 1);
 }
 
 function symbolTypeOf(symbol: McSymbol): number {
@@ -359,7 +369,7 @@ export function layoutElf64Executable(
   const sections = module.nonEmptySections;
   for (const section of sections) section.require(pageSize);
   layoutModule(module, target, {
-    base: base + ELF_HEADER_BYTES + ELF_PROGRAM_HEADER_BYTES * sections.length,
+    base: base + ELF_HEADER_BYTES + ELF_PROGRAM_HEADER_BYTES * programHeaderCount(sections),
   });
 }
 
@@ -385,9 +395,10 @@ export function writeElf64Executable(
     fileOffset: section.address - base,
   }));
 
+  const headerCount = programHeaderCount(sections);
   const end = placed.reduce(
     (total, item) => Math.max(total, item.fileOffset + item.section.size),
-    ELF_HEADER_BYTES + ELF_PROGRAM_HEADER_BYTES * sections.length,
+    ELF_HEADER_BYTES + ELF_PROGRAM_HEADER_BYTES * headerCount,
   );
 
   const out = new ByteBuffer(end);
@@ -397,21 +408,24 @@ export function writeElf64Executable(
     options,
     entry,
     ELF_HEADER_BYTES,
-    sections.length,
+    headerCount,
     0,
     0,
     0,
   );
-  for (const item of placed) {
-    out.integer(PT_LOAD, 4);
+  const segment = (type: number, item: PlacedSection, alignment: number): void => {
+    out.integer(type, 4);
     out.integer(segmentFlags(item.section), 4);
     out.integer(item.fileOffset, 8);
     out.integer(item.address, 8);
     out.integer(item.address, 8);
     out.integer(item.section.kind === "bss" ? 0 : item.section.size, 8);
     out.integer(item.section.size, 8);
-    out.integer(pageSize, 8);
-  }
+    out.integer(alignment, 8);
+  };
+  for (const item of placed) segment(PT_LOAD, item, pageSize);
+  const unwind = placed.find((item) => item.section.name === EH_FRAME_HEADER_SECTION);
+  if (unwind !== undefined) segment(PT_GNU_EH_FRAME, unwind, unwind.section.alignment);
   for (const item of placed) {
     if (item.section.kind === "bss") continue;
     out.fill(item.fileOffset - out.length, 0);

@@ -42,6 +42,11 @@ export interface SelectionContext {
   constantOf(value: CFGInstruction): unknown;
   successorFor(prop: string): MachineBlock;
   guard(name: string): SelectionFork;
+  emitCallThrough(
+    through: VirtualRegister,
+    args: readonly VirtualRegister[],
+    destination: VirtualRegister | null,
+  ): void;
   emitCall(
     symbol: string,
     args: readonly VirtualRegister[],
@@ -70,7 +75,9 @@ export interface MachineLowering {
   loadIncoming(destination: RegisterOperand, slot: StackSlot): MachineInstruction;
   storeOutgoing(offset: number, source: RegisterOperand): MachineInstruction;
   jump(target: MachineBlock): MachineInstruction;
-  call(symbol: string, operands: MachineOperand[]): MachineInstruction;
+  fusedInputOf(node: CFGInstruction): CFGInstruction | null;
+  invertBranch(node: MachineInstruction, target: MachineBlock): MachineInstruction | null;
+  call(target: MachineOperand, operands: MachineOperand[]): MachineInstruction;
   storeRoot(
     frame: StackSlot,
     index: number,

@@ -32,7 +32,7 @@ const OPAQUE_TO_INLINING: ReadonlySet<string> = new Set<string>([
 
 const STRING_TYPE = "string";
 
-interface CallSite {
+export interface CallSite {
   readonly callee: CFGFunction;
   readonly args: readonly CFGInstruction[];
 }
@@ -57,7 +57,7 @@ function straightLineBody(callee: CFGFunction): StraightLineBody | null {
   return { nodes, returned: terminator.inputs[0] ?? null };
 }
 
-function callSiteOf(
+export function callSiteOf(
   node: CFGInstruction,
   functions: ModuleFunctions,
 ): CallSite | null {
@@ -83,7 +83,6 @@ function inlinable(
   if (callee === caller) return false;
   if (callee.isAsync || callee.isGenerator) return false;
   if (callee.gatheredArguments !== null) return false;
-  if (callee.receiver) return false;
   if (callee.declaredSignature?.returns === STRING_TYPE) return false;
   if (callee.parameters.length !== site.args.length) return false;
   if (body.nodes.length > budget) return false;
@@ -98,8 +97,7 @@ function spliceBody(
   stamp: (node: CFGInstruction) => CFGInstruction,
 ): boolean {
   const copy = cloneGraph(site.callee, `${caller.name}$inline`);
-  const cloned = straightLineBody(copy.graph);
-  if (cloned === null) return false;
+  if (straightLineBody(copy.graph) === null) return false;
 
   const parameters = copy.graph.parameters;
   const inside = new GraphEditor(copy.graph);
@@ -107,6 +105,7 @@ function spliceBody(
     inside.replaceAllUses(parameters[at]!, site.args[at]!);
   }
 
+  const cloned = straightLineBody(copy.graph)!;
   for (const node of cloned.nodes) {
     stamp(node);
     if (node.frameState === null && irRequiresFrameState(node)) node.frameState = call.frameState;

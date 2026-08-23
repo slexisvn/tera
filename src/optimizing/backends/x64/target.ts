@@ -8,6 +8,7 @@ import { sanitizeSymbol, C_KEYWORDS, C_LIBRARY_NAMES } from "../../target/symbol
 import {
   SCALAR_FLOAT64,
   SCALAR_INT32,
+  SCALAR_CODE,
   SCALAR_POINTER,
   SCALAR_STRING,
   type AotScalar,
@@ -30,6 +31,7 @@ const LOCATIONS = new Map<AotScalar, ScalarLocation>([
   [SCALAR_FLOAT64, { classId: X64_FPR, width: 8 }],
   [SCALAR_STRING, { classId: X64_GPR, width: 8 }],
   [SCALAR_POINTER, { classId: X64_GPR, width: 8 }],
+  [SCALAR_CODE, { classId: X64_GPR, width: 8 }],
 ]);
 
 const RESERVED_SYMBOLS = new Set<string>([

@@ -153,3 +153,73 @@ describe("AOT higher-order functions", () => {
     ).toThrow("Type '(int) -> int' is not assignable to parameter 'f: (float) -> float'");
   });
 });
+
+describe("AOT function values", () => {
+  itNative("answers a different function from each branch", native.matches(
+      src(
+        "fn up(n: int) -> int:",
+        "  return n + 1",
+        "fn down(n: int) -> int:",
+        "  return n - 1",
+        "fn pick(flag: bool) -> (int) -> int:",
+        "  if flag:",
+        "    return up",
+        "  return down",
+        "fn f(n: int) -> int:",
+        "  return pick(true)(n) + pick(false)(n)",
+      ),
+      "f",
+      [3],
+    ));
+
+  itNative("keeps a function in a field of an object literal", native.matches(
+      src(
+        "fn inc(n: int) -> int:",
+        "  return n + 1",
+        "fn f(n: int) -> int:",
+        "  o = { f: inc }",
+        "  return o.f(n)",
+      ),
+      "f",
+      [1],
+    ));
+
+  itNative("keeps an unannotated lambda in a field of an object literal", native.matches(
+      src(
+        "fn f(n: int) -> int:",
+        "  o = { g: (m: int) => m + 1 }",
+        "  return o.g(n)",
+      ),
+      "f",
+      [4],
+    ));
+
+  itNative("keeps a function in a local across a loop", native.matches(
+      src(
+        "fn inc(n: int) -> int:",
+        "  return n + 1",
+        "fn f(n: int) -> int:",
+        "  g: (int) -> int = inc",
+        "  total = 0",
+        "  i = 0",
+        "  while i < n:",
+        "    total = g(total)",
+        "    i = i + 1",
+        "  return total",
+      ),
+      "f",
+      [5],
+    ));
+
+  itNative("keeps answering the closure a call built", native.matches(
+      src(
+        "fn make(base: int) -> (int) -> int:",
+        "  return n => n + base",
+        "fn f(n: int) -> int:",
+        "  g = make(n)",
+        "  return g(1) + g(2)",
+      ),
+      "f",
+      [3],
+    ));
+});

@@ -6,6 +6,7 @@ export const SCALAR_FLOAT64 = "float64";
 export const SCALAR_STRING = "string";
 export const SCALAR_TEXT = "text";
 export const SCALAR_POINTER = "pointer";
+export const SCALAR_CODE = "code";
 export const SCALAR_VOID = "void";
 
 export type AotScalar =
@@ -14,6 +15,7 @@ export type AotScalar =
   | typeof SCALAR_STRING
   | typeof SCALAR_TEXT
   | typeof SCALAR_POINTER
+  | typeof SCALAR_CODE
   | typeof SCALAR_VOID;
 
 export const TEXT_STORAGE_BYTES = 1024;
@@ -39,6 +41,7 @@ const SCALAR_WIDTHS = new Map<AotScalar, number>([
   [SCALAR_STRING, 8],
   [SCALAR_TEXT, TEXT_STORAGE_BYTES],
   [SCALAR_POINTER, 8],
+  [SCALAR_CODE, 8],
 ]);
 
 export function aotScalarOf(type: LatticeType): AotScalar | null {

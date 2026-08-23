@@ -103,7 +103,7 @@ function suspending(classes: ClassTable, suspends: number, carry: boolean): CFGF
 }
 
 function split(graph: CFGFunction, classes: ClassTable, promiseOf: PromiseOf = () => null) {
-  return splitCoroutine(graph, classes, 0, coroutinePromiseShape(classes, "f", "Box"), promiseOf);
+  return splitCoroutine(graph, classes, coroutinePromiseShape(classes, "f", "Box"), promiseOf);
 }
 
 beforeEach(() => resetIRNodeIds());
@@ -178,7 +178,7 @@ describe("splitCoroutine", () => {
     block.addNode(irReturn(text));
 
     const promise = coroutinePromiseShape(classes, "f", "string");
-    const { resume } = splitCoroutine(graph, classes, 0, promise, () => null);
+    const { resume } = splitCoroutine(graph, classes, promise, () => null);
     const value = promise.fields.get(CORO_VALUE_FIELD)!;
     const settles = (type: string) =>
       resume!.blocks.flatMap((candidate) =>
@@ -205,7 +205,7 @@ describe("splitCoroutine", () => {
     returnPendingThrow(block);
 
     const promise = coroutinePromiseShape(classes, "f", "int");
-    const { resume } = splitCoroutine(graph, classes, 0, promise, () => null);
+    const { resume } = splitCoroutine(graph, classes, promise, () => null);
     const error = promise.fields.get(CORO_ERROR_FIELD)!;
     const state = promise.fields.get(CORO_STATE_FIELD)!;
     const stores = (type: string, offset: number) =>

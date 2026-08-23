@@ -2,6 +2,7 @@ import {
   irGenericGetProp,
   irGenericSetProp,
   IR_CALL_KNOWN_FUNCTION,
+  IR_CONSTANT,
   IR_COPY_PROPERTIES,
   IR_GENERIC_CALL,
   IR_GENERIC_SET_PROP,
@@ -24,7 +25,9 @@ import {
   type ClassTable,
   type LiteralField,
 } from "../metadata/class-table.js";
-import { calleeDeclaredSignature } from "../analyses/aot-legality.js";
+import { calleeDeclaredSignature, codeSymbolOf } from "../analyses/aot-legality.js";
+import { compiledFunctionConstant } from "../ir/compiled-function.js";
+import { functionTypeTextOf } from "../types/signature.js";
 import type { DeclaredSignature } from "../types/signature.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
@@ -34,12 +37,25 @@ import { arrayElementNameOf } from "./array-shapes.js";
 const ANY_TYPE = "any";
 const CALLEE_INPUT = 1;
 
+function functionValueTypeOf(stored: CFGInstruction, graph: CFGFunction): string | null {
+  const named = codeSymbolOf(stored);
+  if (named === null) return null;
+  const compiled =
+    stored.type === IR_CONSTANT ? compiledFunctionConstant(stored.props.value) : null;
+  return (
+    functionTypeTextOf(compiled?.declaredSignature) ??
+    functionTypeTextOf(graph.calleeSignatures?.get(named))
+  );
+}
+
 function storedTypeName(
   stored: CFGInstruction,
   graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
 ): string | null {
+  const code = functionValueTypeOf(stored, graph);
+  if (code !== null) return code;
   if (types.typeOf(stored).kind !== TypeKind.Array) {
     return declaredTypeOf(types.typeOf(stored), classes);
   }

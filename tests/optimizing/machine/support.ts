@@ -132,6 +132,13 @@ export const SCALARS = {
   string: SCALAR_STRING,
 } as const;
 
+const OPPOSITE_TEST_CONDITIONS = new Map<string, string>([
+  ["jle", "jg"],
+  ["jg", "jle"],
+  ["jeq", "jne"],
+  ["jne", "jeq"],
+]);
+
 export function testLowering(target: MachineTargetModel): MachineLowering {
   return {
     target,
@@ -155,6 +162,12 @@ export function testLowering(target: MachineTargetModel): MachineLowering {
     storeOutgoing: (offset, source) =>
       instruction("store", [mem(source.width, { displacement: offset }), source]),
     jump: (block) => instruction("jump", [label(block)], { terminator: true }),
+    fusedInputOf: () => null,
+    invertBranch: (node, block) => {
+      const opposite = OPPOSITE_TEST_CONDITIONS.get(node.opcode);
+      if (opposite === undefined) return null;
+      return instruction(opposite, [label(block)], { terminator: true });
+    },
     call: (symbol, operands) =>
       instruction("call", [sym(symbol), ...operands], { call: true, implicitFrom: 1 }),
   };

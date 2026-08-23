@@ -1,5 +1,5 @@
 import * as ir from "../ir/index.js";
-import { detachInputs, replaceValueUses } from "../ir/graph-edit.js";
+import { detachInputs, nodeIdStamper, replaceValueUses } from "../ir/graph-edit.js";
 import { rewriteBranchAsJump } from "../ir/cfg-edit.js";
 import { Worklist } from "../infra/worklist.js";
 import { flatLattice, type FlatValue } from "../infra/lattice.js";
@@ -293,6 +293,7 @@ export function sparseConditionalConstantPropagation(graph: SccpGraph): number {
   solver.solve();
 
   let rewrites = 0;
+  const stamp = nodeIdStamper(graph);
 
   for (const block of graph.blocks) {
     if (!solver.isReachable(block)) continue;
@@ -306,7 +307,7 @@ export function sparseConditionalConstantPropagation(graph: SccpGraph): number {
       replacements.push({ node, at, value: cell.value });
     }
     for (const { node, at, value } of replacements) {
-      const folded = ir.irConstant(value);
+      const folded = stamp(ir.irConstant(value) as unknown as ir.CFGInstruction);
       if (FORWARDING.has(node.type)) {
         replaceValueUses(graph, node, folded);
       } else {

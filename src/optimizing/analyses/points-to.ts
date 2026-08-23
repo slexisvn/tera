@@ -1,41 +1,16 @@
 import * as ir from "../ir/index.js";
 import { analysisId, type AnalysisPass } from "../infra/analysis-manager.js";
-import { UnionFind } from "../infra/union-find.js";
 import type { Partition } from "./heap-model.js";
 import { metadataNumber } from "../ir/metadata.js";
 
 type Value = ir.CFGInstruction;
 
-type ClassInfo = {
-  readonly root: Value;
-  readonly members: Value[];
-  readonly allocSites: Set<number>;
-  readonly mapIds: Set<number>;
-  readonly globalNames: Set<string>;
-  readonly partition: Partition;
-  readonly escaped: boolean;
-};
+const UNKNOWN_SITE = -1;
+const ARRAY_MAP_ID = -1;
 
 const CALLS = new Set([
   ir.IR_GENERIC_CALL,
   ir.IR_MAKE_CLOSURE,
-  ir.IR_CALL_BUILTIN,
-  ir.IR_CALL_INTRINSIC,
-  ir.IR_CALL_KNOWN_FUNCTION,
-]);
-const EXTERNAL_VALUES = new Set([
-  ir.IR_PARAMETER,
-  ir.IR_LOAD_FIELD,
-  ir.IR_LOAD_ELEMENT,
-  ir.IR_LOAD_ARRAY_LENGTH,
-  ir.IR_GENERIC_GET_PROP,
-  ir.IR_GENERIC_GET_INDEX,
-  ir.IR_LOAD_GLOBAL,
-  ir.IR_LOAD_CONTEXT_SLOT,
-  ir.IR_POLYMORPHIC_LOAD,
-  ir.IR_MEGAMORPHIC_LOAD,
-  ir.IR_DISPATCH_MAP,
-  ir.IR_GENERIC_CALL,
   ir.IR_CALL_BUILTIN,
   ir.IR_CALL_INTRINSIC,
   ir.IR_CALL_KNOWN_FUNCTION,
@@ -72,10 +47,7 @@ const STORE_BASE_INDEX = new Map<string, number>([
   [ir.IR_GENERIC_SET_INDEX, 0],
 ]);
 
-const INPUT_ESCAPE_EFFECTS = new Set([
-  ...CALLS,
-  ir.IR_GENERIC_DELETE_PROP,
-]);
+const INPUT_ESCAPE_EFFECTS = new Set([...CALLS, ir.IR_GENERIC_DELETE_PROP]);
 
 export interface PointsToResult {
   partitionOf(value: Value): Partition;
@@ -94,147 +66,114 @@ export const pointsToAnalysis: AnalysisPass<ir.CFGFunction, PointsToResult> = {
   },
 };
 
-function analyzePointsTo(graph: ir.CFGFunction): PointsToResult {
-  const values = collectValues(graph);
-  const uf = new UnionFind<Value>();
-  for (const value of values) uf.makeSet(value);
-
-  for (const value of values) {
-    if (value.type === ir.IR_PHI) {
-      for (const input of value.inputs) uf.union(value, input);
-      continue;
-    }
-    if (ir.forwardsPointerIdentity(value.type) && value.inputs[0]) {
-      uf.union(value, value.inputs[0]);
-    }
-  }
-
-  const membersByRoot = new Map<Value, Value[]>();
-  for (const value of values) {
-    const root = uf.find(value);
-    let members = membersByRoot.get(root);
-    if (!members) {
-      members = [];
-      membersByRoot.set(root, members);
-    }
-    members.push(value);
-  }
-
-  const infoByRoot = new Map<Value, ClassInfo>();
-  for (const [root, members] of membersByRoot) {
-    const allocSites = new Set<number>();
-    const mapIds = new Set<number>();
-    const globalNames = new Set<string>();
-    for (const member of members) {
-      if (ir.isAllocationSite(member.type)) allocSites.add(member.id);
-      if (member.type === ir.IR_CHECK_MAP) {
-        const mapId = metadataNumber(member.props.expectedMapId);
-        if (mapId !== null) mapIds.add(mapId);
-      } else if (member.type === ir.IR_CHECK_ARRAY) {
-        mapIds.add(-1);
-      }
-      if (member.type === ir.IR_LOAD_GLOBAL && typeof member.props.name === "string") {
-        globalNames.add(member.props.name);
-      }
-    }
-    const partition = classifyPartition(members, allocSites, mapIds, globalNames);
-    infoByRoot.set(root, {
-      root,
-      members,
-      allocSites,
-      mapIds,
-      globalNames,
-      partition,
-      escaped: false,
-    });
-  }
-
-  const escapedRoots = collectEscapedRoots(values, uf, infoByRoot);
-
-  for (const [root, info] of [...infoByRoot]) {
-    infoByRoot.set(root, {
-      ...info,
-      escaped: escapedRoots.has(root),
-    });
-  }
-
-  const infoOf = (value: Value): ClassInfo | null => infoByRoot.get(uf.find(value)) ?? null;
-
-  return {
-    partitionOf: (value) => infoOf(value)?.partition ?? { kind: "any" },
-    mayAlias: (left, right) => mayAlias(infoOf(left), infoOf(right), uf, left, right),
-    escapes: (value) => infoOf(value)?.escaped ?? false,
-    allocClassOf: (value) => {
-      const info = infoOf(value);
-      if (!info) return null;
-      return info.allocSites.size === 1 ? [...info.allocSites][0]! : null;
-    },
-    virtualAllocations: () => {
-      const out: number[] = [];
-      for (const info of infoByRoot.values()) {
-        if (info.partition.kind !== "alloc" || info.escaped) continue;
-        out.push(info.partition.site);
-      }
-      return out;
-    },
-  };
+interface Flow {
+  readonly targets: Set<number>;
+  readonly shapes: Set<number>;
 }
 
 function collectValues(graph: ir.CFGFunction): Value[] {
   const values: Value[] = [...graph.parameters];
-  for (const block of graph.blocks) values.push(...block.nodes);
+  for (const block of graph.blocks) {
+    values.push(...block.phis);
+    values.push(...block.nodes);
+  }
   return values;
 }
 
-function classifyPartition(
-  members: readonly Value[],
-  allocSites: ReadonlySet<number>,
-  mapIds: ReadonlySet<number>,
-  globalNames: ReadonlySet<string>,
-): Partition {
-  const hasExternal = members.some((member) => EXTERNAL_VALUES.has(member.type));
-  const hasNonPointer = members.some((member) => NON_POINTER_VALUES.has(member.type));
-  if (allocSites.size === 1 && !hasExternal && !hasNonPointer) {
-    return { kind: "alloc", site: [...allocSites][0]! };
-  }
-  if (mapIds.size === 1) return { kind: "shape", mapId: [...mapIds][0]! };
-  if (
-    globalNames.size === 1 &&
-    members.every((member) => member.type === ir.IR_LOAD_GLOBAL)
-  ) {
-    return { kind: "global", name: [...globalNames][0]! };
-  }
-  return { kind: "any" };
+function copiedFrom(value: Value): readonly Value[] {
+  if (value.type === ir.IR_PHI) return value.inputs;
+  if (ir.forwardsPointerIdentity(value.type) && value.inputs[0]) return [value.inputs[0]];
+  return [];
 }
 
-function collectEscapedRoots(
-  values: readonly Value[],
-  uf: UnionFind<Value>,
-  infoByRoot: ReadonlyMap<Value, ClassInfo>,
-): Set<Value> {
-  const escaped = new Set<Value>();
-  const worklist: Value[] = [];
-  const containment = new Map<Value, Value[]>();
-  const mark = (value: Value): void => {
-    const root = uf.find(value);
-    const info = infoByRoot.get(root);
-    if (!info || info.allocSites.size === 0 || escaped.has(root)) return;
-    escaped.add(root);
-    worklist.push(root);
-  };
-  const addEdge = (container: Value, stored: Value): void => {
-    const root = uf.find(container);
-    let targets = containment.get(root);
-    if (!targets) {
-      targets = [];
-      containment.set(root, targets);
+function shapeStampOf(value: Value): number | null {
+  if (value.type === ir.IR_CHECK_ARRAY) return ARRAY_MAP_ID;
+  if (value.type !== ir.IR_CHECK_MAP) return null;
+  return metadataNumber(value.props.expectedMapId);
+}
+
+function seed(values: readonly Value[]): Map<Value, Flow> {
+  const flow = new Map<Value, Flow>();
+  for (const value of values) {
+    const targets = new Set<number>();
+    const shapes = new Set<number>();
+    const stamped = shapeStampOf(value);
+    if (stamped !== null) shapes.add(stamped);
+    const holdsNothing = NON_POINTER_VALUES.has(value.type);
+    if (ir.isAllocationSite(value.type)) targets.add(value.id);
+    else if (!holdsNothing && copiedFrom(value).length === 0) targets.add(UNKNOWN_SITE);
+    flow.set(value, { targets, shapes });
+  }
+  return flow;
+}
+
+function propagate(values: readonly Value[], flow: Map<Value, Flow>): void {
+  const readers = new Map<Value, Value[]>();
+  for (const value of values) {
+    for (const source of copiedFrom(value)) {
+      const bucket = readers.get(source);
+      if (bucket === undefined) readers.set(source, [value]);
+      else bucket.push(value);
     }
-    targets.push(stored);
+  }
+
+  const pending: Value[] = [...values];
+  const queued = new Set<Value>(values);
+  while (pending.length > 0) {
+    const value = pending.pop()!;
+    queued.delete(value);
+    const held = flow.get(value)!;
+    for (const reader of readers.get(value) ?? []) {
+      const into = flow.get(reader)!;
+      let widened = false;
+      for (const site of held.targets) {
+        if (into.targets.has(site)) continue;
+        into.targets.add(site);
+        widened = true;
+      }
+      for (const shape of held.shapes) {
+        if (into.shapes.has(shape)) continue;
+        into.shapes.add(shape);
+        widened = true;
+      }
+      if (!widened || queued.has(reader)) continue;
+      queued.add(reader);
+      pending.push(reader);
+    }
+  }
+}
+
+function sitesOf(flow: ReadonlyMap<Value, Flow>, value: Value): ReadonlySet<number> {
+  return flow.get(value)?.targets ?? new Set([UNKNOWN_SITE]);
+}
+
+function escapedSitesOf(
+  values: readonly Value[],
+  flow: ReadonlyMap<Value, Flow>,
+): Set<number> {
+  const escaped = new Set<number>();
+  const pending: number[] = [];
+  const containment = new Map<number, Value[]>();
+
+  const mark = (value: Value): void => {
+    for (const site of sitesOf(flow, value)) {
+      if (site === UNKNOWN_SITE || escaped.has(site)) continue;
+      escaped.add(site);
+      pending.push(site);
+    }
+  };
+  const contains = (container: Value, stored: Value): void => {
+    for (const site of sitesOf(flow, container)) {
+      if (site === UNKNOWN_SITE) continue;
+      const bucket = containment.get(site);
+      if (bucket === undefined) containment.set(site, [stored]);
+      else bucket.push(stored);
+    }
   };
 
   for (const value of values) {
     if (value.type === ir.IR_NEW_ARRAY) {
-      for (const input of value.inputs) addEdge(value, input);
+      for (const input of value.inputs) contains(value, input);
     }
     if (value.type === ir.IR_RETURN) {
       for (const input of value.inputs) mark(input);
@@ -250,56 +189,98 @@ function collectEscapedRoots(
     if (!stored) continue;
     const baseIndex = STORE_BASE_INDEX.get(value.type);
     const base = baseIndex === undefined ? undefined : value.inputs[baseIndex];
-    if (base) addEdge(base, stored);
-    if (base && uf.sameSet(base, stored)) continue;
-    mark(stored);
-  }
-  for (const [root, info] of infoByRoot) {
-    if (info.allocSites.size > 0 && info.partition.kind !== "alloc" && !escaped.has(root)) {
-      escaped.add(root);
-      worklist.push(root);
+    if (base === undefined) {
+      mark(stored);
+      continue;
     }
+    contains(base, stored);
+    if (base !== stored) mark(stored);
   }
-  for (let cursor = 0; cursor < worklist.length; cursor++) {
-    const root = worklist[cursor]!;
-    for (const stored of containment.get(root) ?? []) mark(stored);
+
+  for (const value of values) {
+    const held = sitesOf(flow, value);
+    if (held.size === 1 && !held.has(UNKNOWN_SITE)) continue;
+    mark(value);
+  }
+
+  for (let cursor = 0; cursor < pending.length; cursor++) {
+    for (const stored of containment.get(pending[cursor]!) ?? []) mark(stored);
   }
   return escaped;
 }
 
-function mayAlias(
-  leftInfo: ClassInfo | null,
-  rightInfo: ClassInfo | null,
-  uf: UnionFind<Value>,
-  left: Value,
-  right: Value,
-): boolean {
-  if (uf.sameSet(left, right)) return true;
-  if (!leftInfo || !rightInfo) return true;
-  const leftPartition = leftInfo.partition;
-  const rightPartition = rightInfo.partition;
-  if (
-    leftPartition.kind === "alloc" &&
-    rightPartition.kind === "alloc" &&
-    leftPartition.site !== rightPartition.site
-  ) {
-    return false;
-  }
-  if (
-    leftPartition.kind === "shape" &&
-    rightPartition.kind === "shape" &&
-    leftPartition.mapId !== rightPartition.mapId
-  ) {
-    return false;
-  }
-  if (leftPartition.kind === "alloc" && !leftInfo.escaped) return false;
-  if (rightPartition.kind === "alloc" && !rightInfo.escaped) return false;
-  if (
-    leftPartition.kind === "global" &&
-    rightPartition.kind === "global" &&
-    leftPartition.name !== rightPartition.name
-  ) {
-    return false;
-  }
-  return true;
+function analyzePointsTo(graph: ir.CFGFunction): PointsToResult {
+  const values = collectValues(graph);
+  const flow = seed(values);
+  propagate(values, flow);
+  const escaped = escapedSitesOf(values, flow);
+  const allocations = new Set(
+    values.filter((value) => ir.isAllocationSite(value.type)).map((value) => value.id),
+  );
+
+  const keptApart = (value: Value, reached: ReadonlySet<number>): boolean => {
+    const site = onlySite(value);
+    return site !== null && !escaped.has(site) && !reached.has(site);
+  };
+
+  const onlySite = (value: Value): number | null => {
+    const sites = sitesOf(flow, value);
+    if (sites.size !== 1) return null;
+    const site = [...sites][0]!;
+    return site === UNKNOWN_SITE || !allocations.has(site) ? null : site;
+  };
+
+  const partitionOf = (value: Value): Partition => {
+    const site = onlySite(value);
+    if (site !== null) return { kind: "alloc", site };
+    const shapes = flow.get(value)?.shapes ?? new Set<number>();
+    if (shapes.size === 1) return { kind: "shape", mapId: [...shapes][0]! };
+    if (value.type === ir.IR_LOAD_GLOBAL && typeof value.props.name === "string") {
+      return { kind: "global", name: value.props.name };
+    }
+    return { kind: "any" };
+  };
+
+  return {
+    partitionOf,
+    mayAlias: (left, right) => {
+      if (left === right) return true;
+      const held = sitesOf(flow, left);
+      const other = sitesOf(flow, right);
+      if (!held.has(UNKNOWN_SITE) && !other.has(UNKNOWN_SITE)) {
+        for (const site of held) {
+          if (other.has(site)) return true;
+        }
+        return false;
+      }
+      if (keptApart(left, other) || keptApart(right, held)) return false;
+      if (shapedApart(flow, left, right)) return false;
+      return globalsMayAlias(left, right);
+    },
+    escapes: (value) => {
+      for (const site of sitesOf(flow, value)) {
+        if (site !== UNKNOWN_SITE && escaped.has(site)) return true;
+        if (site === UNKNOWN_SITE) return true;
+      }
+      return false;
+    },
+    allocClassOf: (value) => onlySite(value),
+    virtualAllocations: () => [...allocations].filter((site) => !escaped.has(site)),
+  };
+}
+
+function shapedApart(flow: ReadonlyMap<Value, Flow>, left: Value, right: Value): boolean {
+  const held = flow.get(left)?.shapes;
+  const other = flow.get(right)?.shapes;
+  if (held === undefined || other === undefined) return false;
+  if (held.size !== 1 || other.size !== 1) return false;
+  return [...held][0] !== [...other][0];
+}
+
+function globalsMayAlias(left: Value, right: Value): boolean {
+  if (left.type !== ir.IR_LOAD_GLOBAL || right.type !== ir.IR_LOAD_GLOBAL) return true;
+  const held = left.props.name;
+  const other = right.props.name;
+  if (typeof held !== "string" || typeof other !== "string") return true;
+  return held === other;
 }

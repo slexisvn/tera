@@ -48,10 +48,10 @@ function returnSignatureOf(node: ir.CFGInstruction): DeclaredSignature | null {
 }
 
 class TypeSolver implements TypeInference, TypeContext {
-  private readonly types = new Map<number, LatticeType>();
-  private readonly speculative = new Set<number>();
-  private readonly seeded = new Set<number>();
-  private readonly queued = new Set<number>();
+  private readonly types = new Map<ir.CFGInstruction, LatticeType>();
+  private readonly speculative = new Set<ir.CFGInstruction>();
+  private readonly seeded = new Set<ir.CFGInstruction>();
+  private readonly queued = new Set<ir.CFGInstruction>();
   private readonly worklist: ir.CFGInstruction[] = [];
 
   constructor(private readonly graph: ir.CFGFunction) {
@@ -60,11 +60,11 @@ class TypeSolver implements TypeInference, TypeContext {
   }
 
   typeOf(value: ir.CFGInstruction): LatticeType {
-    return this.types.get(value.id) ?? BOTTOM;
+    return this.types.get(value) ?? BOTTOM;
   }
 
   isSpeculative(value: ir.CFGInstruction): boolean {
-    return this.speculative.has(value.id);
+    return this.speculative.has(value);
   }
 
   returnTypeOf(node: ir.CFGInstruction): LatticeType {
@@ -77,14 +77,14 @@ class TypeSolver implements TypeInference, TypeContext {
     for (const param of this.graph.parameters) {
       const index = Number(param.props.index);
       const declared = signature === null ? null : signature.params[index] ?? null;
-      this.types.set(param.id, nominalLatticeType(declared, this.graph.classes));
-      this.seeded.add(param.id);
+      this.types.set(param, nominalLatticeType(declared, this.graph.classes));
+      this.seeded.add(param);
     }
   }
 
   private enqueue(value: ir.CFGInstruction): void {
-    if (this.seeded.has(value.id) || this.queued.has(value.id)) return;
-    this.queued.add(value.id);
+    if (this.seeded.has(value) || this.queued.has(value)) return;
+    this.queued.add(value);
     this.worklist.push(value);
   }
 
@@ -95,11 +95,11 @@ class TypeSolver implements TypeInference, TypeContext {
 
     while (this.worklist.length > 0) {
       const node = this.worklist.pop()!;
-      this.queued.delete(node.id);
+      this.queued.delete(node);
       const previous = this.typeOf(node);
       const next = joinTypes(previous, this.evaluate(node));
       const grew = !typeEquals(previous, next);
-      if (grew) this.types.set(node.id, next);
+      if (grew) this.types.set(node, next);
       if (!this.propagateSpeculation(node) && !grew) continue;
       for (const observer of this.observersOf(node)) this.enqueue(observer);
     }
@@ -118,12 +118,12 @@ class TypeSolver implements TypeInference, TypeContext {
   }
 
   private propagateSpeculation(node: ir.CFGInstruction): boolean {
-    if (this.speculative.has(node.id)) return false;
+    if (this.speculative.has(node)) return false;
     const tainted =
       SPECULATIVE_SOURCES.has(node.type) ||
-      node.inputs.some((input) => this.speculative.has(input.id));
+      node.inputs.some((input) => this.speculative.has(input));
     if (!tainted) return false;
-    this.speculative.add(node.id);
+    this.speculative.add(node);
     return true;
   }
 

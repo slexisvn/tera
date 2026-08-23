@@ -254,12 +254,18 @@ describe("AOT array spread", () => {
       "3\n3\n",
     ));
 
-  it("declines a spread that does not start the array", () => {
-    const program = nodeEngine().compileAot(
-      "a: int[] = [1, 2]\nb = [0, ...a]\nprint(b.length)\n",
-      { wholeProgram: true },
-    );
+  itNative("spreads after a literal element", prints(
+      ["a: int[] = [1, 2]", "b = [0, ...a]", "print(b.length)", "print(b[0])", "print(b[2])"],
+      "3\n0\n2\n",
+    ));
 
-    expect(program.skipped.map((fn) => fn.reason).join("; ")).toContain("SpreadArray");
-  });
+  itNative("spreads twice into one array", prints(
+      ["a: int[] = [1, 2]", "c: int[] = [7]", "b = [...c, ...a]", "print(b.length)", "print(b[0])", "print(b[2])"],
+      "3\n7\n2\n",
+    ));
+
+  itNative("spreads between literal elements", prints(
+      ["a: int[] = [1, 2]", "b = [0, ...a, 9]", "print(b.length)", "print(b[3])"],
+      "4\n9\n",
+    ));
 });

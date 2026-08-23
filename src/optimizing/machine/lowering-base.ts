@@ -3,6 +3,7 @@ import {
   IR_BRANCH,
   IR_CALL_BUILTIN,
   IR_CALL_KNOWN_FUNCTION,
+  IR_GENERIC_CALL,
   IR_FLOAT64_COMPARE,
   IR_GENERIC_ADD,
   IR_GENERIC_COMPARE,
@@ -74,6 +75,11 @@ export abstract class MachineLoweringBase<TTarget extends MachineTargetModel>
   abstract spill(slot: StackSlot, source: RegisterOperand): MachineInstruction;
   abstract storeOutgoing(offset: number, source: RegisterOperand): MachineInstruction;
   abstract jump(target: import("./ir.js").MachineBlock): MachineInstruction;
+  abstract fusedInputOf(node: CFGInstruction): CFGInstruction | null;
+  abstract invertBranch(
+    node: MachineInstruction,
+    target: import("./ir.js").MachineBlock,
+  ): MachineInstruction | null;
   abstract storeRoot(
     frame: StackSlot,
     index: number,
@@ -121,6 +127,8 @@ export abstract class MachineLoweringBase<TTarget extends MachineTargetModel>
   protected abstract selectLoadElement(ctx: SelectionContext): void;
   protected abstract selectStoreElement(ctx: SelectionContext): void;
   protected abstract selectKnownCall(ctx: SelectionContext): void;
+  protected abstract selectCallThrough(ctx: SelectionContext): void;
+  protected abstract selectCodeAddress(ctx: SelectionContext): void;
   protected abstract selectBuiltin(ctx: SelectionContext): void;
   protected abstract selectStringConcat(ctx: SelectionContext): void;
   protected abstract selectStringCompare(ctx: SelectionContext): void;
@@ -151,6 +159,8 @@ export abstract class MachineLoweringBase<TTarget extends MachineTargetModel>
       [IR_STORE_ELEMENT, (ctx) => this.selectStoreElement(ctx)],
       [IR_GENERIC_SET_INDEX, (ctx) => this.selectStoreElement(ctx)],
       [IR_CALL_KNOWN_FUNCTION, (ctx) => this.selectKnownCall(ctx)],
+      [IR_GENERIC_CALL, (ctx) => this.selectCallThrough(ctx)],
+      [IR_LOAD_GLOBAL, (ctx) => this.selectCodeAddress(ctx)],
       [IR_CALL_BUILTIN, (ctx) => this.selectBuiltin(ctx)],
       [IR_GENERIC_ADD, (ctx) => this.selectStringConcat(ctx)],
       [IR_GENERIC_COMPARE, (ctx) => this.selectStringCompare(ctx)],
@@ -174,19 +184,22 @@ export abstract class MachineLoweringBase<TTarget extends MachineTargetModel>
     return this.reload(destination, slot);
   }
 
-  call(symbol: string, operands: MachineOperand[]): MachineInstruction {
-    return instruction("call", [sym(symbol), ...operands], {
+  call(target: MachineOperand, operands: MachineOperand[]): MachineInstruction {
+    return instruction("call", [target, ...operands], {
       call: true,
       implicitFrom: 1,
     });
   }
 
   prologue(frame: FrameLayout): readonly MachineInstruction[] {
-    return [
+    const establishing = [
       ...this.adjustStack(-frame.frameSize),
       ...frame.saved.map((saved) => this.frameSlotAccess(saved, true)),
-      ...this.enterRoots(frame),
     ];
+    for (const node of establishing) {
+      (node.flags as { prologue?: boolean }).prologue = true;
+    }
+    return [...establishing, ...this.enterRoots(frame)];
   }
 
   epilogue(frame: FrameLayout): readonly MachineInstruction[] {

@@ -320,6 +320,65 @@ describe("AOT maps and sets", () => {
     );
   });
 
+  itRunsPe("holds class instances as map values", () => {
+    agrees(
+      src(
+        "class Point:",
+        "  public constructor(x: int, y: int):",
+        "    this.x = x",
+        "    this.y = y",
+        "  public sum() -> int:",
+        "    return this.x + this.y",
+        "m = Map()",
+        'm.set("a", Point(1, 2))',
+        'm.set("b", Point(3, 4))',
+        'p = m.get("a")',
+        "print(p == null ? 0 : p.sum())",
+        "print(m.size)",
+      ),
+    );
+  });
+
+  itRunsPe("holds a class instance the program reached through a variable", () => {
+    agrees(
+      src(
+        "class Point:",
+        "  public constructor(x: int, y: int):",
+        "    this.x = x",
+        "    this.y = y",
+        "  public sum() -> int:",
+        "    return this.x + this.y",
+        "first = Point(1, 2)",
+        "second: Point = Point(3, 4)",
+        "m = Map()",
+        'm.set("a", first)',
+        'm.set("b", second)',
+        'a = m.get("a")',
+        'b = m.get("b")',
+        "print((a == null ? 0 : a.sum()) + (b == null ? 0 : b.sum()))",
+      ),
+    );
+  });
+
+  itRunsPe("walks class instances held in a map", () => {
+    agrees(
+      src(
+        "class Point:",
+        "  public constructor(x: int):",
+        "    this.x = x",
+        "  public twice() -> int:",
+        "    return this.x * 2",
+        "m = Map()",
+        "m.set(1, Point(5))",
+        "m.set(2, Point(6))",
+        "total = 0",
+        "for e of m:",
+        "  total = total + e[1].twice()",
+        "print(total)",
+      ),
+    );
+  });
+
   itRunsPe("walks a map through entries", () => {
     agrees(
       src(
@@ -365,21 +424,35 @@ describe("AOT maps and sets", () => {
     );
   });
 
-  it("says what it could not lay out when a map is held in a static field", () => {
-    const program = nodeEngine({ typecheck: "off" }).compileAot(
-      `${src(
+  itRunsPe("keeps a map in a module-level variable across functions", () => {
+    agrees(
+      src(
+        "cache = Map()",
+        "fn put(k: string, v: int) -> void:",
+        "  cache.set(k, v)",
+        "fn total(k: string) -> int:",
+        "  return cache.get(k) ?? 0",
+        'put("a", 1)',
+        'put("b", 2)',
+        'print(total("a") + total("b"))',
+        "print(cache.size)",
+      ),
+    );
+  });
+
+  itRunsPe("keeps a map in a static field across methods", () => {
+    agrees(
+      src(
         "class C:",
         "  public static cache = Map()",
         "  public static put(k: string, v: int) -> void:",
         "    C.cache.set(k, v)",
+        "  public static total(k: string) -> int:",
+        "    return C.cache.get(k) ?? 0",
         'C.put("a", 1)',
-      )}
-`,
-      { backend: "c" },
+        'C.put("b", 2)',
+        'print(C.total("a") + C.total("b"))',
+      ),
     );
-    const reasons = program.skipped.map((fn) => fn.reason).join("; ");
-
-    expect(reasons).toContain("C.cache is a value the compiler could not lay out");
-    expect(reasons).not.toContain("async and await");
   });
 });

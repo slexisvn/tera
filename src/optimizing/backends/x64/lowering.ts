@@ -12,6 +12,7 @@ import {
   IR_GENERIC_COMPARE,
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
+  IR_CONSTANT,
   IR_INT32_ADD,
   IR_INT32_AND,
   IR_INT32_COMPARE,
@@ -51,9 +52,11 @@ import {
   AOT_FLOAT_TO_STRING,
   AOT_INT_TO_STRING,
   type AotStringBuffer,
+  int32ConstantOf,
   isAbsenceConstant,
 } from "../../analyses/aot-legality.js";
 import { calleeSymbolName } from "../../metadata/call-signatures.js";
+import { callThroughArguments, codeSymbolOf } from "../../analyses/aot-legality.js";
 import { doubleBits, FLOAT64_NULL_BITS } from "../../target/float64.js";
 import { isReferenceScalar } from "../../types/scalar.js";
 import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
@@ -66,6 +69,7 @@ import {
   SCALAR_FLOAT64,
   SCALAR_INT32,
   SCALAR_POINTER,
+  SCALAR_CODE,
   SCALAR_STRING,
   SCALAR_TEXT,
   SCALAR_VOID,
@@ -108,7 +112,7 @@ import {
 } from "../../machine/ir.js";
 import type { SelectionContext, SelectionHandler } from "../../machine/lowering.js";
 import { MachineLoweringBase, readOf, writeOf } from "../../machine/lowering-base.js";
-import { fusedConditionOf } from "../../machine/select.js";
+import { fusedConditionOf, fusedInputOf } from "../../machine/select.js";
 import { nativeArgumentScalar, nativeReturnScalar } from "../../machine/signature.js";
 import { X64_FPR, X64_GPR } from "./registers.js";
 import {
@@ -138,6 +142,38 @@ import {
   ROOT_SLOT_SHIFT,
 } from "./heap.js";
 import type { X64TargetModel } from "./target.js";
+
+const OPPOSITE_CONDITIONS = new Map<string, string>(
+  [
+    ["e", "ne"],
+    ["l", "ge"],
+    ["le", "g"],
+    ["b", "ae"],
+    ["be", "a"],
+    ["s", "ns"],
+    ["p", "np"],
+    ["o", "no"],
+  ].flatMap(([code, opposite]) => [
+    [code, opposite] as [string, string],
+    [opposite, code] as [string, string],
+  ]),
+);
+
+const ADDRESS_SCALES: ReadonlySet<number> = new Set([2, 4, 8]);
+
+function scaleOf(node: CFGInstruction | undefined): number | null {
+  if (node === undefined) return null;
+  const amount = node.inputs[1];
+  if (amount === undefined || amount.type !== IR_CONSTANT) return null;
+  const held = amount.props.value;
+  if (typeof held !== "number" || !Number.isInteger(held)) return null;
+  if (node.type === IR_INT32_SHL) {
+    const scale = 2 ** held;
+    return ADDRESS_SCALES.has(scale) ? scale : null;
+  }
+  if (node.type !== IR_INT32_MUL) return null;
+  return ADDRESS_SCALES.has(held) ? held : null;
+}
 
 const INT_CONDITIONS = new Map<string, string>([
   ["<", "l"],
@@ -298,6 +334,13 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
       );
       return destination;
     }
+    if (scalar === SCALAR_CODE) {
+      const symbol = this.target.symbolOf(codeSymbolOf(constant)!);
+      const destination = ctx.temp(scalar);
+      ctx.reference(symbol);
+      ctx.emit(instruction("leaq", [writeOf(destination), mem(8, { symbol })]));
+      return destination;
+    }
     if (value === null && scalar === SCALAR_FLOAT64) {
       return this.loadDoubleBits(ctx, FLOAT64_NULL_BITS, ctx.temp(scalar));
     }
@@ -331,6 +374,13 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
 
   jump(target: MachineBlock): MachineInstruction {
     return instruction("jmp", [label(target)], { terminator: true });
+  }
+
+  invertBranch(node: MachineInstruction, target: MachineBlock): MachineInstruction | null {
+    if (!node.opcode.startsWith("j") || node.operands.length !== 1) return null;
+    const opposite = OPPOSITE_CONDITIONS.get(node.opcode.slice(1));
+    if (opposite === undefined) return null;
+    return instruction(`j${opposite}`, [label(target)], { terminator: true });
   }
 
   storeRoot(
@@ -517,7 +567,38 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
     this.produce(ctx, result, SCALAR_INT32);
   }
 
+  fusedInputOf(node: CFGInstruction): CFGInstruction | null {
+    if (node.type !== IR_INT32_ADD) return null;
+    for (const input of node.inputs) {
+      if (scaleOf(input) !== null) return input;
+    }
+    return null;
+  }
+
+  private selectScaledAdd(ctx: SelectionContext, scaled: CFGInstruction): void {
+    const scale = scaleOf(scaled)!;
+    const other = ctx.node.inputs.find((input) => input !== scaled)!;
+    const index = this.coerce(ctx, scaled.inputs[0]!, SCALAR_INT32);
+    const displacement = this.intConstantOf(ctx, other);
+    const result = this.destination(ctx, SCALAR_INT32);
+    const address =
+      displacement === null
+        ? {
+            base: use(this.coerce(ctx, other, SCALAR_INT32), 8),
+            index: use(index, 8),
+            scale,
+          }
+        : { index: use(index, 8), scale, displacement };
+    ctx.emit(instruction("leal", [writeOf(result), mem(4, address)]));
+    this.produce(ctx, result, SCALAR_INT32);
+  }
+
   private selectIntAdd(ctx: SelectionContext): void {
+    const folded = fusedInputOf(ctx);
+    if (folded !== null && scaleOf(folded) !== null) {
+      this.selectScaledAdd(ctx, folded);
+      return;
+    }
     const result = this.destination(ctx, SCALAR_INT32);
     const left = ctx.node.inputs[0]!;
     const right = ctx.node.inputs[1]!;
@@ -665,14 +746,20 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
     ctx: SelectionContext,
     operation: string,
     left: VirtualRegister,
-    right: VirtualRegister,
+    right: MachineOperand,
   ): string {
     const code = INT_CONDITIONS.get(operation);
     if (code === undefined) {
       throw new BackendLoweringError(`unsupported comparison ${operation}`);
     }
-    ctx.emit(instruction("cmpl", [use(left, 4), use(right, 4)]));
+    ctx.emit(instruction("cmpl", [use(left, 4), right]));
     return code;
+  }
+
+  private comparedWith(ctx: SelectionContext, input: CFGInstruction): MachineOperand {
+    const folded = int32ConstantOf(input, ctx.scalarOf(input));
+    if (folded !== null) return imm(folded);
+    return use(this.coerce(ctx, input, SCALAR_INT32), 4);
   }
 
   private emitFloatComparison(
@@ -724,11 +811,12 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
     const operation = String(ctx.node.props.op);
     const scalar = float ? SCALAR_FLOAT64 : SCALAR_INT32;
     const left = this.coerce(ctx, ctx.node.inputs[0]!, scalar);
-    const right = this.coerce(ctx, ctx.node.inputs[1]!, scalar);
     const result = this.destination(ctx, SCALAR_INT32);
     if (float) {
+      const right = this.coerce(ctx, ctx.node.inputs[1]!, scalar);
       this.emitFloatCondition(ctx, operation, left, right, result);
     } else {
+      const right = this.comparedWith(ctx, ctx.node.inputs[1]!);
       const code = this.emitIntComparison(ctx, operation, left, right);
       this.emitSetCondition(ctx, code, result);
     }
@@ -750,9 +838,8 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
     const ordering = ctx.temp(SCALAR_INT32);
     ctx.external(X64_RUNTIME_SYMBOLS.stringCompare);
     ctx.emitCall(X64_RUNTIME_SYMBOLS.stringCompare, [left, right], ordering);
-    const zero = this.loadNumber(ctx, 0, SCALAR_INT32);
     const result = this.destination(ctx, SCALAR_INT32);
-    const code = this.emitIntComparison(ctx, String(ctx.node.props.op), ordering, zero);
+    const code = this.emitIntComparison(ctx, String(ctx.node.props.op), ordering, imm(0));
     this.emitSetCondition(ctx, code, result);
     this.produce(ctx, result, SCALAR_INT32);
   }
@@ -784,7 +871,7 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
       ctx.emit(instruction(`j${condition.code}`, [label(onTrue)]));
     } else if (fused !== null) {
       const left = this.coerce(ctx, fused.inputs[0]!, SCALAR_INT32);
-      const right = this.coerce(ctx, fused.inputs[1]!, SCALAR_INT32);
+      const right = this.comparedWith(ctx, fused.inputs[1]!);
       const code = this.emitIntComparison(ctx, String(fused.props.op), left, right);
       ctx.emit(instruction(`j${code}`, [label(onTrue)]));
     } else {
@@ -1003,6 +1090,26 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
       instruction(this.moveFor(readOf(value)), [address, use(value, ctx.widthOf(element))]),
     );
     if (ctx.node.uses.length > 0) this.produce(ctx, value, element);
+  }
+
+  protected selectCodeAddress(ctx: SelectionContext): void {
+    const named = codeSymbolOf(ctx.node);
+    if (named === null) return;
+    const symbol = this.target.symbolOf(named);
+    ctx.reference(symbol);
+    ctx.emit(
+      instruction("leaq", [writeOf(ctx.resultRegister()), mem(8, { symbol })]),
+    );
+  }
+
+  protected selectCallThrough(ctx: SelectionContext): void {
+    const callee = ctx.registerOf(ctx.node.inputs[0]!);
+    const signature = ctx.legality.codeSignatureOf(ctx.node.inputs[0]!)!;
+    const args = callThroughArguments(ctx.node).map((input: CFGInstruction, index: number) =>
+      this.coerce(ctx, input, nativeArgumentScalar(signature.params[index] ?? null, ctx.classes)),
+    );
+    const used = ctx.node.uses.length > 0;
+    ctx.emitCallThrough(callee, args, used ? ctx.resultRegister() : null);
   }
 
   protected selectKnownCall(ctx: SelectionContext): void {

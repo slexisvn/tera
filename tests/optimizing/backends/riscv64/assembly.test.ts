@@ -32,7 +32,7 @@ describe("riscv64 assembly", () => {
 
     expect(assembly).toContain("\t.globl twice");
     expect(assembly).toMatch(/mv\s+\w+, a0/);
-    expect(assembly).toMatch(/mv\s+a0, \w+/);
+    expect(assembly).toMatch(/^\t\w[\w.]*\s+a0,/m);
     expect(assembly).toContain("\tret");
   });
 
@@ -40,8 +40,7 @@ describe("riscv64 assembly", () => {
     const assembly = assemblyOf(src("fn half(x: float) -> float:", "  return x * 0.5"));
 
     expect(assembly).toMatch(/fmv\.d\s+\w+, fa0/);
-    expect(assembly).toContain("fmul.d");
-    expect(assembly).toMatch(/fmv\.d\s+fa0, \w+/);
+    expect(assembly).toMatch(/^\tfmul\.d\s+fa0,/m);
   });
 
   it("fuses a comparison into a conditional branch", () => {
@@ -154,6 +153,31 @@ describe("riscv64 assembly", () => {
 
     expect(assembly).toMatch(/lla\s+a0, \.LR\w*/);
     expect(assembly).toContain("\t.data");
+  });
+
+  it("describes its prologue with call frame directives", () => {
+    const assembly = assemblyOf(
+      src(
+        "fn fib(n: int) -> int:",
+        "  if n < 2:",
+        "    return n",
+        "  return fib(n - 1) + fib(n - 2)",
+        "print(fib(10))",
+      ),
+    );
+
+    expect(assembly).toContain("	.cfi_startproc");
+    expect(assembly).toMatch(/addi sp, sp, -(\d+)\n\t[.]cfi_def_cfa_offset \1/);
+    expect(assembly).toMatch(/sd ra, \d+[(]sp[)]\n\t[.]cfi_offset 1, -\d+/);
+    expect(assembly).toContain("	.cfi_endproc");
+  });
+
+  it("balances every opened frame description", () => {
+    const assembly = assemblyOf(src("fn twice(n: int) -> int:", "  return n + n", "print(twice(2))"));
+
+    expect(assembly.split("	.cfi_startproc").length).toBe(
+      assembly.split("	.cfi_endproc").length,
+    );
   });
 
   it("refuses an object because it has no working encoder yet", () => {

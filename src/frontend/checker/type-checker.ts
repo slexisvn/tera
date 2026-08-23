@@ -437,8 +437,18 @@ export class TypeChecker {
     if (node.type === NodeType.ConditionalExpression) {
       this.checkConditional(node, scope, line, column, expected, expectedType);
       this.checkExpression(node.test as ASTNode, scope, line, column);
-      this.checkExpression(node.consequent as ASTNode, scope, line, column);
-      this.checkExpression(node.alternate as ASTNode, scope, line, column);
+      this.checkExpression(
+        node.consequent as ASTNode,
+        narrowScope(node.test as ASTNode, this.bound, scope),
+        line,
+        column,
+      );
+      this.checkExpression(
+        node.alternate as ASTNode,
+        narrowScope(node.test as ASTNode, this.bound, scope, undefined, true),
+        line,
+        column,
+      );
       return;
     }
     if (node.type === NodeType.NullishCoalescingExpression) {
@@ -539,8 +549,23 @@ export class TypeChecker {
   checkConditional(node: ASTNode, scope: Scope, line: number, column: number, expected?: Signature | null, expectedType?: TypeName | null): void {
     this.checkCondition(node.test as ASTNode, scope, line, column);
     if (!expectedType || expectedType === "any") return;
-    this.checkExpectedExpression(node.consequent as ASTNode, scope, line, column, expected, expectedType);
-    this.checkExpectedExpression(node.alternate as ASTNode, scope, line, column, expected, expectedType);
+    const test = node.test as ASTNode;
+    this.checkExpectedExpression(
+      node.consequent as ASTNode,
+      narrowScope(test, this.bound, scope),
+      line,
+      column,
+      expected,
+      expectedType,
+    );
+    this.checkExpectedExpression(
+      node.alternate as ASTNode,
+      narrowScope(test, this.bound, scope, undefined, true),
+      line,
+      column,
+      expected,
+      expectedType,
+    );
   }
 
   checkNullishCoalescing(node: ASTNode, scope: Scope, line: number, column: number, expected?: Signature | null, expectedType?: TypeName | null): void {

@@ -23,6 +23,7 @@ import type { RegisterClassId } from "../target/registers.js";
 import { BackendLoweringError } from "../target/errors.js";
 import {
   def,
+  sym,
   MachineFunction,
   use,
   type MachineBlock,
@@ -114,6 +115,20 @@ class Selector {
       if (block.nodes[block.nodes.indexOf(terminator) - 1] !== condition) continue;
       this.fusedConditions.add(condition);
       this.fusionOf.set(terminator, condition);
+    }
+    this.planTargetFusion();
+  }
+
+  private planTargetFusion(): void {
+    for (const block of this.layout) {
+      for (const node of block.nodes) {
+        if (this.fusedConditions.has(node) || this.fusionOf.has(node)) continue;
+        const folded = this.lowering.fusedInputOf(node);
+        if (folded === null || folded.uses.length !== 1 || folded.block !== block) continue;
+        if (this.fusedConditions.has(folded)) continue;
+        this.fusedConditions.add(folded);
+        this.fusionOf.set(node, folded);
+      }
     }
   }
 
@@ -312,7 +327,7 @@ class Selector {
   }
 
   private emitCall(
-    symbol: string,
+    target: MachineOperand,
     args: readonly VirtualRegister[],
     destination: VirtualRegister | null,
   ): void {
@@ -344,7 +359,7 @@ class Selector {
       this.fn.outgoingBytes,
       outgoingArgumentBytes(convention, locations),
     );
-    this.emit(this.lowering.call(symbol, operands));
+    this.emit(this.lowering.call(target, operands));
 
     if (destination === null) return;
     const returned = convention.returnRegisters.get(destination.classId);
@@ -382,7 +397,9 @@ class Selector {
       constantOf: (value) => (value.type === IR_CONSTANT ? value.props.value : undefined),
       successorFor: (prop) => this.successorFor(node, prop),
       guard: (name) => this.guard(name),
-      emitCall: (symbol, args, destination) => this.emitCall(symbol, args, destination),
+      emitCall: (symbol, args, destination) => this.emitCall(sym(symbol), args, destination),
+      emitCallThrough: (through, args, destination) =>
+        this.emitCall(use(through, through.width), args, destination),
       reference: (symbol) => void this.fn.references.add(symbol),
       external: (symbol) => void this.fn.externals.add(symbol),
       isSoleUseOfTerminator: (value) => this.fusionOf.get(node) === value,
@@ -407,4 +424,11 @@ export function fusedConditionOf(
   const condition = context.node.inputs[0];
   if (condition === undefined) return null;
   return context.isSoleUseOfTerminator(condition) ? condition : null;
+}
+
+export function fusedInputOf(context: SelectionContext): CFGInstruction | null {
+  for (const input of context.node.inputs) {
+    if (context.isSoleUseOfTerminator(input)) return input;
+  }
+  return null;
 }

@@ -43,6 +43,7 @@ import {
   IR_LOAD_ELEMENT,
   IR_STORE_ELEMENT,
   IR_GENERIC_ADD,
+  IR_GENERIC_CALL,
   IR_GENERIC_COMPARE,
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
@@ -97,6 +98,8 @@ import {
 import {
   analyzeAotLegality,
   builtinOperandScalar,
+  callThroughArguments,
+  codeSymbolOf,
   AOT_CHAR_AT,
   AOT_FLOAT_TO_STRING,
   AOT_INT_TO_STRING,
@@ -128,10 +131,13 @@ import {
   SCALAR_STRING,
   SCALAR_TEXT,
   scalarWidth,
+  SCALAR_CODE,
   SCALAR_VOID,
   type AotScalar,
 } from "../../types/scalar.js";
 import { INT32_DECIMAL_BYTES } from "../../machine/data.js";
+import { declaredAotScalar } from "../../metadata/class-table.js";
+import type { DeclaredSignature } from "../../types/signature.js";
 import { isAbsenceConstant, isRootedPointer } from "../../analyses/aot-legality.js";
 import { NULL_TEXT } from "../../metadata/printed-values.js";
 import {
@@ -156,6 +162,8 @@ import {
   declarationOf,
   immutableDeclarationOf,
   prototypeOf,
+  C_CODE,
+  C_CODE_TYPEDEF,
   C_STRING,
   type CScalarType,
 } from "../../target/c-types.js";
@@ -165,8 +173,15 @@ import {
   C_LIBRARY_NAMES,
 } from "../../target/symbols.js";
 
-export const C_HEADER_PREAMBLE =
-  "#include <stdint.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <math.h>";
+export const C_HEADER_PREAMBLE = [
+  "#include <stdint.h>",
+  "#include <stdio.h>",
+  "#include <stdlib.h>",
+  "#include <string.h>",
+  "#include <math.h>",
+  "",
+  C_CODE_TYPEDEF,
+].join(String.fromCharCode(10));
 const C_STRING_SET = "tera_str_set";
 const C_STRING_APPEND = "tera_str_append";
 const C_STRING_BUFFER_PREFIX = "sb";
@@ -1388,6 +1403,7 @@ class CFunctionEmitter {
   private readonly rootSlots = new Map<CFGInstruction, number>();
   private readonly body: string[] = [];
   private readonly dispatch = buildDispatch<string, EmitContext>(this.handlers());
+
   private tempSeq = 0;
 
   constructor(
@@ -1529,6 +1545,14 @@ class CFunctionEmitter {
         );
         continue;
       }
+      const compiled = codeSymbolOf(constant);
+      if (compiled !== null) {
+        this.references.add(cIdentifier(compiled));
+        this.constantDeclarations.push(
+          `${declarationOf(C_CODE, name)} = (${C_CODE})${cIdentifier(compiled)};`,
+        );
+        continue;
+      }
       if (value === null) {
         const absent =
           this.legality.scalarOf(constant) === SCALAR_FLOAT64 ? C_ABSENT_NUMBER : "0";
@@ -1577,12 +1601,13 @@ class CFunctionEmitter {
     return this.isInt32(value) ? this.nameOf(value) : `tera_to_i32(${this.nameOf(value)})`;
   }
 
-  private handlers(): Array<readonly [string, (ctx: EmitContext) => void]> {
+  handlers(): Array<readonly [string, (ctx: EmitContext) => void]> {
     const entries: Array<readonly [string, (ctx: EmitContext) => void]> = [];
 
     entries.push([IR_CALL_BUILTIN, (ctx) => this.emitBuiltinCall(ctx)]);
     entries.push([IR_GENERIC_ADD, (ctx) => this.emitStringConcat(ctx)]);
     entries.push([IR_CALL_KNOWN_FUNCTION, (ctx) => this.emitKnownCall(ctx)]);
+    entries.push([IR_GENERIC_CALL, (ctx) => this.emitCallThrough(ctx)]);
     entries.push([IR_NEW_OBJECT, (ctx) => this.emitNewObject(ctx)]);
     entries.push([IR_ARRAY_RESERVE, (ctx) => this.emitArrayReserve(ctx)]);
     entries.push([
@@ -1603,7 +1628,7 @@ class CFunctionEmitter {
     entries.push([IR_INT32_COMPARE, (ctx) => this.emitCompare(ctx, false)]);
     entries.push([IR_FLOAT64_COMPARE, (ctx) => this.emitCompare(ctx, true)]);
     entries.push([IR_GENERIC_COMPARE, (ctx) => this.emitStringCompare(ctx)]);
-    entries.push([IR_LOAD_GLOBAL, () => undefined]);
+    entries.push([IR_LOAD_GLOBAL, (ctx) => this.emitCodeAddress(ctx)]);
     entries.push([IR_RETURN, (ctx) => this.emitReturn(ctx)]);
     entries.push([IR_JUMP, (ctx) => this.emitJump(ctx)]);
     entries.push([IR_BRANCH, (ctx) => this.emitBranch(ctx)]);
@@ -1681,6 +1706,33 @@ class CFunctionEmitter {
     const call = `${method.helper}(${operands.join(", ")})`;
     const produced = isStorableScalar(builtinOperandScalar(intrinsic.signature.returns));
     if (produced === null) ctx.emit(`${call};`);
+    else this.define(ctx, call);
+  }
+
+  private codeCastOf(signature: DeclaredSignature): string {
+    const params = signature.params.map((param) =>
+      cTypeOf(declaredAotScalar(param, this.graph.classes) ?? SCALAR_FLOAT64),
+    );
+    const returns = cTypeOf(declaredAotScalar(signature.returns, this.graph.classes) ?? SCALAR_VOID);
+    return `${returns} (*)(${params.length > 0 ? params.join(", ") : "void"})`;
+  }
+
+  private emitCodeAddress(ctx: EmitContext): void {
+    const named = codeSymbolOf(ctx.node);
+    if (named === null) return;
+    const symbol = cIdentifier(named);
+    this.references.add(symbol);
+    ctx.emit(
+      `${declarationOf(C_CODE, ctx.nameOf(ctx.node))} = (${C_CODE})${symbol};`,
+    );
+  }
+
+  private emitCallThrough(ctx: EmitContext): void {
+    const callee = ctx.node.inputs[0]!;
+    const signature = this.legality.codeSignatureOf(callee)!;
+    const args = callThroughArguments(ctx.node).map((input) => this.nameOf(input)).join(", ");
+    const call = `((${this.codeCastOf(signature)})${this.nameOf(callee)})(${args})`;
+    if (ctx.node.uses.length === 0) ctx.emit(`${call};`);
     else this.define(ctx, call);
   }
 
@@ -1947,6 +1999,7 @@ class CFunctionEmitter {
 
   private translationUnit(): string {
     return [
+      C_CODE_TYPEDEF,
       C_RUNTIME_SUPPORT,
       cClassTable(this.graph.classes),
       C_HEAP_SUPPORT,
@@ -1985,4 +2038,9 @@ export function emitNumericFunction(
   const legality = analyzeAotLegality(graph, types);
   if (!legality.ok) return { ok: false, reason: legality.reason };
   return new CFunctionEmitter(graph, legality.legality).emit();
+}
+
+export function cEmittedOpcodes(): ReadonlySet<string> {
+  const probe = Object.create(CFunctionEmitter.prototype) as CFunctionEmitter;
+  return new Set(probe.handlers().map(([opcode]) => opcode));
 }

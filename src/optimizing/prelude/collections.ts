@@ -6,7 +6,19 @@ const KEY_KINDS = ["string", "int", "float"] as const;
 const VALUE_KINDS = ["int", "float", "string"] as const;
 
 export type KeyKind = (typeof KEY_KINDS)[number];
-export type ValueKind = (typeof VALUE_KINDS)[number];
+export type ValueKind = (typeof VALUE_KINDS)[number] | (string & {});
+
+function heldType(value: ValueKind): string {
+  return ZERO[value] === undefined ? `${value} | null` : value;
+}
+
+function heldArrayType(value: ValueKind): string {
+  return ZERO[value] === undefined ? `(${value} | null)[]` : `${value}[]`;
+}
+
+function heldZero(value: ValueKind): string {
+  return ZERO[value] ?? "null";
+}
 
 const ZERO: Record<string, string> = {
   int: "0",
@@ -25,7 +37,7 @@ const HASH_MASK = 1073741823;
 const FIRST_MASK = 7;
 
 export function mapClassName(key: KeyKind, value: ValueKind): string {
-  return `TeraMap${TITLE[key]}${TITLE[value]}`;
+  return `TeraMap${TITLE[key]}${TITLE[value] ?? value}`;
 }
 
 export function setClassName(key: KeyKind): string {
@@ -33,7 +45,7 @@ export function setClassName(key: KeyKind): string {
 }
 
 export function pairClassName(key: KeyKind, value: ValueKind): string {
-  return `TeraPair${TITLE[key]}${TITLE[value]}`;
+  return `TeraPair${TITLE[key]}${TITLE[value] ?? value}`;
 }
 
 export const PAIR_FIELDS: readonly string[] = ["key", "value"];
@@ -78,7 +90,7 @@ function hashBody(key: KeyKind): readonly string[] {
 }
 
 function table(key: KeyKind, value: ValueKind | null): readonly string[] {
-  const cells = value === null ? [] : [`      this.cells.push(${ZERO[value]})`];
+  const cells = value === null ? [] : [`      this.cells.push(${heldZero(value)})`];
   return [
     "    i: int = 0",
     "    while i <= this.mask:",
@@ -91,7 +103,7 @@ function table(key: KeyKind, value: ValueKind | null): readonly string[] {
 }
 
 function fields(key: KeyKind, value: ValueKind | null): readonly string[] {
-  const cells = value === null ? [] : [`  public cells: ${value}[]`];
+  const cells = value === null ? [] : [`  public cells: ${heldArrayType(value)}`];
   return [
     `  public ${marker(key, value)}: int`,
     "  public taken: int[]",
@@ -149,7 +161,7 @@ function lookup(key: KeyKind): readonly string[] {
 }
 
 function rebuild(key: KeyKind, value: ValueKind | null): readonly string[] {
-  const held = value === null ? [] : [`    held: ${value}[] = this.cells`];
+  const held = value === null ? [] : [`    held: ${heldArrayType(value)} = this.cells`];
   const emptied = value === null ? [] : ["    this.cells = []"];
   const carried = value === null ? [] : ["        this.cells[slot] = held[j]"];
   return [
@@ -244,6 +256,19 @@ function listing(key: KeyKind): readonly string[] {
   ];
 }
 
+function paired(key: KeyKind, value: ValueKind): readonly string[] {
+  const pair = pairClassName(key, value);
+  const cell = "this.cells[this.at(this.order[j])]";
+  if (ZERO[value] !== undefined) {
+    return [`        listed.push(${pair}(this.order[j], ${cell}))`];
+  }
+  return [
+    `        held: ${heldType(value)} = ${cell}`,
+    "        if held != null:",
+    `          listed.push(${pair}(this.order[j], held))`,
+  ];
+}
+
 function mapSource(key: KeyKind, value: ValueKind): string {
   return [
     `class ${mapClassName(key, value)}:`,
@@ -267,8 +292,8 @@ function mapSource(key: KeyKind, value: ValueKind): string {
     ...admit(key, value),
     ...removal(key),
     ...listing(key),
-    `  public values() -> ${value}[]:`,
-    `    held: ${value}[] = []`,
+    `  public values() -> ${heldArrayType(value)}:`,
+    `    held: ${heldArrayType(value)} = []`,
     "    j: int = 0",
     "    while j < this.order.length:",
     "      if this.live[j] == 1:",
@@ -280,7 +305,7 @@ function mapSource(key: KeyKind, value: ValueKind): string {
     "    j = 0",
     "    while j < this.order.length:",
     "      if this.live[j] == 1:",
-    `        listed.push(${pairClassName(key, value)}(this.order[j], this.cells[this.at(this.order[j])]))`,
+    ...paired(key, value),
     "      j += 1",
     "    return listed",
   ].join("\n");
@@ -308,14 +333,39 @@ function setSource(key: KeyKind): string {
   ].join("\n");
 }
 
-export function collectionPrelude(): string {
-  const sources: string[] = [];
+export interface CollectionRequest {
+  readonly kind: "Map" | "Set";
+  readonly key: KeyKind;
+  readonly value: ValueKind | null;
+}
+
+export function everyCollection(): readonly CollectionRequest[] {
+  const requested: CollectionRequest[] = [];
   for (const key of KEY_KINDS) {
-    for (const value of VALUE_KINDS) {
-      sources.push(pairSource(key, value));
-      sources.push(mapSource(key, value));
+    for (const value of VALUE_KINDS) requested.push({ kind: "Map", key, value });
+    requested.push({ kind: "Set", key, value: null });
+  }
+  return requested;
+}
+
+export function collectionPrelude(
+  requested: readonly CollectionRequest[] = everyCollection(),
+): string {
+  const sources: string[] = [];
+  const written = new Set<string>();
+  for (const request of requested) {
+    const name =
+      request.kind === "Set"
+        ? setClassName(request.key)
+        : mapClassName(request.key, request.value!);
+    if (written.has(name)) continue;
+    written.add(name);
+    if (request.kind === "Set") {
+      sources.push(setSource(request.key));
+      continue;
     }
-    sources.push(setSource(key));
+    sources.push(pairSource(request.key, request.value!));
+    sources.push(mapSource(request.key, request.value!));
   }
   return `${sources.join("\n")}\n`;
 }

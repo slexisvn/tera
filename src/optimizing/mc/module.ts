@@ -13,6 +13,7 @@ export interface McRelocation {
 export class McModule {
   readonly symbols = new McSymbolTable();
   readonly relocations: McRelocation[] = [];
+  readonly afterLayout: Array<() => void> = [];
   private readonly byName = new Map<string, McSection>();
   private readonly ordered: McSection[] = [];
 

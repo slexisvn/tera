@@ -7,6 +7,7 @@ import type { NativeRuntimeRoutine } from "../../target/artifact.js";
 import {
   SCALAR_FLOAT64,
   SCALAR_INT32,
+  SCALAR_CODE,
   SCALAR_POINTER,
   SCALAR_STRING,
   type AotScalar,
@@ -21,6 +22,7 @@ const LOCATIONS = new Map<AotScalar, ScalarLocation>([
   [SCALAR_FLOAT64, { classId: RISCV_FPR, width: 8 }],
   [SCALAR_STRING, { classId: RISCV_GPR, width: 8 }],
   [SCALAR_POINTER, { classId: RISCV_GPR, width: 8 }],
+  [SCALAR_CODE, { classId: RISCV_GPR, width: 8 }],
 ]);
 
 const RESERVED_SYMBOLS = new Set<string>([

@@ -1,5 +1,6 @@
 import { imm, mem, sym, type RegisterOperand } from "../../machine/ir.js";
 import type { MachineRoutineBuilder } from "../../machine/routine.js";
+import { contextAddress, contextField, contextWidthOf } from "./context.js";
 import {
   ARRAY_CAPACITY_OFFSET,
   ARRAY_ELEMENTS_OFFSET,
@@ -21,7 +22,6 @@ import {
   TERA_CLASS_RECORD,
   TERA_CLASS_RECORD_SHIFT,
   TERA_COUNT_SHIFT,
-  TERA_CONTEXT,
   TERA_FREE_SHAPE_ID,
   TERA_HEAP_COMMIT_BYTES,
   TERA_LINK_BYTES,
@@ -103,15 +103,14 @@ function loadContext(
   field: TeraContextField,
   scratch: string,
 ): void {
-  const declared = TERA_CONTEXT.field(field);
   const r = reader(builder);
   const w = writer(builder);
   builder
-    .emit("lla", w(scratch), sym(TERA_CONTEXT.symbol))
+    .emit("lla", w(scratch), contextAddress())
     .emit(
-      declared.bytes === WORD ? "ld" : "lwu",
+      contextWidthOf(field) === WORD ? "ld" : "lwu",
       w(destination),
-      mem(declared.bytes, { base: r(scratch), displacement: declared.offset }),
+      contextField(r(scratch), field),
     );
 }
 
@@ -121,15 +120,14 @@ function storeContext(
   field: TeraContextField,
   scratch: string,
 ): void {
-  const declared = TERA_CONTEXT.field(field);
   const r = reader(builder);
   const w = writer(builder);
   builder
-    .emit("lla", w(scratch), sym(TERA_CONTEXT.symbol))
+    .emit("lla", w(scratch), contextAddress())
     .emit(
-      declared.bytes === WORD ? "sd" : "sw",
+      contextWidthOf(field) === WORD ? "sd" : "sw",
       r(source),
-      mem(declared.bytes, { base: r(scratch), displacement: declared.offset }),
+      contextField(r(scratch), field),
     );
 }
 
@@ -525,14 +523,13 @@ function enterRoots(builder: MachineRoutineBuilder): void {
   const w = writer(builder);
   const frame = ROOT_FRAME_REGISTER;
   const count = ROOT_COUNT_REGISTER;
-  const rootCount = TERA_CONTEXT.field("rootCount");
   builder
-    .emit("lla", w(frame), sym(TERA_CONTEXT.symbol))
-    .emit("ld", w("t0"), mem(WORD, { base: r(frame), displacement: rootCount.offset }))
+    .emit("lla", w(frame), contextAddress())
+    .emit("ld", w("t0"), contextField(r(frame), "rootCount"))
     .emit("add", w("t1"), r("t0"), r(count))
     .emit("li", w("t2"), imm(TERA_ROOT_CAPACITY))
     .to("bgtu", "overflow", r("t1"), r("t2"))
-    .emit("sd", r("t1"), mem(WORD, { base: r(frame), displacement: rootCount.offset }));
+    .emit("sd", r("t1"), contextField(r(frame), "rootCount"));
   loadContext(builder, frame, "rootsBase", "t1");
   builder
     .emit("slli", w("t1"), r("t0"), imm(TERA_ROOT_SLOT_SHIFT))

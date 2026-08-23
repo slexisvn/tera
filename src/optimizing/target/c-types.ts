@@ -1,5 +1,6 @@
 import {
   isReferenceScalar,
+  SCALAR_CODE,
   SCALAR_FLOAT64,
   SCALAR_INT32,
   SCALAR_POINTER,
@@ -12,13 +13,22 @@ export const C_INT32 = "int32_t";
 export const C_DOUBLE = "double";
 export const C_STRING = "const char *";
 export const C_POINTER = "unsigned char *";
+export const C_CODE = "tera_fn";
 export const C_VOID = "void";
+
+export const C_CODE_TYPEDEF = [
+  "#ifndef TERA_FN_DEFINED",
+  "#define TERA_FN_DEFINED",
+  `typedef void (*${C_CODE})(void);`,
+  "#endif",
+].join(String.fromCharCode(10));
 
 export type CScalarType =
   | typeof C_INT32
   | typeof C_DOUBLE
   | typeof C_STRING
   | typeof C_POINTER
+  | typeof C_CODE
   | typeof C_VOID;
 
 const C_BY_SCALAR = new Map<AotScalar, CScalarType>([
@@ -26,6 +36,7 @@ const C_BY_SCALAR = new Map<AotScalar, CScalarType>([
   [SCALAR_FLOAT64, C_DOUBLE],
   [SCALAR_STRING, C_STRING],
   [SCALAR_POINTER, C_POINTER],
+  [SCALAR_CODE, C_CODE],
   [SCALAR_VOID, C_VOID],
 ]);
 

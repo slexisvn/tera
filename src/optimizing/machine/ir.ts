@@ -73,6 +73,7 @@ export interface InstructionFlags {
   readonly copy?: boolean;
   readonly tied?: boolean;
   readonly implicitFrom?: number;
+  readonly prologue?: boolean;
 }
 
 export class MachineInstruction {
@@ -266,6 +267,28 @@ export function registerOperandsOf(node: MachineInstruction): RegisterOperand[] 
     }
   }
   return found;
+}
+
+export function physicalNameOf(operand: MachineOperand | undefined): string | null {
+  if (operand === undefined || operand.kind !== "register") return null;
+  const register = operand.register;
+  return register.kind === "physical" ? register.name : null;
+}
+
+export interface CopiedRegisters {
+  readonly into: string;
+  readonly from: string;
+}
+
+export function copiedRegisters(
+  node: MachineInstruction | undefined,
+): CopiedRegisters | null {
+  if (node === undefined || node.flags.copy !== true || node.operands.length !== 2) return null;
+  const [into, from] = node.operands as [RegisterOperand, RegisterOperand];
+  const destination = physicalNameOf(into);
+  const source = physicalNameOf(from);
+  if (destination === null || source === null || into.width !== from.width) return null;
+  return { into: destination, from: source };
 }
 
 export function definedOperandsOf(node: MachineInstruction): RegisterOperand[] {

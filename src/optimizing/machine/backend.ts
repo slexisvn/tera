@@ -17,7 +17,7 @@ import { targetLegalizationPipeline } from "../target/legalization.js";
 import type { MachineTargetModel } from "../target/model.js";
 import type { FrameLayout } from "./frame.js";
 import type { MachineDatum, MachineFunction } from "./ir.js";
-import { assembleData, assembleFunction } from "../mc/assembler.js";
+import { assembleData, assembleFunction, type AssembledFunction } from "../mc/assembler.js";
 import { heapData, heapImageOf, type HeapImage } from "./heap-data.js";
 import type { ClassTable } from "../metadata/class-table.js";
 import type { McExecutableWriter, McObjectWriter } from "../mc/formats/container.js";
@@ -57,6 +57,18 @@ export interface NativeMachineCodeSupport {
   readonly target: McTarget;
   readonly object: McObjectWriter | null;
   readonly program: NativeProgramImage | null;
+  readonly unwind?: (
+    module: McModule,
+    functions: readonly AssembledUnwind[],
+    image: ImageKind,
+  ) => () => void;
+}
+
+export type ImageKind = "object" | "executable";
+
+export interface AssembledUnwind {
+  readonly symbol: string;
+  readonly assembled: AssembledFunction;
 }
 
 export interface NativeBackendOptions {
@@ -142,15 +154,26 @@ function populate(
   parts: readonly NativePart[],
   routines: ReadonlyMap<string, NativeRuntimeRoutine>,
   heap: HeapImage,
+  image: ImageKind,
 ): void {
+  const unwound: AssembledUnwind[] = [];
   assembleData(module, heapData(heap));
   for (const routine of routines.values()) {
     assembleFunction(module, support.target, routine.fn, "local");
     assembleData(module, routine.fn.data.items);
   }
   for (const part of parts) {
-    assembleFunction(module, support.target, part.fn, part.internal ? "local" : "global");
+    const assembled = assembleFunction(
+      module,
+      support.target,
+      part.fn,
+      part.internal ? "local" : "global",
+    );
+    unwound.push({ symbol: part.fn.symbol, assembled });
     assembleData(module, part.fn.data.items);
+  }
+  if (support.unwind !== undefined && unwound.length > 0) {
+    module.afterLayout.push(support.unwind(module, unwound, image));
   }
 }
 
@@ -162,7 +185,7 @@ function objectImage(
   heap: HeapImage,
 ): Uint8Array {
   const module = new McModule();
-  populate(module, support, parts, requiredRoutines(parts, available), heap);
+  populate(module, support, parts, requiredRoutines(parts, available), heap, "object");
   return writer.image(module, support.target);
 }
 
@@ -185,7 +208,7 @@ function executableImage(
   ];
   const routines = closeOverRoutines(seeds, available);
   const module = new McModule();
-  populate(module, support, parts, routines, heap);
+  populate(module, support, parts, routines, heap, "executable");
   assembleFunction(module, support.target, start, "global");
   assembleData(module, start.data.items);
   return program.writer.image(module, support.target, program.entrySymbol);
@@ -241,6 +264,7 @@ export function createNativeBackend(options: NativeBackendOptions): AotBackend {
     mode: "aot",
     outputs: outputsOf(options.machineCode),
     platform: options.platform,
+    emits: new Set([...lowering.rules()].map(([opcode]) => opcode)),
     target,
     symbolOf: (name: string) => target.symbolOf(name),
     loweringPipeline: () => targetLegalizationPipeline(target),

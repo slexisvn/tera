@@ -98,8 +98,11 @@ export function inferExpression(
     case NodeType.YieldExpression:
       return inferExpression(node.argument as ASTNode | undefined, bound, scope, expected, expectedType);
     case NodeType.ConditionalExpression: {
-      const a = inferExpression(node.consequent as ASTNode, bound, scope, null, expectedType);
-      const b = inferExpression(node.alternate as ASTNode, bound, scope, null, expectedType);
+      const test = node.test as ASTNode;
+      const taken = narrowScope(test, bound, scope);
+      const untaken = narrowScope(test, bound, scope, undefined, true);
+      const a = inferExpression(node.consequent as ASTNode, bound, taken, null, expectedType);
+      const b = inferExpression(node.alternate as ASTNode, bound, untaken, null, expectedType);
       return a === b ? a : unionType([a, b]);
     }
     default:
@@ -119,8 +122,10 @@ function literalType(node: ASTNode): TypeName {
   return node.value === undefined ? "undefined" : "any";
 }
 
+const SIMPLE_ELEMENT = /^[A-Za-z_$][\w$.]*(\[\])*$/;
+
 function arrayTypeOf(element: TypeName): TypeName {
-  return parseFunctionType(element) === null ? `${element}[]` : `(${element})[]`;
+  return SIMPLE_ELEMENT.test(cleanType(element)) ? `${element}[]` : `(${element})[]`;
 }
 
 function inferArray(node: ASTNode, bound: BoundProgram, scope: Scope, expectedType?: TypeName | null): TypeName {
@@ -438,7 +443,13 @@ function inferArrow(node: ASTNode, bound: BoundProgram, scope: Scope, expected: 
   return `(${paramTypes.join(", ")}) -> ${returnType}`;
 }
 
-export function narrowScope(test: ASTNode | undefined, bound: BoundProgram, parent: Scope, target?: Scope): Scope {
+export function narrowScope(
+  test: ASTNode | undefined,
+  bound: BoundProgram,
+  parent: Scope,
+  target?: Scope,
+  negated = false,
+): Scope {
   const child: Scope = target ?? { parent, locals: new Map(), signatures: new Map(), signature: parent.signature };
   if (!test) return child;
   if (test.type === NodeType.BinaryExpression && ["!=", "==", "!==", "==="].includes(String(test.op))) {
@@ -448,7 +459,7 @@ export function narrowScope(test: ASTNode | undefined, bound: BoundProgram, pare
     if (subject) {
       const binding = lookup(parent, subject.name) ?? { type: inferExpression(subject.node, bound, parent), optional: false };
       if (binding) {
-        const nonNullish = test.op === "!=" || test.op === "!==";
+        const nonNullish = (test.op === "!=" || test.op === "!==") !== negated;
         const next = nonNullish ? removeNullish(binding.type, bound.env) : unionType(unionParts(binding.type, bound.env).filter((part) => part === "null" || part === "undefined"));
         child.locals.set(subject.name, { ...binding, type: next });
       }

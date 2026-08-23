@@ -351,7 +351,13 @@ describe("tera compile entry reporting", () => {
     inWorkspace((dir) => {
       const built = compile(
         dir,
-        src("fn twice(v):", "  return v + v", "", "print(twice(21))"),
+        src(
+          "fn twice(v):",
+          "  return v + v",
+          "",
+          "print(twice(21))",
+          'print(twice("a"))',
+        ),
       );
 
       expect(built.status).toBe(1);

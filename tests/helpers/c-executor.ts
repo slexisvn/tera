@@ -19,9 +19,9 @@ export interface CProgramRun {
 export const cCompiler = inject("cCompiler");
 export const itNative = it.skipIf(cCompiler === null);
 
-const DEFINITION = /^(int32_t|double|void|const char \*|unsigned char \*)\s*(\w+)\s*\(([^)]*)\)\s*\{/gm;
+const DEFINITION = /^(int32_t|double|void|tera_fn|const char \*|unsigned char \*)\s*(\w+)\s*\(([^)]*)\)\s*\{/gm;
 const POINTER_PARAMETER = /^(const char|unsigned char) \*\w*$/;
-const VALUE_PARAMETER = /^(int32_t|double)\s+\w+$/;
+const VALUE_PARAMETER = /^(int32_t|double|tera_fn)\s+\w+$/;
 const LOCAL_INCLUDE = /^#include\s+"[^"]*"\s*$/gm;
 const TOKEN = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[A-Za-z_]\w*/g;
 const NEWLINE = /\r\n/g;

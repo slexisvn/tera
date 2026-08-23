@@ -214,14 +214,17 @@ describe("target independence", () => {
       subtraction("sub_x64"),
       new X64Lowering(x64Target({ abi: "sysv", format: "elf" })),
     );
-    const copies = (fn: { blocks: readonly { instructions: readonly { flags: { copy?: boolean } }[] }[] }) =>
+    const destructive = (fn: {
+      blocks: readonly { instructions: readonly { flags: { tied?: boolean } }[] }[];
+    }) =>
       fn.blocks.reduce(
         (total, block) =>
-          total + block.instructions.filter((node) => node.flags.copy === true).length,
+          total + block.instructions.filter((node) => node.flags.tied === true).length,
         0,
       );
 
-    expect(copies(riscv.fn)).toBeLessThan(copies(x64.fn));
+    expect(destructive(riscv.fn)).toBe(0);
+    expect(destructive(x64.fn)).toBeGreaterThan(0);
   });
 });
 

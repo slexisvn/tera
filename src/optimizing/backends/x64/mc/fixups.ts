@@ -12,6 +12,8 @@ export const X64_PC_RELATIVE_32 = "x64.pcrel32";
 export const X64_BRANCH_32 = "x64.branch32";
 export const X64_ABSOLUTE_32 = "x64.abs32";
 export const X64_ABSOLUTE_64 = "x64.abs64";
+export const X64_IMAGE_RELATIVE_32 = "x64.rva32";
+export const X64_FIELD_RELATIVE_32 = "x64.fieldrel32";
 
 export const R_X86_64_64 = 1;
 export const R_X86_64_PC32 = 2;
@@ -20,6 +22,7 @@ export const R_X86_64_32S = 11;
 
 export const IMAGE_REL_AMD64_ADDR64 = 0x0001;
 export const IMAGE_REL_AMD64_ADDR32 = 0x0002;
+export const IMAGE_REL_AMD64_ADDR32NB = 0x0003;
 export const IMAGE_REL_AMD64_REL32 = 0x0004;
 
 type RelocationNumbers = Readonly<Record<RelocationFlavor, number | null>>;
@@ -63,6 +66,24 @@ const SPECS = new Map<FixupKind, FixupSpec>([
       size: 4,
       bits: 32,
       relocations: { elf: R_X86_64_32S, coff: IMAGE_REL_AMD64_ADDR32 },
+    },
+  ],
+  [
+    X64_IMAGE_RELATIVE_32,
+    {
+      anchor: "imageRelative",
+      size: 4,
+      bits: 32,
+      relocations: { elf: null, coff: IMAGE_REL_AMD64_ADDR32NB },
+    },
+  ],
+  [
+    X64_FIELD_RELATIVE_32,
+    {
+      anchor: "fieldRelative",
+      size: 4,
+      bits: 32,
+      relocations: { elf: R_X86_64_PC32, coff: null },
     },
   ],
   [

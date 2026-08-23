@@ -1,6 +1,7 @@
 import { machineDataBytes } from "../machine/data.js";
 import type { MachineDatum, MachineFunction, MachineInstruction } from "../machine/ir.js";
 import {
+  type McInstructionFragment,
   alignFragment,
   bytesFragment,
   instructionFragment,
@@ -19,6 +20,8 @@ export const BSS_SECTION = ".bss";
 export interface AssembledFunction {
   readonly section: McSection;
   readonly entry: McFragment;
+  readonly end: McFragment;
+  readonly prologue: readonly McInstructionFragment[];
   readonly instructions: number;
 }
 
@@ -31,10 +34,12 @@ function place(
   target: McTarget,
   section: McSection,
   node: MachineInstruction,
-): void {
+): McInstructionFragment {
   const encoding = target.encode(node, 0);
   for (const entry of encoding.fixups) module.symbols.reference(entry.symbol);
-  section.add(instructionFragment(node, encoding));
+  const fragment = instructionFragment(node, encoding);
+  section.add(fragment);
+  return fragment;
 }
 
 export function assembleFunction(
@@ -49,15 +54,17 @@ export function assembleFunction(
   const entry = anchor(section);
   module.symbols.define(fn.symbol, entry, binding, "function");
 
+  const prologue: McInstructionFragment[] = [];
   let instructions = 0;
   for (const block of fn.blocks) {
     module.symbols.define(block.label, anchor(section), "local", "none");
     for (const node of block.instructions) {
-      place(module, target, section, node);
+      const fragment = place(module, target, section, node);
+      if (node.flags.prologue === true) prologue.push(fragment);
       instructions++;
     }
   }
-  return { section, entry, instructions };
+  return { section, entry, end: anchor(section), prologue, instructions };
 }
 
 function isUninitialized(datum: MachineDatum): boolean {
@@ -92,5 +99,5 @@ export function assembleRoutine(
   const entry = anchor(section);
   module.symbols.define(symbol, entry, binding, "function");
   for (const node of body) place(module, target, section, node);
-  return { section, entry, instructions: body.length };
+  return { section, entry, end: anchor(section), prologue: [], instructions: body.length };
 }

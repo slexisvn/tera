@@ -53,6 +53,7 @@ import {
   type AotStringBuffer,
 } from "../../analyses/aot-legality.js";
 import { calleeSymbolName } from "../../metadata/call-signatures.js";
+import { callThroughArguments, codeSymbolOf } from "../../analyses/aot-legality.js";
 import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
 import { doubleBits } from "../../target/float64.js";
 import { asciiData, integerData, zeroFilledBuffer } from "../../machine/data.js";
@@ -63,6 +64,7 @@ import {
   SCALAR_FLOAT64,
   SCALAR_INT32,
   SCALAR_POINTER,
+  SCALAR_CODE,
   SCALAR_STRING,
   SCALAR_TEXT,
   scalarWidth,
@@ -107,7 +109,8 @@ import {
   ROOT_FRAME_REGISTER,
   ROOT_SLOT_SHIFT,
 } from "./heap.js";
-import { TERA_CONTEXT, TERA_POINTER_BYTES } from "../../target/runtime-layout.js";
+import { TERA_POINTER_BYTES } from "../../target/runtime-layout.js";
+import { contextAddress, contextField } from "./context.js";
 import type { PhysicalRegister } from "../../target/registers.js";
 import type { RiscvTargetModel } from "./target.js";
 
@@ -117,6 +120,17 @@ interface IntCondition {
   readonly negate: boolean;
   readonly equality: boolean;
 }
+
+const OPPOSITE_BRANCHES = new Map<string, string>(
+  [
+    ["beq", "bne"],
+    ["blt", "bge"],
+    ["bltu", "bgeu"],
+  ].flatMap(([branch, opposite]) => [
+    [branch, opposite] as [string, string],
+    [opposite, branch] as [string, string],
+  ]),
+);
 
 const INT_CONDITIONS = new Map<string, IntCondition>([
   ["<", { branch: "blt", swap: false, negate: false, equality: false }],
@@ -242,6 +256,13 @@ export class RiscvLowering extends MachineLoweringBase<RiscvTargetModel> {
       ctx.emit(instruction("lla", [writeOf(destination), sym(datum.label)]));
       return destination;
     }
+    if (scalar === SCALAR_CODE) {
+      const symbol = this.target.symbolOf(codeSymbolOf(constant)!);
+      const destination = ctx.temp(scalar);
+      ctx.reference(symbol);
+      ctx.emit(instruction("lla", [writeOf(destination), sym(symbol)]));
+      return destination;
+    }
     return this.loadNumber(ctx, Number(value), scalar);
   }
 
@@ -291,6 +312,18 @@ export class RiscvLowering extends MachineLoweringBase<RiscvTargetModel> {
     ]);
   }
 
+  invertBranch(node: MachineInstruction, target: MachineBlock): MachineInstruction | null {
+    const opposite = OPPOSITE_BRANCHES.get(node.opcode);
+    if (opposite === undefined) return null;
+    const carried = node.operands.slice(0, -1);
+    if (node.operands[node.operands.length - 1]?.kind !== "label") return null;
+    return instruction(opposite, [...carried, label(target)], { terminator: true });
+  }
+
+  fusedInputOf(): CFGInstruction | null {
+    return null;
+  }
+
   jump(target: MachineBlock): MachineInstruction {
     return instruction("j", [label(target)], { terminator: true });
   }
@@ -337,18 +370,12 @@ export class RiscvLowering extends MachineLoweringBase<RiscvTargetModel> {
         def(cursor, 8),
         mem(8, { base: this.stackPointer(), slot: frame.rootFrame }),
       ]),
-      instruction("lla", [def(table, 8), sym(TERA_CONTEXT.symbol)]),
-      instruction("ld", [
-        def(table, 8),
-        mem(8, { base: use(table, 8), displacement: TERA_CONTEXT.offsetOf("rootsBase") }),
-      ]),
+      instruction("lla", [def(table, 8), contextAddress()]),
+      instruction("ld", [def(table, 8), contextField(use(table, 8), "rootsBase")]),
       instruction("sub", [def(cursor, 8), use(cursor, 8), use(table, 8)]),
       instruction("srli", [def(cursor, 8), use(cursor, 8), imm(ROOT_SLOT_SHIFT)]),
-      instruction("lla", [def(table, 8), sym(TERA_CONTEXT.symbol)]),
-      instruction("sd", [
-        use(cursor, 8),
-        mem(8, { base: use(table, 8), displacement: TERA_CONTEXT.offsetOf("rootCount") }),
-      ]),
+      instruction("lla", [def(table, 8), contextAddress()]),
+      instruction("sd", [use(cursor, 8), contextField(use(table, 8), "rootCount")]),
     ];
   }
 
@@ -802,6 +829,23 @@ export class RiscvLowering extends MachineLoweringBase<RiscvTargetModel> {
       ]),
     );
     if (ctx.node.uses.length > 0) this.produce(ctx, value, element);
+  }
+
+  protected selectCodeAddress(ctx: SelectionContext): void {
+    const named = codeSymbolOf(ctx.node);
+    if (named === null) return;
+    const symbol = this.target.symbolOf(named);
+    ctx.reference(symbol);
+    ctx.emit(instruction("lla", [writeOf(ctx.resultRegister()), sym(symbol)]));
+  }
+
+  protected selectCallThrough(ctx: SelectionContext): void {
+    const callee = ctx.registerOf(ctx.node.inputs[0]!);
+    const signature = ctx.legality.codeSignatureOf(ctx.node.inputs[0]!)!;
+    const args = callThroughArguments(ctx.node).map((input: CFGInstruction, index: number) =>
+      this.coerce(ctx, input, nativeArgumentScalar(signature.params[index] ?? null, ctx.classes)),
+    );
+    ctx.emitCallThrough(callee, args, ctx.node.uses.length > 0 ? ctx.resultRegister() : null);
   }
 
   protected selectKnownCall(ctx: SelectionContext): void {

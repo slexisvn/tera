@@ -32,6 +32,7 @@ import {
 import type { EntryDelivery } from "../optimizing/target/entry.js";
 import { markProgramEntry, PROGRAM_ENTRY_NAME } from "../optimizing/target/program-entry.js";
 import { collectionPrelude, COLLECTION_GLOBALS } from "../optimizing/prelude/collections.js";
+import { collectionRequestsIn } from "../optimizing/prelude/requests.js";
 import { astChildren, NodeType } from "../frontend/ast/index.js";
 import type { AotOutputFormat } from "../optimizing/target/artifact.js";
 import { createModuleIR, type CompilationUnit } from "../optimizing/compilation-unit.js";
@@ -850,7 +851,7 @@ export class Engine {
     const probed = this.compileInRuntime(source, compileOptions, true);
     const compiled = referencesCollections(probed)
       ? this.compileInRuntime(`${source}
-${collectionPrelude()}`, compileOptions, true)
+${collectionPrelude(collectionRequestsIn(parse(source, { syntaxPlugins: this.compileSyntaxPlugins(compileOptions) })))}`, compileOptions, true)
       : probed;
     const program = entry === undefined ? compiled : null;
     const functions = this.selectAotFunctions(

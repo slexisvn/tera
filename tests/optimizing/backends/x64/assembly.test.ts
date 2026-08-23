@@ -99,7 +99,7 @@ describe("x64 assembly", () => {
         "  return leaf(x) * 2.0",
       ),
     );
-    const frame = assembly.match(/caller:\n(?:\.\S+:\n)*\tsubq \$(\d+), %rsp/);
+    const frame = assembly.match(/caller:\n(?:\t?[.][^\n]*\n)*\tsubq \$(\d+), %rsp/);
 
     expect(frame).not.toBeNull();
     expect((Number(frame![1]) + 8) % 16).toBe(0);
@@ -115,7 +115,7 @@ describe("x64 assembly", () => {
       "  return leaf(x)",
     );
     const frameOf = (text: string) =>
-      Number(text.match(/caller:\n(?:\.\S+:\n)*\tsubq \$(\d+), %rsp/)![1]);
+      Number(text.match(/caller:\n(?:\t?[.][^\n]*\n)*\tsubq \$(\d+), %rsp/)![1]);
     const forWin = frameOf(fileOf(programWith(source, "win64", "coff"), ".s"));
     const forSysV = frameOf(fileOf(programWith(source, "sysv", "elf"), ".s"));
 
@@ -152,5 +152,69 @@ describe("x64 assembly", () => {
 
     expect(withHelper).toContain("tera_x64_i32_mod:");
     expect(withoutHelper).not.toContain("tera_x64_i32_mod:");
+  });
+
+  it("describes its prologue with call frame directives", () => {
+    const assembly = assemblyOf(
+      src(
+        "fn leaf(a: int, b: int) -> int:",
+        "  return a * b + a - b",
+        "fn spread(a: int, b: int, c: int, d: int, e: int, f: int) -> int:",
+        "  t = leaf(a, b) + leaf(c, d) + leaf(e, f)",
+        "  u = leaf(t, a) + leaf(t, b) + leaf(t, c)",
+        "  return t + u + a + b + c + d + e + f",
+        "print(spread(1, 2, 3, 4, 5, 6))",
+      ),
+    );
+
+    expect(assembly).toContain("\t.cfi_startproc");
+    expect(assembly).toMatch(/subq [$](\d+), %rsp\n\t[.]cfi_def_cfa_offset /);
+    expect(assembly).toMatch(/movq %rbx, 0[(]%rsp[)]\n\t[.]cfi_offset 3, -\d+/);
+    expect(assembly.split("\t.cfi_startproc").length).toBe(
+      assembly.split("\t.cfi_endproc").length,
+    );
+  });
+
+  it("leaves a routine whose prologue it cannot read undescribed", () => {
+    const assembly = assemblyOf(src("print(7)"));
+    const routine = assembly.slice(assembly.indexOf("tera_x64_print_i32:"));
+
+    expect(routine.slice(0, routine.indexOf("ret"))).not.toContain(".cfi_");
+  });
+
+  it("compares against a constant without loading it into a register", () => {
+    const assembly = assemblyOf(
+      src("fn sign(n: int) -> int:", "  if n > 0:", "    return 1", "  return 0"),
+    );
+
+    expect(assembly).toMatch(/cmpl [$]0, %e\w+/);
+    expect(assembly).not.toMatch(/movl [$]0, %e\w+\n\tcmpl/);
+  });
+
+  it("still compares two registers when neither side is constant", () => {
+    const assembly = assemblyOf(
+      src("fn larger(a: int, b: int) -> int:", "  if a > b:", "    return a", "  return b"),
+    );
+
+    expect(assembly).toMatch(/cmpl %\w+, %\w+/);
+  });
+
+  it("folds a scaled multiply into the address the add computes", () => {
+    const assembly = assemblyOf(src("fn at(a: int, b: int) -> int:", "  return a * 4 + b"));
+
+    expect(assembly).toMatch(/leal 0[(]%r\w+,%r\w+,4[)]/);
+    expect(assembly).not.toContain("sall");
+  });
+
+  it("folds a scaled multiply with a constant into the displacement", () => {
+    const assembly = assemblyOf(src("fn at(a: int) -> int:", "  return a * 8 + 7"));
+
+    expect(assembly).toMatch(/leal 7[(],%r\w+,8[)]/);
+  });
+
+  it("leaves a scale the address mode cannot express alone", () => {
+    const assembly = assemblyOf(src("fn at(a: int, b: int) -> int:", "  return a * 16 + b"));
+
+    expect(assembly).not.toMatch(/leal 0[(]%r\w+,%r\w+,16[)]/);
   });
 });

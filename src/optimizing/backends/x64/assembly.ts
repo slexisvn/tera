@@ -6,6 +6,8 @@ import { X64_FPR } from "./registers.js";
 import { x64RegisterName } from "./registers.js";
 import type { ObjectFormat } from "./format.js";
 import type { X64TargetModel } from "./target.js";
+import { annotateCfi, CFI_END, CFI_START } from "../../machine/cfi-text.js";
+import { prologueEffectOf, x64CfiTarget } from "./unwind.js";
 
 const ADDRESS_WIDTH = 8;
 const INDIRECT_MARKER = "*";
@@ -66,6 +68,7 @@ export class X64AssemblyWriter {
 
   functionText(fn: MachineFunction, exported = true): string {
     const symbol = this.symbolText(fn.symbol);
+    const cfi = annotateCfi(fn, x64CfiTarget, prologueEffectOf);
     const lines: string[] = [
       this.format.textDirective,
       "\t.p2align 4",
@@ -73,11 +76,15 @@ export class X64AssemblyWriter {
         ? [`\t.globl ${symbol}`, ...this.format.functionAttributes(symbol)]
         : []),
       `${symbol}:`,
+      ...(cfi.describes ? [CFI_START] : []),
     ];
     for (const block of fn.blocks) {
       lines.push(`${block.label}:`);
-      for (const node of block.instructions) lines.push(...this.instructionText(node));
+      for (const node of block.instructions) {
+        lines.push(...this.instructionText(node), ...cfi.after(node));
+      }
     }
+    if (cfi.describes) lines.push(CFI_END);
     return `${lines.join("\n")}\n`;
   }
 

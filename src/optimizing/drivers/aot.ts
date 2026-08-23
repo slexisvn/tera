@@ -1,9 +1,11 @@
 import {
+  IR_CONSTANT,
   irCallKnownFunction,
   IR_AWAIT,
   IR_CALL_BUILTIN,
   IR_CALL_KNOWN_FUNCTION,
   IR_GENERIC_CALL,
+  IR_LOAD_GLOBAL,
   IR_RETURN,
   type CFGFunction,
   type CFGInstruction,
@@ -46,17 +48,18 @@ import type {
 export type { AotSkippedFunction };
 import type { EntryDelivery } from "../target/entry.js";
 import { BackendLoweringError, isBackendLoweringError } from "../target/errors.js";
+import { CODE_TARGET_PROP } from "../analyses/aot-legality.js";
 import { AnalysisManager } from "../infra/analysis-manager.js";
 import { compilerOptions, type CompilerOptions } from "../options.js";
 import { cfgPassManager, runMiddleEnd } from "../pipeline.js";
 import { createAnalysisRegistry } from "../analyses/index.js";
 import { elideAwaits } from "../passes/await-elision.js";
 import { specializeFunctionArguments } from "../passes/function-argument-specialization.js";
+import { rewriteSelfTailCalls } from "../passes/tail-calls.js";
 import { adoptInferredTypes } from "../passes/inferred-types.js";
 import { boxEscapingStrings } from "../passes/string-boxing.js";
 import { lowerPromiseSurface } from "../passes/promise-surface.js";
 import {
-  buildDispatch,
   buildDrain,
   buildReportRejections,
   CoroutineSplitError,
@@ -501,22 +504,17 @@ function splitCoroutines(
   failures: AotSkippedFunction[],
 ): readonly CompilationUnit[] {
   const added: CompilationUnit[] = [];
-  const routines = new Map<number, { resume: string; frame: ClassShape }>();
-  let routine = 0;
   for (const unit of module.units) {
     if (!plan.suspending.has(unit.graph.name)) continue;
     try {
       const split = splitCoroutine(
         unit.graph,
         classes,
-        routine,
         plan.promises.get(unit.graph.name)!,
         promiseOf,
       );
       if (split.resume === null || split.frame === null) continue;
-      routines.set(routine, { resume: split.resume.name, frame: split.frame });
       added.push(unitOf(split.resume));
-      routine++;
     } catch (error) {
       if (!(error instanceof CoroutineSplitError)) throw error;
       failures.push({ name: unit.graph.name, reason: error.message });
@@ -524,7 +522,6 @@ function splitCoroutines(
   }
   if (plan.promises.size === 0) return added;
 
-  added.push(unitOf(buildDispatch(classes, routines)));
   added.push(unitOf(buildDrain(classes)));
   added.push(unitOf(buildReportRejections(classes)));
   const entry = module.units.find((unit) => unit.graph.name === entryName);
@@ -548,6 +545,47 @@ function requireDeclaredParameters(module: ModuleIR): void {
 }
 
 
+function nameFunctionValues(module: ModuleIR, classes: ClassTable | null): void {
+  const functions = new ModuleFunctions(module);
+  const namesAClass = (name: string): boolean =>
+    classes !== null && classes.shapeOf(name) !== null;
+  for (const unit of module.units) {
+    for (const block of unit.graph.blocks) {
+      for (const node of block.nodes) {
+        for (const value of [node, ...node.inputs]) {
+          if (value.type !== IR_CONSTANT && value.type !== IR_LOAD_GLOBAL) continue;
+          if (value.props[CODE_TARGET_PROP] !== undefined) continue;
+          const target = functions.referenced(value);
+          if (target === null || target.classOwner !== null || namesAClass(target.name)) continue;
+          value.props[CODE_TARGET_PROP] = target.name;
+        }
+      }
+    }
+  }
+}
+
+interface LoweredUnit {
+  readonly graph: CFGFunction;
+  readonly analyses: AnalysisManager<CFGFunction>;
+}
+
+function inlineLoweredCalls(
+  lowered: readonly LoweredUnit[],
+  module: ModuleIR,
+  options: CompilerOptions,
+  declined: ReadonlySet<string>,
+): void {
+  const units = new Map(lowered.map((unit) => [unit.graph, unit.analyses]));
+  const graphs = [...units.keys()].filter((graph) => !declined.has(graph.name));
+  const functions = new ModuleFunctions(module);
+  for (const graph of bottomUpCallOrder(graphs)) {
+    const analyses = units.get(graph);
+    if (analyses === undefined || inlineKnownCalls(graph, functions, options) === 0) continue;
+    analyses.invalidateAll();
+    analyses.invalidateAll();
+  }
+}
+
 function inlineModuleCalls(
   module: ModuleIR,
   options: CompilerOptions,
@@ -558,7 +596,8 @@ function inlineModuleCalls(
     .filter((graph) => !declined.has(graph.name));
   const functions = new ModuleFunctions(module);
   for (const graph of bottomUpCallOrder(graphs)) {
-    if (inlineKnownCalls(graph, functions, options) === 0) continue;
+    const rewrote = inlineKnownCalls(graph, functions, options) + rewriteSelfTailCalls(graph, functions);
+    if (rewrote === 0) continue;
     functions.unitOf(graph)?.analyses?.invalidateAll();
     runMiddleEnd(graph, options);
   }
@@ -598,6 +637,7 @@ export function compileModule(
       ],
     };
   }
+  nameFunctionValues(module, classes);
   adoptInferredTypes(module, classes);
   requireDeclaredParameters(module);
   if (classes !== null) declareGlobalVariables(module, classes);
@@ -635,6 +675,7 @@ export function compileModule(
       unit.analyses ?? new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
     try {
       graph.calleeSignatures = signatures;
+      graph.emits = backend.emits;
       cfgPassManager(analyses, opts).run(graph, backend.loweringPipeline(opts));
       if (stampCalleeSignatures(graph, signatures) > 0) {
         analyses.invalidate(typeInferenceAnalysisId);
@@ -684,6 +725,8 @@ export function compileModule(
     }
   }
   for (const unit of resumed) lower(unit);
+
+  inlineLoweredCalls(lowered, module, opts, declined);
 
   skipped.push(...failures);
   const emitting = lowered.filter(({ graph }) => !declined.has(graph.name));

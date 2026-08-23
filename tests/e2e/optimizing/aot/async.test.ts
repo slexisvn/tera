@@ -154,3 +154,18 @@ describe("AOT async", () => {
     });
   }
 });
+
+describe("AOT coroutine dispatch", () => {
+  it("resumes a frame through the routine it carries rather than a comparison chain", () => {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(`${SUSPENDS}
+`, {
+      backend: "c",
+      format: "assembly",
+    });
+    const source = String(program.files.find((file) => file.name.endsWith(".c"))!.contents);
+
+    expect(program.skipped).toEqual([]);
+    expect(source).not.toContain("tera_dispatch");
+    expect(source).toMatch(/tera_drain[\s\S]*\(\(int32_t \(\*\)\(unsigned char \*\)\)/);
+  });
+});

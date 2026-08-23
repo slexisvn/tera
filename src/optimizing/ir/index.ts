@@ -226,6 +226,7 @@ export class CFGFunction {
   classes: ClassTable | null;
   classOwner: string | null;
   calleeSignatures: ReadonlyMap<string, DeclaredSignature> | null;
+  emits: ReadonlySet<string> | null;
   stringEscapes: StringEscapeModel | null;
   receiver: boolean;
   internal: boolean;
@@ -254,6 +255,7 @@ export class CFGFunction {
     this.classes = null;
     this.classOwner = null;
     this.calleeSignatures = null;
+    this.emits = null;
     this.stringEscapes = null;
     this.reentrant = false;
     this.receiver = false;
@@ -681,6 +683,13 @@ export function irGenericSetIndex(obj: IRValueLike, index: IRValueLike, value: I
   node.addInput(obj);
   node.addInput(index);
   node.addInput(value);
+  return node;
+}
+
+export function irSpreadElements(target: IRValueLike, source: IRValueLike) {
+  const node = new IRNode(ops.IR_SPREAD_ELEMENTS);
+  node.addInput(target);
+  node.addInput(source);
   return node;
 }
 

@@ -58,12 +58,23 @@ import {
   isLiteralShapeName,
   shapeForDeclared,
   FIELD_SCALAR_PROP,
+  FIELD_TYPE_PROP,
   VALUE_CLASS_PROP,
   type ClassTable,
 } from "../metadata/class-table.js";
 
 export function isAbsenceConstant(value: CFGInstruction | undefined): boolean {
   return value !== undefined && value.type === IR_CONSTANT && value.props.value === null;
+}
+
+export function int32ConstantOf(
+  value: CFGInstruction | undefined,
+  scalar: AotScalar | null,
+): number | null {
+  if (value === undefined || value.type !== IR_CONSTANT || scalar !== SCALAR_INT32) return null;
+  const held = value.props.value;
+  if (typeof held !== "number" || !Number.isInteger(held)) return null;
+  return held === (held | 0) ? held : null;
 }
 import { analysisId, type AnalysisPass } from "../infra/analysis-manager.js";
 import { computeValueLiveness } from "./value-liveness.js";
@@ -78,6 +89,7 @@ import {
   isStorableScalar,
   SCALAR_FLOAT64,
   SCALAR_INT32,
+  SCALAR_CODE,
   SCALAR_POINTER,
   SCALAR_STRING,
   SCALAR_TEXT,
@@ -88,6 +100,7 @@ import {
 } from "../types/scalar.js";
 import { anyType, joinTypes, TypeKind, type LatticeType } from "../types/lattice.js";
 import {
+  functionSignatureOf,
   isUnwritten,
   parameterLabelOf,
   type DeclaredSignature,
@@ -138,7 +151,6 @@ export const AOT_OPCODES: ReadonlySet<string> = new Set<string>([
   IR_CALL_BUILTIN,
   IR_LOAD_ELEMENT,
   IR_STORE_ELEMENT,
-  IR_LOAD_ARRAY_LENGTH,
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
   IR_LOAD_FIELD,
@@ -232,8 +244,8 @@ function globalValueReason(node: CFGInstruction, classes: ClassTable | null): st
   if (typeof member !== "string") return `load of the global value ${owner}`;
   if (classes !== null && classes.shapeOf(owner) !== null) {
     return (
-      `${owner}.${member} is a value the compiler could not lay out; hold it in a ` +
-      `module-level variable instead, or keep this part interpreted`
+      `${owner}.${member} is a value the compiler could not lay out; give it a type the ` +
+      `compiler can shape, or keep this part interpreted`
     );
   }
   const advice =
@@ -252,6 +264,17 @@ function memberCalledWith(node: CFGInstruction): string | null {
   if (callee?.type !== IR_GENERIC_GET_PROP) return null;
   const member = callee.props.propName;
   return typeof member === "string" ? member : null;
+}
+
+export const CODE_TARGET_PROP = "codeTarget";
+
+export function callThroughArguments(node: CFGInstruction): readonly CFGInstruction[] {
+  return node.inputs.slice(node.props.isMethod === true ? 2 : 1);
+}
+
+export function codeSymbolOf(node: CFGInstruction): string | null {
+  const named = node.props[CODE_TARGET_PROP];
+  return typeof named === "string" ? named : null;
 }
 
 function functionValueReason(node: CFGInstruction, passed: string): string {
@@ -296,7 +319,7 @@ const MEMBER_REASONS: ReadonlyMap<string, string> = new Map<string, string>([
 ]);
 
 const REJECTIONS = new Map<string, (node: CFGInstruction) => string>([
-  [IR_NEW_ARRAY, () => "array has an unsupported element type"],
+  [IR_NEW_ARRAY, () => "array literal has no element type the compiler could pin down"],
   [
     IR_GENERIC_DELETE_PROP,
     () =>
@@ -561,6 +584,7 @@ export interface AotLegality {
   absenceComparesAsNumber(node: CFGInstruction): boolean;
   comparesReferences(node: CFGInstruction): boolean;
   stringBufferOf(value: CFGInstruction): AotStringBuffer | null;
+  codeSignatureOf(value: CFGInstruction | undefined): DeclaredSignature | null;
 }
 
 export type AotLegalityResult =
@@ -980,8 +1004,10 @@ class LegalityAnalyzer implements AotLegality {
 
   private answeredScalarOf(value: CFGInstruction): AotScalar | null {
     const returns = calleeDeclaredSignature(value)?.returns;
-    if (returns === undefined || returns === null || !declaredAcceptsNull(returns)) return null;
-    return declaredAotScalar(returns, this.graph.classes);
+    if (typeof returns !== "string") return null;
+    const declared = declaredAotScalar(returns, this.graph.classes);
+    if (declared === SCALAR_CODE) return declared;
+    return declaredAcceptsNull(returns) ? declared : null;
   }
 
   private collectConstants(): void {
@@ -1003,6 +1029,53 @@ class LegalityAnalyzer implements AotLegality {
     }
   }
 
+  codeSignatureOf(value: CFGInstruction | undefined): DeclaredSignature | null {
+    if (value === undefined) return null;
+    if (value.type === IR_CONSTANT) {
+      const compiled = compiledFunctionConstant(value.props.value);
+      return compiled?.declaredSignature ?? null;
+    }
+    if (value.type === IR_CALL_KNOWN_FUNCTION) {
+      const answered = calleeDeclaredSignature(value)?.returns;
+      return typeof answered === "string" ? functionSignatureOf(answered) : null;
+    }
+    if (value.type === IR_LOAD_GLOBAL) {
+      const named = codeSymbolOf(value);
+      const target = named === null ? null : this.graph.calleeSignatures?.get(named) ?? null;
+      if (target !== null) return target;
+    }
+    const declared =
+      value.type === IR_PARAMETER
+        ? this.graph.declaredSignature?.params[Number(value.props.index)] ?? null
+        : value.props[FIELD_TYPE_PROP];
+    return typeof declared === "string" ? functionSignatureOf(declared) : null;
+  }
+
+  private checkCallThrough(node: CFGInstruction): boolean {
+    const callee = node.inputs[0];
+    if (callee === undefined) return false;
+    if (this.scalarOf(callee) !== SCALAR_CODE) return false;
+    const signature = this.codeSignatureOf(callee);
+    if (signature === null) {
+      this.fail("call through a function value whose type the compiler cannot tell");
+      return true;
+    }
+    const args = callThroughArguments(node);
+    if (signature.params.length !== args.length) {
+      this.fail(
+        `call through a function value passes ${args.length} of ${signature.params.length} arguments`,
+      );
+      return true;
+    }
+    const returns = declaredAotScalar(signature.returns, this.graph.classes);
+    if (returns === null) {
+      this.fail("call through a function value answers a type the compiler cannot lay out");
+      return true;
+    }
+    this.scalars.set(node, returns);
+    return true;
+  }
+
   private checkConstant(node: CFGInstruction): void {
     const value = node.props.value;
     if (typeof value === "string") {
@@ -1020,6 +1093,10 @@ class LegalityAnalyzer implements AotLegality {
     }
     if (value === null) {
       this.scalars.set(node, this.absenceScalarOf(node));
+      return;
+    }
+    if (codeSymbolOf(node) !== null) {
+      this.scalars.set(node, SCALAR_CODE);
       return;
     }
     const compiled = compiledFunctionConstant(value);
@@ -1055,6 +1132,7 @@ class LegalityAnalyzer implements AotLegality {
     if (node.type === IR_PARAMETER || node.type === IR_PHI || node.type === IR_CONSTANT) {
       return;
     }
+    if (node.type === IR_GENERIC_CALL && this.checkCallThrough(node)) return;
     const rejection = REJECTIONS.get(node.type);
     if (rejection !== undefined) {
       this.fail(rejection(node));
@@ -1064,11 +1142,16 @@ class LegalityAnalyzer implements AotLegality {
       this.fail("call has named arguments that do not match the callee parameters");
       return;
     }
-    if (!AOT_OPCODES.has(node.type) && this.bufferByValue.get(node)?.producer !== node) {
+    const emitted = this.graph.emits ?? AOT_OPCODES;
+    if (!emitted.has(node.type) && this.bufferByValue.get(node)?.producer !== node) {
       this.fail(`unsupported opcode ${node.type}`);
       return;
     }
     if (node.type === IR_LOAD_GLOBAL) {
+      if (codeSymbolOf(node) !== null) {
+        this.scalars.set(node, SCALAR_CODE);
+        return;
+      }
       if (node.uses.length > 0) this.fail(globalValueReason(node, this.graph.classes));
       return;
     }
@@ -1216,11 +1299,12 @@ class LegalityAnalyzer implements AotLegality {
     }
     for (let index = 0; index < node.inputs.length; index++) {
       const declared = builtinParameterAt(intrinsic, index);
+      const answered = this.scalars.has(node.inputs[index]!);
       const actual = this.require(node.inputs[index]!, node.type);
       if (actual === null) return;
       if (declared === ANY_SCALAR) {
         if (name !== PRINT_BUILTIN) continue;
-        if (this.types.typeOf(node.inputs[index]!).kind === TypeKind.Any) {
+        if (!answered && this.types.typeOf(node.inputs[index]!).kind === TypeKind.Any) {
           this.fail(
             `${name} is given a value whose type the compiler cannot tell; annotate the ` +
               `function it comes from, or keep this part interpreted`,

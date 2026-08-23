@@ -3,6 +3,7 @@ import {
   IR_CALL_KNOWN_FUNCTION,
   IR_CONSTANT,
   IR_LOAD_GLOBAL,
+  IR_SPREAD_ELEMENTS,
   irBranch,
   irFloat64Compare,
   irGenericAdd,
@@ -953,6 +954,16 @@ function loweringFor(node: CFGInstruction): { callee: CFGInstruction; lower: Low
   return null;
 }
 
+function lowerSpread(site: Site, target: CFGInstruction, into: ArrayModel): boolean {
+  const scan = openScan(site);
+  const element = appendLoad(site, scan.body, scan.buffer, scan.cursor);
+  collectedInto(site, scan, scan.body, target, element, into);
+  append(scan.exhausted, irJump(scan.after), site.stamp);
+  connect(scan.exhausted, scan.after);
+  site.editor.remove(site.node);
+  return true;
+}
+
 export function lowerArrayMethods(graph: CFGFunction, types: TypeInference): number {
   const classes = graph.classes;
   if (classes === null) return 0;
@@ -964,10 +975,18 @@ export function lowerArrayMethods(graph: CFGFunction, types: TypeInference): num
     const block = graph.blocks[index]!;
     for (const node of [...block.nodes]) {
       if (node.block !== block) continue;
-      const lowering = loweringFor(node);
-      if (lowering === null) continue;
       const model = arrayModelOf(node.inputs[1], graph, classes, types);
       if (model === null) continue;
+      if (node.type === IR_SPREAD_ELEMENTS) {
+        const target = node.inputs[0]!;
+        const into = arrayModelOf(target, graph, classes, types);
+        if (into === null) continue;
+        lowerSpread({ graph, editor, node, callee: node, model, stamp }, target, into);
+        changed++;
+        break;
+      }
+      const lowering = loweringFor(node);
+      if (lowering === null) continue;
       if (!lowering.lower({ graph, editor, node, callee: lowering.callee, model, stamp })) continue;
       changed++;
       break;

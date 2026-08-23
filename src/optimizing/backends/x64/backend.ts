@@ -1,6 +1,11 @@
 import type { AotBackend } from "../../target/backend.js";
-import { createNativeBackend, type NativeProgramImage } from "../../machine/backend.js";
+import {
+  createNativeBackend,
+  type NativeMachineCodeSupport,
+  type NativeProgramImage,
+} from "../../machine/backend.js";
 import type { McObjectWriter } from "../../mc/formats/container.js";
+import { appendWin64Unwind, appendX64EhFrame } from "./unwind.js";
 import { elf64Executable, elf64Object, ELF_MACHINE_X86_64 } from "../../mc/formats/elf64.js";
 import { coffObject, peExecutable, PE_MACHINE_AMD64 } from "../../mc/formats/pe.js";
 import type { RegisterFile } from "../../target/registers.js";
@@ -46,6 +51,12 @@ const CONTAINERS: Record<ObjectFormatName, X64Containers | null> = {
 
 const X64_ARCHITECTURE = "x64";
 
+const ehFrameFor = (format: ObjectFormatName): NativeMachineCodeSupport["unwind"] =>
+  format === "elf"
+    ? (module, functions, image) =>
+        appendX64EhFrame(module, functions, image === "executable")
+    : undefined;
+
 export function createX64Backend(options: X64BackendOptions = {}): AotBackend {
   const target = x64Target(options);
   const format = target.objectFormat.name;
@@ -60,6 +71,7 @@ export function createX64Backend(options: X64BackendOptions = {}): AotBackend {
       target: x64McTarget,
       object: containers?.object ?? null,
       program: containers?.program(target.io, target.registers) ?? null,
+      unwind: format === "coff" ? appendWin64Unwind : ehFrameFor(format),
     },
   });
 }

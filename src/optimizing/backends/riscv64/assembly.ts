@@ -8,6 +8,8 @@ import {
 } from "../../machine/ir.js";
 import type { FrameLayout } from "../../machine/frame.js";
 import { machineDataText } from "../../machine/data.js";
+import { annotateCfi, CFI_END, CFI_START } from "../../machine/cfi-text.js";
+import { prologueEffectOf, riscvCfiTarget } from "./unwind.js";
 import { BackendLoweringError } from "../../target/errors.js";
 import { fitsImmediate } from "./immediates.js";
 
@@ -54,16 +56,21 @@ export class RiscvAssemblyWriter {
 
   functionText(fn: MachineFunction, exported = true): string {
     const symbol = fn.symbol;
+    const cfi = annotateCfi(fn, riscvCfiTarget, prologueEffectOf);
     const lines: string[] = [
       "\t.text",
       "\t.p2align 2",
       ...(exported ? [`\t.globl ${symbol}`, `\t.type ${symbol}, @function`] : []),
       `${symbol}:`,
+      ...(cfi.describes ? [CFI_START] : []),
     ];
     for (const block of fn.blocks) {
       lines.push(`${block.label}:`);
-      for (const node of block.instructions) lines.push(...this.instructionText(node));
+      for (const node of block.instructions) {
+        lines.push(...this.instructionText(node), ...cfi.after(node));
+      }
     }
+    if (cfi.describes) lines.push(CFI_END);
     lines.push(`\t.size ${symbol}, .-${symbol}`);
     return `${lines.join("\n")}\n`;
   }

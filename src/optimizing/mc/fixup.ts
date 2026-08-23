@@ -2,7 +2,12 @@ import { UnsupportedRelocationError } from "./errors.js";
 
 export type FixupKind = string;
 
-export type FixupAnchor = "absolute" | "instructionStart" | "instructionEnd";
+export type FixupAnchor =
+  | "absolute"
+  | "imageRelative"
+  | "fieldRelative"
+  | "instructionStart"
+  | "instructionEnd";
 
 export type RelocationFlavor = "elf" | "coff";
 

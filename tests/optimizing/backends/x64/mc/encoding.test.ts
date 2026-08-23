@@ -92,6 +92,30 @@ const CASES: readonly (readonly [string, MachineInstruction])[] = [
     }),
   ],
   ["compare registers", instruction("cmpl", [use(reg("rdi"), 4), use(reg("rsi"), 4)])],
+  [
+    "scaled index address",
+    instruction("leal", [
+      def(reg("rax"), 4),
+      mem(4, { base: use(reg("rdx"), 8), index: use(reg("rcx"), 8), scale: 4 }),
+    ]),
+  ],
+  [
+    "scaled index without a base",
+    instruction("leal", [
+      def(reg("rax"), 4),
+      mem(4, { index: use(reg("rcx"), 8), scale: 4, displacement: 7 }),
+    ]),
+  ],
+  [
+    "scaled index on extended registers",
+    instruction("leal", [
+      def(reg("r9"), 4),
+      mem(4, { base: use(reg("r13"), 8), index: use(reg("r12"), 8), scale: 8 }),
+    ]),
+  ],
+  ["compare against a small immediate", instruction("cmpl", [use(reg("rax"), 4), imm(0)])],
+  ["compare against a wide immediate", instruction("cmpl", [use(reg("r13"), 4), imm(70000)])],
+  ["compare against a negative immediate", instruction("cmpl", [use(reg("rcx"), 4), imm(-9)])],
   ["negate", instruction("negl", [def(reg("r10"), 4), use(reg("r10"), 4)], { tied: true })],
   [
     "signed multiply",

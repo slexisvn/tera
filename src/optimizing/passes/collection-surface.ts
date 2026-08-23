@@ -5,17 +5,22 @@ import {
   IR_GENERIC_ADD,
   IR_GENERIC_CALL,
   IR_GENERIC_DIV,
+  IR_CALL_KNOWN_FUNCTION,
   IR_GENERIC_GET_PROP,
+  IR_GENERIC_SET_PROP,
   IR_GENERIC_MUL,
   IR_GENERIC_SUB,
   IR_ITERATOR_INIT,
   IR_LOAD_GLOBAL,
+  IR_STORE_GLOBAL,
   IR_PHI,
   IR_RETURN,
   type CFGFunction,
   type CFGInstruction,
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
+import { calleeSymbolName } from "../metadata/call-signatures.js";
+import type { ClassTable } from "../metadata/class-table.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 import type { TypeInference } from "../analyses/type-inference.js";
@@ -145,9 +150,37 @@ function keyedCall(use: CFGInstruction, aliases: ReadonlySet<CFGInstruction>): s
   return member !== null && KEYED_MEMBERS.has(member) ? member : null;
 }
 
+const NUMERIC_VALUES: ReadonlySet<string> = new Set<string>(["int", "float"]);
+
 function widened(carried: ValueKind | null, found: ValueKind): ValueKind | null {
   if (carried === null || carried === found) return found;
-  return carried !== "string" && found !== "string" ? "float" : null;
+  if (!NUMERIC_VALUES.has(carried) || !NUMERIC_VALUES.has(found)) return null;
+  return "float";
+}
+
+const GENERATED_PREFIX = "Tera";
+
+function programClass(name: string | null, classes: ClassTable | null): ValueKind | null {
+  if (name === null || classes === null || name.startsWith(GENERATED_PREFIX)) return null;
+  return classes.shapeOf(name) === null ? null : name;
+}
+
+function classValueKind(
+  node: CFGInstruction,
+  types: TypeInference,
+  classes: ClassTable | null,
+): ValueKind | null {
+  const type = types.typeOf(node);
+  if (type.kind === TypeKind.Object && typeof type.map === "number" && classes !== null) {
+    const shape = classes.shapeById(type.map);
+    const named = programClass(shape?.name ?? null, classes);
+    if (named !== null) return named;
+  }
+  if (node.type !== IR_GENERIC_CALL || node.props.isMethod === true) return null;
+  const callee = node.inputs[0];
+  if (callee?.type !== IR_LOAD_GLOBAL) return null;
+  const name = callee.props.name;
+  return programClass(typeof name === "string" ? name : null, classes);
 }
 
 function kindOf<T>(type: LatticeType, table: ReadonlyMap<string, T>): T | null {
@@ -176,6 +209,7 @@ function valueKindOf(
   stored: CFGInstruction,
   aliases: ReadonlySet<CFGInstruction>,
   types: TypeInference,
+  classes: ClassTable | null,
 ): ValueKind | null {
   const seen = new Set<CFGInstruction>();
   const pending: CFGInstruction[] = [stored];
@@ -185,7 +219,10 @@ function valueKindOf(
     if (seen.has(node)) continue;
     seen.add(node);
     if (calledMember(node, aliases) !== null) continue;
-    const named = kindOf(types.typeOf(node), VALUE_BY_KIND) ?? divided(node);
+    const named =
+      kindOf(types.typeOf(node), VALUE_BY_KIND) ??
+      classValueKind(node, types, classes) ??
+      divided(node);
     if (named !== null) {
       carried = widened(carried, named);
       if (carried === null) return null;
@@ -219,7 +256,7 @@ function collectionOf(
       if (member !== VALUED_MEMBER || kind !== MAP_GLOBAL) continue;
       const stored = use.inputs[VALUE_ARGUMENT];
       if (stored === undefined) return null;
-      const found = valueKindOf(stored, aliases, types);
+      const found = valueKindOf(stored, aliases, types, graph.classes);
       if (found === null) continue;
       value = widened(value, found);
       if (value === null) return null;
@@ -291,6 +328,7 @@ interface CollectionSeed {
   readonly kind: string;
   readonly aliases: ReadonlySet<CFGInstruction>;
   readonly construction: CFGInstruction | null;
+  readonly staticSlot: string | null;
 }
 
 function collectionTypeNameOf(declared: string | null | undefined): string | null {
@@ -338,6 +376,68 @@ function passedAlong(
   );
 }
 
+type UnitLookup = (node: CFGInstruction) => CollectionUnit;
+
+function ownersOf(units: readonly CollectionUnit[]): UnitLookup {
+  const owner = new Map<CFGInstruction, CollectionUnit>();
+  for (const unit of units) {
+    for (const parameter of unit.graph.parameters) owner.set(parameter, unit);
+    for (const block of unit.graph.blocks) {
+      for (const phi of block.phis) owner.set(phi, unit);
+      for (const node of block.nodes) owner.set(node, unit);
+    }
+  }
+  return (node) => owner.get(node) ?? units[0]!;
+}
+
+function slotKeyOf(node: CFGInstruction): string | null {
+  if (node.type === IR_STORE_GLOBAL || node.type === IR_LOAD_GLOBAL) {
+    const name = node.props.name;
+    return typeof name === "string" ? `global:${name}` : null;
+  }
+  if (node.type === IR_GENERIC_SET_PROP || node.type === IR_GENERIC_GET_PROP) {
+    const owner = node.inputs[0];
+    if (owner?.type !== IR_LOAD_GLOBAL) return null;
+    return `field:${String(owner.props.name)}.${String(node.props.propName)}`;
+  }
+  return null;
+}
+
+function storesHeld(use: CFGInstruction, held: CFGInstruction): boolean {
+  if (use.type === IR_STORE_GLOBAL) return use.inputs[0] === held;
+  return use.type === IR_GENERIC_SET_PROP && use.inputs[1] === held;
+}
+
+function slotReads(units: readonly CollectionUnit[]): ReadonlyMap<string, CFGInstruction[]> {
+  const reads = new Map<string, CFGInstruction[]>();
+  for (const unit of units) {
+    for (const block of unit.graph.blocks) {
+      for (const node of block.nodes) {
+        if (node.type !== IR_LOAD_GLOBAL && node.type !== IR_GENERIC_GET_PROP) continue;
+        const key = slotKeyOf(node);
+        if (key === null) continue;
+        const bucket = reads.get(key);
+        if (bucket === undefined) reads.set(key, [node]);
+        else bucket.push(node);
+      }
+    }
+  }
+  return reads;
+}
+
+function slotBehind(aliases: ReadonlySet<CFGInstruction>): string | null {
+  let key: string | null = null;
+  for (const alias of aliases) {
+    for (const use of alias.uses) {
+      if (!storesHeld(use, alias)) continue;
+      const found = slotKeyOf(use);
+      if (found === null || (key !== null && key !== found)) return null;
+      key = found;
+    }
+  }
+  return key;
+}
+
 function sharedAcross(
   aliases: ReadonlySet<CFGInstruction>,
   kind: string,
@@ -355,6 +455,7 @@ function sharedAcross(
         continue;
       }
       if (use.type === IR_RETURN) continue;
+      if (storesHeld(use, alias) && slotKeyOf(use) !== null) continue;
       if (passedAlong(use, alias, kind, unit, byName)) continue;
       if (use.type !== IR_GENERIC_GET_PROP || use.inputs[0] !== alias) return false;
       if (!supported(String(use.props.propName))) return false;
@@ -363,9 +464,72 @@ function sharedAcross(
   return true;
 }
 
+function callsTo(units: readonly CollectionUnit[]): ReadonlyMap<string, CFGInstruction[]> {
+  const called = new Map<string, CFGInstruction[]>();
+  for (const unit of units) {
+    for (const block of unit.graph.blocks) {
+      for (const node of block.nodes) {
+        const name = calledFunctionName(node);
+        if (name === null) continue;
+        const bucket = called.get(name);
+        if (bucket === undefined) called.set(name, [node]);
+        else bucket.push(node);
+      }
+    }
+  }
+  return called;
+}
+
+function calledFunctionName(node: CFGInstruction): string | null {
+  if (node.type === IR_CALL_KNOWN_FUNCTION) return calleeSymbolName(node);
+  if (node.type !== IR_GENERIC_CALL || node.props.isMethod === true) return null;
+  const callee = node.inputs[0];
+  if (callee?.type !== IR_LOAD_GLOBAL) return null;
+  const name = callee.props.name;
+  return typeof name === "string" ? name : null;
+}
+
+interface SlotIndex {
+  readonly reads: ReadonlyMap<string, readonly CFGInstruction[]>;
+  readonly calls: ReadonlyMap<string, readonly CFGInstruction[]>;
+}
+
+const STATIC_INIT_SUFFIX = "$init";
+
+function staticSlotOf(graph: CFGFunction): string | null {
+  const owner = graph.classOwner;
+  if (owner === null || !graph.name.endsWith(STATIC_INIT_SUFFIX)) return null;
+  const field = graph.name.slice(owner.length + 1, -STATIC_INIT_SUFFIX.length);
+  return field.length === 0 ? null : `field:${owner}.${field}`;
+}
+
+function widenedThroughSlot(
+  held: ReadonlySet<CFGInstruction>,
+  owner: CollectionUnit,
+  index: SlotIndex,
+): ReadonlySet<CFGInstruction> {
+  let aliases = held;
+  for (let round = 0; round < 2; round++) {
+    const widened = new Set(aliases);
+    const key = slotBehind(aliases) ?? staticSlotOf(owner.graph);
+    for (const read of key === null ? [] : index.reads.get(key) ?? []) {
+      for (const alias of aliasesOf(read)) widened.add(alias);
+    }
+    if ([...aliases].some((alias) => alias.uses.some((use) => use.type === IR_RETURN))) {
+      for (const call of index.calls.get(owner.graph.name) ?? []) {
+        for (const alias of aliasesOf(call)) widened.add(alias);
+      }
+    }
+    if (widened.size === aliases.size) return aliases;
+    aliases = widened;
+  }
+  return aliases;
+}
+
 function seedsOf(
   unit: CollectionUnit,
   byName: ReadonlyMap<string, CFGFunction>,
+  index: SlotIndex,
 ): readonly CollectionSeed[] | null {
   const seeds: CollectionSeed[] = [];
   const held: CFGInstruction[] = [];
@@ -386,7 +550,7 @@ function seedsOf(
     kinds.push(named);
   }
   for (const [at, value] of held.entries()) {
-    const aliases = aliasesOf(value);
+    const aliases = widenedThroughSlot(aliasesOf(value), unit, index);
     const kind = kinds[at]!;
     if (!sharedAcross(aliases, kind, unit, byName)) return null;
     seeds.push({
@@ -394,19 +558,25 @@ function seedsOf(
       kind,
       aliases,
       construction: value.type === IR_GENERIC_CALL ? value : null,
+      staticSlot: staticSlotOf(unit.graph),
     });
   }
   return seeds;
 }
 
-function agreeOn(carried: CollectionFlavour, seed: CollectionSeed): boolean {
+function agreeOn(
+  carried: CollectionFlavour,
+  seed: CollectionSeed,
+  unitOf: UnitLookup,
+): boolean {
   for (const alias of seed.aliases) {
+    const owner = unitOf(alias);
     for (const use of alias.uses) {
       const member = keyedCall(use, seed.aliases);
       if (member === null) continue;
       const held = use.inputs[KEY_ARGUMENT];
       if (held === undefined) return false;
-      const named = keyKindOf(held, seed.unit.graph, seed.unit.types);
+      const named = keyKindOf(held, owner.graph, owner.types);
       if (named !== null) {
         if (carried.key !== null && carried.key !== named) return false;
         carried.key = named;
@@ -414,7 +584,7 @@ function agreeOn(carried: CollectionFlavour, seed: CollectionSeed): boolean {
       if (member !== VALUED_MEMBER || seed.kind !== MAP_GLOBAL) continue;
       const stored = use.inputs[VALUE_ARGUMENT];
       if (stored === undefined) return false;
-      const found = valueKindOf(stored, seed.aliases, seed.unit.types);
+      const found = valueKindOf(stored, seed.aliases, owner.types, owner.graph.classes);
       if (found === null) continue;
       const widest = widened(carried.value, found);
       if (widest === null) return false;
@@ -448,9 +618,11 @@ export function shapeModuleCollections(
   units: readonly CollectionUnit[],
 ): readonly CFGFunction[] {
   const byName = new Map(units.map((unit) => [unit.graph.name, unit.graph]));
+  const index: SlotIndex = { reads: slotReads(units), calls: callsTo(units) };
+  const unitOf = ownersOf(units);
   const seeds: CollectionSeed[] = [];
   for (const unit of units) {
-    const held = seedsOf(unit, byName);
+    const held = seedsOf(unit, byName, index);
     if (held === null) return [];
     seeds.push(...held);
   }
@@ -463,7 +635,7 @@ export function shapeModuleCollections(
       carried = { key: null, value: null };
       flavours.set(seed.kind, carried);
     }
-    if (!agreeOn(carried, seed)) return [];
+    if (!agreeOn(carried, seed, unitOf)) return [];
   }
 
   const named = new Map<string, string>();
@@ -475,6 +647,14 @@ export function shapeModuleCollections(
         ? setClassName(flavour.key)
         : mapClassName(flavour.key, flavour.value ?? COUNTED_VALUE),
     );
+  }
+
+  for (const seed of seeds) {
+    if (seed.staticSlot === null) continue;
+    const [owner, field] = seed.staticSlot.slice("field:".length).split(".");
+    const classes = seed.unit.graph.classes;
+    if (owner === undefined || field === undefined || classes === null) continue;
+    classes.declareStaticField(owner, field, named.get(seed.kind)!);
   }
 
   const changed = new Set<CFGFunction>();

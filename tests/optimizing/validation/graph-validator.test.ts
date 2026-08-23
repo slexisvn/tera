@@ -81,6 +81,26 @@ describe("validateOptimizedGraph", () => {
     expect(() => validateOptimizedGraph(graph)).toThrow(GraphValidationError);
   });
 
+  it("throws when two nodes in a block claim the same id", () => {
+    const graph = new CFGFunction("collides");
+    const block = graph.addBlock();
+    const value = block.addNode(irConstant(1));
+    const returned = block.addNode(irReturn(value));
+    returned.id = value.id;
+
+    expect(() => validateOptimizedGraph(graph)).toThrow(GraphValidationError);
+    expect(() => validateOptimizedGraph(graph)).toThrow(/names both Constant and Return/);
+  });
+
+  it("passes when the same node is listed once per block", () => {
+    const graph = new CFGFunction("unique");
+    const block = graph.addBlock();
+    const value = block.addNode(irConstant(1));
+    block.addNode(irReturn(value));
+
+    expect(validateOptimizedGraph(graph)).toBe(true);
+  });
+
   it("throws when node.block is wrong", () => {
     const graph = new CFGFunction("test");
     const b0 = graph.addBlock();

@@ -60,9 +60,9 @@ function anchorBias(
   target: McTarget,
 ): number {
   const anchor = target.fixups.anchorOf(entry.kind);
-  if (anchor === "absolute") return 0;
   if (anchor === "instructionEnd") return fragment.size - entry.offset;
-  return -entry.offset;
+  if (anchor === "instructionStart") return -entry.offset;
+  return 0;
 }
 
 function fixupValue(
@@ -70,11 +70,16 @@ function fixupValue(
   fragment: McFragment,
   symbols: McSymbolTable,
   target: McTarget,
+  base: number,
 ): number | null {
   const address = symbols.addressOf(entry.symbol);
   if (address === null) return null;
   const anchor = target.fixups.anchorOf(entry.kind);
+  if (anchor === "imageRelative") return address + entry.addend - base;
   if (anchor === "absolute") return address + entry.addend;
+  if (anchor === "fieldRelative") {
+    return address + entry.addend - (fragment.address + entry.offset);
+  }
   const origin =
     anchor === "instructionStart" ? fragment.address : fragment.address + fragment.size;
   return address + entry.addend - origin;
@@ -86,13 +91,14 @@ function relaxFragment(
   owners: Map<McFragment, McSection>,
   mode: LayoutMode,
   target: McTarget,
+  base: number,
 ): boolean {
   const forms = target.formsOf(fragment.node);
   let widened = false;
   while (fragment.form + 1 < forms) {
     const pending = fragment.fixups.find((entry) => {
       if (!bindsAtLayout(entry, fragment, module, owners, mode)) return true;
-      const value = fixupValue(entry, fragment, module.symbols, target);
+      const value = fixupValue(entry, fragment, module.symbols, target, base);
       return value !== null && !target.fixups.fits(entry.kind, value);
     });
     if (pending === undefined) break;
@@ -111,12 +117,13 @@ function relaxPass(
   owners: Map<McFragment, McSection>,
   mode: LayoutMode,
   target: McTarget,
+  base: number,
 ): number {
   let relaxations = 0;
   for (const section of module.sections) {
     for (const fragment of section.fragments) {
       if (fragment.kind !== "instruction") continue;
-      if (relaxFragment(fragment, module, owners, mode, target)) relaxations++;
+      if (relaxFragment(fragment, module, owners, mode, target, base)) relaxations++;
     }
   }
   return relaxations;
@@ -127,6 +134,7 @@ function applyFixups(
   owners: Map<McFragment, McSection>,
   mode: LayoutMode,
   target: McTarget,
+  base: number,
 ): void {
   for (const section of module.sections) {
     for (const fragment of section.fragments) {
@@ -134,7 +142,7 @@ function applyFixups(
       if (bytes === null) continue;
       for (const entry of fixupsOf(fragment)) {
         const value = bindsAtLayout(entry, fragment, module, owners, mode)
-          ? fixupValue(entry, fragment, module.symbols, target)
+          ? fixupValue(entry, fragment, module.symbols, target, base)
           : null;
         if (value === null) {
           module.relocations.push({
@@ -171,11 +179,12 @@ export function layoutModule(
   let size = assignAddresses(module, base);
   for (;;) {
     passes++;
-    const widened = relaxPass(module, owners, mode, target);
+    const widened = relaxPass(module, owners, mode, target, base);
     if (widened === 0) break;
     relaxations += widened;
     size = assignAddresses(module, base);
   }
-  applyFixups(module, owners, mode, target);
+  for (const patch of module.afterLayout) patch();
+  applyFixups(module, owners, mode, target, base);
   return { passes, relaxations, size: size - base };
 }

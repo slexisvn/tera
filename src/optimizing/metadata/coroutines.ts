@@ -4,6 +4,7 @@ import { PENDING_THROW_TYPE } from "../builder/throw-recovery.js";
 import type { ClassShape, ClassTable } from "./class-table.js";
 
 export const CORO_FRAME_BASE = "tera_frame";
+export const CORO_RESUME_TYPE = `(${"tera_frame"}) -> int`;
 export const CORO_PROMISE_BASE = "tera_promise";
 
 export const CORO_ROUTINE_FIELD = "coroutine";
@@ -76,7 +77,7 @@ export function syntheticSurface(
 export function coroutineBaseShapes(classes: ClassTable): void {
   classes.defineSynthetic(
     syntheticSurface(CORO_FRAME_BASE, null, [
-      [CORO_ROUTINE_FIELD, "int"],
+      [CORO_ROUTINE_FIELD, CORO_RESUME_TYPE],
       [CORO_STATE_FIELD, "int"],
       [CORO_NEXT_FIELD, CORO_FRAME_BASE],
     ]),

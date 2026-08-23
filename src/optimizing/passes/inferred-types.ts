@@ -17,6 +17,8 @@ import { arrayElementNameOf } from "./array-shapes.js";
 import { literalReturnShapeOf, shapeObjectLiterals } from "./object-literal-shapes.js";
 import { shapeModuleCollections } from "./collection-surface.js";
 import { calleeDeclaredSignature } from "../analyses/aot-legality.js";
+import { callSiteOf } from "./inlining.js";
+import { joinTypes, type LatticeType } from "../types/lattice.js";
 
 const INDEX_TYPE = "int";
 const CALLBACK_INDEX = 0;
@@ -73,7 +75,10 @@ class TypeAdoption {
   run(): void {
     this.shapeCollections();
     for (const unit of this.module.units) this.shapeLiterals(unit);
-    while (this.adoptCallbackParameters() + this.adoptReturns() > 0);
+    while (
+      this.adoptCallbackParameters() + this.adoptCallSiteParameters() + this.adoptReturns() >
+      0
+    );
   }
 
   private shapeCollections(): void {
@@ -161,6 +166,49 @@ class TypeAdoption {
           adopted++;
         }
       }
+    }
+    return adopted;
+  }
+
+  private observedArguments(): Map<CFGFunction, (LatticeType | null)[]> {
+    const observed = new Map<CFGFunction, (LatticeType | null)[]>();
+    for (const unit of this.module.units) {
+      for (const block of unit.graph.blocks) {
+        for (const node of block.nodes) {
+          const site = callSiteOf(node, this.functions);
+          if (site === null || site.callee === unit.graph) continue;
+          if (site.args.length !== site.callee.parameters.length) continue;
+          const slots =
+            observed.get(site.callee) ??
+            site.callee.parameters.map<LatticeType | null>(() => null);
+          site.args.forEach((argument, at) => {
+            const passed = this.types(unit).typeOf(argument);
+            const carried = slots[at];
+            slots[at] = carried === null ? passed : joinTypes(carried, passed);
+          });
+          observed.set(site.callee, slots);
+        }
+      }
+    }
+    return observed;
+  }
+
+  private adoptCallSiteParameters(): number {
+    let adopted = 0;
+    for (const [callee, slots] of this.observedArguments()) {
+      const declared = callee.declaredSignature;
+      if (declared === null || !declared.params.some(isUnwritten)) continue;
+      const params = slots.map((passed, at) => {
+        const own = declared.params[at] ?? null;
+        if (!isUnwritten(own)) return own;
+        return passed === null ? null : declaredTypeOf(passed, this.classes);
+      });
+      if (!params.some((named, at) => named !== null && isUnwritten(declared.params[at] ?? null))) {
+        continue;
+      }
+      if (!adoptWrittenTypes(callee, { params, returns: null })) continue;
+      this.retype(callee);
+      adopted++;
     }
     return adopted;
   }

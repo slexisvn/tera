@@ -56,7 +56,7 @@ import {
 } from "../metadata/class-table.js";
 import { arrayElementShapeOf } from "./array-shapes.js";
 import { TypeKind } from "../types/lattice.js";
-import { nominalLatticeType } from "../types/declared.js";
+import { nominalLatticeType, presentTypeName } from "../types/declared.js";
 import { scalarWidth, SCALAR_INT32, SCALAR_TEXT } from "../types/scalar.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { isPairClassName, PAIR_FIELDS } from "../prelude/collections.js";
@@ -160,7 +160,7 @@ function shapeOfClassValue(
 }
 
 function declaredShapeId(declaredType: string, classes: ClassTable): number | null {
-  const named = classes.shapeIdOf(declaredType);
+  const named = classes.shapeIdOf(declaredType) ?? classes.shapeIdOf(presentTypeName(declaredType));
   if (named !== null) return named;
   const type = nominalLatticeType(declaredType, classes);
   return type.kind === TypeKind.Object && typeof type.map === "number" ? type.map : null;
@@ -413,11 +413,14 @@ function memberCallFor(
   node: CFGInstruction,
   classes: ClassTable,
   types: TypeInference,
+  binds = true,
 ): MemberCall | null {
   if (node.type !== IR_GENERIC_CALL) return null;
   const callee = node.inputs[0];
   if (callee === undefined) return null;
-  if (callee.type !== IR_GENERIC_GET_PROP) return superConstructorCall(graph, node, classes);
+  if (callee.type !== IR_GENERIC_GET_PROP) {
+    return binds ? superConstructorCall(graph, node, classes) : null;
+  }
 
   const name = String(callee.props.propName);
   const named = shapeOfClassValue(callee.inputs[0], classes);
@@ -736,7 +739,7 @@ function lowerMemberRound(
 
   const editor = new GraphEditor(graph);
   const stamp = nodeIdStamper(graph);
-  let count = 0;
+  let count = carryCalleeResultClasses(graph, classes, types);
   for (const block of graph.blocks) {
     for (const node of [...block.nodes]) {
       if (node.block !== block) continue;
@@ -761,6 +764,12 @@ function lowerMemberRound(
       const access = fieldAccessFor(node, graph, classes, types);
       if (access !== null) {
         applyFieldAccess(editor, access, classes, stamp);
+        count++;
+        continue;
+      }
+      const called = memberCallFor(graph, node, classes, types, false);
+      if (called !== null) {
+        applyMemberCall(editor, graph, called, classes, stamp);
         count++;
         continue;
       }

@@ -67,8 +67,17 @@ describe("x64 coff object emission", () => {
     const report = inspectPe(objectOf(ROUNDED), ["-t", "-r"]);
 
     expect(report.failed).toBe(false);
-    expect(report.output).not.toContain("IMAGE_REL");
+    expect(report.output).not.toMatch(/RELOCATION RECORDS FOR \[\.text\]/);
     expect(report.output).not.toMatch(/\(sec\s+0\)/);
+  });
+
+  itDumpsObjects("carries an unwind record for every function it emits", () => {
+    const report = inspectPe(objectOf(ROUNDED), ["-h", "-r"]);
+
+    expect(report.failed).toBe(false);
+    expect(report.output).toMatch(/\.pdata/);
+    expect(report.output).toMatch(/\.xdata/);
+    expect(report.output).toMatch(/RELOCATION RECORDS FOR \[\.pdata\][\s\S]*IMAGE_REL_AMD64_ADDR32NB/);
   });
 
   itDumpsObjects("relocates a reference into the data section", () => {

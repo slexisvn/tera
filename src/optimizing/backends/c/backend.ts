@@ -12,7 +12,7 @@ import { typeInferenceAnalysisId } from "../../analyses/type-inference.js";
 import { cTarget } from "./target.js";
 import { targetLegalizationPipeline } from "../../target/legalization.js";
 import { moduleInitTable } from "../../target/symbols.js";
-import { cIdentifier, emitNumericFunction } from "./emit.js";
+import { cEmittedOpcodes, cIdentifier, emitNumericFunction } from "./emit.js";
 
 export class CBackendEmitError extends BackendLoweringError {
   constructor(reason: string) {
@@ -65,6 +65,7 @@ export const cBackend: AotBackend = {
   mode: "aot",
   outputs: ["assembly"],
   platform: null,
+  emits: cEmittedOpcodes(),
   target: cTarget,
   symbolOf: cIdentifier,
   loweringPipeline: () => targetLegalizationPipeline(cTarget),

@@ -173,14 +173,28 @@ describe("AOT rest parameters", () => {
     );
   });
 
-  it("refuses a rest parameter the source left undeclared", () => {
+  itRunsPe("types an undeclared rest parameter from what its callers gather", () => {
+    expect(
+      ran(
+        src(
+          "fn total(...rest) -> int:",
+          "  return rest.length",
+          "fn go(n: int) -> int:",
+          "  return total(n, n)",
+          "print(go(4))",
+        ),
+      ).stdout,
+    ).toBe("2\n");
+  });
+
+  it("refuses a rest parameter no call site can type", () => {
     expect(() =>
       nodeEngine({ typecheck: "off" }).compileAot(
         src(
           "fn total(...rest) -> int:",
           "  return rest.length",
           "fn go(n: int) -> int:",
-          "  return total(n, n)",
+          '  return total(n) + total("a")',
         ) + "\n",
         { backend: "c" },
       ),
