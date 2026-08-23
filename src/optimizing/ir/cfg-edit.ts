@@ -3,10 +3,23 @@ import {
   IR_BRANCH,
   IR_JUMP,
   IR_PHI,
+  irJump,
   type CFGBlock,
   type CFGFunction,
 } from "./index.js";
-import { detachInputs, detachUsesOfAll, dropUse, retainNodes } from "./graph-edit.js";
+import {
+  detachInputs,
+  detachUsesOfAll,
+  dropUse,
+  retainNodes,
+  type Stamp,
+} from "./graph-edit.js";
+
+export const BLOCK_TARGET_PROPS: readonly string[] = [
+  "targetBlock",
+  "trueBlock",
+  "falseBlock",
+];
 
 export function splitBlockAfter(
   graph: CFGFunction,
@@ -40,6 +53,34 @@ function splitBlockAt(graph: CFGFunction, block: CFGBlock, index: number): CFGBl
   }
   block.successors = [];
   return after;
+}
+
+export function retargetTerminator(
+  block: CFGBlock,
+  from: CFGBlock,
+  to: CFGBlock,
+): void {
+  const terminator = block.getTerminator();
+  if (terminator === null) return;
+  for (const key of BLOCK_TARGET_PROPS) {
+    if (terminator.props[key] === from.id) terminator.props[key] = to.id;
+  }
+}
+
+export function splitEdge(
+  graph: CFGFunction,
+  pred: CFGBlock,
+  succ: CFGBlock,
+  stamp: Stamp,
+): CFGBlock {
+  const middle = graph.addBlock();
+  succ.predecessors[succ.predecessors.indexOf(pred)] = middle;
+  pred.successors[pred.successors.indexOf(succ)] = middle;
+  middle.predecessors.push(pred);
+  middle.successors.push(succ);
+  retargetTerminator(pred, succ, middle);
+  middle.addNode(stamp(irJump(succ)));
+  return middle;
 }
 
 export function link(pred: CFGBlock, succ: CFGBlock): void {

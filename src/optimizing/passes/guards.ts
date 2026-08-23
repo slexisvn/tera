@@ -23,6 +23,7 @@ import {
 } from "../metadata/builtin-methods.js";
 import { INT32_BITS } from "../target/integer.js";
 import type { DominatorTree } from "../analyses/dominance.js";
+import type { Stamp } from "../ir/graph-edit.js";
 
 const SIGN_SHIFT = INT32_BITS - 1;
 const ONE_PLACE = 1;
@@ -31,7 +32,7 @@ const LESS_THAN = "<";
 const EQUALS = "==";
 const RECEIVER = 0;
 
-export type Stamp = (node: CFGInstruction) => CFGInstruction;
+export type { Stamp };
 
 export function append(block: CFGBlock, node: CFGInstruction, stamp: Stamp): CFGInstruction {
   stamp(node);

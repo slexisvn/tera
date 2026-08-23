@@ -5,14 +5,13 @@ import {
   isTerminator,
   IR_PARAMETER,
 } from "./index.js";
+import { BLOCK_TARGET_PROPS } from "./cfg-edit.js";
 
 export interface GraphClone {
   readonly graph: CFGFunction;
   readonly valueOf: ReadonlyMap<CFGInstruction, CFGInstruction>;
   readonly blockOf: ReadonlyMap<CFGBlock, CFGBlock>;
 }
-
-const BLOCK_PROPS: readonly string[] = ["targetBlock", "trueBlock", "falseBlock"];
 
 export function cloneGraph(source: CFGFunction, name: string): GraphClone {
   const graph = new CFGFunction(name);
@@ -40,7 +39,7 @@ export function cloneGraph(source: CFGFunction, name: string): GraphClone {
   const copyOf = (node: CFGInstruction): CFGInstruction => {
     const copy = new CFGInstruction(node.type, { ...node.props });
     copy.rep = node.rep;
-    for (const key of BLOCK_PROPS) {
+    for (const key of BLOCK_TARGET_PROPS) {
       const id = copy.props[key];
       if (typeof id === "number") copy.props[key] = blockIds.get(id) ?? id;
     }

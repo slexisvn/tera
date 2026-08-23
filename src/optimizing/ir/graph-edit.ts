@@ -4,6 +4,8 @@ import { replaceGraphFrameStateValue } from "./frame-state-values.js";
 type GraphNode = ir.CFGInstruction;
 type GraphFunction = ir.CFGFunction;
 
+export type Stamp = (node: ir.CFGInstruction) => ir.CFGInstruction;
+
 export function replaceValueUses(
   graph: GraphFunction,
   node: GraphNode,
@@ -88,9 +90,7 @@ export function maxNodeId(graph: ir.CFGFunction): number {
   return max;
 }
 
-export function nodeIdStamper(
-  graph: ir.CFGFunction,
-): (node: ir.CFGInstruction) => ir.CFGInstruction {
+export function nodeIdStamper(graph: ir.CFGFunction): Stamp {
   let nextId = maxNodeId(graph) + 1;
   return (node) => {
     node.id = nextId++;

@@ -189,7 +189,7 @@ export function middleEndPhases(
       step("intrinsic-cse", preservesControlFlow, (g) => commonSubexpressionIntrinsicReads(g)),
       step(
         "gvn",
-        preservesControlFlow,
+        invalidatesAnalyses,
         (g, analyses) => globalValueNumbering(g, analyses.get(dominanceAnalysisId)),
         [dominanceId],
       ),
