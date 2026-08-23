@@ -4,6 +4,8 @@ import {
   TERA_COLLECT_SYMBOL,
   TERA_ENTER_ROOTS_SYMBOL,
   TERA_GROW_SYMBOL,
+  TERA_MINOR_SYMBOL,
+  TERA_BARRIER_SYMBOL,
   TERA_RESERVE_SYMBOL,
 } from "../../target/runtime-layout.js";
 export const X64_RUNTIME_SYMBOLS = {
@@ -23,6 +25,8 @@ export const X64_RUNTIME_SYMBOLS = {
   printInt: "tera_x64_print_i32",
   printFloat: "tera_x64_print_f64",
   input: "tera_x64_input",
+  clock: "tera_x64_now",
+  pause: "tera_x64_wait",
   throwError: "tera_x64_throw",
   bignumSet: "tera_x64_bn_set",
   bignumCopy: "tera_x64_bn_copy",
@@ -54,8 +58,13 @@ export const X64_RUNTIME_SYMBOLS = {
   reserve: TERA_RESERVE_SYMBOL,
   grow: TERA_GROW_SYMBOL,
   markPass: "tera_x64_mark_pass",
+  markYoung: "tera_x64_mark_young",
+  markYoungPass: "tera_x64_mark_young_pass",
   sweep: "tera_x64_sweep",
+  sweepYoung: "tera_x64_sweep_young",
   take: "tera_x64_take",
+  minor: TERA_MINOR_SYMBOL,
+  writeBarrier: TERA_BARRIER_SYMBOL,
 } as const;
 
 export const X64_PROGRAM_ENTRY = "_start";

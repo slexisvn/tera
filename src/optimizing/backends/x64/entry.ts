@@ -39,6 +39,8 @@ export interface PlatformIo {
     stream: ProgramStream,
   ): void;
   exit(builder: MachineRoutineBuilder, status: MachineOperand): void;
+  now?(builder: MachineRoutineBuilder, millis: string): void;
+  wait?(builder: MachineRoutineBuilder, millis: string): void;
 }
 
 function printResult(

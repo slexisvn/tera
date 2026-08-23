@@ -55,21 +55,41 @@ import {
 } from "../../ir/index.js";
 import { buildDispatch } from "../../infra/dispatch.js";
 import {
+  PROT_NONE,
+  PROT_READ_WRITE,
+  WINDOWS_MEM_COMMIT,
+  WINDOWS_MEM_RESERVE,
+  WINDOWS_PAGE_READWRITE,
+} from "../../target/syscalls.js";
+import {
   TERA_ALLOC_SYMBOL,
-  TERA_ARENA,
   TERA_CLASS_RECORD,
   TERA_COLLECT_SYMBOL,
   TERA_CONTEXT,
   TERA_FREE_SHAPE_ID,
   TERA_LINK_BYTES,
+  TERA_GROW_SYMBOL,
+  TERA_RESERVE_SYMBOL,
+  TERA_HEAP_COMMIT_BYTES,
+  TERA_HEAP_RESERVE_BYTES,
   TERA_MARK_FLAG,
   TERA_MARKS,
+  TERA_BLOCK_FLAGS,
+  TERA_MINOR_SYMBOL,
+  TERA_OLD_FLAG,
+  TERA_REMEMBERED,
+  TERA_REMEMBERED_CAPACITY,
+  TERA_BARRIER_SYMBOL,
+  TERA_REMEMBERED_FLAG,
+  TERA_YOUNG,
+  TERA_YOUNG_CAPACITY,
   TERA_ROOT_CAPACITY,
   TERA_ROOTS,
   TERA_STATIC_ROOT_COUNT,
   TERA_STATIC_ROOTS,
   TERA_STATICS,
   TERA_POINTER_BYTES,
+  requireContextStorage,
   type TeraContextField,
 } from "../../target/runtime-layout.js";
 import {
@@ -123,6 +143,8 @@ import {
   printTerminatorOf,
   qualifiedMethodName,
   THROW_BUILTIN,
+  CLOCK_BUILTIN,
+  WAIT_BUILTIN,
 } from "../../metadata/builtin-methods.js";
 import {
   isStorableScalar,
@@ -183,6 +205,14 @@ export const C_HEADER_PREAMBLE = [
   "",
   C_CODE_TYPEDEF,
 ].join(String.fromCharCode(10));
+const C_MAP = "tera_map";
+const C_COMMIT = "tera_commit";
+export const C_RESERVE_MACRO = "TERA_HEAP_RESERVE";
+const C_CLOCK = "tera_clock";
+const C_WAIT = "tera_pause";
+const MILLIS_PER_SECOND = 1000;
+const NANOS_PER_MILLI = 1000000;
+
 const C_STRING_SET = "tera_str_set";
 const C_STRING_APPEND = "tera_str_append";
 const C_STRING_BUFFER_PREFIX = "sb";
@@ -222,7 +252,38 @@ const C_PRINT_HELPERS = new Map<AotScalar, CBuiltinMethod>([
   ],
 ]);
 
-export const C_RUNTIME_SUPPORT = `static inline int32_t tera_i32_add(int32_t a, int32_t b) {
+export const C_RUNTIME_SUPPORT = `#if defined(_WIN32)
+void Sleep(unsigned long);
+unsigned long long GetTickCount64(void);
+void *VirtualAlloc(void *, size_t, unsigned long, unsigned long);
+#else
+#include <time.h>
+#include <sys/mman.h>
+#endif
+
+#ifndef ${C_RESERVE_MACRO}
+#define ${C_RESERVE_MACRO} ${TERA_HEAP_RESERVE_BYTES}
+#endif
+
+static unsigned char *${C_MAP}(size_t bytes) {
+#if defined(_WIN32)
+  return (unsigned char *)VirtualAlloc(
+    0, bytes, ${WINDOWS_MEM_RESERVE}u, ${WINDOWS_PAGE_READWRITE}u);
+#else
+  void *base = mmap(0, bytes, ${PROT_NONE}, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  return base == MAP_FAILED ? 0 : (unsigned char *)base;
+#endif
+}
+
+static int32_t ${C_COMMIT}(unsigned char *base, size_t bytes) {
+#if defined(_WIN32)
+  return VirtualAlloc(base, bytes, ${WINDOWS_MEM_COMMIT}u, ${WINDOWS_PAGE_READWRITE}u) != 0;
+#else
+  return mprotect(base, bytes, ${PROT_READ_WRITE}) == 0;
+#endif
+}
+
+static inline int32_t tera_i32_add(int32_t a, int32_t b) {
   return (int32_t)((uint32_t)a + (uint32_t)b);
 }
 
@@ -931,6 +992,39 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     },
   ],
   [
+    CLOCK_BUILTIN,
+    {
+      helper: C_CLOCK,
+      definition: `static double ${C_CLOCK}(void) {
+#if defined(_WIN32)
+  return (double)GetTickCount64();
+#else
+  struct timespec moment;
+  clock_gettime(CLOCK_MONOTONIC, &moment);
+  return (double)moment.tv_sec * ${MILLIS_PER_SECOND}.0 +
+    (double)moment.tv_nsec / ${NANOS_PER_MILLI}.0;
+#endif
+}`,
+    },
+  ],
+  [
+    WAIT_BUILTIN,
+    {
+      helper: C_WAIT,
+      definition: `static void ${C_WAIT}(double millis) {
+  if (!(millis > 0.0)) return;
+#if defined(_WIN32)
+  Sleep((unsigned long)millis);
+#else
+  struct timespec span;
+  span.tv_sec = (long)(millis / ${MILLIS_PER_SECOND}.0);
+  span.tv_nsec = (long)((millis - (double)span.tv_sec * ${MILLIS_PER_SECOND}.0) * ${NANOS_PER_MILLI}.0);
+  nanosleep(&span, 0);
+#endif
+}`,
+    },
+  ],
+  [
     INPUT_BUILTIN,
     {
       helper: "tera_input",
@@ -957,7 +1051,15 @@ const C_REFERENCE_COUNT = "tera_reference_count";
 const C_REFERENCE_AT = "tera_reference_at";
 const C_ARRAY_RESERVE = "tera_array_reserve";
 const C_MARK = "tera_mark";
+const C_MARK_YOUNG = "tera_mark_young";
 const C_SWEEP = "tera_sweep";
+const C_SWEEP_YOUNG = "tera_sweep_young";
+const C_NOTE_YOUNG = "tera_note_young";
+const C_RELEASE = "tera_release";
+const C_NURSERY_RESET = "tera_nursery_reset";
+const C_BARRIER = TERA_BARRIER_SYMBOL;
+const C_REMEMBER = "tera_remember";
+const C_IS_YOUNG = "tera_is_young";
 const C_TAKE = "tera_take";
 const C_BUMP = "tera_bump";
 const C_CLASS_FIELDS_PREFIX = "tera_fields_";
@@ -971,6 +1073,17 @@ const C_CONTEXT_TYPES: ReadonlyMap<TeraContextField, string> = new Map([
   ["rootsBase", "unsigned char **"],
   ["rootCount", "size_t"],
   ["marksBase", "unsigned char **"],
+  ["nurseryLimit", "size_t"],
+  ["youngBase", "unsigned char **"],
+  ["youngCount", "size_t"],
+  ["rememberedBase", "unsigned char **"],
+  ["rememberedCount", "size_t"],
+  ["waitHead", "unsigned char *"],
+  ["waitTail", "unsigned char *"],
+  ["waitCount", "size_t"],
+  ["waitDue", "double"],
+  ["sweepHead", "unsigned char *"],
+  ["sweepCount", "size_t"],
   ["queueHead", "unsigned char *"],
   ["queueTail", "unsigned char *"],
   ["queueCount", "size_t"],
@@ -991,6 +1104,7 @@ export function cContextField(name: TeraContextField): string {
 }
 
 function cContextType(): string {
+  requireContextStorage();
   return [
     "typedef struct {",
     ...TERA_CONTEXT.fields.map((field) => {
@@ -1040,19 +1154,47 @@ export function cClassTable(classes: ClassTable | null): string {
 
 export const C_HEAP_SUPPORT = `${cContextType()}
 static unsigned char ${TERA_STATICS.symbol}[${TERA_STATICS.size}];
-static unsigned char ${TERA_ARENA.symbol}[${TERA_ARENA.size}];
 static unsigned char *${TERA_ROOTS.symbol}[${TERA_ROOTS.capacity}];
 static unsigned char *${TERA_MARKS.symbol}[${TERA_MARKS.capacity}];
+static unsigned char *${TERA_YOUNG.symbol}[${TERA_YOUNG.capacity}];
+static unsigned char *${TERA_REMEMBERED.symbol}[${TERA_REMEMBERED.capacity}];
 static ${C_CONTEXT_TYPE} ${TERA_CONTEXT.symbol} = {
-  .${cFieldName("arenaBase")} = ${TERA_ARENA.symbol},
-  .${cFieldName("arenaCommitted")} = sizeof(${TERA_ARENA.symbol}),
-  .${cFieldName("arenaReserved")} = sizeof(${TERA_ARENA.symbol}),
+  .${cFieldName("arenaReserved")} = ${C_RESERVE_MACRO},
   .${cFieldName("rootsBase")} = ${TERA_ROOTS.symbol},
   .${cFieldName("marksBase")} = ${TERA_MARKS.symbol},
+  .${cFieldName("youngBase")} = ${TERA_YOUNG.symbol},
+  .${cFieldName("rememberedBase")} = ${TERA_REMEMBERED.symbol},
 };
 
 static uint32_t ${C_BLOCK_SIZE}(const unsigned char *block) {
-  return *(const uint32_t *)(block + ${CLASS_FLAGS_OFFSET}) & ~(uint32_t)${TERA_MARK_FLAG}u;
+  return *(const uint32_t *)(block + ${CLASS_FLAGS_OFFSET}) & ~(uint32_t)${TERA_BLOCK_FLAGS}u;
+}
+
+static void ${C_NURSERY_RESET}(void) {
+  size_t room = (${TERA_YOUNG.capacity}u - ${cContextField("youngCount")}) * ${CLASS_HEADER_BYTES}u;
+  size_t reach = ${cContextField("arenaCursor")} + room;
+  ${cContextField("nurseryLimit")} =
+    reach < ${cContextField("arenaCommitted")} ? reach : ${cContextField("arenaCommitted")};
+}
+
+static inline int32_t ${C_IS_YOUNG}(const unsigned char *block) {
+  return (*(const uint32_t *)(block + ${CLASS_FLAGS_OFFSET}) & ${TERA_OLD_FLAG}u) == 0u;
+}
+
+static void ${C_NOTE_YOUNG}(unsigned char *block) {
+  ${cContextField("youngBase")}[${cContextField("youngCount")}++] = block;
+}
+
+static void ${C_REMEMBER}(unsigned char *target) {
+  if (${cContextField("rememberedCount")} == ${TERA_REMEMBERED_CAPACITY}u) return;
+  *(uint32_t *)(target + ${CLASS_FLAGS_OFFSET}) |= ${TERA_REMEMBERED_FLAG}u;
+  ${cContextField("rememberedBase")}[${cContextField("rememberedCount")}++] = target;
+}
+
+static inline void ${C_BARRIER}(unsigned char *target, const unsigned char *value) {
+  if (value == 0 || !${C_IS_YOUNG}(value) || ${C_IS_YOUNG}(target)) return;
+  if ((*(const uint32_t *)(target + ${CLASS_FLAGS_OFFSET}) & ${TERA_REMEMBERED_FLAG}u) != 0u) return;
+  ${C_REMEMBER}(target);
 }
 
 static uint32_t ${C_REFERENCE_COUNT}(const unsigned char *block) {
@@ -1110,6 +1252,80 @@ static int32_t tera_mark_pending(void) {
   return overflowed;
 }
 
+static int32_t ${C_MARK_YOUNG}(unsigned char *object) {
+  size_t top = 0;
+  int32_t overflowed = 0;
+  if (object != 0 && ${C_IS_YOUNG}(object)) ${cContextField("marksBase")}[top++] = object;
+  while (top > 0) {
+    unsigned char *block = ${cContextField("marksBase")}[--top];
+    uint32_t *flags = (uint32_t *)(block + ${CLASS_FLAGS_OFFSET});
+    if ((*flags & ${TERA_MARK_FLAG}u) != 0u) continue;
+    *flags |= ${TERA_MARK_FLAG}u;
+    uint32_t references = ${C_REFERENCE_COUNT}(block);
+    for (uint32_t at = 0; at < references; at++) {
+      unsigned char *field = ${C_REFERENCE_AT}(block, at);
+      if (field == 0 || !${C_IS_YOUNG}(field)) continue;
+      if (top == ${TERA_MARKS.capacity}) overflowed = 1;
+      else ${cContextField("marksBase")}[top++] = field;
+    }
+  }
+  return overflowed;
+}
+
+static int32_t tera_mark_young_pending(void) {
+  int32_t overflowed = 0;
+  for (size_t at = 0; at < ${cContextField("youngCount")}; at++) {
+    unsigned char *block = ${cContextField("youngBase")}[at];
+    if ((*(const uint32_t *)(block + ${CLASS_FLAGS_OFFSET}) & ${TERA_MARK_FLAG}u) == 0u) continue;
+    uint32_t references = ${C_REFERENCE_COUNT}(block);
+    for (uint32_t index = 0; index < references; index++) {
+      unsigned char *field = ${C_REFERENCE_AT}(block, index);
+      if (field == 0 || !${C_IS_YOUNG}(field)) continue;
+      if ((*(uint32_t *)(field + ${CLASS_FLAGS_OFFSET}) & ${TERA_MARK_FLAG}u) != 0u) continue;
+      overflowed |= ${C_MARK_YOUNG}(field);
+    }
+  }
+  return overflowed;
+}
+
+static void ${C_RELEASE}(unsigned char *block, size_t bytes) {
+  if (block + bytes == ${cContextField("arenaBase")} + ${cContextField("arenaCursor")}) {
+    ${cContextField("arenaCursor")} -= bytes;
+    return;
+  }
+  *(uint32_t *)block = ${TERA_FREE_SHAPE_ID}u;
+  *(uint32_t *)(block + ${CLASS_FLAGS_OFFSET}) = (uint32_t)bytes;
+  if (bytes >= ${CLASS_HEADER_BYTES} + ${TERA_LINK_BYTES}) {
+    *(unsigned char **)(block + ${CLASS_HEADER_BYTES}) = ${cContextField("freeHead")};
+    ${cContextField("freeHead")} = block;
+  }
+}
+
+static void ${C_SWEEP_YOUNG}(void) {
+  size_t at = 0;
+  while (at < ${cContextField("youngCount")}) {
+    unsigned char *block = ${cContextField("youngBase")}[at];
+    uint32_t *flags = (uint32_t *)(block + ${CLASS_FLAGS_OFFSET});
+    if ((*flags & ${TERA_MARK_FLAG}u) != 0u) {
+      *flags = (*flags & ~(uint32_t)${TERA_BLOCK_FLAGS}u) | ${TERA_OLD_FLAG}u;
+      at++;
+      continue;
+    }
+    size_t bytes = ${C_BLOCK_SIZE}(block);
+    size_t run = at + 1;
+    while (run < ${cContextField("youngCount")}) {
+      unsigned char *next = ${cContextField("youngBase")}[run];
+      if (block + bytes != next) break;
+      if ((*(uint32_t *)(next + ${CLASS_FLAGS_OFFSET}) & ${TERA_MARK_FLAG}u) != 0u) break;
+      bytes += ${C_BLOCK_SIZE}(next);
+      run++;
+    }
+    ${C_RELEASE}(block, bytes);
+    at = run;
+  }
+  ${cContextField("youngCount")} = 0;
+}
+
 static void ${C_SWEEP}(void) {
   ${cContextField("freeHead")} = 0;
   size_t at = 0;
@@ -1117,7 +1333,7 @@ static void ${C_SWEEP}(void) {
     unsigned char *block = ${cContextField("arenaBase")} + at;
     uint32_t *flags = (uint32_t *)(block + ${CLASS_FLAGS_OFFSET});
     if (*(const uint32_t *)block != ${TERA_FREE_SHAPE_ID}u && (*flags & ${TERA_MARK_FLAG}u) != 0u) {
-      *flags &= ~(uint32_t)${TERA_MARK_FLAG}u;
+      *flags = (*flags & ~(uint32_t)${TERA_BLOCK_FLAGS}u) | ${TERA_OLD_FLAG}u;
       at += ${C_BLOCK_SIZE}(block);
       continue;
     }
@@ -1131,12 +1347,7 @@ static void ${C_SWEEP}(void) {
       bytes += ${C_BLOCK_SIZE}(next);
       run += ${C_BLOCK_SIZE}(next);
     }
-    *(uint32_t *)block = ${TERA_FREE_SHAPE_ID}u;
-    *flags = (uint32_t)bytes;
-    if (bytes >= ${CLASS_HEADER_BYTES} + ${TERA_LINK_BYTES}) {
-      *(unsigned char **)(block + ${CLASS_HEADER_BYTES}) = ${cContextField("freeHead")};
-      ${cContextField("freeHead")} = block;
-    }
+    ${C_RELEASE}(block, bytes);
     at = run;
   }
 }
@@ -1149,11 +1360,71 @@ static void ${TERA_COLLECT_SYMBOL}(void) {
   for (uint32_t at = 0; at < ${TERA_STATIC_ROOT_COUNT.symbol}; at++) {
     overflowed |= ${C_MARK}(*(unsigned char **)(${TERA_STATICS.symbol} + ${TERA_STATIC_ROOTS.symbol}[at]));
   }
+  overflowed |= ${C_MARK}(${cContextField("waitHead")});
+  overflowed |= ${C_MARK}(${cContextField("sweepHead")});
   overflowed |= ${C_MARK}(${cContextField("queueHead")});
   overflowed |= ${C_MARK}(${cContextField("rejectedHead")});
   overflowed |= ${C_MARK}(${cContextField("rejectedText")});
   while (overflowed != 0) overflowed = tera_mark_pending();
   ${C_SWEEP}();
+  ${cContextField("youngCount")} = 0;
+  ${cContextField("rememberedCount")} = 0;
+  ${C_NURSERY_RESET}();
+}
+
+static void ${TERA_MINOR_SYMBOL}(void) {
+  if (${cContextField("rememberedCount")} == ${TERA_REMEMBERED_CAPACITY}u) {
+    ${TERA_COLLECT_SYMBOL}();
+    return;
+  }
+  int32_t overflowed = 0;
+  for (size_t at = 0; at < ${cContextField("rootCount")}; at++) {
+    overflowed |= ${C_MARK_YOUNG}(${cContextField("rootsBase")}[at]);
+  }
+  for (uint32_t at = 0; at < ${TERA_STATIC_ROOT_COUNT.symbol}; at++) {
+    overflowed |= ${C_MARK_YOUNG}(*(unsigned char **)(${TERA_STATICS.symbol} + ${TERA_STATIC_ROOTS.symbol}[at]));
+  }
+  overflowed |= ${C_MARK_YOUNG}(${cContextField("waitHead")});
+  overflowed |= ${C_MARK_YOUNG}(${cContextField("sweepHead")});
+  overflowed |= ${C_MARK_YOUNG}(${cContextField("queueHead")});
+  overflowed |= ${C_MARK_YOUNG}(${cContextField("rejectedHead")});
+  overflowed |= ${C_MARK_YOUNG}(${cContextField("rejectedText")});
+  for (size_t at = 0; at < ${cContextField("rememberedCount")}; at++) {
+    unsigned char *block = ${cContextField("rememberedBase")}[at];
+    uint32_t references = ${C_REFERENCE_COUNT}(block);
+    for (uint32_t index = 0; index < references; index++) {
+      overflowed |= ${C_MARK_YOUNG}(${C_REFERENCE_AT}(block, index));
+    }
+    *(uint32_t *)(block + ${CLASS_FLAGS_OFFSET}) &= ~(uint32_t)${TERA_REMEMBERED_FLAG}u;
+  }
+  ${cContextField("rememberedCount")} = 0;
+  while (overflowed != 0) overflowed = tera_mark_young_pending();
+  ${C_SWEEP_YOUNG}();
+  ${C_NURSERY_RESET}();
+}
+
+static void ${TERA_RESERVE_SYMBOL}(void) {
+  unsigned char *base = ${C_MAP}(${cContextField("arenaReserved")});
+  if (base == 0) exit(${TERA_EXIT_HEAP_EXHAUSTED});
+  size_t first = ${TERA_HEAP_COMMIT_BYTES} < ${cContextField("arenaReserved")}
+    ? ${TERA_HEAP_COMMIT_BYTES}
+    : ${cContextField("arenaReserved")};
+  if (${C_COMMIT}(base, first) == 0) exit(${TERA_EXIT_HEAP_EXHAUSTED});
+  ${cContextField("arenaBase")} = base;
+  ${cContextField("arenaCommitted")} = first;
+  ${C_NURSERY_RESET}();
+}
+
+static int32_t ${TERA_GROW_SYMBOL}(size_t size) {
+  size_t wanted = ${cContextField("arenaCommitted")} * 2;
+  size_t needed = ${cContextField("arenaCursor")} + size;
+  if (wanted < needed) wanted = needed;
+  if (wanted > ${cContextField("arenaReserved")}) wanted = ${cContextField("arenaReserved")};
+  if (wanted <= ${cContextField("arenaCommitted")}) return 0;
+  if (${C_COMMIT}(${cContextField("arenaBase")}, wanted) == 0) return 0;
+  ${cContextField("arenaCommitted")} = wanted;
+  ${C_NURSERY_RESET}();
+  return 1;
 }
 
 static unsigned char *${C_BUMP}(size_t size) {
@@ -1189,17 +1460,27 @@ static unsigned char *${C_TAKE}(size_t size) {
 }
 
 static unsigned char *${TERA_ALLOC_SYMBOL}(size_t size, int32_t shape_id) {
+  if (${cContextField("arenaBase")} == 0) ${TERA_RESERVE_SYMBOL}();
+  if (${cContextField("youngCount")} == ${TERA_YOUNG_CAPACITY}u) ${TERA_MINOR_SYMBOL}();
   unsigned char *object = ${C_BUMP}(size);
   if (object == 0) object = ${C_TAKE}(size);
+  if (object == 0 && ${cContextField("youngCount")} > 0) {
+    ${TERA_MINOR_SYMBOL}();
+    object = ${C_BUMP}(size);
+    if (object == 0) object = ${C_TAKE}(size);
+  }
   if (object == 0) {
     ${TERA_COLLECT_SYMBOL}();
-    object = ${C_TAKE}(size);
-    if (object == 0) object = ${C_BUMP}(size);
+    object = ${C_BUMP}(size);
+    if (object == 0) object = ${C_TAKE}(size);
   }
+  if (object == 0 && ${TERA_GROW_SYMBOL}(size) != 0) object = ${C_BUMP}(size);
   if (object == 0) exit(${TERA_EXIT_HEAP_EXHAUSTED});
   for (size_t at = 0; at < size; at++) object[at] = 0;
   *(uint32_t *)object = (uint32_t)shape_id;
   *(uint32_t *)(object + ${CLASS_FLAGS_OFFSET}) = (uint32_t)size;
+  ${C_NOTE_YOUNG}(object);
+  ${C_NURSERY_RESET}();
   return object;
 }
 
@@ -1217,7 +1498,11 @@ static inline unsigned char *${C_ARRAY_RESERVE}(unsigned char *array, int32_t sh
     elements + ${BUFFER_ELEMENTS_OFFSET},
     (size_t)length * (size_t)stride);
   *(int32_t *)(array + ${ARRAY_CAPACITY_OFFSET}) = grown;
+  ${C_BARRIER}(array, fresh);
   *(unsigned char **)(array + ${ARRAY_ELEMENTS_OFFSET}) = fresh;
+  if (length > 0 && ${TERA_CLASS_RECORD.symbol}[shape_id].tail != 0u && !${C_IS_YOUNG}(fresh)) {
+    ${C_REMEMBER}(fresh);
+  }
   return fresh;
 }`;
 
@@ -1304,7 +1589,6 @@ const C_HEAP_IDENTIFIERS: readonly string[] = [
   TERA_ALLOC_SYMBOL,
   TERA_COLLECT_SYMBOL,
   TERA_CONTEXT.symbol,
-  TERA_ARENA.symbol,
   TERA_ROOTS.symbol,
   TERA_MARKS.symbol,
   TERA_STATICS.symbol,
@@ -1785,9 +2069,21 @@ class CFunctionEmitter {
     const value = ctx.node.inputs[1]!;
     const scalar = fieldScalarOf(ctx.node);
     const access = this.fieldAccess(ctx.node, scalar);
+    this.emitBarrier(ctx, scalar, ctx.node.inputs[0]!, value);
     const store = `${access} = ${this.asScalar(value, scalar)}`;
     if (ctx.node.uses.length === 0) ctx.emit(`${store};`);
     else this.define(ctx, `(${store})`);
+  }
+
+  private emitBarrier(
+    ctx: EmitContext,
+    scalar: AotScalar | null,
+    target: CFGInstruction,
+    value: CFGInstruction,
+  ): void {
+    if (scalar !== SCALAR_POINTER) return;
+    if (target.type === IR_RUNTIME_BASE) return;
+    ctx.emit(`${C_BARRIER}(${this.nameOf(target)}, ${this.nameOf(value)});`);
   }
 
   private textAddress(node: CFGInstruction): string {
@@ -1845,6 +2141,7 @@ class CFunctionEmitter {
       return;
     }
     const stored = scalar === null ? this.nameOf(value) : this.asScalar(value, scalar);
+    this.emitBarrier(ctx, scalar, ctx.node.inputs[0]!, value);
     const store = `${this.elementAccess(ctx.node, scalar)} = ${stored}`;
     if (ctx.node.uses.length === 0) ctx.emit(`${store};`);
     else this.define(ctx, `(${store})`);

@@ -293,6 +293,36 @@ function throwError(platform: PlatformIo) {
   };
 }
 
+const MILLIS = "rax";
+const WAITED = "rcx";
+const ZERO_MILLIS = "xmm1";
+const RESULT_MILLIS = "xmm0";
+
+function clockNow(platform: PlatformIo) {
+  return (builder: MachineRoutineBuilder): void => {
+    enter(builder, platform);
+    platform.now!(builder, MILLIS);
+    builder.emit("cvtsi2sdq", builder.write(RESULT_MILLIS, 8), builder.read(MILLIS, 8));
+    leave(builder, platform);
+    builder.ret();
+  };
+}
+
+function clockWait(platform: PlatformIo) {
+  return (builder: MachineRoutineBuilder): void => {
+    enter(builder, platform);
+    builder
+      .emit("xorpd", builder.write(ZERO_MILLIS, 8), builder.read(ZERO_MILLIS, 8))
+      .emit("comisd", builder.read(RESULT_MILLIS, 8), builder.read(ZERO_MILLIS, 8))
+      .to("jbe", "done")
+      .emit("cvttsd2siq", builder.write(WAITED, 8), builder.read(RESULT_MILLIS, 8));
+    platform.wait!(builder, WAITED);
+    builder.at("done");
+    leave(builder, platform);
+    builder.ret();
+  };
+}
+
 export function x64IoRoutines(
   platform: PlatformIo,
   registers: RegisterFile,
@@ -306,6 +336,12 @@ export function x64IoRoutines(
     [X64_RUNTIME_SYMBOLS.printFloat, printFloat(platform)],
     [X64_RUNTIME_SYMBOLS.input, input(platform)],
     [X64_RUNTIME_SYMBOLS.throwError, throwError(platform)],
+    ...(platform.now === undefined || platform.wait === undefined
+      ? []
+      : ([
+          [X64_RUNTIME_SYMBOLS.clock, clockNow(platform)],
+          [X64_RUNTIME_SYMBOLS.pause, clockWait(platform)],
+        ] as const)),
   ];
   return new Map(
     definitions.map(([symbol, define]) => [

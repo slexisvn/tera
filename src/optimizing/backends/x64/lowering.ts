@@ -85,7 +85,9 @@ import {
   AGGREGATE_SEPARATOR_TEXT,
   builtinIntrinsicByName,
   builtinParameterAt,
+  CLOCK_BUILTIN,
   INPUT_BUILTIN,
+  WAIT_BUILTIN,
   NO_TERMINATOR,
   OBJECT_CLOSE_TEXT,
   OBJECT_OPEN_TEXT,
@@ -308,6 +310,8 @@ const ROUNDING_MODES = new Map<string, number>([
   [qualifiedMethodName("Math", "trunc"), ROUND_TOWARD_ZERO],
 ]);
 
+const VOID_RETURN = "void";
+
 const RUNTIME_BUILTINS = new Map<string, string>([
   [qualifiedMethodName("Math", "min"), X64_RUNTIME_SYMBOLS.minimum],
   [qualifiedMethodName("Math", "max"), X64_RUNTIME_SYMBOLS.maximum],
@@ -318,6 +322,8 @@ const RUNTIME_BUILTINS = new Map<string, string>([
   [qualifiedMethodName("string", "ends_with"), X64_RUNTIME_SYMBOLS.stringEndsWith],
   [PARSE_INT_BUILTIN, X64_RUNTIME_SYMBOLS.parseInt],
   [PARSE_FLOAT_BUILTIN, X64_RUNTIME_SYMBOLS.parseFloat],
+  [CLOCK_BUILTIN, X64_RUNTIME_SYMBOLS.clock],
+  [WAIT_BUILTIN, X64_RUNTIME_SYMBOLS.pause],
 ]);
 
 const STRING_BUFFER_BUILTINS = new Map<string, string>([
@@ -1141,7 +1147,7 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
         mem(POINTER_WIDTH, { base: readOf(cursor), displacement: shape.size }),
       ]),
     );
-    ctx.emit(instruction("cmpq", [readOf(next), contextField("arenaCommitted")]));
+    ctx.emit(instruction("cmpq", [readOf(next), contextField("nurseryLimit")]));
     ctx.emit(instruction("ja", [label(fork.taken)]));
     ctx.emit(instruction("movq", [contextField("arenaCursor"), readOf(next)]));
     ctx.emit(instruction("movq", [writeOf(object), contextField("arenaBase")]));
@@ -1158,6 +1164,23 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
         imm(shape.size),
       ]),
     );
+    const young = ctx.tempIn(ctx.classOf(SCALAR_POINTER), POINTER_WIDTH);
+    const list = ctx.tempIn(ctx.classOf(SCALAR_POINTER), POINTER_WIDTH);
+    ctx.emit(instruction("movq", [writeOf(young), contextField("youngCount")]));
+    ctx.emit(instruction("movq", [writeOf(list), contextField("youngBase")]));
+    ctx.emit(
+      instruction("movq", [
+        mem(POINTER_WIDTH, {
+          base: readOf(list),
+          index: readOf(young),
+          scale: POINTER_WIDTH,
+          displacement: 0,
+        }),
+        readOf(object),
+      ]),
+    );
+    ctx.emit(instruction("incq", [writeOf(young)]));
+    ctx.emit(instruction("movq", [contextField("youngCount"), readOf(young)]));
     ctx.emit(this.jump(fork.rejoin));
 
     fork.enterTaken();
@@ -1209,6 +1232,7 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
     const width = ctx.widthOf(scalar);
     const receiver = ctx.registerOf(ctx.node.inputs[0]!);
     const value = this.coerce(ctx, ctx.node.inputs[1]!, scalar);
+    this.rememberStore(ctx, scalar, receiver, value);
     ctx.emit(
       instruction(this.moveFor(readOf(value)), [
         this.fieldAddress(receiver, width, fieldOffsetOf(ctx.node)),
@@ -1216,6 +1240,18 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
       ]),
     );
     if (ctx.node.uses.length > 0) this.produce(ctx, value, scalar);
+  }
+
+  private rememberStore(
+    ctx: SelectionContext,
+    scalar: AotScalar | null,
+    target: VirtualRegister,
+    value: VirtualRegister,
+  ): void {
+    if (scalar !== SCALAR_POINTER) return;
+    if (ctx.node.inputs[0]!.type === IR_RUNTIME_BASE) return;
+    ctx.external(X64_RUNTIME_SYMBOLS.writeBarrier);
+    ctx.emitCall(X64_RUNTIME_SYMBOLS.writeBarrier, [target, value], null);
   }
 
   protected textAddress(ctx: SelectionContext, destination: VirtualRegister): VirtualRegister {
@@ -1306,6 +1342,7 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
     }
     const { element, address } = this.elementPlace(ctx);
     const value = this.coerce(ctx, ctx.node.inputs[2]!, element);
+    this.rememberStore(ctx, element, ctx.registerOf(ctx.node.inputs[0]!), value);
     ctx.emit(
       instruction(this.moveFor(readOf(value)), [address, use(value, ctx.widthOf(element))]),
     );
@@ -1488,6 +1525,11 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
       throw new BackendLoweringError(
         `x64 backend has no lowering for admitted builtin ${name}`,
       );
+    }
+    if (intrinsic.signature.returns === VOID_RETURN) {
+      ctx.external(runtime);
+      ctx.emitCall(runtime, args, null);
+      return;
     }
     this.emitLibraryCall(ctx, runtime, args, scalar);
   }

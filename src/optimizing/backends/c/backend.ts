@@ -12,7 +12,12 @@ import { typeInferenceAnalysisId } from "../../analyses/type-inference.js";
 import { cTarget } from "./target.js";
 import { targetLegalizationPipeline } from "../../target/legalization.js";
 import { moduleInitTable } from "../../target/symbols.js";
-import { cEmittedOpcodes, cIdentifier, emitNumericFunction } from "./emit.js";
+import {
+  C_RESERVE_MACRO,
+  cEmittedOpcodes,
+  cIdentifier,
+  emitNumericFunction,
+} from "./emit.js";
 
 export class CBackendEmitError extends BackendLoweringError {
   constructor(reason: string) {
@@ -117,6 +122,9 @@ export const cBackend: AotBackend = {
       `#endif\n`;
     const source = joinSections([
       `#include "${headerName}"`,
+      ...(options.heapBytes === undefined
+        ? []
+        : [`#define ${C_RESERVE_MACRO} ${options.heapBytes}`]),
       sourcePreamble,
       internal.map((fn) => `static ${fn.prototype}`).join("\n"),
       linked

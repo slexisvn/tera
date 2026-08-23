@@ -61,12 +61,15 @@ import {
   runtimeDeleteProperty,
 } from "../../objects/exotic/proxy-ops.js";
 import { createDomainBuiltins } from "../domain/builtins.js";
+import { monotonicNow, type MicrotaskQueue } from "../microtasks/microtask.js";
+import { mkPromiseCapability } from "../async/promise.js";
 
 type BuiltinArg = TaggedValue;
 type BuiltinThis = {
   prototypeObj?: import("../../objects/heap/js-object.js").JSObject | null;
 };
 type BuiltinInterpreter = {
+  microtaskQueue?: MicrotaskQueue;
   jitEngine?: {
     output?: (text: string) => void;
     input?: (prompt: string) => string | null;
@@ -1100,7 +1103,19 @@ export const builtins = {
   clock: {
     name: "clock",
     call() {
-      return mkDouble(performance.now());
+      return mkDouble(monotonicNow());
+    },
+  },
+
+  sleep: {
+    name: "sleep",
+    call(args: BuiltinArg[], _this: TaggedValue, interpreter: BuiltinInterpreter) {
+      const queue = interpreter?.microtaskQueue;
+      const delay = extractArgNumber(args, 0, 0);
+      if (queue === undefined) return mkUndefined();
+      const { capability, value } = mkPromiseCapability(queue);
+      queue.park(delay, () => capability.resolve(mkUndefined()));
+      return value;
     },
   },
 

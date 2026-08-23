@@ -9,6 +9,7 @@ import {
   TERA_HEAP_RESERVE_BYTES,
   TERA_STATIC_ROOT_COUNT,
   TERA_STATIC_ROOTS,
+  requireContextStorage,
   type RuntimeArray,
   type RuntimeTable,
 } from "../target/runtime-layout.js";
@@ -82,6 +83,7 @@ function classData(classes: ClassTable | null): ClassData {
 }
 
 function contextDatum(reserveBytes: number): MachineDatum {
+  requireContextStorage();
   const field = TERA_CONTEXT.field("arenaReserved");
   const trailing = TERA_CONTEXT.bytes - field.offset - field.size;
   return {

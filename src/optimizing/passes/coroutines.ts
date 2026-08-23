@@ -5,6 +5,9 @@ import {
   irGenericCall,
   irConstant,
   irGenericAdd,
+  irFloat64Add,
+  irFloat64Compare,
+  irFloat64Sub,
   irInt32Add,
   irInt32Compare,
   irInt32Sub,
@@ -52,7 +55,9 @@ import {
 import {
   builtinGlobalIntrinsicByName,
   builtinMethodCallMetadata,
+  CLOCK_BUILTIN,
   THROW_BUILTIN,
+  WAIT_BUILTIN,
 } from "../metadata/builtin-methods.js";
 import {
   declaredAotScalar,
@@ -75,7 +80,12 @@ import {
   CORO_NEXT_FIELD,
   CORO_NEXT_REJECTED_FIELD,
   CORO_NOBODY_WAITING,
+  CORO_DUE_FIELD,
   CORO_PROMISE_BASE,
+  CORO_SLEEP,
+  CORO_TIMER_FIELD,
+  CORO_TIMER_SHAPE,
+  coroutineTimerShape,
   CORO_REPORTED,
   CORO_RESULT_FIELD,
   CORO_ROUTINE_FIELD,
@@ -105,11 +115,13 @@ import { nominalLatticeType } from "../types/declared.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 
 export const CORO_DRAIN = "tera_drain";
+export const CORO_WAKE = "tera_wake";
 export const CORO_REPORT = "tera_report_rejections";
 
 const RESUME_PENDING = 1;
 const RESUME_DONE = 0;
 const INT = "int";
+const FLOAT = "float";
 
 const ARRAY_WRITES = new Set<string>([IR_STORE_ELEMENT, IR_GENERIC_SET_INDEX]);
 const ARRAY_READS = new Set<string>([IR_LOAD_ELEMENT, IR_GENERIC_GET_INDEX]);
@@ -1038,7 +1050,181 @@ export function buildReportRejections(classes: ClassTable): CFGFunction {
   return graph;
 }
 
-export function buildDrain(classes: ClassTable): CFGFunction {
+function nowMillis(out: Emitter): CFGInstruction {
+  const intrinsic = builtinGlobalIntrinsicByName(CLOCK_BUILTIN)!;
+  return out.add(irCallBuiltin(CLOCK_BUILTIN, [], builtinMethodCallMetadata(intrinsic)));
+}
+
+function waitMillis(out: Emitter, span: CFGInstruction): void {
+  const intrinsic = builtinGlobalIntrinsicByName(WAIT_BUILTIN)!;
+  out.add(irCallBuiltin(WAIT_BUILTIN, [span], builtinMethodCallMetadata(intrinsic)));
+}
+
+function appendWaiting(
+  graph: CFGFunction,
+  classes: ClassTable,
+  timer: CFGInstruction,
+  shape: ClassShape,
+  from: CFGBlock,
+): CFGBlock {
+  const opening = new Emitter(classes, from);
+  opening.store(timer, shape, CORO_TIMER_FIELD, timer);
+  const count = opening.loadContext(opening.context(), "waitCount", INT);
+  const empty = opening.add(irInt32Compare("==", count, opening.constant(0)));
+
+  const first = graph.addBlock();
+  const appended = graph.addBlock();
+  const join = graph.addBlock();
+  from.addNode(irBranch(empty, first, appended));
+  link(from, first);
+  link(from, appended);
+
+  const head = new Emitter(classes, first);
+  head.storeContext(head.context(), "waitHead", CORO_TIMER_SHAPE, timer);
+  head.storeContext(head.context(), "waitDue", FLOAT, head.load(timer, shape, CORO_DUE_FIELD));
+  first.addNode(irJump(join));
+  link(first, join);
+
+  const chain = new Emitter(classes, appended);
+  const tail = chain.loadContext(chain.context(), "waitTail", CORO_TIMER_SHAPE);
+  chain.store(tail, shape, CORO_TIMER_FIELD, timer);
+  const earliest = chain.loadContext(chain.context(), "waitDue", FLOAT);
+  const due = chain.load(timer, shape, CORO_DUE_FIELD);
+  const sooner = chain.add(irFloat64Compare("<", due, earliest));
+  const lower = graph.addBlock();
+  appended.addNode(irBranch(sooner, lower, join));
+  link(appended, lower);
+  link(appended, join);
+
+  const raise = new Emitter(classes, lower);
+  raise.storeContext(raise.context(), "waitDue", FLOAT, raise.load(timer, shape, CORO_DUE_FIELD));
+  lower.addNode(irJump(join));
+  link(lower, join);
+
+  const settle = new Emitter(classes, join);
+  const context = settle.context();
+  settle.storeContext(context, "waitTail", CORO_TIMER_SHAPE, timer);
+  const held = settle.loadContext(context, "waitCount", INT);
+  settle.storeContext(context, "waitCount", INT, settle.add(irInt32Add(held, settle.constant(1))));
+  return join;
+}
+
+export function buildSleep(classes: ClassTable): CFGFunction {
+  const graph = new CFGFunction(CORO_SLEEP);
+  graph.classes = classes;
+  graph.internal = true;
+  graph.declaredSignature = { params: [FLOAT], returns: CORO_TIMER_SHAPE };
+  const shape = coroutineTimerShape(classes);
+
+  const entry = graph.addBlock();
+  const millis = graph.addParameter(0);
+
+  const out = new Emitter(classes, entry);
+  const timer = out.allocate(shape);
+  out.store(timer, shape, CORO_STATE_FIELD, out.constant(CORO_STATE_PENDING));
+  out.store(timer, shape, CORO_WAITING_FIELD, out.constant(CORO_NOBODY_WAITING));
+  out.store(timer, shape, CORO_UNREPORTED_FIELD, out.constant(CORO_REPORTED));
+  out.store(
+    timer,
+    shape,
+    CORO_DUE_FIELD,
+    out.add(irFloat64Add(nowMillis(out), millis)),
+  );
+  const joined = appendWaiting(graph, classes, timer, shape, entry);
+  joined.addNode(irReturn(timer));
+  graph.rebuildUses();
+  return graph;
+}
+
+export function buildWake(classes: ClassTable): CFGFunction {
+  const graph = new CFGFunction(CORO_WAKE);
+  graph.classes = classes;
+  graph.internal = true;
+  graph.declaredSignature = { params: [], returns: INT };
+  graph.parameterCount = 0;
+  const shape = coroutineTimerShape(classes);
+  const frames = classes.shapeOf(CORO_FRAME_BASE)!;
+
+  const entry = graph.addBlock();
+  const test = graph.addBlock();
+  const body = graph.addBlock();
+  const expired = graph.addBlock();
+  const keep = graph.addBlock();
+  const woken = graph.addBlock();
+  const done = graph.addBlock();
+
+  const opening = new Emitter(classes, entry);
+  const started = opening.context();
+  const span = opening.add(
+    irFloat64Sub(opening.loadContext(started, "waitDue", FLOAT), nowMillis(opening)),
+  );
+  waitMillis(opening, span);
+  opening.storeContext(
+    started,
+    "sweepHead",
+    CORO_TIMER_SHAPE,
+    opening.loadContext(started, "waitHead", CORO_TIMER_SHAPE),
+  );
+  opening.storeContext(
+    started,
+    "sweepCount",
+    INT,
+    opening.loadContext(started, "waitCount", INT),
+  );
+  opening.storeContext(started, "waitCount", INT, opening.constant(0));
+  entry.addNode(irJump(test));
+  link(entry, test);
+
+  const guard = new Emitter(classes, test);
+  const left = guard.loadContext(guard.context(), "sweepCount", INT);
+  const more = guard.add(irInt32Compare(">", left, guard.constant(0)));
+  test.addNode(irBranch(more, body, done));
+  link(test, body);
+  link(test, done);
+
+  const step = new Emitter(classes, body);
+  const context = step.context();
+  const head = step.loadContext(context, "sweepHead", CORO_TIMER_SHAPE);
+  step.storeContext(
+    context,
+    "sweepHead",
+    CORO_TIMER_SHAPE,
+    step.load(head, shape, CORO_TIMER_FIELD),
+  );
+  step.storeContext(context, "sweepCount", INT, step.add(irInt32Sub(left, step.constant(1))));
+  const reached = step.add(
+    irFloat64Compare("<=", step.load(head, shape, CORO_DUE_FIELD), nowMillis(step)),
+  );
+  body.addNode(irBranch(reached, expired, keep));
+  link(body, expired);
+  link(body, keep);
+
+  const settle = new Emitter(classes, expired);
+  settle.store(head, shape, CORO_STATE_FIELD, settle.constant(CORO_STATE_RESOLVED));
+  const waiting = settle.load(head, shape, CORO_WAITING_FIELD);
+  const wakes = settle.add(irInt32Compare("==", waiting, settle.constant(CORO_SOMEONE_WAITING)));
+  expired.addNode(irBranch(wakes, woken, test));
+  link(expired, woken);
+  link(expired, test);
+
+  const wake = new Emitter(classes, woken);
+  const waiter = wake.load(head, shape, CORO_WAITER_FIELD);
+  wake.store(head, shape, CORO_WAITING_FIELD, wake.constant(CORO_NOBODY_WAITING));
+  const queued = enqueue(graph, classes, waiter, frames, woken);
+  queued.addNode(irJump(test));
+  link(queued, test);
+
+  const kept = appendWaiting(graph, classes, head, shape, keep);
+  kept.addNode(irJump(test));
+  link(kept, test);
+
+  const exit = new Emitter(classes, done);
+  done.addNode(irReturn(exit.constant(RESUME_DONE)));
+  graph.rebuildUses();
+  return graph;
+}
+
+export function buildDrain(classes: ClassTable, timers: boolean): CFGFunction {
   const graph = new CFGFunction(CORO_DRAIN);
   graph.classes = classes;
   graph.internal = true;
@@ -1058,9 +1244,25 @@ export function buildDrain(classes: ClassTable): CFGFunction {
   const context = guard.context();
   const count = guard.loadContext(context, "queueCount", INT);
   const pending = guard.add(irInt32Compare(">", count, guard.constant(0)));
-  test.addNode(irBranch(pending, body, done));
+  const empty = timers ? graph.addBlock() : done;
+  test.addNode(irBranch(pending, body, empty));
   link(test, body);
-  link(test, done);
+  link(test, empty);
+
+  if (timers) {
+    const blocking = graph.addBlock();
+    const stalled = new Emitter(classes, empty);
+    const waiting = stalled.loadContext(stalled.context(), "waitCount", INT);
+    const parked = stalled.add(irInt32Compare(">", waiting, stalled.constant(0)));
+    empty.addNode(irBranch(parked, blocking, done));
+    link(empty, blocking);
+    link(empty, done);
+
+    const block = new Emitter(classes, blocking);
+    block.add(irCallKnownFunction({ name: CORO_WAKE } as never, []));
+    blocking.addNode(irJump(test));
+    link(blocking, test);
+  }
 
   const step = new Emitter(classes, body);
   const inner = step.context();

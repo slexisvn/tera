@@ -8,6 +8,8 @@ import { resolveType, typeLiteralShape, type TypeEnv } from "../../frontend/chec
 import {
   TERA_LINK_BYTES,
   TERA_MARK_FLAG,
+  TERA_BLOCK_FLAGS,
+  TERA_REMEMBERED_FLAG,
   TERA_STATICS_BYTES,
 } from "../target/runtime-layout.js";
 import {
@@ -70,6 +72,8 @@ export const ARRAY_GROWTH_FACTOR = 2;
 
 export const FREE_BLOCK_BYTES = CLASS_HEADER_BYTES + TERA_LINK_BYTES;
 export const CLEAR_MARK = -1 - TERA_MARK_FLAG;
+export const CLEAR_BLOCK_FLAGS = -1 - TERA_BLOCK_FLAGS;
+export const CLEAR_REMEMBERED = -1 - TERA_REMEMBERED_FLAG;
 export const GROWTH_SHIFT = Math.log2(ARRAY_GROWTH_FACTOR);
 export const ALIGNMENT_ROUNDING = CLASS_ALIGNMENT_BYTES - 1;
 

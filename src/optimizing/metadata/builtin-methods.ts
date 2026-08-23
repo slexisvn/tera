@@ -83,6 +83,8 @@ export const PARSE_INT_BUILTIN = "parse_int";
 export const PARSE_FLOAT_BUILTIN = "parse_float";
 export const STRING_BUILTIN = "String";
 export const NUMBER_BUILTIN = "Number";
+export const CLOCK_BUILTIN = "tera_now";
+export const WAIT_BUILTIN = "tera_wait";
 export const TO_STRING_MEMBER = "to_string";
 
 const PRINT_ARGUMENT_SEPARATOR = " ".codePointAt(0)!;
@@ -119,6 +121,8 @@ const GLOBAL_BUILTIN_DECLARATIONS: readonly GlobalBuiltinDeclaration[] = [
   { name: THROW_BUILTIN, params: ["string"], returns: "void", variadic: false },
   { name: PARSE_INT_BUILTIN, params: ["string"], returns: "float", variadic: false },
   { name: PARSE_FLOAT_BUILTIN, params: ["string"], returns: "float", variadic: false },
+  { name: CLOCK_BUILTIN, params: [], returns: "float", variadic: false },
+  { name: WAIT_BUILTIN, params: ["float"], returns: "void", variadic: false },
 ];
 
 function buildGlobalRegistry(): Map<string, BuiltinIntrinsic> {

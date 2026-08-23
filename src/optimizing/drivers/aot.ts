@@ -66,6 +66,8 @@ import { lowerPromiseSurface } from "../passes/promise-surface.js";
 import {
   buildDrain,
   buildReportRejections,
+  buildSleep,
+  buildWake,
   CoroutineSplitError,
   lowerAwaitedPromises,
   drainBeforeExit,
@@ -76,7 +78,12 @@ import {
 import { generatorYieldType, splitGenerator } from "../passes/generators.js";
 import { lowerErrorSurface } from "../passes/error-surface.js";
 import { lowerGeneratorIteration } from "../passes/generator-iteration.js";
-import { coroutineBaseShapes, coroutinePromiseShape } from "../metadata/coroutines.js";
+import {
+  CORO_SLEEP,
+  coroutineBaseShapes,
+  coroutinePromiseShape,
+  coroutineTimerShape,
+} from "../metadata/coroutines.js";
 import {
   declareGlobalVariables,
   dropFunctionBindings,
@@ -274,11 +281,12 @@ function moduleSignatures(module: ModuleIR): Map<string, DeclaredSignature> {
   return signatures;
 }
 
-function suspendingCallees(module: ModuleIR): ReadonlySet<string> {
+function suspendingCallees(module: ModuleIR, timers: boolean): ReadonlySet<string> {
   const asynchronous = new Set<string>();
   for (const unit of module.units) {
     if (unit.graph.isAsync) asynchronous.add(unit.graph.name);
   }
+  if (timers) asynchronous.add(CORO_SLEEP);
   return asynchronous;
 }
 
@@ -327,7 +335,7 @@ function suspendingFunctions(
       for (const node of block.nodes) {
         if (node.props[AWAITED_CALL_PROP] === true) continue;
         const name = calleeOf(node);
-        if (name !== null && asynchronous.has(name)) suspending.add(name);
+        if (name !== null && name !== CORO_SLEEP && asynchronous.has(name)) suspending.add(name);
       }
     }
   }
@@ -383,10 +391,28 @@ const NO_COROUTINES: CoroutinePlan = {
   failures: [],
 };
 
-function planCoroutines(module: ModuleIR, classes: ClassTable | null): CoroutinePlan {
-  const asynchronous = suspendingCallees(module);
+function sleepers(module: ModuleIR): readonly string[] {
+  const names: string[] = [];
+  for (const unit of module.units) {
+    if (unit.graph.name === CORO_SLEEP) continue;
+    for (const block of unit.graph.blocks) {
+      if (block.nodes.some((node) => calleeNameOf(node) === CORO_SLEEP)) {
+        names.push(unit.graph.name);
+        break;
+      }
+    }
+  }
+  return names;
+}
+
+function planCoroutines(
+  module: ModuleIR,
+  classes: ClassTable | null,
+  timers: boolean,
+): CoroutinePlan {
+  const asynchronous = suspendingCallees(module, timers);
   const suspending = suspendingFunctions(module, asynchronous);
-  if (suspending.size === 0) return { ...NO_COROUTINES, asynchronous };
+  if (suspending.size === 0 && !timers) return { ...NO_COROUTINES, asynchronous };
 
   const failures: AotSkippedFunction[] = [];
   if (classes === null) {
@@ -412,6 +438,7 @@ function planCoroutines(module: ModuleIR, classes: ClassTable | null): Coroutine
       coroutinePromiseShape(classes, graph.name, graph.declaredSignature?.returns ?? DEFAULT_RETURN),
     );
   }
+  if (timers) promises.set(CORO_SLEEP, coroutineTimerShape(classes));
   return { asynchronous, suspending, promises, failures };
 }
 
@@ -526,8 +553,10 @@ function splitCoroutines(
   }
   if (plan.promises.size === 0) return added;
 
-  added.push(unitOf(buildDrain(classes)));
+  const timers = plan.promises.has(CORO_SLEEP);
+  added.push(unitOf(buildDrain(classes, timers)));
   added.push(unitOf(buildReportRejections(classes)));
+  if (timers) added.push(unitOf(buildWake(classes)));
   const entry = module.units.find((unit) => unit.graph.name === entryName);
   if (entry !== undefined) drainBeforeExit(entry.graph);
   return added;
@@ -652,8 +681,23 @@ export function compileModule(
   requireDeclaredParameters(module);
   if (classes !== null) declareGlobalVariables(module, classes);
 
-  const plan = planCoroutines(module, classes);
-  const failures = [...plan.failures];
+  const sleeping = classes === null ? [] : sleepers(module);
+  const clocked = backend.target.capabilities.has("timers");
+  const timers = sleeping.length > 0 && clocked;
+  if (timers) {
+    coroutineBaseShapes(classes!);
+    module = { ...module, units: [...module.units, unitOf(buildSleep(classes!))] };
+  }
+  const plan = planCoroutines(module, classes, timers);
+  const clockless = sleeping.length > 0 && !clocked
+    ? sleeping.map((name) => ({
+        name,
+        reason:
+          `${CORO_SLEEP} needs a monotonic clock and a blocking wait, ` +
+          `which the ${backend.id} backend does not provide`,
+      }))
+    : [];
+  const failures = [...plan.failures, ...clockless];
   if (start.refused !== null) {
     failures.push({ name: PROGRAM_ENTRY_NAME, reason: start.refused });
   }

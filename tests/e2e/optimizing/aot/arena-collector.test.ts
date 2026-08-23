@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
-import { TERA_ARENA } from "../../../../src/optimizing/target/runtime-layout.js";
+import {
+  TERA_BARRIER_SYMBOL,
+  TERA_CONTEXT,
+  TERA_HEAP_COMMIT_BYTES,
+  TERA_STATICS,
+  TERA_YOUNG_CAPACITY,
+} from "../../../../src/optimizing/target/runtime-layout.js";
+import { aotBackends } from "../../../../src/cli/targets.js";
 import { scalarWidth, SCALAR_POINTER } from "../../../../src/optimizing/types/scalar.js";
 
 const src = (...lines: string[]) => lines.join("\n");
@@ -33,11 +40,12 @@ const HOLDER = [
 ];
 
 const CELL_BYTES = 16;
-const ROUNDS_PAST_THE_ARENA = Math.ceil((TERA_ARENA.size / CELL_BYTES) * 4);
+const ROUNDS_PAST_THE_ARENA = Math.ceil((TERA_HEAP_COMMIT_BYTES / CELL_BYTES) * 4);
 const KEPT_CELLS = Math.floor(
-  TERA_ARENA.size / (CELL_BYTES + scalarWidth(SCALAR_POINTER)) / 8,
+  TERA_HEAP_COMMIT_BYTES / (CELL_BYTES + scalarWidth(SCALAR_POINTER)) / 8,
 );
 const KEPT_SUM = (KEPT_CELLS * (KEPT_CELLS - 1)) / 2;
+const SURVIVES_A_NURSERY = TERA_YOUNG_CAPACITY * 2;
 
 function image(source: string): Uint8Array {
   const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
@@ -210,5 +218,127 @@ describe("native arena collector", () => {
     );
 
     expect([run.status, run.stdout.trim()]).toEqual([0, "99"]);
+  });
+});
+
+const REPLACES = [
+  ...CELL,
+  "class Holder:",
+  "  public constructor(inner: Cell):",
+  "    this.inner = inner",
+  "  public get reading() -> int:",
+  "    return this.inner.value",
+  "  public take(fresh: Cell) -> int:",
+  "    this.inner = fresh",
+  "    return 0",
+  "fn refresh(target: Holder, v: int) -> int:",
+  "  return target.take(Cell(v))",
+  "fn churn(rounds: int) -> int:",
+  "  keeper: Holder = Holder(Cell(0))",
+  "  i = 0",
+  "  while i < rounds:",
+  "    dropped = Cell(i & 7)",
+  "    i = i + 1",
+  "  refresh(keeper, 4321)",
+  "  j = 0",
+  "  while j < rounds:",
+  "    litter = Cell(j & 7)",
+  "    j = j + 1",
+  "  return keeper.reading",
+];
+
+describe("generational collector", () => {
+  it("takes the write barrier on a reference store and leaves a number store alone", () => {
+    const source = compile(
+      src(
+        ...HOLDER,
+        "fn go(h: Holder, c: Cell) -> int:",
+        "  h.inner = c",
+        "  return h.reading",
+      ),
+    );
+
+    expect(source).toContain("tera_write_barrier(");
+    expect(source.match(/tera_write_barrier\(/g)!.length).toBeGreaterThan(0);
+  });
+
+  it("leaves a store into static memory without a barrier", () => {
+    const source = compile(
+      src(
+        ...CELL,
+        "keeper: Cell = Cell(1)",
+        "fn swap(v: int) -> int:",
+        "  keeper = Cell(v)",
+        "  return 0",
+        "fn read() -> int:",
+        "  return keeper.value",
+        "swap(7)",
+        "print(read())",
+      ),
+    );
+    const swapping = source.slice(source.indexOf("int32_t swap("));
+    const body = swapping.slice(0, swapping.indexOf("\n}"));
+
+    expect(body).toContain(`&${TERA_STATICS.symbol}`);
+    expect(body).not.toContain(`${TERA_BARRIER_SYMBOL}(`);
+  });
+
+  it("leaves a store into the runtime context without a barrier", () => {
+    const source = compile(
+      src("async fn g() -> int:", "  return 1", "async fn f() -> int:", "  return await g()", "print(await f())"),
+    );
+    const queued = source.slice(source.indexOf(`${TERA_CONTEXT.symbol}.queue_head =`));
+
+    expect(queued.slice(0, queued.indexOf(";"))).not.toContain(TERA_BARRIER_SYMBOL);
+  });
+
+  it("leaves a purely numeric store without a barrier", () => {
+    const source = compile(
+      src(...CELL, "fn go(c: Cell, v: int) -> int:", "  c.v = v", "  return c.value"),
+    );
+    const body = source.slice(source.indexOf("int32_t go("));
+
+    expect(body).not.toContain("tera_write_barrier(");
+  });
+
+  it("emits the barrier from exactly the backends that declare a generational heap", () => {
+    const source = src(
+      ...HOLDER,
+      "fn go(h: Holder, c: Cell) -> int:",
+      "  h.inner = c",
+      "  return h.reading",
+    );
+    for (const backend of ["c", "x64-windows", "riscv64"] as const) {
+      const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, { backend });
+      const text = program.files.map((file) => String(file.contents)).join("\n");
+      const model = aotBackends().find((candidate) => candidate.id === backend)!.target;
+      expect([backend, new RegExp(`\\b${TERA_BARRIER_SYMBOL}\\b`).test(text)]).toEqual([
+        backend,
+        model.capabilities.has("generational-heap"),
+      ]);
+    }
+  });
+
+  itNative("keeps a young object stored into a promoted one alive", () => {
+    expect(runCFunction(compile(src(...REPLACES)), "churn", [SURVIVES_A_NURSERY])).toBe(4321);
+  });
+
+  itRunsPe("keeps a young object stored into a promoted one alive", () => {
+    const run = runPe(image(src(...REPLACES, `print(churn(${SURVIVES_A_NURSERY}))`)));
+
+    expect([run.status, run.stdout.trim()]).toEqual([0, "4321"]);
+  });
+
+  itRunsPe("promotes a survivor instead of sweeping it on the next nursery", () => {
+    const run = runPe(
+      image(
+        src(
+          ...RETAIN,
+          `print(churn(${SURVIVES_A_NURSERY * 4}))`,
+        ),
+      ),
+    );
+
+    expect([run.status, run.stdout.trim()]).toEqual([0, "1234"]);
   });
 });

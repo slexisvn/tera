@@ -44,9 +44,24 @@ describe("AOT inline allocation", () => {
     const body = bodyOf(ALLOCATES, "make");
 
     expect(body).toContain(`tera_context+${TERA_CONTEXT.offsetOf("arenaCursor")}(%rip)`);
-    expect(body).toContain(`cmpq tera_context+${TERA_CONTEXT.offsetOf("arenaCommitted")}(%rip)`);
+    expect(body).toContain(`cmpq tera_context+${TERA_CONTEXT.offsetOf("nurseryLimit")}(%rip)`);
     expect(body).toMatch(/ja\s+\.L\w+_alloc_\d+\b/);
     expect(body).toContain("call tera_alloc");
+  });
+
+  it("stops the in-line bump at the nursery rather than at the committed heap", () => {
+    const body = bodyOf(ALLOCATES, "make");
+    const fast = body.slice(0, body.search(/^\.L\w+_alloc_\d+:$/m));
+
+    expect(fast).not.toContain(`tera_context+${TERA_CONTEXT.offsetOf("arenaCommitted")}(%rip)`);
+  });
+
+  it("records every in-line allocation in the young list the minor collector sweeps", () => {
+    const body = bodyOf(ALLOCATES, "make");
+    const fast = body.slice(0, body.search(/^\.L\w+_alloc_\d+:$/m));
+
+    expect(fast).toContain(`tera_context+${TERA_CONTEXT.offsetOf("youngBase")}(%rip)`);
+    expect(fast).toContain(`tera_context+${TERA_CONTEXT.offsetOf("youngCount")}(%rip)`);
   });
 
   it("reaches the runtime only from the overflow path", () => {

@@ -3,7 +3,7 @@ import { nodeEngine } from "../../../helpers/engine.js";
 import type { AotProgram } from "../../../../src/optimizing/drivers/aot.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
 import {
-  TERA_ARENA,
+  TERA_HEAP_COMMIT_BYTES,
   TERA_STATICS,
 } from "../../../../src/optimizing/target/runtime-layout.js";
 
@@ -219,7 +219,7 @@ describe("x64 windows executables with classes", () => {
       "print",
     ).length;
 
-    expect(withClass - withoutClass).toBeLessThan(TERA_ARENA.size);
+    expect(withClass - withoutClass).toBeLessThan(TERA_HEAP_COMMIT_BYTES);
   });
 
   it("keeps the statics block out of the file as well", () => {

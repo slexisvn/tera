@@ -8,11 +8,23 @@ import {
   TERA_ARRAYS,
   TERA_CLASS_RECORD,
   TERA_CONTEXT,
+  TERA_CONTEXT_STORAGE,
   TERA_RECORDS,
   TERA_STATIC_ROOT_COUNT,
   TERA_STATIC_ROOTS,
   TERA_TABLES,
+  TERA_THREAD_ENTRY_POINTS,
+  contextStorageFault,
+  perThreadContextFields,
+  requireContextStorage,
+  threadEntryPointFault,
 } from "../../../src/optimizing/target/runtime-layout.js";
+import { WINDOWS_IMPORTS } from "../../../src/optimizing/backends/x64/windows.js";
+import {
+  RISCV64_LINUX_SYSCALLS,
+  X64_LINUX_SYSCALLS,
+  X64_MACOS_SYSCALLS,
+} from "../../../src/optimizing/target/syscalls.js";
 
 const emitted = new Map(
   heapData(heapImageOf(null, undefined)).map((datum) => [datum.label, datum]),
@@ -148,6 +160,64 @@ describe("runtime layout", () => {
     const source = cClassTable(null);
     for (const symbol of [TERA_CLASS_RECORD.symbol, TERA_STATIC_ROOTS.symbol, TERA_STATIC_ROOT_COUNT.symbol]) {
       expect([symbol, source.includes(symbol)]).toEqual([symbol, true]);
+    }
+  });
+});
+
+describe("context sharing", () => {
+  it("splits every context field into exactly one of the two ownerships", () => {
+    const owned = perThreadContextFields();
+    const shared = TERA_CONTEXT.fields
+      .filter((field) => field.ownership === "shared")
+      .map((field) => field.name);
+    expect([...owned, ...shared].sort()).toEqual(
+      TERA_CONTEXT.fields.map((field) => field.name).sort(),
+    );
+    expect(owned.filter((name) => shared.includes(name))).toEqual([]);
+    expect(owned.length).toBeGreaterThan(shared.length);
+  });
+
+  it("counts the pending throw slot as per-thread state, not a shared one", () => {
+    const owned = perThreadContextFields();
+    expect(owned).toContain("pendingThrowFlag");
+    expect(owned).toContain("pendingThrowValue");
+  });
+
+  it("names the arena reservation as the only state two threads could share", () => {
+    const shared = TERA_CONTEXT.fields
+      .filter((field) => field.ownership === "shared")
+      .map((field) => field.name);
+    expect(shared).toEqual(["arenaReserved"]);
+  });
+
+  it("refuses per-thread context storage while nothing provisions the per-thread state", () => {
+    const fault = contextStorageFault("perThread");
+    expect(fault).not.toBeNull();
+    for (const name of perThreadContextFields()) expect(fault).toContain(name);
+    for (const array of TERA_ARRAYS) expect(fault).toContain(array.symbol);
+  });
+
+  it("lets the backends emit the one process-global context they build today", () => {
+    expect(contextStorageFault(TERA_CONTEXT_STORAGE)).toBeNull();
+    expect(requireContextStorage()).toBe("processGlobal");
+    expect(emitted.get(TERA_CONTEXT.symbol)).toBeDefined();
+  });
+
+  it("rejects a platform surface that can start a second thread", () => {
+    for (const entry of TERA_THREAD_ENTRY_POINTS) {
+      const fault = threadEntryPointFault(["GetStdHandle", entry]);
+      expect([entry, fault === null]).toEqual([entry, false]);
+      expect(fault).toContain(entry);
+      expect(fault).toContain("pendingThrowValue");
+    }
+  });
+
+  it("finds no thread entry point in any platform surface a program links today", () => {
+    for (const library of WINDOWS_IMPORTS) {
+      expect([library.dll, threadEntryPointFault(library.functions)]).toEqual([library.dll, null]);
+    }
+    for (const table of [X64_LINUX_SYSCALLS, X64_MACOS_SYSCALLS, RISCV64_LINUX_SYSCALLS]) {
+      expect(threadEntryPointFault(Object.keys(table))).toBeNull();
     }
   });
 });

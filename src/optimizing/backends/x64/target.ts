@@ -72,7 +72,15 @@ export function x64Target(options: X64TargetOptions = {}): X64TargetModel {
 
   return {
     name: `x86-64-${abiName}`,
-    capabilities: capabilitySet("terminating-throw", "float-text", "select-integer"),
+    capabilities: capabilitySet(
+      "terminating-throw",
+      "float-text",
+      "select-integer",
+      "generational-heap",
+      ...(io.now === undefined || io.wait === undefined
+        ? []
+        : (["timers"] as const)),
+    ),
     speculation: proveOrGeneric,
     abi,
     registers,

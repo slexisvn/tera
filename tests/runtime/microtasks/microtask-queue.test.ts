@@ -6,6 +6,7 @@ import {
   PromiseReactionMicrotask,
   CallbackMicrotask,
   MicrotasksScope,
+  monotonicNow,
 } from "../../../src/runtime/microtasks/microtask.js";
 import { mkFunction, mkUndefined, mkSmi, getPayload } from "../../../src/core/value/index.js";
 
@@ -267,5 +268,70 @@ describe("MicrotaskQueue", () => {
       expect(stats.checkpoints).toBe(1);
       expect(stats.pending).toBe(0);
     });
+  });
+});
+
+describe("wait set", () => {
+  it("blocks until the earliest deadline rather than returning while a frame is parked", () => {
+    const q = new MicrotaskQueue();
+    const woken = [];
+    q.park(40, () => woken.push("late"));
+    q.park(5, () => woken.push("early"));
+
+    const started = monotonicNow();
+    q.drain();
+    const spent = monotonicNow() - started;
+
+    expect(woken).toEqual(["early", "late"]);
+    expect(spent).toBeGreaterThanOrEqual(35);
+    expect(q.waiting).toEqual([]);
+  });
+
+  it("wakes frames sharing a deadline in the order they parked", () => {
+    const q = new MicrotaskQueue();
+    const woken = [];
+    for (const name of ["a", "b", "c"]) q.park(0, () => woken.push(name));
+
+    q.drain();
+
+    expect(woken).toEqual(["a", "b", "c"]);
+  });
+
+  it("waits once for deadlines that overlap instead of once per frame", () => {
+    const q = new MicrotaskQueue();
+    let woken = 0;
+    for (let index = 0; index < 3; index++) q.park(40, () => woken++);
+
+    const started = monotonicNow();
+    q.drain();
+    const spent = monotonicNow() - started;
+
+    expect(woken).toBe(3);
+    expect(spent).toBeLessThan(40 * 3);
+  });
+
+  it("runs work a waking frame enqueues before it stops", () => {
+    const q = new MicrotaskQueue();
+    const order = [];
+    q.park(1, () => {
+      order.push("woke");
+      q.enqueue(simpleMicrotask(() => order.push("queued")));
+    });
+
+    q.drain();
+
+    expect(order).toEqual(["woke", "queued"]);
+  });
+
+  it("keeps draining the ready queue while nothing is parked", () => {
+    const q = new MicrotaskQueue();
+    const order = [];
+    q.enqueue(simpleMicrotask(() => order.push(1)));
+
+    const started = monotonicNow();
+    q.drain();
+
+    expect(order).toEqual([1]);
+    expect(monotonicNow() - started).toBeLessThan(20);
   });
 });

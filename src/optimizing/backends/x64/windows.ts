@@ -10,6 +10,12 @@ import {
 } from "../../machine/ir.js";
 import type { MachineRoutineBuilder } from "../../machine/routine.js";
 import type { RuntimeAbi } from "../../target/abi.js";
+import { withoutThreadEntryPoints } from "../../target/runtime-layout.js";
+import {
+  WINDOWS_MEM_COMMIT,
+  WINDOWS_MEM_RESERVE,
+  WINDOWS_PAGE_READWRITE,
+} from "../../target/syscalls.js";
 import type { ProgramEntryShape } from "../../target/entry.js";
 import type { RegisterFile } from "../../target/registers.js";
 import { x64IntegerArgumentNames, x64IntegerReturnName } from "./abi.js";
@@ -31,15 +37,14 @@ const KERNEL32 = {
   write: "WriteFile",
   exit: "ExitProcess",
   allocate: "VirtualAlloc",
+  ticks: "GetTickCount64",
+  pause: "Sleep",
 } as const;
 
-const MEM_COMMIT = 0x1000;
-const MEM_RESERVE = 0x2000;
-const PAGE_READWRITE = 0x04;
 const VIRTUAL_ALLOC_ANY_ADDRESS = 0;
 
 export const WINDOWS_IMPORTS: readonly PeImportLibrary[] = [
-  { dll: KERNEL32_DLL, functions: Object.values(KERNEL32) },
+  { dll: KERNEL32_DLL, functions: withoutThreadEntryPoints(Object.values(KERNEL32)) },
 ];
 
 const STANDARD_INPUT = -10;
@@ -125,7 +130,7 @@ function virtualAlloc(
     .emit("movq", builder.write(first!, 8), address)
     .emit("movq", builder.write(second!, 8), builder.read(bytes, 8))
     .emit("movl", builder.write(third!, 4), imm(action))
-    .emit("movl", builder.write(fourth!, 4), imm(PAGE_READWRITE))
+    .emit("movl", builder.write(fourth!, 4), imm(WINDOWS_PAGE_READWRITE))
     .callThrough(importedCall(abi, KERNEL32.allocate));
 }
 
@@ -135,7 +140,7 @@ export function windowsIo(abi: RuntimeAbi): PlatformIo {
     abi,
     frameBytes: frameBytesOf(abi),
     reserve: (builder, bytes, base) => {
-      virtualAlloc(builder, abi, imm(VIRTUAL_ALLOC_ANY_ADDRESS), bytes, MEM_RESERVE);
+      virtualAlloc(builder, abi, imm(VIRTUAL_ALLOC_ANY_ADDRESS), bytes, WINDOWS_MEM_RESERVE);
       builder.emit(
         "movq",
         builder.write(base, 8),
@@ -143,7 +148,7 @@ export function windowsIo(abi: RuntimeAbi): PlatformIo {
       );
     },
     commit: (builder, base, bytes, status) => {
-      virtualAlloc(builder, abi, builder.read(base, 8), bytes, MEM_COMMIT);
+      virtualAlloc(builder, abi, builder.read(base, 8), bytes, WINDOWS_MEM_COMMIT);
       builder.emit(
         "movq",
         builder.write(status, 8),
@@ -164,6 +169,16 @@ export function windowsIo(abi: RuntimeAbi): PlatformIo {
         .emit("movq", builder.write(second!, 8), builder.read(text, 8))
         .emit("movl", builder.write(third!, 4), builder.read(length, 4));
       transferBytes(builder, abi, KERNEL32.write);
+    },
+    now: (builder, millis) => {
+      builder
+        .callThrough(importedCall(abi, KERNEL32.ticks))
+        .emit("movq", builder.write(millis, 8), builder.read(x64IntegerReturnName(abi), 8));
+    },
+    wait: (builder, millis) => {
+      builder
+        .emit("movl", builder.write(first!, 4), builder.read(millis, 4))
+        .callThrough(importedCall(abi, KERNEL32.pause));
     },
     exit: (builder, status: MachineOperand) => {
       builder

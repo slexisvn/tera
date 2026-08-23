@@ -186,9 +186,49 @@ export class CallbackMicrotask extends Microtask {
   }
 }
 
+export interface ParkedFrame {
+  readonly due: number;
+  readonly order: number;
+  readonly wake: () => void;
+}
+
+const MILLISECONDS = 1;
+const SLEEP_SLOT = 0;
+const SLEEP_SLOT_BYTES = 4;
+const SLEEP_UNCHANGED = 0;
+
+export function monotonicNow(): number {
+  return performance.now();
+}
+
+const sleeper: Int32Array | null = (() => {
+  try {
+    return new Int32Array(new SharedArrayBuffer(SLEEP_SLOT_BYTES));
+  } catch {
+    return null;
+  }
+})();
+
+let blocking = sleeper !== null;
+
+function blockUntil(due: number): void {
+  for (;;) {
+    const remaining = due - monotonicNow();
+    if (remaining <= 0) return;
+    if (!blocking) continue;
+    try {
+      Atomics.wait(sleeper!, SLEEP_SLOT, SLEEP_UNCHANGED, remaining);
+    } catch {
+      blocking = false;
+    }
+  }
+}
+
 export class MicrotaskQueue {
   queue: Array<Microtask | undefined>;
   head: number;
+  waiting: ParkedFrame[];
+  parked: number;
   policy: MicrotaskPolicyValue;
   nestingDepth: number;
   suppressionDepth: number;
@@ -202,6 +242,10 @@ export class MicrotaskQueue {
   constructor(options: MicrotaskQueueOptions = {}) {
     this.queue = [];
     this.head = 0;
+
+    this.waiting = [];
+
+    this.parked = 0;
 
     this.policy = options.policy || MicrotaskPolicy.AUTO;
 
@@ -257,6 +301,34 @@ export class MicrotaskQueue {
     return true;
   }
 
+  park(delay: number, wake: () => void): void {
+    const due = monotonicNow() + Math.max(0, delay) * MILLISECONDS;
+    this.waiting.push({ due, order: this.parked++, wake });
+    tracer.log("microtask", `Park: due in ${Math.max(0, delay)}ms`);
+  }
+
+  private earliest(): ParkedFrame | null {
+    let found: ParkedFrame | null = null;
+    for (const frame of this.waiting) {
+      if (found === null || frame.due < found.due) found = frame;
+      else if (frame.due === found.due && frame.order < found.order) found = frame;
+    }
+    return found;
+  }
+
+  wakeExpired(): boolean {
+    const earliest = this.earliest();
+    if (earliest === null) return false;
+    blockUntil(earliest.due);
+    const now = monotonicNow();
+    const due = this.waiting
+      .filter((frame) => frame.due <= now)
+      .sort((left, right) => left.due - right.due || left.order - right.order);
+    this.waiting = this.waiting.filter((frame) => frame.due > now);
+    for (const frame of due) frame.wake();
+    return due.length > 0;
+  }
+
   drain(interpreter?: MicrotaskInterpreter | null, limit = 10000): void {
     if (this.running) return;
     if (this.suppressionDepth > 0) return;
@@ -265,11 +337,15 @@ export class MicrotaskQueue {
     this.nestingDepth++;
     try {
       let count = 0;
-      while (this.head < this.queue.length) {
-        if (count++ >= limit) {
-          throw new Error("Microtask queue limit exceeded");
+      for (;;) {
+        while (this.head < this.queue.length) {
+          if (count++ >= limit) {
+            throw new Error("Microtask queue limit exceeded");
+          }
+          this.runOne(interpreter);
         }
-        this.runOne(interpreter);
+        if (this.waiting.length === 0) break;
+        this.wakeExpired();
       }
     } finally {
       this.nestingDepth--;

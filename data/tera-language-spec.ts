@@ -1300,6 +1300,12 @@ export const TERA_BUILTINS = {
     "returns": "string",
     "params": [param("value", "any")]
   },
+  "sleep": {
+    "description": "Settle after a number of milliseconds; await it to suspend the caller.",
+    "kind": "function",
+    "returns": "Promise<void>",
+    "params": [param("millis", "float")]
+  },
   "parse_int": {
     "description": "Parse an integer from a string with an optional radix.",
     "kind": "function",

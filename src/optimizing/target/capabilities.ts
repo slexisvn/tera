@@ -5,7 +5,9 @@ export type Capability =
   | "terminating-throw"
   | "float-text"
   | "select-integer"
-  | "select-float";
+  | "select-float"
+  | "generational-heap"
+  | "timers";
 
 export type CapabilitySet = ReadonlySet<Capability>;
 

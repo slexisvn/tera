@@ -6,6 +6,8 @@ import type { ClassShape, ClassTable } from "./class-table.js";
 export const CORO_FRAME_BASE = "tera_frame";
 export const CORO_RESUME_TYPE = `(${"tera_frame"}) -> int`;
 export const CORO_PROMISE_BASE = "tera_promise";
+export const CORO_TIMER_SHAPE = "tera_timer";
+export const CORO_SLEEP = "sleep";
 
 export const CORO_ROUTINE_FIELD = "coroutine";
 export const CORO_NEXT_FIELD = "next";
@@ -17,6 +19,8 @@ export const CORO_WAITER_FIELD = "waiter";
 export const CORO_WAITING_FIELD = "waiting";
 export const CORO_UNREPORTED_FIELD = "unreported";
 export const CORO_NEXT_REJECTED_FIELD = "nextRejected";
+export const CORO_DUE_FIELD = "due";
+export const CORO_TIMER_FIELD = "timer";
 
 export const CORO_STATE_PENDING = 0;
 export const CORO_STATE_RESOLVED = 1;
@@ -92,6 +96,16 @@ export function coroutineBaseShapes(classes: ClassTable): void {
       [CORO_ERROR_FIELD, PENDING_THROW_TYPE],
     ]),
   );
+  classes.defineSynthetic(
+    syntheticSurface(CORO_TIMER_SHAPE, CORO_PROMISE_BASE, [
+      [CORO_DUE_FIELD, "float"],
+      [CORO_TIMER_FIELD, CORO_TIMER_SHAPE],
+    ]),
+  );
+}
+
+export function coroutineTimerShape(classes: ClassTable): ClassShape {
+  return classes.shapeOf(CORO_TIMER_SHAPE)!;
 }
 
 export function coroutinePromiseShape(
