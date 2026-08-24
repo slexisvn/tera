@@ -292,3 +292,144 @@ describe("spread arguments", () => {
     expect(diagnose(source)).toEqual([]);
   });
 });
+
+describe("nullable narrowing", () => {
+  const NODE = [
+    "class Node:",
+    "  public value: int",
+    "  public next: Node | null",
+    "  public constructor(value: int, next: Node | null):",
+    "    this.value = value",
+    "    this.next = next",
+  ];
+
+  const reads = (...body: string[]) =>
+    src(...NODE, "fn f(n: Node | null) -> int:", ...body);
+
+  it("reads a member after a guard that returns", () => {
+    expect(diagnose(reads("  if n == null:", "    return 0", "  return n.value"))).toEqual([]);
+  });
+
+  it("reads a member after a guard that throws", () => {
+    expect(
+      diagnose(reads("  if n == null:", '    throw Error("empty")', "  return n.value")),
+    ).toEqual([]);
+  });
+
+  it("reads a member after a guard that continues", () => {
+    const source = src(
+      ...NODE,
+      "fn f(ns: (Node | null)[]) -> int:",
+      "  total: int = 0",
+      "  for n of ns:",
+      "    if n == null:",
+      "      continue",
+      "    total += n.value",
+      "  return total",
+    );
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("reads a member in the else branch of a null check", () => {
+    expect(
+      diagnose(reads("  if n == null:", "    return 0", "  else:", "    return n.value")),
+    ).toEqual([]);
+  });
+
+  it("reads a member in an else branch that no arm exits through", () => {
+    const source = reads(
+      "  total: int = 0",
+      "  if n == null:",
+      "    total = 0",
+      "  else:",
+      "    total = n.value",
+      "  return total",
+    );
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("hands the last arm of an else-if chain every earlier refutation", () => {
+    const source = src(
+      ...NODE,
+      "fn f(a: Node | null, b: Node | null) -> int:",
+      "  if a == null:",
+      "    return 0",
+      "  else if b == null:",
+      "    return a.value",
+      "  return a.value + b.value",
+    );
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("carries narrowing through a run of guards", () => {
+    const source = src(
+      ...NODE,
+      "fn f(a: Node | null, b: Node | null) -> int:",
+      "  if a == null:",
+      "    return 0",
+      "  if b == null:",
+      "    return a.value",
+      "  return a.value + b.value",
+    );
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("narrows a nullable string the same way it narrows a class", () => {
+    const source = src(
+      "fn f(s: string | null) -> int:",
+      "  if s == null:",
+      "    return 0",
+      "  return s.length",
+    );
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("keeps narrowing for the statements after a guard at the top level", () => {
+    const source = src(
+      ...NODE,
+      "n: Node | null = Node(1, null)",
+      "if n == null:",
+      '  print("none")',
+      "else:",
+      "  print(n.value)",
+    );
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("lets an assignment widen a narrowed binding back to its declared type", () => {
+    const source = reads(
+      "  if n == null:",
+      "    return 0",
+      "  n = n.next",
+      "  if n == null:",
+      "    return 1",
+      "  return n.value",
+    );
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("still reports a member read when the guard does not exit", () => {
+    expect(diagnose(reads("  if n == null:", '    print("empty")', "  return n.value"))).toEqual([
+      "Cannot access member 'value' on nullable type 'Node | null'",
+    ]);
+  });
+
+  it("still reports a member read inside the branch where the value is null", () => {
+    expect(diagnose(reads("  if n == null:", "    return n.value", "  return 0"))).toEqual([
+      "Cannot access member 'value' on nullable type 'null'",
+    ]);
+  });
+
+  it("leaves a loop condition alone, since a break can leave it true", () => {
+    const source = reads(
+      "  while n != null:",
+      "    if n.value > 0:",
+      "      break",
+      "    return 0",
+      "  return n.value",
+    );
+    expect(diagnose(source)).toEqual([
+      "Cannot access member 'value' on nullable type 'Node | null'",
+    ]);
+  });
+});

@@ -7,10 +7,10 @@ import {
   type Scope,
 } from "./binder.js";
 import { diagnostic, type Diagnostic } from "./diagnostics.js";
-import { callSignatureForCallee, comprehensionArrayType, comprehensionElementType, comprehensionOf, declaredMemberType, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf, writesUnknownKey } from "./infer.js";
+import { callSignatureForCallee, childScope, comprehensionArrayType, comprehensionElementType, comprehensionOf, declaredMemberType, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf, writesUnknownKey } from "./infer.js";
 import { acceptsTensorLeftArithmetic, acceptsTensorRightArithmetic, binaryOperatorSemantics, isTensorType } from "./operator-types.js";
 import type { ClassMemberNode, SemanticNode } from "./semantic-ast.js";
-import { arrayElementType, awaitedType, cleanType, compatible, indexKeyAssignable, indexedAccessType, indexKeyType, instantiateShapeForType, isIndexableType, isTupleType, iterableBindingType, leastUpperBound, promiseType, removeNullish, resolveType, tupleTypes, unionParts, unionType, type ObjectShape, type Signature, type TypeEnv, type TypeName } from "./type-system.js";
+import { arrayElementType, assignableType, awaitedType, cleanType, compatible, indexKeyAssignable, indexedAccessType, indexKeyType, instantiateShapeForType, isIndexableType, isTupleType, iterableBindingType, leastUpperBound, promiseType, removeNullish, resolveType, tupleTypes, unionParts, unionType, type ObjectShape, type Signature, type TypeEnv, type TypeName } from "./type-system.js";
 import { restParameterType } from "../type-source.js";
 import { isUnwrittenType } from "../../core/type-text.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
@@ -39,8 +39,33 @@ export class TypeChecker {
   }
 
   check(): Diagnostic[] {
-    for (const node of this.bound.program.body) this.checkNode(node, this.bound.root);
+    this.checkStatements(this.bound.program.body, this.bound.root);
     return this.diagnostics;
+  }
+
+  checkStatements(body: SemanticNode[], scope: Scope): void {
+    for (const stmt of body) {
+      this.checkNode(stmt, scope);
+      this.refuteGuard(stmt, scope);
+    }
+  }
+
+  refuteGuard(node: SemanticNode, scope: Scope): void {
+    if (node.kind !== "Block" || node.testRole !== "guard" || !alwaysExits(node.body)) return;
+    this.refine(scope, node.test, true);
+  }
+
+  refine(scope: Scope, test: ASTNode | undefined, negated: boolean): void {
+    if (!test) return;
+    const narrowed = narrowScope(test, this.bound, scope, undefined, negated);
+    for (const [name, binding] of narrowed.locals) scope.locals.set(name, binding);
+  }
+
+  blockScope(node: Extract<SemanticNode, { kind: "Block" }>, scope: Scope): Scope {
+    const child = childScope(scope, this.bound.scopes.get(node));
+    for (const refuted of node.otherwise ?? []) this.refine(child, refuted, true);
+    this.refine(child, node.test, false);
+    return child;
   }
 
   checkNode(node: SemanticNode, scope: Scope): void {
@@ -49,7 +74,7 @@ export class TypeChecker {
       case "Model": {
         const child = this.bound.scopes.get(node) ?? scope;
         if (node.kind === "Model") this.registerModelShape(node, child);
-        for (const stmt of node.body) this.checkNode(stmt, child);
+        this.checkStatements(node.body, child);
         if (node.kind === "Function") this.inferReturnType(node.body, child);
         break;
       }
@@ -67,7 +92,7 @@ export class TypeChecker {
         this.emitMembers(node.name, this.bound.env.interfaces.get(node.name), node.span);
         break;
       case "Block": {
-        const child = narrowScope(node.test, this.bound, scope, this.bound.scopes.get(node));
+        const child = this.blockScope(node, scope);
         if (node.catchVariable) {
           const at = node.catchVariableSpan ?? node.span;
           this.onDeclare?.({ name: node.catchVariable, line: at.line, column: at.column, type: "any", kind: "parameter" });
@@ -76,9 +101,12 @@ export class TypeChecker {
           this.checkBlockTest(node, scope);
           this.checkExpression(node.test, scope, node.span.line, node.span.column);
         }
-        for (const stmt of node.body) this.checkNode(stmt, child);
+        this.checkStatements(node.body, child);
         break;
       }
+      case "Jump":
+        if (node.value) this.checkExpression(node.value, scope, node.span.line, node.span.column);
+        break;
       case "For": {
         this.checkFor(node, scope);
         break;
@@ -106,7 +134,7 @@ export class TypeChecker {
     this.onDeclare?.({ name: node.variable, line: node.variableSpan.line, column: node.variableSpan.column, type: variableType });
     this.checkForIterable(node, iterableType);
     this.checkExpression(node.iterable, scope, node.span.line, node.span.column);
-    for (const stmt of node.body) this.checkNode(stmt, child);
+    this.checkStatements(node.body, child);
   }
 
   registerModelShape(node: Extract<SemanticNode, { kind: "Model" }>, scope: Scope): void {
@@ -349,15 +377,15 @@ export class TypeChecker {
         this.add(at.line, at.column, `Type '${actual}' is not assignable to '${declared}'`);
       }
     } else if (previous?.declared) {
-      this.checkAssignableValue(node.value, previous.type, scope, node.span.line, node.span.column);
+      this.checkAssignableValue(node.value, assignableType(previous), scope, node.span.line, node.span.column);
     } else {
       this.checkExpression(node.value, scope, node.span.line, node.span.column, expected, expectedType);
     }
-    if (!node.declaredType && previous?.declared && !compatible(actual, previous.type, this.bound.env) && this.diagnostics.length === before) {
+    if (!node.declaredType && previous?.declared && !compatible(actual, assignableType(previous), this.bound.env) && this.diagnostics.length === before) {
       const at = nodePosition(node.value, node.span.line, node.span.column);
-      this.add(at.line, at.column, `Type '${actual}' is not assignable to '${previous.type}'`);
+      this.add(at.line, at.column, `Type '${actual}' is not assignable to '${assignableType(previous)}'`);
     }
-    const stored = node.declaredType ? declared : previous?.declared ? previous.type : previous ? this.widenType(previous.type, actual) : actual;
+    const stored = node.declaredType ? declared : previous?.declared ? assignableType(previous) : previous ? this.widenType(assignableType(previous), actual) : actual;
     const owner = previous ? scope : functionScope(scope);
     owner.locals.set(node.name, { type: stored, optional: false, declared: !!node.declaredType || !!previous?.declared });
     this.onDeclare?.({ name: node.name, line: node.nameSpan.line, column: node.nameSpan.column, type: stored });
@@ -381,10 +409,10 @@ export class TypeChecker {
       if (this.reportBuiltinRedeclaration(name, at.line, at.column)) continue;
       const previous = lookupWithinBoundary(scope, name);
       const actual = itemTypes[i] ?? "unknown";
-      if (previous && !this.isUnknownish(actual) && !compatible(actual, previous.type, this.bound.env)) {
-        this.add(at.line, at.column, `Type '${actual}' is not assignable to '${previous.type}'`);
+      if (previous && !this.isUnknownish(actual) && !compatible(actual, assignableType(previous), this.bound.env)) {
+        this.add(at.line, at.column, `Type '${actual}' is not assignable to '${assignableType(previous)}'`);
       }
-      const stored = previous?.declared ? previous.type : previous ? this.widenType(previous.type, actual) : actual;
+      const stored = previous?.declared ? assignableType(previous) : previous ? this.widenType(assignableType(previous), actual) : actual;
       const owner = previous ? scope : functionScope(scope);
       owner.locals.set(name, { type: stored, optional: false, declared: !!previous?.declared });
       this.onDeclare?.({ name, line: at.line, column: at.column, type: stored });
@@ -1204,8 +1232,9 @@ function declaredTargetType(target: ASTNode, bound: BoundProgram, scope: Scope):
   const member =
     target.type === NodeType.MemberExpression || target.type === NodeType.OptionalMemberExpression;
   if (writesUnknownKey(target, bound, scope)) return "any";
-  if (!member) return inferExpression(target, bound, scope);
-  return declaredMemberType(target, bound, scope);
+  if (member) return declaredMemberType(target, bound, scope);
+  const widest = target.type === NodeType.Identifier ? lookup(scope, String(target.name))?.widens : undefined;
+  return widest ?? inferExpression(target, bound, scope);
 }
 
 function flowName(node: ASTNode): string | null {
@@ -1272,4 +1301,8 @@ function ownerFromType(type: TypeName): string {
   const cleaned = cleanType(type).replace(/^typeof\s+/, "");
   const generic = cleaned.match(/^([A-Za-z_$][\w$]*)\s*</);
   return generic ? generic[1] : cleaned;
+}
+
+function alwaysExits(body: SemanticNode[]): boolean {
+  return body.some((node) => node.kind === "Return" || node.kind === "Jump");
 }

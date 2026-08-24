@@ -206,6 +206,9 @@ class SymbolTableBuilder {
       case "Expr":
         this.visitExpression(node.value, scope, node.span);
         break;
+      case "Jump":
+        if (node.value) this.visitExpression(node.value, scope, node.span);
+        break;
       case "Return":
         break;
     }

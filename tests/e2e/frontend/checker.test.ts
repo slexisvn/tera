@@ -419,7 +419,7 @@ describe("checker pipeline", () => {
     ].join("\n");
 
     expect(messages(source)).toEqual([
-      "Type 'string | null' is not assignable to 'string'",
+      "Type 'null' is not assignable to 'string'",
     ]);
   });
 

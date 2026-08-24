@@ -75,14 +75,41 @@ describe("switch lowering", () => {
     expect(bodies).toEqual([1, 1, 1]);
   });
 
-  it("leaves an if condition as a condition", () => {
+  it("marks an if condition as a guard rather than a match label", () => {
     const [block] = blocks(src("if v:", '  print("yes")'));
-    expect(block?.testRole).toBeUndefined();
+    expect(block?.testRole).toBe("guard");
   });
 
-  it("leaves a while condition as a condition", () => {
+  it("marks a while condition as a loop, which no guard narrowing follows", () => {
     const [block] = blocks(src("while v:", '  print("yes")'));
-    expect(block?.testRole).toBeUndefined();
+    expect(block?.testRole).toBe("loop");
+  });
+
+  it("hands an else branch the test it is the negation of", () => {
+    const [, alternate] = blocks(
+      src("if v:", '  print("yes")', "else:", '  print("no")'),
+    );
+    expect(alternate?.otherwise).toHaveLength(1);
+    expect(alternate?.test).toBeUndefined();
+  });
+
+  it("hands each arm of an elif chain every test that failed before it", () => {
+    const chain = blocks(
+      src("if a:", "  print(1)", "else if b:", "  print(2)", "else:", "  print(3)"),
+    );
+    expect(chain.map((block) => (block.otherwise ?? []).length)).toEqual([0, 1, 2]);
+  });
+
+  it("lowers throw, break and continue to jumps a guard can exit through", () => {
+    const body = lowerToSemanticProgram(
+      src("while v:", '  throw "x"', "  break", "  continue"),
+    ).body.filter((node): node is BlockNode => node.kind === "Block")[0]!.body;
+
+    expect(body.map((node) => (node.kind === "Jump" ? node.via : node.kind))).toEqual([
+      "throw",
+      "break",
+      "continue",
+    ]);
   });
 
   it("keeps a nested switch inside its enclosing case", () => {

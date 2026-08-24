@@ -28,6 +28,8 @@ import type {
   FunctionNode,
   ImportNode,
   InterfaceNode,
+  JumpNode,
+  JumpVia,
   ModelNode,
   ParameterNode,
   ReturnNode,
@@ -107,7 +109,7 @@ function toSemanticNodes(node: ASTNode | null | undefined): SemanticNode[] {
       return ifNodes(node);
     case NodeType.WhileStatement:
     case NodeType.DoWhileStatement:
-      return [blockNode(node.body as ASTNode, node.test as ASTNode | undefined, spanOf(node))];
+      return [blockNode(node.body as ASTNode, { test: node.test as ASTNode | undefined, testRole: "loop" }, spanOf(node))];
     case NodeType.ForInStatement:
       return forNode(node, "in");
     case NodeType.ForOfStatement:
@@ -130,7 +132,11 @@ function toSemanticNodes(node: ASTNode | null | undefined): SemanticNode[] {
     case NodeType.SwitchStatement:
       return switchNodes(node);
     case NodeType.ThrowStatement:
-      return exprFrom(node.argument as ASTNode | undefined, spanOf(node));
+      return [jumpNode("throw", node.argument as ASTNode | undefined, spanOf(node))];
+    case NodeType.BreakStatement:
+      return [jumpNode("break", undefined, spanOf(node))];
+    case NodeType.ContinueStatement:
+      return [jumpNode("continue", undefined, spanOf(node))];
     case NodeType.ImportDeclaration:
       return [importNode(node)];
     case NodeType.ImportFromDeclaration:
@@ -327,12 +333,16 @@ function paramsFromInfo(info: FunctionParamInfo[] | undefined, params: ParamNode
   });
 }
 
-function ifNodes(node: ASTNode): SemanticNode[] {
-  const out: SemanticNode[] = [blockNode(node.consequent as ASTNode, node.test as ASTNode | undefined, spanOf(node))];
+function ifNodes(node: ASTNode, otherwise: ASTNode[] = []): SemanticNode[] {
+  const test = node.test as ASTNode | undefined;
+  const out: SemanticNode[] = [
+    blockNode(node.consequent as ASTNode, { test, testRole: "guard", otherwise }, spanOf(node)),
+  ];
   const alternate = node.alternate as ASTNode | null | undefined;
   if (!alternate) return out;
-  if (alternate.type === NodeType.IfStatement) out.push(...ifNodes(alternate));
-  else out.push(blockNode(alternate, undefined, spanOf(alternate)));
+  const refuted = test ? [...otherwise, test] : otherwise;
+  if (alternate.type === NodeType.IfStatement) out.push(...ifNodes(alternate, refuted));
+  else out.push(blockNode(alternate, { otherwise: refuted }, spanOf(alternate)));
   return out;
 }
 
@@ -340,7 +350,7 @@ function forNode(node: ASTNode, mode: "in" | "of"): SemanticNode[] {
   const source = mode === "in" ? node.object : node.iterable;
   const binding = bindingName(node.variable as BindingPattern | undefined);
   if (!binding || !source || typeof source !== "object" || !("type" in source)) {
-    return [blockNode(node.body as ASTNode, source as ASTNode | undefined, spanOf(node))];
+    return [blockNode(node.body as ASTNode, { test: source as ASTNode | undefined, testRole: "loop" }, spanOf(node))];
   }
   return [{
     kind: "For",
@@ -357,7 +367,7 @@ function forStatementNodes(node: ASTNode): SemanticNode[] {
   const init = node.init;
   const body = [
     ...toSemanticNodes(Array.isArray(init) ? undefined : init as ASTNode | undefined),
-    blockNode(node.body as ASTNode, node.test as ASTNode | undefined, spanOf(node)),
+    blockNode(node.body as ASTNode, { test: node.test as ASTNode | undefined, testRole: "loop" }, spanOf(node)),
     ...exprFrom(node.update as ASTNode | undefined, spanOf(node)),
   ];
   if (Array.isArray(init)) body.unshift(...(init as ASTNode[]).flatMap((entry) => toSemanticNodes(entry)));
@@ -365,7 +375,7 @@ function forStatementNodes(node: ASTNode): SemanticNode[] {
 }
 
 function tryNodes(node: ASTNode): SemanticNode[] {
-  const out = [blockNode(node.block as ASTNode, undefined, spanOf(node))];
+  const out = [blockNode(node.block as ASTNode, {}, spanOf(node))];
   const handler = node.handler as { param?: string | null; body?: ASTNode } | null | undefined;
   if (handler?.body) {
     out.push({
@@ -376,7 +386,7 @@ function tryNodes(node: ASTNode): SemanticNode[] {
       span: spanOf(handler.body),
     });
   }
-  if (node.finalizer) out.push(blockNode(node.finalizer as ASTNode, undefined, spanOf(node.finalizer as ASTNode)));
+  if (node.finalizer) out.push(blockNode(node.finalizer as ASTNode, {}, spanOf(node.finalizer as ASTNode)));
   return out;
 }
 
@@ -402,13 +412,23 @@ function switchNodes(node: ASTNode): SemanticNode[] {
   }];
 }
 
-function blockNode(bodySource: ASTNode | ASTNode[] | null | undefined, test?: ASTNode, fallback = UNKNOWN_SPAN): BlockNode {
+type BlockShape = Omit<BlockNode, "kind" | "body" | "span">;
+
+function blockNode(
+  bodySource: ASTNode | ASTNode[] | null | undefined,
+  shape: BlockShape = {},
+  fallback = UNKNOWN_SPAN,
+): BlockNode {
   return {
     kind: "Block",
-    test,
+    ...shape,
     body: semanticBody(bodySource),
     span: spanOf(bodySource, fallback),
   };
+}
+
+function jumpNode(via: JumpVia, value: ASTNode | undefined, span: BlockNode["span"]): JumpNode {
+  return { kind: "Jump", via, value, span };
 }
 
 function returnNode(node: ASTNode): ReturnNode {

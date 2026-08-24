@@ -443,6 +443,10 @@ function inferArrow(node: ASTNode, bound: BoundProgram, scope: Scope, expected: 
   return `(${paramTypes.join(", ")}) -> ${returnType}`;
 }
 
+export function childScope(parent: Scope, target?: Scope): Scope {
+  return target ?? { parent, locals: new Map(), signatures: new Map(), signature: parent.signature };
+}
+
 export function narrowScope(
   test: ASTNode | undefined,
   bound: BoundProgram,
@@ -450,7 +454,7 @@ export function narrowScope(
   target?: Scope,
   negated = false,
 ): Scope {
-  const child: Scope = target ?? { parent, locals: new Map(), signatures: new Map(), signature: parent.signature };
+  const child = childScope(parent, target);
   if (!test) return child;
   if (test.type === NodeType.BinaryExpression && ["!=", "==", "!==", "==="].includes(String(test.op))) {
     const left = test.left as ASTNode;
@@ -461,7 +465,7 @@ export function narrowScope(
       if (binding) {
         const nonNullish = (test.op === "!=" || test.op === "!==") !== negated;
         const next = nonNullish ? removeNullish(binding.type, bound.env) : unionType(unionParts(binding.type, bound.env).filter((part) => part === "null" || part === "undefined"));
-        child.locals.set(subject.name, { ...binding, type: next });
+        child.locals.set(subject.name, { ...binding, type: next, widens: binding.widens ?? binding.type });
       }
     }
   }

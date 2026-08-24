@@ -27,11 +27,16 @@ export type Binding = {
   type: TypeName;
   optional: boolean;
   declared?: boolean;
+  widens?: TypeName;
   visibility?: ClassVisibility;
   owner?: string;
   abstract?: boolean;
   member?: ClassShapeMemberKind;
 };
+
+export function assignableType(binding: Binding): TypeName {
+  return binding.widens ?? binding.type;
+}
 
 export type ObjectShape = {
   typeParams?: string[];

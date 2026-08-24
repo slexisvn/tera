@@ -104,16 +104,26 @@ export type ClassNode = {
   nameSpan: SourceSpan;
 };
 
-export type BlockTestRole = "condition" | "subject" | "label";
+export type BlockTestRole = "guard" | "loop" | "subject" | "label";
 
 export type BlockNode = {
   kind: "Block";
   test?: ASTNode;
   testRole?: BlockTestRole;
+  otherwise?: ASTNode[];
   subject?: ASTNode;
   catchVariable?: string;
   catchVariableSpan?: SourceSpan;
   body: SemanticNode[];
+  span: SourceSpan;
+};
+
+export type JumpVia = "throw" | "break" | "continue";
+
+export type JumpNode = {
+  kind: "Jump";
+  via: JumpVia;
+  value?: ASTNode;
   span: SourceSpan;
 };
 
@@ -178,6 +188,7 @@ export type SemanticNode =
   | ModelNode
   | ClassNode
   | BlockNode
+  | JumpNode
   | ForNode
   | VarNode
   | DestructureNode
