@@ -47,6 +47,7 @@ import {
   type ClassTable,
 } from "../metadata/class-table.js";
 import type { TypeInference } from "../analyses/type-inference.js";
+import { declaredTypeAt, memberDeclaredType } from "../metadata/call-signatures.js";
 import { nominalLatticeType } from "../types/declared.js";
 import { isUnwritten } from "../types/signature.js";
 import { arrayElementType } from "../../frontend/checker/type-system.js";
@@ -57,6 +58,7 @@ import {
   neverType,
   objectType,
   TypeKind,
+  type ArrayType,
   type LatticeType,
 } from "../types/lattice.js";
 import {
@@ -101,18 +103,24 @@ function pushedValue(use: CFGInstruction, array: CFGInstruction): CFGInstruction
   return use.inputs[2] ?? null;
 }
 
-function storedValues(allocation: CFGInstruction): CFGInstruction[] {
+function aliasesOf(allocation: CFGInstruction): ReadonlySet<CFGInstruction> {
   const aliases = new Set<CFGInstruction>([allocation]);
   const pending = [allocation];
-  const values = [...allocation.inputs];
   while (pending.length > 0) {
-    const array = pending.pop()!;
+    for (const use of pending.pop()!.uses) {
+      if (use.type !== IR_PHI || aliases.has(use)) continue;
+      aliases.add(use);
+      pending.push(use);
+    }
+  }
+  return aliases;
+}
+
+function storedValues(allocation: CFGInstruction): CFGInstruction[] {
+  const aliases = aliasesOf(allocation);
+  const values = [...allocation.inputs];
+  for (const array of aliases) {
     for (const use of array.uses) {
-      if (use.type === IR_PHI && !aliases.has(use)) {
-        aliases.add(use);
-        pending.push(use);
-        continue;
-      }
       const pushed = pushedValue(use, array);
       if (pushed !== null) {
         values.push(pushed);
@@ -216,6 +224,39 @@ function sharedClass(
   return common === null ? null : objectType(common.id);
 }
 
+function inferredElementOf(
+  array: ArrayType,
+  values: readonly CFGInstruction[],
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): LatticeType | null {
+  const carried = latticeFromElementsKind(array.elementsKind);
+  let joined: LatticeType = carried.kind === TypeKind.Any ? neverType() : carried;
+  for (const value of values) {
+    const stored = valueTypeOf(value, graph, classes, types);
+    if (isStorableScalar(aotScalarOf(stored)) === null) return null;
+    joined = joinTypes(joined, stored)!;
+  }
+  if (declaredTypeOf(joined, classes) !== null) return joined;
+  return sharedClass(values, classes, types) ?? doubleType();
+}
+
+function holdsEvery(
+  values: readonly CFGInstruction[],
+  element: LatticeType,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): boolean {
+  const model = arrayModelForElement(classes, element);
+  if (model === null) return false;
+  return values.every((value) => {
+    const stored = aotScalarOf(valueTypeOf(value, graph, classes, types));
+    return stored !== null && fits(stored, model.element);
+  });
+}
+
 function elementTypeOf(
   allocation: CFGInstruction,
   graph: CFGFunction,
@@ -224,16 +265,12 @@ function elementTypeOf(
 ): LatticeType | null {
   const array = types.typeOf(allocation);
   if (array.kind !== TypeKind.Array) return null;
-  const declared = latticeFromElementsKind(array.elementsKind);
   const values = storedValues(allocation);
-  let joined: LatticeType = declared.kind === TypeKind.Any ? neverType() : declared;
-  for (const value of values) {
-    const stored = valueTypeOf(value, graph, classes, types);
-    if (isStorableScalar(aotScalarOf(stored)) === null) return null;
-    joined = joinTypes(joined, stored)!;
-  }
-  if (declaredTypeOf(joined, classes) !== null) return joined;
-  return sharedClass(values, classes, types) ?? doubleType();
+  const inferred = inferredElementOf(array, values, graph, classes, types);
+  if (inferred === null) return null;
+  const demanded = demandedElementOf(allocation, graph, classes, types);
+  if (demanded === null || aotScalarOf(demanded) === aotScalarOf(inferred)) return inferred;
+  return holdsEvery(values, demanded, graph, classes, types) ? demanded : inferred;
 }
 
 function fits(value: AotScalar, element: AotScalar): boolean {
@@ -269,12 +306,30 @@ export function fieldDeclaredType(
   types: TypeInference,
 ): string | null {
   if (array.type !== IR_GENERIC_GET_PROP) return null;
-  const owner = array.inputs[0];
-  const member = array.props.propName;
-  if (owner === undefined || typeof member !== "string") return null;
-  const type = types.typeOf(owner);
-  if (type.kind !== TypeKind.Object || typeof type.map !== "number") return null;
-  return classes.shapeById(type.map)?.fields.get(member)?.declaredType ?? null;
+  return memberDeclaredType(array.inputs[0], array.props.propName, classes, types);
+}
+
+function demandedElementOf(
+  allocation: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): LatticeType | null {
+  let demanded: LatticeType | null = null;
+  for (const array of aliasesOf(allocation)) {
+    for (const use of array.uses) {
+      for (const [at, input] of use.inputs.entries()) {
+        if (input !== array) continue;
+        const declared = declaredTypeAt(use, at, graph, classes, types);
+        const element = declared === null ? null : arrayElementType(declared);
+        if (element === null) continue;
+        const asked = nominalLatticeType(element, classes);
+        if (demanded === null) demanded = asked;
+        else if (aotScalarOf(demanded) !== aotScalarOf(asked)) return null;
+      }
+    }
+  }
+  return demanded;
 }
 
 function declaredArrayOf(

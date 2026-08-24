@@ -1,4 +1,4 @@
-import { describe, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
 
@@ -69,6 +69,15 @@ describe("AOT JSON.stringify", () => {
         "    this.y = y",
         "print(JSON.stringify(Point(3, 4)))",
       ),
+    );
+  });
+  it("says why reading JSON back does not compile", () => {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(
+      src('o = JSON.parse("{}")', "print(1)", ""),
+    );
+
+    expect(program.skipped.map((entry) => entry.reason).join("; ")).toContain(
+      "a value whose shape is only known once the text is read",
     );
   });
 });

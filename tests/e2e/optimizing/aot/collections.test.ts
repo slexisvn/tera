@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
 
@@ -24,6 +27,31 @@ function agrees(source: string): void {
 
   expect(run.status).toBe(0);
   expect(run.stdout).toBe(interpreted(source));
+}
+
+const roots: string[] = [];
+
+afterEach(() => {
+  while (roots.length > 0) fs.rmSync(roots.pop()!, { recursive: true, force: true });
+});
+
+function project(files: Record<string, string>): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tera-aot-collections-"));
+  roots.push(root);
+  for (const [name, contents] of Object.entries(files)) {
+    fs.writeFileSync(path.join(root, name), contents, "utf8");
+  }
+  return root;
+}
+
+function compiledProject(files: Record<string, string>): Uint8Array {
+  const root = project(files);
+  const program = nodeEngine({ typecheck: "off" }).compileAotModule(
+    path.join(root, "main.tera"),
+    { root, wholeProgram: true, backend: "x64-windows", format: "executable" },
+  );
+  expect(program.skipped).toEqual([]);
+  return program.files[0]!.contents as Uint8Array;
 }
 
 function declines(source: string): void {
@@ -454,5 +482,50 @@ describe("AOT maps and sets", () => {
         'print(C.total("a") + C.total("b"))',
       ),
     );
+  });
+  itRunsPe("reads a class instance back out of a map", () => {
+    agrees(
+      src(
+        "class Item:",
+        "  public constructor(price: int):",
+        "    this.price = price",
+        "stock = Map()",
+        'stock.set("pen", Item(3))',
+        'stock.set("cup", Item(7))',
+        'print(stock.get("pen").price + stock.get("cup").price, stock.size)',
+      ),
+    );
+  });
+
+  it("shapes a class-valued map when the program is compiled as a module", () => {
+    expect(() =>
+      compiledProject({
+        "main.tera": src(
+          "class Item:",
+          "  public constructor(price: int):",
+          "    this.price = price",
+          "stock = Map()",
+          'stock.set("pen", Item(3))',
+          'print(stock.get("pen").price)',
+          "",
+        ),
+      }),
+    ).not.toThrow();
+  });
+
+  itRunsPe("agrees with the interpreter on a class-valued map built in a module", () => {
+    const source = src(
+      "class Item:",
+      "  public constructor(price: int):",
+      "    this.price = price",
+      "stock = Map()",
+      'stock.set("pen", Item(3))',
+      'stock.set("cup", Item(7))',
+      'print(stock.get("cup").price, stock.size)',
+      "",
+    );
+    const run = runPe(compiledProject({ "main.tera": source }));
+
+    expect([run.status, run.stdout]).toEqual([0, interpreted(source.trimEnd())]);
   });
 });

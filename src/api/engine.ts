@@ -32,7 +32,12 @@ import {
 import type { EntryDelivery } from "../optimizing/target/entry.js";
 import { markProgramEntry, PROGRAM_ENTRY_NAME } from "../optimizing/target/program-entry.js";
 import { collectionPrelude, COLLECTION_GLOBALS } from "../optimizing/prelude/collections.js";
-import { collectionRequestsIn } from "../optimizing/prelude/requests.js";
+import { collectionRequestsAcross, collectionRequestsIn } from "../optimizing/prelude/requests.js";
+import { jsonPrelude, type JsonShapeSurface } from "../optimizing/prelude/json.js";
+import { jsonShapesAcross, rewriteJsonParses } from "../optimizing/prelude/json-requests.js";
+import { errorPrelude } from "../optimizing/prelude/errors.js";
+import type { RuntimeInterfaceContract } from "../runtime/interface-contract.js";
+import { spreadsArguments } from "../optimizing/passes/spread-calls.js";
 import { astChildren, NodeType } from "../frontend/ast/index.js";
 import type { AotOutputFormat } from "../optimizing/target/artifact.js";
 import { createModuleIR, type CompilationUnit } from "../optimizing/compilation-unit.js";
@@ -315,6 +320,16 @@ function aotBaseName(compiledFn: RegisterCompiledFunction): string {
   return classMemberSymbol(compiledFn) ?? functionName(compiledFn);
 }
 
+function ownedByAClass(compiledFn: RegisterCompiledFunction): boolean {
+  const kind = compiledFn.classMemberKind;
+  return kind !== undefined && kind !== null;
+}
+
+function aotModuleSymbol(spec: string, compiledFn: RegisterCompiledFunction): string {
+  const base = aotBaseName(compiledFn);
+  return ownedByAClass(compiledFn) ? base : cellKey(spec, base);
+}
+
 function errorReason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -356,6 +371,79 @@ function namesCollection(node: ASTNode): boolean {
 
 function mentionsCollections(graph: ModuleGraph): boolean {
   return [...graph.modules.values()].some((record) => namesCollection(record.ast));
+}
+
+function declaredClassNames(node: ASTNode, found: Set<string>): Set<string> {
+  if (node.type === NodeType.ClassDeclaration && typeof node.name === "string") {
+    found.add(node.name);
+  }
+  for (const child of astChildren(node)) declaredClassNames(child, found);
+  return found;
+}
+
+function declaredTypeNames(node: ASTNode, found: Set<string>): Set<string> {
+  if (node.type === NodeType.TypeAliasDeclaration && typeof node.name === "string") {
+    found.add(node.name);
+  }
+  for (const child of astChildren(node)) declaredTypeNames(child, found);
+  return found;
+}
+
+function namesTheEntryCanSpell(entry: ModuleRecord): ReadonlySet<string> {
+  const spelled = declaredClassNames(entry.ast, new Set<string>());
+  declaredTypeNames(entry.ast, spelled);
+  for (const entered of entry.imports) {
+    for (const binding of entered.bindings) spelled.add(binding.local);
+  }
+  return spelled;
+}
+
+function classesByModule(graph: ModuleGraph): Map<string, string[]> {
+  const owners = new Map<string, string[]>();
+  for (const record of graph.modules.values()) {
+    for (const name of declaredClassNames(record.ast, new Set<string>())) {
+      const declared = owners.get(name);
+      if (declared === undefined) owners.set(name, [record.spec]);
+      else declared.push(record.spec);
+    }
+  }
+  return owners;
+}
+
+function refuseRepeatedClassNames(graph: ModuleGraph): void {
+  for (const [name, owners] of classesByModule(graph)) {
+    if (owners.length < 2) continue;
+    throw new Error(
+      `class ${name} is declared in ${owners.join(" and ")}; a compiled class has one ` +
+        `program-wide name, so rename one of them`,
+    );
+  }
+}
+
+function moduleRoots(graph: ModuleGraph): readonly ASTNode[] {
+  return [...graph.modules.values()].map((record) => record.ast);
+}
+
+function collectionPreludeFor(graph: ModuleGraph): string {
+  return collectionPrelude(
+    collectionRequestsAcross(moduleRoots(graph), namesTheEntryCanSpell(graph.entry)),
+  );
+}
+
+function jsonShapesFor(graph: ModuleGraph): readonly JsonShapeSurface[] {
+  return jsonShapesAcross(moduleRoots(graph), namesTheEntryCanSpell(graph.entry));
+}
+
+function preludeFor(graph: ModuleGraph): string {
+  const collections = mentionsCollections(graph) ? collectionPreludeFor(graph) : "";
+  const errors = errorPrelude(moduleRoots(graph));
+  return `${collections}${errors}${jsonPrelude(jsonShapesFor(graph))}`;
+}
+
+function adoptJsonParsers(graph: ModuleGraph): void {
+  const shapes = jsonShapesFor(graph);
+  if (shapes.length === 0) return;
+  rewriteJsonParses(moduleRoots(graph), new Set(shapes.map((shape) => shape.name)));
 }
 
 function catchesThrows(compiledFn: RegisterCompiledFunction): boolean {
@@ -436,7 +524,7 @@ function callSitesOf(units: readonly CompilationUnit[]): CallSitesByTarget {
   for (const unit of units) {
     for (const block of unit.graph.blocks) {
       for (const node of block.nodes) {
-        if (node.type !== IR_GENERIC_CALL) continue;
+        if (node.type !== IR_GENERIC_CALL || spreadsArguments(node)) continue;
         const call = calleeTargetsOf(unit, node);
         if (call === null) continue;
         const site = { node, arity: call.arity, renamable: call.renamable };
@@ -620,6 +708,10 @@ export class Engine {
   initializedModules: Set<string>;
   lastModuleEntry: { path: string; options: ModuleRunOptions } | null;
   private readonly moduleExportCache = new WeakMap<ModuleGraph, Map<string, string>>();
+  private readonly moduleContractCache = new WeakMap<
+    ModuleGraph,
+    Map<string, RuntimeInterfaceContract>
+  >();
   nativeModules: readonly TeraNativeModule[];
   onCompile?: (fn: RegisterCompiledFunction) => void;
   onOptimize?: (fn: RegisterCompiledFunction, graph: OptimizedGraph) => void;
@@ -848,11 +940,20 @@ export class Engine {
       heapBytes,
       ...compileOptions
     } = options;
+    const parsed = parse(source, { syntaxPlugins: this.compileSyntaxPlugins(compileOptions) });
+    const shapes = jsonShapesAcross([parsed]);
     const probed = this.compileInRuntime(source, compileOptions, true);
-    const compiled = referencesCollections(probed)
-      ? this.compileInRuntime(`${source}
-${collectionPrelude(collectionRequestsIn(parse(source, { syntaxPlugins: this.compileSyntaxPlugins(compileOptions) })))}`, compileOptions, true)
-      : probed;
+    const grown = referencesCollections(probed)
+      ? collectionPrelude(collectionRequestsIn(parsed))
+      : "";
+    const prelude = `${grown}${errorPrelude([parsed])}${jsonPrelude(shapes)}`;
+    const compiled =
+      prelude.length === 0
+        ? probed
+        : this.compileInRuntime(`${source}
+${prelude}`, compileOptions, true, (program) => {
+            rewriteJsonParses([program], new Set(shapes.map((shape) => shape.name)));
+          });
     const program = entry === undefined ? compiled : null;
     const functions = this.selectAotFunctions(
       collectCompiledFunctions(compiled, program !== null),
@@ -890,7 +991,7 @@ ${collectionPrelude(collectionRequestsIn(parse(source, { syntaxPlugins: this.com
       const code = this.compileModuleRecord(record, graph, options);
       for (const compiledFn of collectCompiledFunctions(code, true)) {
         if (compiledFn === code) continue;
-        renames.set(compiledFn, cellKey(record.spec, aotBaseName(compiledFn)));
+        renames.set(compiledFn, aotModuleSymbol(record.spec, compiledFn));
       }
       if (record.spec === ENTRY_SPEC) {
         program = code;
@@ -1056,12 +1157,14 @@ ${collectionPrelude(collectionRequestsIn(parse(source, { syntaxPlugins: this.com
     source: string,
     options: CompileOptions = {},
     aot = false,
+    adopt: (program: ASTNode) => void = () => undefined,
   ): RegisterCompiledFunction {
     const mode = aot ? STRICT_TYPECHECK : this.typecheckMode;
     const syntaxPlugins = this.compileSyntaxPlugins(options);
     const checker = this.compileChecker(options);
     const compilerExtensions = this.compileCompilerExtensions(options);
     const parsedSource = parse(source, { syntaxPlugins });
+    adopt(parsedSource);
     if (aot || mode !== "off") {
       const checked = checkProgram(astToSemanticProgram(parsedSource), {
         mode,
@@ -1090,6 +1193,29 @@ ${collectionPrelude(collectionRequestsIn(parse(source, { syntaxPlugins: this.com
     return compiled;
   }
 
+  private interfaceContractsOf(graph: ModuleGraph): Map<string, RuntimeInterfaceContract> {
+    let known = this.moduleContractCache.get(graph);
+    if (known === undefined) {
+      known = new Map<string, RuntimeInterfaceContract>();
+      this.moduleContractCache.set(graph, known);
+    }
+    return known;
+  }
+
+  private importedContractsFor(
+    record: ModuleRecord,
+    known: ReadonlyMap<string, RuntimeInterfaceContract>,
+  ): Map<string, RuntimeInterfaceContract> {
+    const visible = new Map<string, RuntimeInterfaceContract>();
+    for (const entered of record.imports) {
+      for (const binding of entered.bindings) {
+        const contract = known.get(cellKey(entered.module, binding.imported));
+        if (contract !== undefined) visible.set(binding.local, contract);
+      }
+    }
+    return visible;
+  }
+
   private compileModuleRecord(
     record: ModuleRecord,
     graph: ModuleGraph,
@@ -1097,6 +1223,7 @@ ${collectionPrelude(collectionRequestsIn(parse(source, { syntaxPlugins: this.com
   ): RegisterCompiledFunction {
     const compilerExtensions = this.compileCompilerExtensions(options);
     this.installRuntimeIntrinsics(this.runtimeBuiltinRegistry, compilerExtensions);
+    const known = this.interfaceContractsOf(graph);
     const parsed = this.runCompilerPasses("ast", record.ast, compilerExtensions);
     const ast = this.runCompilerPasses("semantic", analyzeEffects(parsed), compilerExtensions) as ASTNode;
     const compiler = new RegisterBytecodeCompiler({
@@ -1107,8 +1234,12 @@ ${collectionPrelude(collectionRequestsIn(parse(source, { syntaxPlugins: this.com
       moduleBindings: namespaceBindings(record),
       moduleSpecs: new Set(graph.modules.keys()),
       moduleExports: this.moduleExportsFor(graph),
+      importedInterfaces: this.importedContractsFor(record, known),
     });
     const compiled = this.runCompilerPasses("bytecode", compiler.compile(ast), compilerExtensions);
+    for (const [name, contract] of compiler.interfaceContracts) {
+      known.set(cellKey(record.spec, name), contract);
+    }
     this.rememberCompilerExtensions(compiled, compilerExtensions);
     this.reportCompiled(compiled);
     return compiled;
@@ -1248,11 +1379,13 @@ ${collectionPrelude(collectionRequestsIn(parse(source, { syntaxPlugins: this.com
         parseSource: (source) => parse(source, { syntaxPlugins }),
       });
     const built = build(options.entrySource);
+    const prelude = aot ? preludeFor(built) : "";
     const graph =
-      aot && mentionsCollections(built)
-        ? build(`${built.entry.source}
-${collectionPrelude()}`)
-        : built;
+      prelude.length === 0
+        ? built
+        : build(`${built.entry.source}
+${prelude}`);
+    if (aot) adoptJsonParsers(graph);
     const checker = this.compileChecker(options);
     const checked = checkModuleGraph(graph, {
       mode,
@@ -1263,6 +1396,7 @@ ${collectionPrelude()}`)
       collectClasses: aot,
     });
     this.diagnostics = [...checked.diagnostics];
+    if (aot) refuseRepeatedClassNames(graph);
     if (aot) this.aotClasses = buildClassTable(checked.classes, checked.types);
     if (mode === STRICT_TYPECHECK && this.diagnostics.length > 0) {
       throw new TypecheckError(this.diagnostics);

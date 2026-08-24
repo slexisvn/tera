@@ -61,6 +61,15 @@ function warnSkipped(skipped: readonly AotSkippedFunction[]): void {
   }
 }
 
+function noteLeftOut(skipped: readonly AotSkippedFunction[]): void {
+  for (const fn of skipped) {
+    console.error(
+      `tera compile: note: '${fn.name}' is not in the binary, and nothing the program ` +
+        `runs calls it (${fn.reason})`,
+    );
+  }
+}
+
 function resolveCompiler(preferred: string | null): string {
   const candidates = preferred ? [preferred] : ["cc", "gcc", "clang"];
   for (const candidate of candidates) {
@@ -326,7 +335,7 @@ function compile(config: CompileConfig): number {
     if (error instanceof AotLinkError) warnSkipped(error.skipped);
     throw error;
   }
-  warnSkipped(program.skipped);
+  noteLeftOut(program.skipped);
 
   const written = toolchain
     ? linkWithCompiler(program, config, resolved, selectEntry(program, config))

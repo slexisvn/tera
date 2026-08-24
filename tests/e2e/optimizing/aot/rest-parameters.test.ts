@@ -3,6 +3,7 @@ import { nodeEngine } from "../../../helpers/engine.js";
 import { cSource, itNative } from "../../../helpers/c-executor.js";
 import { cCalls } from "../../../helpers/aot-agreement.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
+import { image } from "../../../helpers/aot-agreement.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
@@ -199,6 +200,119 @@ describe("AOT rest parameters", () => {
         { backend: "c" },
       ),
     ).toThrow("rest parameter 'rest' has no declared type");
+  });
+
+  itRunsPe("spreads an array literal into a call", () => {
+    const run = ran(
+      src("fn add(a: int, b: int) -> int:", "  return a + b", "print(add(...[1, 2]))"),
+    );
+
+    expect(run.stdout).toBe("3\n");
+  });
+
+  itRunsPe("spreads a local array into a call", () => {
+    const run = ran(
+      src(
+        "fn add(a: int, b: int) -> int:",
+        "  return a + b",
+        "fn go() -> int:",
+        "  xs = [4, 5]",
+        "  return add(...xs)",
+        "print(go())",
+      ),
+    );
+
+    expect(run.stdout).toBe("9\n");
+  });
+
+  itRunsPe("forwards its own rest parameter to another call", () => {
+    const run = ran(
+      src(
+        "fn add(a: int, b: int) -> int:",
+        "  return a + b",
+        "fn wrap(...args: int) -> int:",
+        "  return add(...args)",
+        "print(wrap(6, 7))",
+      ),
+    );
+
+    expect(run.stdout).toBe("13\n");
+  });
+
+  it("compiles a call that spreads an array it can see the elements of", () => {
+    expect(() =>
+      compile(src("fn add(a: int, b: int) -> int:", "  return a + b", "print(add(...[1, 2]))")),
+    ).not.toThrow();
+  });
+
+  itRunsPe("spreads a module-level array into a call", () => {
+    const run = ran(
+      src("fn add(a: int, b: int) -> int:", "  return a + b", "xs = [8, 9]", "print(add(...xs))"),
+    );
+
+    expect(run.stdout).toBe("17\n");
+  });
+
+  itRunsPe("spreads an array it grew after building it", () => {
+    const run = ran(
+      src(
+        "fn add(a: int, b: int) -> int:",
+        "  return a + b",
+        "fn go() -> int:",
+        "  xs = [1]",
+        "  xs.push(2)",
+        "  return add(...xs)",
+        "print(go())",
+      ),
+    );
+
+    expect(run.stdout).toBe("3\n");
+  });
+
+  itRunsPe("spreads an array into a method call", () => {
+    const run = ran(
+      src(
+        "class Box:",
+        "  public constructor(n: int):",
+        "    this.n = n",
+        "  public put(a: int, b: int) -> int:",
+        "    return this.n + a + b",
+        "xs = [1, 2]",
+        "print(Box(10).put(...xs))",
+      ),
+    );
+
+    expect(run.stdout).toBe("13\n");
+  });
+
+  itRunsPe("faults on spreading fewer values than the callee takes", () => {
+    const run = runPe(
+      image(
+        src("fn add(a: int, b: int) -> int:", "  return a + b", "xs = [1]", "print(add(...xs))") + "\n",
+      ),
+    );
+
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain("array index is out of range");
+  });
+
+  it("declines a spread into a function that takes a variable number of arguments", () => {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(
+      src(
+        "fn total(...ns: int) -> int:",
+        "  acc = 0",
+        "  for n of ns:",
+        "    acc = acc + n",
+        "  return acc",
+        "xs = [1, 2]",
+        "print(total(...xs))",
+      ) + "\n",
+      { backend: "c" },
+    );
+
+    expect(program.skipped.map((entry) => entry.reason).join("; ")).toContain(
+      "takes a variable number of arguments",
+    );
   });
 
   itRunsPe("reads a field whose type comes from a rest parameter", () => {

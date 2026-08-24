@@ -24,6 +24,7 @@ export const PENDING_THROW_STATUS = 0;
 const RAISE_PROP = "raisesPendingThrow";
 const FORWARD_PROP = "forwardsPendingThrow";
 const TAKE_PROP = "takesPendingThrow";
+const THROWN_PROP = "thrownValue";
 
 type Graph = ir.CFGFunction;
 type Block = ir.CFGBlock;
@@ -91,6 +92,27 @@ export function takePendingThrow(block: Block): Node {
 
 export function takesPendingThrow(node: { props: Record<string, unknown> }): boolean {
   return node.props[TAKE_PROP] === true;
+}
+
+export function carriesPendingThrow(node: { props: Record<string, unknown> }): boolean {
+  return forwardsPendingThrow(node) || takesPendingThrow(node);
+}
+
+export function markThrownValue(node: { props: Record<string, unknown> }): void {
+  node.props[THROWN_PROP] = true;
+}
+
+export function isThrownValue(node: { props: Record<string, unknown> }): boolean {
+  return node.props[THROWN_PROP] === true;
+}
+
+export function retypePendingThrow(
+  node: { props: Record<string, unknown> },
+  declared: string,
+  scalar: AotScalar,
+): void {
+  node.props[FIELD_TYPE_PROP] = declared;
+  node.props[FIELD_SCALAR_PROP] = scalar;
 }
 
 export function returnPendingThrow(block: Block): void {

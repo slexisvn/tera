@@ -41,6 +41,7 @@ import {
 import { addPhi, link } from "../ir/cfg-edit.js";
 import {
   handlerStacksOf,
+  markThrownValue,
   recordPendingThrow,
   recoverAfterCall,
   returnPendingThrow,
@@ -52,6 +53,7 @@ import {
   superClassBindingOwner,
 } from "../../core/class-member.js";
 import { CLASS_VALUE_PROP, classValueNameOf } from "../metadata/class-symbols.js";
+import { SPREAD_ARGUMENTS_PROP } from "../passes/spread-calls.js";
 import { NAMED_ARGUMENTS_PROP } from "../metadata/call-signatures.js";
 import {
   builtinGlobalIntrinsicByName,
@@ -105,9 +107,37 @@ export const SUSPENDING_AWAIT_REASON =
   "and the compiler has no coroutines yet; await each call where it is made, " +
   "or keep the suspending part interpreted";
 
+const SPREAD_CALL_REASON =
+  "a call spreads an array whose elements the compiler cannot see; spread an array " +
+  "literal or a rest parameter, pass the arguments one by one, or keep this part " +
+  "interpreted";
+
 const UNSUPPORTED_REASONS: ReadonlyMap<number, string> = new Map([
   [bytecode.ROP_AWAIT, SUSPENDING_AWAIT_REASON],
+  [bytecode.ROP_CALL_SPREAD, SPREAD_CALL_REASON],
 ]);
+
+const SPREAD_READERS: ReadonlySet<string> = new Set<string>([
+  ir.IR_GENERIC_GET_PROP,
+  ir.IR_GENERIC_GET_INDEX,
+  ir.IR_LOAD_ELEMENT,
+  ir.IR_ITERATOR_INIT,
+]);
+
+function visibleElements(source: ir.CFGInstruction): ir.CFGInstruction[] | null {
+  if (source.type !== ir.IR_NEW_ARRAY) return null;
+  if (!source.uses.every((use) => SPREAD_READERS.has(use.type))) return null;
+  return [...source.inputs];
+}
+
+function spreadsStraightIntoACall(
+  compiledFn: AnyCompiledFunction,
+  bytecodeIdx: number,
+  target: number,
+): boolean {
+  const next = compiledFn.instructions[bytecodeIdx + 1];
+  return next?.opcode === bytecode.ROP_CALL_SPREAD && next.operands[1] === target;
+}
 
 function bailOut(
   graph: AnyGraph,
@@ -144,8 +174,10 @@ function superClassValueName(graph: AnyGraph, binding: string | undefined): stri
 
 function markClassValue(graph: AnyGraph, node: AnyNode, name: string | null): void {
   if (graph.classes === null || node === null || name === null) return;
-  if (graph.classes.shapeOf(name) === null) return;
-  node.props[CLASS_VALUE_PROP] = name;
+  const shape = graph.classes.shapeOf(name);
+  if (shape === null) return;
+  node.props[CLASS_VALUE_PROP] = shape.name;
+  if (node.type === ir.IR_LOAD_GLOBAL) node.props.name = shape.name;
 }
 
 function isClassValue(node: AnyNode | undefined): boolean {
@@ -2061,6 +2093,27 @@ function compileInstruction(
         target.inputs.length === 0 &&
         target.uses.length === 0
       ) {
+        const elements = visibleElements(source);
+        if (elements !== null) {
+          const spelled = ir.irNewArray(elements);
+          spelled.frameState = captureFrameState(
+            compiledFn,
+            bytecodeIdx,
+            regs,
+            [],
+            frameStates,
+          );
+          block.addNode(spelled);
+          regs.set(operands[0]!, spelled);
+          break;
+        }
+        if (
+          graph.classes !== null &&
+          spreadsStraightIntoACall(compiledFn, bytecodeIdx, operands[0]!)
+        ) {
+          regs.set(operands[0]!, source);
+          break;
+        }
         const callee = ir.irGenericGetProp(source, SLICE_MEMBER);
         block.addNode(callee);
         const copied = ir.irGenericCall(callee, [source, ir.homeInstruction(ir.irConstant(0), block)]);
@@ -2111,15 +2164,18 @@ function compileInstruction(
 
     case bytecode.ROP_CALL_SPREAD: {
       const spread = regs.get(operands[1]) ?? null;
-      if (spread === null || spread.type !== ir.IR_NEW_ARRAY || spread.uses.length > 0) {
+      const spelled = spread !== null && spread.type === ir.IR_NEW_ARRAY && spread.uses.length === 0;
+      if (spread === null || (!spelled && graph.classes === null)) {
         bailOut(graph, compiledFn, op, bytecodeIdx);
         break;
       }
       const callee = regs.get(operands[0]) || ir.irConstant(undefined);
       const receiver = operands[2] ? regs.get(operands[2]) ?? null : null;
-      const args = receiver === null ? [...spread.inputs] : [receiver, ...spread.inputs];
+      const supplied = spelled ? [...spread.inputs] : [spread];
+      const args = receiver === null ? supplied : [receiver, ...supplied];
       const node = ir.irGenericCall(callee, args);
       if (receiver !== null) node.props.isMethod = true;
+      if (!spelled) node.props[SPREAD_ARGUMENTS_PROP] = true;
       node.frameState = captureFrameState(compiledFn, bytecodeIdx, regs, [callee], frameStates);
       block.addNode(node);
       block._lastAcc = node;
@@ -2148,6 +2204,7 @@ function compileInstruction(
           returnPendingThrow(block);
           break;
         }
+        markThrownValue(thrown);
         rememberIncomingState(savedBlockRegs, landing.target, block, regs, thrown);
         block.addNode(ir.irJump(landing.handler));
         link(block, landing.handler);

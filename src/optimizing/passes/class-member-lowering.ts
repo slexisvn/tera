@@ -40,6 +40,7 @@ import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper, replaceValueUses } from "../ir/graph-edit.js";
 import type { ClassCallableKind } from "../../core/class-member.js";
 import { classValueNameOf } from "../metadata/class-symbols.js";
+import { splitCellKey } from "../../runtime/intrinsics/global-cells.js";
 import {
   callableOf,
   CLASS_ID_PROP,
@@ -500,7 +501,8 @@ export function constructedShape(node: CFGInstruction, classes: ClassTable): Cla
   const target = node.props.target as { name?: unknown } | undefined;
   if (typeof target?.name !== "string") return null;
   const shape = classes.shapeOf(target.name);
-  return shape !== null && shape.constructorSymbol === target.name ? shape : null;
+  if (shape === null) return null;
+  return shape.constructorSymbol === splitCellKey(target.name).name ? shape : null;
 }
 
 function applyConstruction(
@@ -516,8 +518,12 @@ function applyConstruction(
   allocation.frameState = node.frameState;
   editor.insertBefore(node, allocation);
 
+  const target = node.props.target as { name: string };
   const initialize = stamp(
-    irCallKnownFunction(node.props.target as never, [allocation, ...node.inputs]),
+    irCallKnownFunction(
+      { ...target, name: shape.constructorSymbol } as never,
+      [allocation, ...node.inputs],
+    ),
   );
   initialize.props[INITIALIZES_PROP] = true;
   carryNamedArguments(node, initialize);

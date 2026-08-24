@@ -340,6 +340,7 @@ function addControl(table: Map<string, OpcodeGroup>): void {
   put(table, "nop", { none: { bytes: [0x90] } });
   put(table, "ud2", {
     effect: BARRIER, none: { bytes: [0x0f, 0x0b] } });
+  put(table, "rdtsc", { none: { bytes: [0x0f, 0x31] } });
   put(table, "cltd", { none: { bytes: [0x99] } });
   put(table, "cqto", { none: { bytes: [0x99], rexW: true } });
   put(table, "cwtl", { none: { bytes: [0x98] } });

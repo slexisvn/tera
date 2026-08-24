@@ -190,6 +190,8 @@ const POSTFIX_PRECEDENCE = Math.max(...Object.values(PRECEDENCE)) + 1;
 
 const LOGICAL_OPS = new Set(["&&", "||"]);
 
+const CONDITION_CONTINUATION_OPERATORS = new Set<string>([".", "?.", "?"]);
+
 function canonicalOperator(op: string): string {
   if (op === "and") return "&&";
   if (op === "or") return "||";
@@ -1208,12 +1210,16 @@ export class Parser {
   }
 
   parseControlCondition(): ASTNode {
-    if (this.match(TokenType.Punctuator, "(")) {
-      const test = this.parseExpression();
-      this.expect(TokenType.Punctuator, ")");
-      return test;
-    }
-    return this.parseExpression();
+    if (!this.check(TokenType.Punctuator, "(")) return this.parseExpression();
+    const group = this.parsePrimary();
+    return this.continuesControlCondition() ? this.parseExpressionFrom(group) : group;
+  }
+
+  private continuesControlCondition(): boolean {
+    const tok = this.current();
+    if (tok.type !== TokenType.Punctuator && tok.type !== TokenType.Keyword) return false;
+    if (typeof tok.value !== "string") return false;
+    return PRECEDENCE[tok.value] !== undefined || CONDITION_CONTINUATION_OPERATORS.has(tok.value);
   }
 
   parseStatementBody(): StatementResult {
@@ -1334,7 +1340,11 @@ export class Parser {
   }
 
   parseExpression(minPrec = 0): ASTNode {
-    let left = this.parsePrimary();
+    return this.parseExpressionFrom(this.parsePrimary(), minPrec);
+  }
+
+  parseExpressionFrom(operand: ASTNode, minPrec = 0): ASTNode {
+    let left = operand;
 
     while (true) {
       const extension = this.parseExtensionInfix(left, minPrec);

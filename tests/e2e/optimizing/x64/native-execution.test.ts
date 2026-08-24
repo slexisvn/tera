@@ -249,7 +249,7 @@ describe("x64 register pressure", () => {
     const source = src(
       `fn pressure(x: float) -> float:`,
       ...names.map((name, index) => `  ${name} = x * ${index + 1}.5`),
-      `  return ${names.join(" + ")}`,
+      `  return ${[...names].reverse().join(" + ")}`,
     );
     const assembly = nativeFile(compile(source), ".s");
 

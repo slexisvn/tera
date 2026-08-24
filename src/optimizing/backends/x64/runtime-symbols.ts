@@ -26,6 +26,7 @@ export const X64_RUNTIME_SYMBOLS = {
   printFloat: "tera_x64_print_f64",
   input: "tera_x64_input",
   clock: "tera_x64_now",
+  random: "tera_x64_random",
   pause: "tera_x64_wait",
   throwError: "tera_x64_throw",
   bignumSet: "tera_x64_bn_set",

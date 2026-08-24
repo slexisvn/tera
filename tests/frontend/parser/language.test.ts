@@ -577,6 +577,100 @@ describe("Parser", () => {
     });
   });
 
+  describe("parenthesised control conditions", () => {
+    const condition = (src) => parseStmt(src).test;
+    const tree = (src) => JSON.stringify(condition(src));
+
+    it("group on the left of and becomes the left operand", () => {
+      expect(condition("if (c >= 48) and c <= 57:\n  x")).toMatchObject({
+        type: NodeType.LogicalExpression,
+        op: "&&",
+        left: { type: NodeType.BinaryExpression, op: ">=" },
+        right: { type: NodeType.BinaryExpression, op: "<=" },
+      });
+    });
+
+    it("group on the left of or becomes the left operand", () => {
+      expect(condition("if (c >= 48 and c <= 57) or c == 45:\n  x")).toMatchObject({
+        type: NodeType.LogicalExpression,
+        op: "||",
+        left: { type: NodeType.LogicalExpression, op: "&&" },
+        right: { type: NodeType.BinaryExpression, op: "==" },
+      });
+    });
+
+    it("groups on both sides of or", () => {
+      expect(condition("if (c >= 48 and c <= 57) or (c == 45 and signed):\n  x")).toMatchObject({
+        type: NodeType.LogicalExpression,
+        op: "||",
+        left: { type: NodeType.LogicalExpression, op: "&&", left: { op: ">=" } },
+        right: { type: NodeType.LogicalExpression, op: "&&", left: { op: "==" } },
+      });
+    });
+
+    it("nested groups on the left", () => {
+      expect(condition("if ((a or b) and (c or d)) or e:\n  x")).toMatchObject({
+        type: NodeType.LogicalExpression,
+        op: "||",
+        left: {
+          type: NodeType.LogicalExpression,
+          op: "&&",
+          left: { type: NodeType.LogicalExpression, op: "||", left: { name: "a" } },
+          right: { type: NodeType.LogicalExpression, op: "||", left: { name: "c" } },
+        },
+        right: { name: "e" },
+      });
+    });
+
+    it("a leading group parses the same as the bare and the fully wrapped spellings", () => {
+      const spellings = [
+        "if (c >= 48 and c <= 57) or c == 45:\n  x",
+        "if c >= 48 and c <= 57 or c == 45:\n  x",
+        "if ((c >= 48 and c <= 57) or c == 45):\n  x",
+      ];
+      for (const src of spellings) expect(tree(src)).toBe(tree(spellings[0]));
+    });
+
+    it("a leading group continues into any infix operator, not just and/or", () => {
+      expect(condition("if (c + 1) > 2:\n  x")).toMatchObject({
+        type: NodeType.BinaryExpression,
+        op: ">",
+        left: { type: NodeType.BinaryExpression, op: "+" },
+      });
+      expect(condition("if (a).b and c:\n  x")).toMatchObject({
+        type: NodeType.LogicalExpression,
+        op: "&&",
+        left: { type: NodeType.MemberExpression, property: "b" },
+      });
+    });
+
+    it("while and switch take a leading group the same way", () => {
+      expect(condition("while (c > 0) and c < 100:\n  x")).toMatchObject({
+        type: NodeType.LogicalExpression,
+        op: "&&",
+      });
+      expect(parseStmt("switch (a) or b:\n  default:\n    x").discriminant).toMatchObject({
+        type: NodeType.LogicalExpression,
+        op: "||",
+      });
+    });
+
+    it("a group condition still ends before a braceless body", () => {
+      for (const src of ["if (x) y", "if (x) { y }", "if (x) (y)(z)", "if (x) [y].len()"]) {
+        expect(parseStmt(src)).toMatchObject({
+          type: NodeType.IfStatement,
+          test: { type: NodeType.Identifier, name: "x" },
+        });
+      }
+    });
+
+    it("a parenthesised condition may be a sequence", () => {
+      expect(condition("if (a, b > 1):\n  x")).toMatchObject({
+        type: NodeType.SequenceExpression,
+      });
+    });
+  });
+
   describe("do while statement", () => {
     it("basic do while", () => {
       const stmt = parseStmt("do:\n  x\nwhile (y)");

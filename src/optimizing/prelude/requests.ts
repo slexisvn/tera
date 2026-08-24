@@ -129,6 +129,13 @@ function observe(
 }
 
 export function collectionRequestsIn(program: ASTNode): readonly CollectionRequest[] {
+  return collectionRequestsAcross([program]);
+}
+
+export function collectionRequestsAcross(
+  roots: readonly ASTNode[],
+  nameable: ReadonlySet<string> | null = null,
+): readonly CollectionRequest[] {
   const seen: Observed = {
     keys: new Set(),
     values: new Set(),
@@ -137,9 +144,17 @@ export function collectionRequestsIn(program: ASTNode): readonly CollectionReque
     unknownKey: false,
     unknownValue: false,
   };
-  const classes = classNames(program);
-  observe(program, classes, boundClasses(program, classes), seen);
+  const classes = new Set<string>();
+  for (const root of roots) classNames(root, classes);
+  const bound = new Map<string, string>();
+  for (const root of roots) boundClasses(root, classes, bound);
+  for (const root of roots) observe(root, classes, bound, seen);
   if (!seen.wantsMap && !seen.wantsSet) return everyCollection();
+  for (const value of [...seen.values]) {
+    if (!classes.has(value) || nameable === null || nameable.has(value)) continue;
+    seen.values.delete(value);
+    seen.unknownValue = true;
+  }
 
   const keys = seen.unknownKey ? PRIMITIVE_KEYS : [...seen.keys];
   const values = seen.unknownValue ? [...seen.values, ...PRIMITIVE_VALUES] : [...seen.values];

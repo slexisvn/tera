@@ -79,7 +79,12 @@ export function int32ConstantOf(
 import { analysisId, type AnalysisPass } from "../infra/analysis-manager.js";
 import { computeValueLiveness } from "./value-liveness.js";
 import type { CallReachability } from "../metadata/call-graph.js";
-import { calleeSymbolName, NAMED_ARGUMENTS_PROP } from "../metadata/call-signatures.js";
+import {
+  calleeDeclaredSignature,
+  calleeSymbolName,
+  declaredTypeAt,
+  NAMED_ARGUMENTS_PROP,
+} from "../metadata/call-signatures.js";
 import { declaredAcceptsNull, nominalLatticeType } from "../types/declared.js";
 import {
   aotElementScalarOf,
@@ -119,6 +124,8 @@ import {
   THROW_BUILTIN,
 } from "../metadata/builtin-methods.js";
 import { typeInferenceAnalysisId, type TypeInference } from "./type-inference.js";
+import { SPREAD_ARGUMENTS_PROP } from "../passes/spread-calls.js";
+import { arrayModelForDeclaredType, arrayModelOf } from "../passes/array-shapes.js";
 import {
   forwardsPendingThrow,
   isPendingThrowReturn,
@@ -234,7 +241,24 @@ function isConstantText(value: CFGInstruction | undefined): boolean {
   return value?.type === IR_CONSTANT && typeof value.props.value === "string";
 }
 
+export const SPREAD_CALL_REASON =
+  "a call spreads an array into a function whose argument count the compiler cannot " +
+  "tell, so it does not know how many elements to take; call a function with declared " +
+  "parameters, pass the arguments one by one, or keep this part interpreted";
+
 const PROMISE_GLOBAL = "Promise";
+const JSON_GLOBAL = "JSON";
+const PARSE_MEMBER = "parse";
+
+const MEMBER_ADVICE: ReadonlyMap<string, string> = new Map<string, string>([
+  [
+    `${JSON_GLOBAL}.${PARSE_MEMBER}`,
+    "it answers a value whose shape is only known once the text is read, and a compiled " +
+      "value has a fixed set of fields; give the result a declared object type whose " +
+      "fields are numbers, text, booleans, other declared object types, or arrays of " +
+      "those, or keep this part interpreted",
+  ],
+]);
 
 function globalValueReason(node: CFGInstruction, classes: ClassTable | null): string {
   const owner = node.props.name;
@@ -248,6 +272,8 @@ function globalValueReason(node: CFGInstruction, classes: ClassTable | null): st
       `compiler can shape, or keep this part interpreted`
     );
   }
+  const spelled = MEMBER_ADVICE.get(`${owner}.${member}`);
+  if (spelled !== undefined) return `${owner}.${member} does not compile: ${spelled}`;
   const advice =
     owner === PROMISE_GLOBAL
       ? "write the same thing with async and await, or keep this part interpreted"
@@ -304,8 +330,9 @@ const NEEDS_A_HASH_TABLE =
 const MEMBER_REASONS: ReadonlyMap<string, string> = new Map<string, string>([
   [
     "sort",
-    "sort without a comparator orders elements as text; pass a comparator that returns " +
-      "a number, or keep this part interpreted",
+    "sort without a comparator orders elements as text, which the compiler can only do " +
+      "for numbers and text; pass a comparator that returns a number, or keep this part " +
+      "interpreted",
   ],
   [
     "split",
@@ -597,13 +624,6 @@ export function isRootedPointer(legality: AotLegality, value: CFGInstruction): b
   return legality.scalarOf(value) === SCALAR_POINTER;
 }
 
-export function calleeDeclaredSignature(node: CFGInstruction): DeclaredSignature | null {
-  const target = node.props.target as
-    | { declaredSignature?: DeclaredSignature | null }
-    | undefined;
-  return target?.declaredSignature ?? null;
-}
-
 export function isAsciiRepresentable(value: string): boolean {
   for (const character of value) {
     if (character.codePointAt(0)! > ASCII_LIMIT) return false;
@@ -613,6 +633,14 @@ export function isAsciiRepresentable(value: string): boolean {
 
 export function builtinOperandScalar(declared: string | null): AotScalar | null {
   return aotScalarOf(nominalLatticeType(declared, null));
+}
+
+function arrayCrossingOf(node: CFGInstruction): string {
+  if (node.type === IR_RETURN) return "returns";
+  if (node.type === IR_CALL_KNOWN_FUNCTION) {
+    return `call to ${calleeSymbolName(node) ?? "a function"} passes`;
+  }
+  return "stores";
 }
 
 export function undeclaredParameterOf(graph: CFGFunction): number | null {
@@ -864,6 +892,25 @@ class LegalityAnalyzer implements AotLegality {
         `call to ${name} passes an object laid out differently from the ` +
           `${parameterLabelOf(declared, at).name ?? `argument ${at + 1}`} it declares; give the ` +
           `object the declared type where it is written, or keep this part interpreted`,
+      );
+      return false;
+    }
+    return true;
+  }
+
+  private arraysMatchDeclarations(node: CFGInstruction): boolean {
+    const classes = this.graph.classes;
+    if (classes === null) return true;
+    for (const [at, input] of node.inputs.entries()) {
+      const declared = declaredTypeAt(node, at, this.graph, classes, this.types);
+      const asked = arrayModelForDeclaredType(declared, classes);
+      if (asked === null) continue;
+      const held = arrayModelOf(input, this.graph, classes, this.types);
+      if (held === null || held.element === asked.element) continue;
+      this.fail(
+        `${arrayCrossingOf(node)} an array of ${held.declaredType} where ${declared} is ` +
+          `declared, and the two are laid out differently; build the array with the declared ` +
+          `element type, or keep this part interpreted`,
       );
       return false;
     }
@@ -1167,6 +1214,7 @@ class LegalityAnalyzer implements AotLegality {
       this.scalars.set(node, SCALAR_POINTER);
       return;
     }
+    if (!this.arraysMatchDeclarations(node)) return;
     if (node.type === IR_CALL_KNOWN_FUNCTION) {
       const name = calleeSymbolName(node);
       if (name === null) {
@@ -1187,6 +1235,10 @@ class LegalityAnalyzer implements AotLegality {
     if (node.type === IR_CALL_BUILTIN) {
       this.checkBuiltin(node);
       if (this.failure !== null) return;
+    }
+    if (node.props[SPREAD_ARGUMENTS_PROP] === true) {
+      this.fail(SPREAD_CALL_REASON);
+      return;
     }
     if (node.type === IR_GENERIC_COMPARE && !this.checkStringCompare(node)) return;
     if (node.type === IR_FLOAT64_COMPARE && this.comparesReferences(node)) {

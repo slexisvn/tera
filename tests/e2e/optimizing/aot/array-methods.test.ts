@@ -279,6 +279,14 @@ const MUTATION_PROGRAMS: readonly (readonly [string, string])[] = [
   ["joins with an empty separator", src("xs: int[] = [1, 2, 3]", 'print(xs.join(""))')],
   ["joins an array it just mapped", src(...DOUBLE, "xs: int[] = [1, 2]", 'print(xs.map(double).join(","))')],
   ["joins an array that grew", src("xs: int[] = [1]", "xs.push(2)", 'print(xs.join(","))')],
+  ["sorts text with no comparator", src('xs: string[] = ["b", "a", "C", "ab", "Ab"]', "xs.sort()", "print(xs)")],
+  ["sorts ints as text with no comparator", src("xs: int[] = [10, 9, 1, 2, -3, 100]", "xs.sort()", "print(xs)")],
+  ["sorts floats as text with no comparator", src("xs: float[] = [1.5, 10.25, 2.0, -0.5]", "xs.sort()", "print(xs)")],
+  ["sorts one element with no comparator", src("xs: int[] = [5]", "xs.sort()", "print(xs)")],
+  ["sorts no elements with no comparator", src("xs: string[] = []", "xs.sort()", "print(xs)")],
+  ["keeps equal elements with no comparator", src("xs: int[] = [2, 1, 2, 1]", "xs.sort()", "print(xs)")],
+  ["hands back the array it sorted as text", src('xs: string[] = ["b", "a"]', "print(xs.sort())")],
+  ["joins an array it just sorted as text", src("xs: int[] = [10, 9]", "xs.sort()", 'print(xs.join(","))')],
 ];
 
 describe("array mutation methods", () => {
@@ -302,9 +310,25 @@ describe("array callback methods", () => {
     itNative(`${name} the same way through the C backend`, native.agrees(source));
   }
 
-  it("declines a sort with no comparator, where the interpreter sorts as text", () => {
+  it("compiles a sort with no comparator over numbers", () => {
     const program = nodeEngine({ typecheck: "off" }).compileAot(
       src("xs: int[] = [2, 1]", "xs.sort()", "print(xs)", ""),
+    );
+
+    expect(program.skipped).toEqual([]);
+  });
+
+  it("declines a sort with no comparator over values it cannot spell as text", () => {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(
+      src(
+        "class Card:",
+        "  public constructor(rank: int):",
+        "    this.rank = rank",
+        "xs: Card[] = [Card(2), Card(1)]",
+        "xs.sort()",
+        "print(xs[0].rank)",
+        "",
+      ),
     );
 
     expect(program.skipped.map((entry) => entry.reason).join("; ")).toContain("comparator");

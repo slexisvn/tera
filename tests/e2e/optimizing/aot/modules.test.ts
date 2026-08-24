@@ -341,3 +341,231 @@ describe("modules that do work when they load", () => {
     ).toThrow(/cannot emit/);
   });
 });
+
+describe("classes across modules", () => {
+  const ITEM = [
+    "class Item:",
+    "  public constructor(name: string, price: int):",
+    "    this.name = name",
+    "    this.price = price",
+    "  public label() -> string:",
+    '    return this.name + ": " + this.price',
+    "fn make(n: int) -> Item:",
+    '  return Item("gen", n)',
+    "",
+  ].join("\n");
+
+  const SHAPES = [
+    "class Shape:",
+    "  public constructor(n: int):",
+    "    this.n = n",
+    "  public area() -> int:",
+    "    return this.n",
+    "class Circle extends Shape:",
+    "  public constructor(r: int):",
+    "    super(r)",
+    "  public area() -> int:",
+    "    return this.n * 2",
+    "",
+  ].join("\n");
+
+  function runs(main: string, files: Record<string, string> = { "item.tera": ITEM }): string {
+    const root = project({ "main.tera": main, ...files });
+    const program = nodeEngine({ typecheck: "off" }).compileAotModule(
+      path.join(root, "main.tera"),
+      { root, wholeProgram: true, backend: "x64-windows", format: "executable" },
+    );
+    expect(program.skipped).toEqual([]);
+    const run = runPe(program.files[0]!.contents as Uint8Array);
+    expect(run.status).toBe(0);
+    return run.stdout;
+  }
+
+  function builds(main: string, files: Record<string, string> = { "item.tera": ITEM }): void {
+    const root = project({ "main.tera": main, ...files });
+    const program = nodeEngine({ typecheck: "off" }).compileAotModule(
+      path.join(root, "main.tera"),
+      { root, wholeProgram: true, backend: "c", format: "assembly" },
+    );
+    expect(program.skipped).toEqual([]);
+  }
+
+  const READS_A_FIELD = ["from item import Item", 'print(Item("pen", 3).price)', ""].join("\n");
+  const CALLS_A_METHOD = ["from item import Item", 'print(Item("pen", 3).label())', ""].join("\n");
+  const DECLARES_THE_TYPE = [
+    "from item import Item",
+    "fn cost(i: Item) -> int:",
+    "  return i.price",
+    'print(cost(Item("pen", 3)))',
+    "",
+  ].join("\n");
+  const WALKS_AN_ARRAY = [
+    "from item import Item, make",
+    'xs: Item[] = [Item("pen", 3), make(7)]',
+    "total = 0",
+    "for x of xs:",
+    "  total = total + x.price",
+    "print(total)",
+    "",
+  ].join("\n");
+  const DISPATCHES = [
+    "from shapes import Shape, Circle",
+    "s: Shape = Circle(3)",
+    "print(s.area())",
+    "",
+  ].join("\n");
+  const KEYS_A_MAP = [
+    "from item import Item",
+    "m = Map()",
+    'm.set("pen", Item("pen", 3))',
+    'print(m.get("pen").label())',
+    "",
+  ].join("\n");
+
+  it("compiles a program that constructs an imported class", () => {
+    expect(() => builds(READS_A_FIELD)).not.toThrow();
+  });
+
+  itRunsPe("reads a field off an instance of an imported class", () => {
+    expect(runs(READS_A_FIELD)).toBe("3\n");
+  });
+
+  itRunsPe("calls a method on an instance of an imported class", () => {
+    expect(runs(CALLS_A_METHOD)).toBe("pen: 3\n");
+  });
+
+  itRunsPe("takes an imported class as a declared parameter type", () => {
+    expect(runs(DECLARES_THE_TYPE)).toBe("3\n");
+  });
+
+  itRunsPe("walks an array of instances an imported factory made", () => {
+    expect(runs(WALKS_AN_ARRAY)).toBe("10\n");
+  });
+
+  itRunsPe("dispatches to an override declared in another module", () => {
+    expect(runs(DISPATCHES, { "shapes.tera": SHAPES })).toBe("6\n");
+  });
+
+  itRunsPe("holds an instance of an imported class as a map value", () => {
+    expect(runs(KEYS_A_MAP)).toBe("pen: 3\n");
+  });
+
+  itRunsPe("calls a static method on an imported class", () => {
+    expect(
+      runs(["from counter import Counter", "print(Counter.bump(1))", ""].join("\n"), {
+        "counter.tera": [
+          "class Counter:",
+          "  public static total: int = 0",
+          "  public static bump(n: int) -> int:",
+          "    return n + 1",
+          "",
+        ].join("\n"),
+      }),
+    ).toBe("2\n");
+  });
+
+  itRunsPe("extends a class declared in another module", () => {
+    expect(
+      runs(["from circle import Circle", "print(Circle(3).area())", ""].join("\n"), {
+        "base.tera": [
+          "class Shape:",
+          "  public constructor(n: int):",
+          "    this.n = n",
+          "  public area() -> int:",
+          "    return this.n",
+          "",
+        ].join("\n"),
+        "circle.tera": [
+          "from base import Shape",
+          "class Circle extends Shape:",
+          "  public constructor(r: int):",
+          "    super(r)",
+          "  public area() -> int:",
+          "    return this.n * 2",
+          "",
+        ].join("\n"),
+      }),
+    ).toBe("6\n");
+  });
+
+  itRunsPe("catches an error subclass declared in another module", () => {
+    expect(
+      runs(
+        [
+          "from failures import HttpError",
+          "try:",
+          '  throw HttpError("nope", 404)',
+          "catch e:",
+          "  print(e.message, e.status)",
+          "",
+        ].join("\n"),
+        {
+          "failures.tera": [
+            "class HttpError extends Error:",
+            "  public status: int",
+            "  public constructor(msg: string, status: int):",
+            "    super(msg)",
+            "    this.status = status",
+            "",
+          ].join("\n"),
+        },
+      ),
+    ).toBe("nope 404\n");
+  });
+
+  itRunsPe("implements an interface declared in another module", () => {
+    expect(
+      runs(
+        ["from disc import Disc", "from shaped import Shaped", "d: Shaped = Disc(3)", "print(d.area())", ""].join("\n"),
+        {
+          "shaped.tera": ["interface Shaped:", "  area() -> int", ""].join("\n"),
+          "disc.tera": [
+            "from shaped import Shaped",
+            "class Disc implements Shaped:",
+            "  public constructor(n: int):",
+            "    this.n = n",
+            "  public area() -> int:",
+            "    return this.n",
+            "",
+          ].join("\n"),
+        },
+      ),
+    ).toBe("3\n");
+  });
+
+  itRunsPe("holds an imported class in a field of a class declared elsewhere", () => {
+    expect(
+      runs(
+        ["from item import Item", "from box import Box", "print(Box(Item(\"pen\", 4)).held.price)", ""].join("\n"),
+        {
+          "item.tera": ITEM,
+          "box.tera": [
+            "from item import Item",
+            "class Box:",
+            "  public constructor(held: Item):",
+            "    this.held = held",
+            "",
+          ].join("\n"),
+        },
+      ),
+    ).toBe("4\n");
+  });
+
+  itRunsPe("constructs an imported class through a namespace import", () => {
+    expect(
+      runs(["import item", 'p = item.Item("pen", 3)', "print(p.price)", ""].join("\n")),
+    ).toBe("3\n");
+  });
+
+  it("refuses two modules that declare the same class name", () => {
+    expect(() =>
+      builds(
+        ["from left import Point", "print(Point(1).x)", "", "from right import Point as Spot", ""].join("\n"),
+        {
+          "left.tera": ["class Point:", "  public constructor(x: int):", "    this.x = x", ""].join("\n"),
+          "right.tera": ["class Point:", "  public constructor(y: int):", "    this.y = y", ""].join("\n"),
+        },
+      ),
+    ).toThrow(/class Point is declared in left and right/);
+  });
+});

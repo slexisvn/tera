@@ -4,6 +4,7 @@ import {
   type ClassCallableKind,
 } from "../../core/class-member.js";
 import type { ClassMemberSurface, ClassSurface } from "../../frontend/modules/interface.js";
+import { splitCellKey } from "../../runtime/intrinsics/global-cells.js";
 import { resolveType, typeLiteralShape, type TypeEnv } from "../../frontend/checker/type-system.js";
 import {
   TERA_LINK_BYTES,
@@ -480,20 +481,28 @@ class Table implements ClassTable {
   private readonly generatorShapes = new Map<string, GeneratorShape>();
   private readonly structural = new Map<string, ClassShape | null>();
   private staticsSize = 0;
+  private nextId = FIRST_CLASS_ID;
 
   constructor(
     surfaces: readonly ClassSurface[],
     private readonly env: TypeEnv = builtinTypeEnv(),
   ) {
-    let nextId = FIRST_CLASS_ID;
-    for (const surface of surfaces) this.ids.set(surface.name, nextId++);
+    for (const surface of surfaces) this.reserveId(surface.name);
     for (const surface of orderedByInheritance(surfaces)) this.define(surface);
+  }
+
+  private reserveId(name: string): number {
+    const reserved = this.ids.get(name);
+    if (reserved !== undefined) return reserved;
+    const id = this.nextId++;
+    this.ids.set(name, id);
+    return id;
   }
 
   defineSynthetic(surface: ClassSurface): ClassShape {
     const existing = this.byName.get(surface.name);
     if (existing !== undefined) return existing;
-    this.ids.set(surface.name, FIRST_CLASS_ID + this.byId.size);
+    this.reserveId(surface.name);
     this.define(surface);
     this.cones.clear();
     this.standIns.clear();
@@ -522,15 +531,13 @@ class Table implements ClassTable {
   private mint(name: string, build: (id: number, name: string) => ClassShape): ClassShape {
     const existing = this.byName.get(name);
     if (existing !== undefined) return existing;
-    const id = FIRST_CLASS_ID + this.byId.size;
-    this.ids.set(name, id);
-    this.adopt(build(id, name));
+    this.adopt(build(this.reserveId(name), name));
     this.cones.clear();
     return this.byName.get(name)!;
   }
 
   shapeIdOf(name: string): number | null {
-    const known = this.ids.get(name);
+    const known = this.ids.get(name) ?? this.lookup(name)?.id;
     return known ?? this.structuralShapeOf(name)?.id ?? null;
   }
 
@@ -556,8 +563,15 @@ class Table implements ClassTable {
     return shape.fields.size === fields.length ? shape : null;
   }
 
+  private lookup(name: string): ClassShape | undefined {
+    const exact = this.byName.get(name);
+    if (exact !== undefined) return exact;
+    const spelled = splitCellKey(name);
+    return spelled.module === null ? undefined : this.byName.get(spelled.name);
+  }
+
   shapeOf(name: string): ClassShape | null {
-    return this.byName.get(name) ?? null;
+    return this.lookup(name) ?? null;
   }
 
   shapeById(id: number): ClassShape | null {
@@ -571,7 +585,7 @@ class Table implements ClassTable {
   dispatchConeOf(name: string): readonly ClassShape[] {
     const cached = this.cones.get(name);
     if (cached !== undefined) return cached;
-    const shape = this.byName.get(name);
+    const shape = this.lookup(name);
     if (shape === undefined) return [];
     const cone = this.conformingShapes(shape);
     this.cones.set(name, cone);
@@ -610,7 +624,7 @@ class Table implements ClassTable {
   }
 
   declareStaticField(owner: string, name: string, declaredType: string): boolean {
-    const shape = this.byName.get(owner);
+    const shape = this.lookup(owner);
     if (shape === undefined || shape.staticFields.has(name)) return false;
     const scalar = fieldScalarOf(declaredType, this);
     if (scalar === null) return false;

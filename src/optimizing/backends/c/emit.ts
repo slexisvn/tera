@@ -144,6 +144,7 @@ import {
   qualifiedMethodName,
   THROW_BUILTIN,
   CLOCK_BUILTIN,
+  RANDOM_MEMBER,
   WAIT_BUILTIN,
 } from "../../metadata/builtin-methods.js";
 import {
@@ -209,6 +210,13 @@ const C_MAP = "tera_map";
 const C_COMMIT = "tera_commit";
 export const C_RESERVE_MACRO = "TERA_HEAP_RESERVE";
 const C_CLOCK = "tera_clock";
+const C_RANDOM = "tera_random";
+const RANDOM_FIRST_SHIFT = 13;
+const RANDOM_SECOND_SHIFT = 7;
+const RANDOM_THIRD_SHIFT = 17;
+const RANDOM_MANTISSA_SHIFT = 11;
+const RANDOM_SCALE_TEXT = "(1.0 / 9007199254740992.0)";
+const NANOS_PER_SECOND = "1000000000ull";
 const C_WAIT = "tera_pause";
 const MILLIS_PER_SECOND = 1000;
 const NANOS_PER_MILLI = 1000000;
@@ -759,6 +767,30 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
       definition: `static inline double tera_math_max(double a, double b) {
   if (a != a || b != b) return a - a + (b - b);
   return a > b ? a : b;
+}`,
+    },
+  ],
+  [
+    qualifiedMethodName("Math", RANDOM_MEMBER),
+    {
+      helper: C_RANDOM,
+      definition: `static double ${C_RANDOM}(void) {
+  static uint64_t seed = 0;
+  if (seed == 0) {
+#if defined(_WIN32)
+    seed = (uint64_t)GetTickCount64();
+#else
+    struct timespec moment;
+    clock_gettime(CLOCK_MONOTONIC, &moment);
+    seed = (uint64_t)moment.tv_sec * ${NANOS_PER_SECOND}u + (uint64_t)moment.tv_nsec;
+#endif
+    seed ^= (uint64_t)(uintptr_t)&seed;
+    seed |= 1u;
+  }
+  seed ^= seed << ${RANDOM_FIRST_SHIFT};
+  seed ^= seed >> ${RANDOM_SECOND_SHIFT};
+  seed ^= seed << ${RANDOM_THIRD_SHIFT};
+  return (double)(seed >> ${RANDOM_MANTISSA_SHIFT}) * ${RANDOM_SCALE_TEXT};
 }`,
     },
   ],

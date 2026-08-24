@@ -292,6 +292,44 @@ describe("module values", () => {
     })).toEqual(["area 12"]);
   });
 
+  it("implements an interface imported from another module", () => {
+    expect(run({
+      "main.tera": [
+        "from disc import Disc",
+        "from shaped import Shaped",
+        "d: Shaped = Disc(3)",
+        "print(d.area())",
+        "",
+      ].join("\n"),
+      "shaped.tera": ["interface Shaped:", "  area() -> int", ""].join("\n"),
+      "disc.tera": [
+        "from shaped import Shaped",
+        "class Disc implements Shaped:",
+        "  public constructor(n: int):",
+        "    this.n = n",
+        "  public area() -> int:",
+        "    return this.n",
+        "",
+      ].join("\n"),
+    })).toEqual(["3"]);
+  });
+
+  it("implements an imported interface under a local alias", () => {
+    expect(run({
+      "main.tera": ["from disc import Disc", "print(Disc(4).area())", ""].join("\n"),
+      "shaped.tera": ["interface Shaped:", "  area() -> int", ""].join("\n"),
+      "disc.tera": [
+        "from shaped import Shaped as Figure",
+        "class Disc implements Figure:",
+        "  public constructor(n: int):",
+        "    this.n = n",
+        "  public area() -> int:",
+        "    return this.n",
+        "",
+      ].join("\n"),
+    })).toEqual(["4"]);
+  });
+
   it("sees a later write made by the exporting module", () => {
     expect(run({
       "main.tera": "from state import current, bump\nbump()\nprint(current)\n",

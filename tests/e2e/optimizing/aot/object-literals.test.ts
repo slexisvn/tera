@@ -77,6 +77,71 @@ describe("AOT object literals", () => {
       [6],
     ));
 
+  itNative("reads through a literal nested inside a literal", native.matches(
+      src(
+        "fn f(n: int) -> int:",
+        "  o = { inner: { v: n, w: 2 }, k: 3 }",
+        "  return o.inner.v * o.inner.w + o.k",
+      ),
+      "f",
+      [7],
+    ));
+
+  itNative("carries three levels of nested literals out of the function that built them", native.matches(
+      src(
+        "fn make(n: int):",
+        "  return { a: { b: { c: n, d: 2 }, e: 3 }, g: 4 }",
+        "fn f(n: int) -> int:",
+        "  o = make(n)",
+        "  return o.a.b.c + o.a.b.d + o.a.e + o.g",
+      ),
+      "f",
+      [5],
+    ));
+
+  itNative("rereads a nested literal a loop keeps writing", native.matches(
+      src(
+        "fn f(n: int) -> int:",
+        "  o = { a: { b: { c: n, d: 2 }, e: 3 }, g: 4 }",
+        "  total = 0",
+        "  i = 0",
+        "  while i < n:",
+        "    o.a.b.c = o.a.b.c + 1",
+        "    total = total + o.a.b.c + o.a.e",
+        "    i = i + 1",
+        "  return total + o.g",
+      ),
+      "f",
+      [4],
+    ));
+
+  itNative("gives a nested literal the shape the field it fills declares", native.matches(
+      src(
+        "type Point = { x: int, y: int }",
+        "type Box = { lo: Point, hi: Point }",
+        "type Scene = { area: Box }",
+        "fn span(s: Scene) -> int:",
+        "  return s.area.hi.x - s.area.lo.x + s.area.hi.y - s.area.lo.y",
+        "fn f(n: int) -> int:",
+        "  return span({ area: { lo: { x: 1, y: 2 }, hi: { x: n, y: n * 2 } } })",
+      ),
+      "f",
+      [9],
+    ));
+
+  itNative("mutates a field of a nested literal after it is built", native.matches(
+      src(
+        "type Point = { x: int, y: int }",
+        "type Held = { at: Point, k: int }",
+        "fn f(n: int) -> int:",
+        "  h: Held = { at: { x: n, y: 2 }, k: 3 }",
+        "  h.at.y = h.at.x + h.k",
+        "  return h.at.x * h.at.y",
+      ),
+      "f",
+      [4],
+    ));
+
   it("declines a literal whose field holds something with no machine type", () => {
     expect(declined(src("fn f() -> int:", "  o = { a: v => v }", "  return 1"))).not.toBe("");
   });

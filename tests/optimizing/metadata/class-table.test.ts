@@ -6,10 +6,15 @@ import type {
 import {
   buildClassTable,
   callableOf,
+  type ClassTable,
   CLASS_HEADER_BYTES,
   constructorFieldDisagreement,
   descendsFrom,
 } from "../../../src/optimizing/metadata/class-table.js";
+import {
+  createTypeEnv,
+  type TypeEnv,
+} from "../../../src/frontend/checker/type-system.js";
 import {
   builtinTypeEnv,
   latticeFromDeclaredType,
@@ -369,5 +374,60 @@ describe("nominal type resolution", () => {
     expect(aotScalarOf(latticeFromDeclaredType("Point", builtinTypeEnv(), empty))).toBe(
       SCALAR_FLOAT64,
     );
+  });
+});
+
+
+const OUTERMOST = "Scene";
+
+const NESTED_ALIASES: Readonly<Record<string, string>> = {
+  Point: "{ x: int, y: int }",
+  Box: "{ lo: Point, hi: Point }",
+  [OUTERMOST]: "{ area: Box, marks: int[] }",
+};
+
+function aliasEnv(spellings: Readonly<Record<string, string>>): TypeEnv {
+  const env = createTypeEnv();
+  for (const [name, type] of Object.entries(spellings)) {
+    env.aliases.set(name, { typeParams: [], type });
+  }
+  return env;
+}
+
+function mintedOutermostFirst(): ClassTable {
+  const table = buildClassTable([], aliasEnv(NESTED_ALIASES));
+  table.shapeIdOf(OUTERMOST);
+  return table;
+}
+
+describe("structural shapes of declared object types", () => {
+  it("gives a shape minted inside an outer one an id of its own", () => {
+    const table = mintedOutermostFirst();
+
+    const ids = Object.keys(NESTED_ALIASES).map((name) => table.shapeIdOf(name));
+
+    expect(ids).not.toContain(null);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("answers each nested shape by the id it was minted under", () => {
+    const table = mintedOutermostFirst();
+
+    const held = Object.keys(NESTED_ALIASES).map((name) => [
+      ...table.shapeById(table.shapeIdOf(name)!)!.fields.keys(),
+    ]);
+
+    expect(held).toEqual([["x", "y"], ["lo", "hi"], ["area", "marks"]]);
+  });
+
+  it("resolves an outer shape's field to the shape its inner alias names", () => {
+    const table = mintedOutermostFirst();
+
+    const area = table.shapeById(table.shapeIdOf(OUTERMOST)!)!.fields.get("area")!;
+
+    expect([...table.shapeById(table.shapeIdOf(area.declaredType)!)!.fields.keys()]).toEqual([
+      "lo",
+      "hi",
+    ]);
   });
 });

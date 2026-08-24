@@ -1,10 +1,8 @@
 import {
   irGenericGetProp,
   irGenericSetProp,
-  IR_CALL_KNOWN_FUNCTION,
   IR_CONSTANT,
   IR_COPY_PROPERTIES,
-  IR_GENERIC_CALL,
   IR_GENERIC_SET_PROP,
   IR_NEW_OBJECT,
   IR_RETURN,
@@ -25,17 +23,21 @@ import {
   type ClassTable,
   type LiteralField,
 } from "../metadata/class-table.js";
-import { calleeDeclaredSignature, codeSymbolOf } from "../analyses/aot-legality.js";
+import { codeSymbolOf } from "../analyses/aot-legality.js";
+import {
+  calleeDeclaredSignature,
+  declaredTypeAt,
+  shapeHeldBy,
+  type CalleeSignatures,
+} from "../metadata/call-signatures.js";
 import { compiledFunctionConstant } from "../ir/compiled-function.js";
 import { functionTypeTextOf } from "../types/signature.js";
-import type { DeclaredSignature } from "../types/signature.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 import { nominalLatticeType } from "../types/declared.js";
 import { arrayElementNameOf } from "./array-shapes.js";
 
 const ANY_TYPE = "any";
-const CALLEE_INPUT = 1;
 
 function functionValueTypeOf(stored: CFGInstruction, graph: CFGFunction): string | null {
   const named = codeSymbolOf(stored);
@@ -57,11 +59,25 @@ function storedTypeName(
   const code = functionValueTypeOf(stored, graph);
   if (code !== null) return code;
   if (types.typeOf(stored).kind !== TypeKind.Array) {
-    return declaredTypeOf(types.typeOf(stored), classes);
+    return (
+      shapeHeldBy(stored, classes, types)?.name ??
+      declaredTypeOf(types.typeOf(stored), classes)
+    );
   }
   const element = arrayElementNameOf(stored, graph, classes, types);
   if (element === null) return null;
   return classes.defineArray(nominalLatticeType(element, classes))?.name ?? null;
+}
+
+function writtenNamesOf(allocation: CFGInstruction): readonly string[] | null {
+  if (allocation.block === null) return null;
+  const written = new Set<string>();
+  for (const use of allocation.uses) {
+    if (use.type !== IR_GENERIC_SET_PROP || use.inputs[0] !== allocation) continue;
+    if (use.inputs[1] === undefined) return null;
+    written.add(String(use.props.propName));
+  }
+  return written.size === 0 ? null : [...written];
 }
 
 function initializerOf(
@@ -70,8 +86,6 @@ function initializerOf(
   classes: ClassTable,
   types: TypeInference,
 ): readonly LiteralField[] | null {
-  const block = allocation.block;
-  if (block === null) return null;
   const fields: LiteralField[] = [];
   const named = new Map<string, string>();
   for (const use of allocation.uses) {
@@ -90,6 +104,16 @@ function initializerOf(
     fields.push({ name, declaredType });
   }
   return fields.length === 0 ? null : fields;
+}
+
+function inferredShapeOf(
+  allocation: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): ClassShape | null {
+  const fields = initializerOf(allocation, graph, classes, types);
+  return fields === null ? null : classes.defineSynthetic(literalShapeSurface(fields));
 }
 
 export function literalReturnShapeOf(graph: CFGFunction): string | null {
@@ -111,58 +135,33 @@ export function literalReturnShapeOf(graph: CFGFunction): string | null {
   return shaped;
 }
 
-function argumentIndexOf(call: CFGInstruction, argument: CFGInstruction): number {
-  if (call.type === IR_CALL_KNOWN_FUNCTION) return call.inputs.indexOf(argument);
-  if (call.type !== IR_GENERIC_CALL || call.props.isMethod === true) return -1;
-  const at = call.inputs.indexOf(argument);
-  return at < CALLEE_INPUT ? -1 : at - CALLEE_INPUT;
-}
-
-export type CalleeSignatures = (call: CFGInstruction) => DeclaredSignature | null;
-
-function passedAs(
-  allocation: CFGInstruction,
-  use: CFGInstruction,
-  classes: ClassTable,
-  signatureOf: CalleeSignatures,
-): ClassShape | null {
-  const at = argumentIndexOf(use, allocation);
-  if (at < 0) return null;
-  return shapeForDeclared(classes, signatureOf(use)?.params[at] ?? null);
-}
-
-function holdsExactly(shape: ClassShape, fields: readonly LiteralField[]): boolean {
-  if (shape.fields.size !== fields.length) return false;
-  return fields.every((field) => shape.fields.has(field.name));
+function holdsExactly(shape: ClassShape, written: readonly string[]): boolean {
+  if (shape.fields.size !== written.length) return false;
+  return written.every((name) => shape.fields.has(name));
 }
 
 function declaredShapeOf(
   allocation: CFGInstruction,
-  fields: readonly LiteralField[],
+  written: readonly string[],
+  graph: CFGFunction,
   classes: ClassTable,
+  types: TypeInference,
   signatureOf: CalleeSignatures,
 ): ClassShape | null {
   let agreed: ClassShape | null = null;
   for (const use of allocation.uses) {
-    const asked = passedAs(allocation, use, classes, signatureOf);
-    if (asked === null) continue;
-    if (agreed !== null && agreed !== asked) return null;
-    agreed = asked;
+    for (const [at, input] of use.inputs.entries()) {
+      if (input !== allocation) continue;
+      const asked = shapeForDeclared(
+        classes,
+        declaredTypeAt(use, at, graph, classes, types, signatureOf),
+      );
+      if (asked === null) continue;
+      if (agreed !== null && agreed !== asked) return null;
+      agreed = asked;
+    }
   }
-  return agreed !== null && holdsExactly(agreed, fields) ? agreed : null;
-}
-
-function shapeHeldBy(
-  value: CFGInstruction | undefined,
-  classes: ClassTable,
-  types: TypeInference,
-): ClassShape | null {
-  if (value === undefined) return null;
-  const carried = value.props[VALUE_CLASS_PROP];
-  if (typeof carried === "number") return classes.shapeById(carried);
-  const type = types.typeOf(value);
-  if (type.kind !== TypeKind.Object || typeof type.map !== "number") return null;
-  return classes.shapeById(type.map);
+  return agreed !== null && holdsExactly(agreed, written) ? agreed : null;
 }
 
 function spreadFieldsInto(
@@ -187,6 +186,29 @@ function spreadFieldsInto(
   return true;
 }
 
+function adoptShape(
+  node: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+  signatureOf: CalleeSignatures,
+  editor: GraphEditor,
+  stamp: (node: CFGInstruction) => CFGInstruction,
+): boolean {
+  if (node.type !== IR_NEW_OBJECT || node.props[CLASS_ID_PROP] !== undefined) return false;
+  if (!spreadFieldsInto(node, classes, types, editor, stamp)) return false;
+  const written = writtenNamesOf(node);
+  if (written === null) return false;
+  const shape =
+    declaredShapeOf(node, written, graph, classes, types, signatureOf) ??
+    inferredShapeOf(node, graph, classes, types);
+  if (shape === null || !holdsExactly(shape, written)) return false;
+  node.props[CLASS_ID_PROP] = shape.id;
+  node.props[INSTANCE_SIZE_PROP] = shape.size;
+  node.props[VALUE_CLASS_PROP] = shape.id;
+  return true;
+}
+
 export function shapeObjectLiterals(
   graph: CFGFunction,
   types: TypeInference,
@@ -197,21 +219,15 @@ export function shapeObjectLiterals(
   const editor = new GraphEditor(graph);
   const stamp = nodeIdStamper(graph);
   let shaped = 0;
-  for (const block of graph.blocks) {
-    for (const node of [...block.nodes]) {
-      if (node.type !== IR_NEW_OBJECT) continue;
-      if (node.props[CLASS_ID_PROP] !== undefined) continue;
-      if (!spreadFieldsInto(node, classes, types, editor, stamp)) continue;
-      const fields = initializerOf(node, graph, classes, types);
-      if (fields === null) continue;
-      const shape =
-        declaredShapeOf(node, fields, classes, signatureOf) ??
-        classes.defineSynthetic(literalShapeSurface(fields));
-      if (shape.fields.size !== fields.length) continue;
-      node.props[CLASS_ID_PROP] = shape.id;
-      node.props[INSTANCE_SIZE_PROP] = shape.size;
-      node.props[VALUE_CLASS_PROP] = shape.id;
-      shaped++;
+  let adopting = true;
+  while (adopting) {
+    adopting = false;
+    for (const block of graph.blocks) {
+      for (const node of [...block.nodes]) {
+        if (!adoptShape(node, graph, classes, types, signatureOf, editor, stamp)) continue;
+        adopting = true;
+        shaped++;
+      }
     }
   }
   return shaped;

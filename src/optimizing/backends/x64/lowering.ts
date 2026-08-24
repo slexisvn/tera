@@ -86,6 +86,7 @@ import {
   builtinIntrinsicByName,
   builtinParameterAt,
   CLOCK_BUILTIN,
+  RANDOM_MEMBER,
   INPUT_BUILTIN,
   WAIT_BUILTIN,
   NO_TERMINATOR,
@@ -315,6 +316,7 @@ const VOID_RETURN = "void";
 const RUNTIME_BUILTINS = new Map<string, string>([
   [qualifiedMethodName("Math", "min"), X64_RUNTIME_SYMBOLS.minimum],
   [qualifiedMethodName("Math", "max"), X64_RUNTIME_SYMBOLS.maximum],
+  [qualifiedMethodName("Math", RANDOM_MEMBER), X64_RUNTIME_SYMBOLS.random],
   [qualifiedMethodName("string", "char_code_at"), X64_RUNTIME_SYMBOLS.charCodeAt],
   [qualifiedMethodName("string", "index_of"), X64_RUNTIME_SYMBOLS.stringIndexOf],
   [qualifiedMethodName("string", "includes"), X64_RUNTIME_SYMBOLS.stringIncludes],

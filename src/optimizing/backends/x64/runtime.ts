@@ -156,6 +156,58 @@ function extremum(keepFirst: string) {
   };
 }
 
+const RANDOM_SEED_KEY = "random-seed";
+const RANDOM_SCALE_KEY = "random-scale";
+const RANDOM_STATE_BYTES = 8;
+const RANDOM_FIRST_SHIFT = 13;
+const RANDOM_SECOND_SHIFT = 7;
+const RANDOM_THIRD_SHIFT = 17;
+const RANDOM_MANTISSA_SHIFT = 11;
+const RANDOM_SCALE_BITS = 0x3ca0000000000000n;
+const TIMESTAMP_HIGH_SHIFT = 32;
+const NEVER_ZERO = 1;
+const SEEDED_BLOCK = "seeded";
+
+function randomValue(builder: MachineRoutineBuilder): void {
+  const seed = builder.data(
+    RANDOM_SEED_KEY,
+    RANDOM_STATE_BYTES,
+    zeroFilledBuffer(RANDOM_STATE_BYTES),
+    true,
+  );
+  const scale = builder.data(RANDOM_SCALE_KEY, RANDOM_STATE_BYTES, [
+    integerData(RANDOM_SCALE_BITS, RANDOM_STATE_BYTES),
+  ]);
+  const held = mem(RANDOM_STATE_BYTES, { symbol: seed.label });
+  const state = builder.write("rax", 8);
+  const scratch = () => builder.write("rcx", 8);
+  builder
+    .emit("movq", state, held)
+    .emit("testq", builder.read("rax", 8), builder.read("rax", 8))
+    .to("jne", SEEDED_BLOCK)
+    .emit("rdtsc")
+    .emit("shlq", builder.write("rdx", 8), imm(TIMESTAMP_HIGH_SHIFT))
+    .emit("orq", builder.write("rax", 8), builder.read("rdx", 8))
+    .emit("orq", builder.write("rax", 8), imm(NEVER_ZERO))
+    .at(SEEDED_BLOCK);
+  for (const [opcode, distance] of [
+    ["shlq", RANDOM_FIRST_SHIFT],
+    ["shrq", RANDOM_SECOND_SHIFT],
+    ["shlq", RANDOM_THIRD_SHIFT],
+  ] as const) {
+    builder
+      .emit("movq", scratch(), builder.read("rax", 8))
+      .emit(opcode, scratch(), imm(distance))
+      .emit("xorq", builder.write("rax", 8), builder.read("rcx", 8));
+  }
+  builder
+    .emit("movq", held, builder.read("rax", 8))
+    .emit("shrq", builder.write("rax", 8), imm(RANDOM_MANTISSA_SHIFT))
+    .emit("cvtsi2sdq", builder.write("xmm0", 8), builder.read("rax", 8))
+    .emit("mulsd", builder.write("xmm0", 8), mem(RANDOM_STATE_BYTES, { symbol: scale.label }))
+    .ret();
+}
+
 function charCodeAt(abi: RuntimeAbi) {
   const [text, position] = x64IntegerArgumentNames(abi);
   return (builder: MachineRoutineBuilder): void => {
@@ -461,6 +513,7 @@ export function x64RuntimeRoutines(
     [X64_RUNTIME_SYMBOLS.modulo, divide(abi, true)],
     [X64_RUNTIME_SYMBOLS.minimum, extremum("jb")],
     [X64_RUNTIME_SYMBOLS.maximum, extremum("ja")],
+    [X64_RUNTIME_SYMBOLS.random, randomValue],
     [X64_RUNTIME_SYMBOLS.charCodeAt, charCodeAt(abi)],
     [X64_RUNTIME_SYMBOLS.stringSet, copy(abi, false)],
     [X64_RUNTIME_SYMBOLS.stringAppend, copy(abi, true)],

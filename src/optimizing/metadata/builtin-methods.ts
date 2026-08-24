@@ -165,7 +165,10 @@ export function builtinGlobalIntrinsicByName(name: string): BuiltinIntrinsic | n
 type NamespaceFunctionDeclaration = {
   readonly name: string;
   readonly argCount: number;
+  readonly pure?: boolean;
 };
+
+export const RANDOM_MEMBER = "random";
 
 const NAMESPACE_FUNCTION_DECLARATIONS: readonly NamespaceFunctionDeclaration[] = [
   { name: "abs", argCount: 1 },
@@ -176,6 +179,7 @@ const NAMESPACE_FUNCTION_DECLARATIONS: readonly NamespaceFunctionDeclaration[] =
   { name: "round", argCount: 1 },
   { name: "min", argCount: 2 },
   { name: "max", argCount: 2 },
+  { name: RANDOM_MEMBER, argCount: 0, pure: false },
 ];
 
 export function qualifiedMethodName(owner: string, name: string): string {
@@ -197,7 +201,7 @@ function buildNamespaceRegistry(): Map<string, BuiltinMethodIntrinsic> {
         params: Array.from({ length: declaration.argCount }, () => "float"),
         returns: "float",
       },
-      pure: true,
+      pure: declaration.pure ?? true,
       variadic: false,
       defaults: [],
       surfaceArgCount: declaration.argCount + 1,

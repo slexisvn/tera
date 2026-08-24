@@ -664,7 +664,7 @@ export function compileModule(
   nameCalleeConstants(module);
   lowerModuleCaptures(module, PROGRAM_ENTRY_NAME);
   dropFunctionBindings(module);
-  lowerErrorSurface(module);
+  lowerErrorSurface(module, classes);
   const start = startModules(module, options.moduleInits ?? []);
   const started = start.started;
   promoteRunOnceGlobals(module, runOnceGraphs(module, backend, options));

@@ -14,6 +14,7 @@ import { x64McTarget } from "../../../../../src/optimizing/backends/x64/mc/targe
 import { assembleFunction } from "../../../../../src/optimizing/mc/assembler.js";
 import { layoutModule } from "../../../../../src/optimizing/mc/layout.js";
 import { McModule } from "../../../../../src/optimizing/mc/module.js";
+import type { McSection } from "../../../../../src/optimizing/mc/section.js";
 import { assembleText, hex, itAssembles } from "../../../../helpers/gnu-assembler.js";
 
 const target = x64Target({ abi: "sysv", format: "elf" });
@@ -188,6 +189,7 @@ const CASES: readonly (readonly [string, MachineInstruction])[] = [
   ],
   ["sign extend", instruction("movslq", [def(reg("rax"), 8), use(reg("rdi"), 4)])],
   ["no operand", instruction("cltd", [])],
+  ["timestamp counter", instruction("rdtsc", [])],
 ];
 
 const IMPORT_SLOT = "__imp_WriteFile";
@@ -200,6 +202,10 @@ const indirectCall = instruction("call", [mem(8, { symbol: IMPORT_SLOT })], {
 describe("x64 instruction encoding", () => {
   it("encodes a register move in the store direction", () => {
     expect(hex(bytesOf(CASES[0]![1]))).toBe("89 c3");
+  });
+
+  it("encodes the timestamp counter read", () => {
+    expect(hex(bytesOf(instruction("rdtsc", [])))).toBe("0f 31");
   });
 
   it("emits a bare rex prefix for legacy byte registers", () => {
@@ -263,6 +269,23 @@ describe("x64 instruction encoding", () => {
   });
 });
 
+function outsideRelocations(
+  module: McModule,
+  section: McSection,
+): (bytes: Uint8Array) => Uint8Array {
+  const placeholders: number[] = [];
+  for (const entry of module.relocations) {
+    if (entry.section !== section) continue;
+    const width = x64McTarget.fixups.sizeOf(entry.kind);
+    for (let at = 0; at < width; at++) placeholders.push(entry.offset + at);
+  }
+  return (bytes) => {
+    const settled = new Uint8Array(bytes);
+    for (const at of placeholders) if (at < settled.length) settled[at] = 0;
+    return settled;
+  };
+}
+
 describe("x64 encoder against the gnu assembler", () => {
   for (const [name, node] of CASES) {
     itAssembles(`agrees on ${name}`, () => {
@@ -277,10 +300,12 @@ describe("x64 encoder against the gnu assembler", () => {
       const module = new McModule();
       assembleFunction(module, x64McTarget, routine.fn, "local");
       layoutModule(module, x64McTarget, { mode: "object" });
-      const mine = module.sections[0]!.contents();
+      const section = module.sections[0]!;
+      const mine = section.contents();
       const theirs = assembleText(writer.functionText(routine.fn, false));
+      const settled = outsideRelocations(module, section);
 
-      expect(hex(theirs.subarray(0, mine.length))).toBe(hex(mine));
+      expect(hex(settled(theirs.subarray(0, mine.length)))).toBe(hex(settled(mine)));
     });
   }
 

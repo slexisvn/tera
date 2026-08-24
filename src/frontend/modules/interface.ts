@@ -190,28 +190,39 @@ export function moduleInterfaceOf(record: ModuleRecord, bound: BoundProgram): Mo
   return { builtins, values, aliases, interfaces };
 }
 
-function renameSignature(
-  surface: ModuleInterface,
-  imported: string,
-  local: string,
-): ExternalModuleSurface | null {
-  const signature = surface.builtins?.find((entry) => entry.name === imported);
-  if (signature !== undefined) return { builtins: [{ ...signature, name: local }] };
-  const alias = surface.aliases?.find((entry) => entry.name === imported);
-  if (alias !== undefined) return { aliases: [{ ...alias, name: local }] };
-  const shape = surface.interfaces?.find((entry) => entry.name === imported);
-  if (shape !== undefined) return { interfaces: [{ ...shape, name: local }] };
-  const value = surface.values?.find((entry) => entry.name === imported);
-  if (value !== undefined) return { values: [{ ...value, name: local }] };
-  return null;
-}
-
 type MutableSurface = {
   builtins: ExternalBuiltinSignature[];
   values: ExternalValue[];
   aliases: ExternalTypeAlias[];
   interfaces: ExternalInterface[];
 };
+
+function surfaceIsEmpty(surface: MutableSurface): boolean {
+  return (
+    surface.builtins.length === 0 &&
+    surface.values.length === 0 &&
+    surface.aliases.length === 0 &&
+    surface.interfaces.length === 0
+  );
+}
+
+function renameSignature(
+  surface: ModuleInterface,
+  imported: string,
+  local: string,
+): ExternalModuleSurface | null {
+  const renamed: MutableSurface = { builtins: [], values: [], aliases: [], interfaces: [] };
+  const signature = surface.builtins?.find((entry) => entry.name === imported);
+  if (signature !== undefined) renamed.builtins.push({ ...signature, name: local });
+  const alias = surface.aliases?.find((entry) => entry.name === imported);
+  if (alias !== undefined) renamed.aliases.push({ ...alias, name: local });
+  const shape = surface.interfaces?.find((entry) => entry.name === imported);
+  if (shape !== undefined) renamed.interfaces.push({ ...shape, name: local });
+  if (!surfaceIsEmpty(renamed)) return renamed;
+  const value = surface.values?.find((entry) => entry.name === imported);
+  if (value !== undefined) renamed.values.push({ ...value, name: local });
+  return surfaceIsEmpty(renamed) ? null : renamed;
+}
 
 function qualifiedSurface(surface: ModuleInterface, prefix: string): ExternalModuleSurface {
   return {

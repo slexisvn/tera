@@ -22,7 +22,7 @@ import { cloneGraph } from "../ir/clone.js";
 import { arrayElementNameOf } from "./array-shapes.js";
 import { literalReturnShapeOf, shapeObjectLiterals } from "./object-literal-shapes.js";
 import { shapeModuleCollections } from "./collection-surface.js";
-import { calleeDeclaredSignature } from "../analyses/aot-legality.js";
+import { calleeDeclaredSignature } from "../metadata/call-signatures.js";
 import { callSiteOf } from "./inlining.js";
 import { joinTypes, type LatticeType } from "../types/lattice.js";
 

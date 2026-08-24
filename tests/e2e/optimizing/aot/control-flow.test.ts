@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { cSource, itNative, runCFunction, runCStringFunction } from "../../../helpers/c-executor.js";
+import { itRunsPe } from "../../../helpers/pe-runner.js";
+import { cAgreement, cText, interpreted, peAgrees } from "../../../helpers/aot-agreement.js";
 
 const src = (...lines: string[]) => lines.join("\n") + "\n";
+
+const native = cAgreement();
 
 function compile(source: string) {
   return nodeEngine().compileAot(source);
@@ -171,5 +175,118 @@ describe("AOT switch", () => {
         ),
       ),
     ).toThrow(/not comparable to switch subject type 'int'/);
+  });
+});
+
+const CLASSIFY = [
+  "fn classify(c: int) -> int:",
+  "  if (c >= 48 and c <= 57) or c == 45:",
+  "    return 1",
+  "  return 0",
+];
+
+const PAREN_CONDITIONS: readonly (readonly [string, string])[] = [
+  [
+    "a group on the left of or",
+    src(...CLASSIFY, "for c of [50, 45, 65]:", "  print(classify(c))"),
+  ],
+  [
+    "a group on the left of and",
+    src(
+      "c = 50",
+      "if (c >= 48) and c <= 57:",
+      '  print("digit")',
+      "else:",
+      '  print("other")',
+    ),
+  ],
+  [
+    "groups on both sides of or",
+    src(
+      "for c of [50, 45, 65]:",
+      "  if (c >= 48 and c <= 57) or (c == 45 and c > 40):",
+      '    print("yes")',
+      "  else:",
+      '    print("no")',
+    ),
+  ],
+  [
+    "nested groups on the left, where the nesting changes the answer",
+    src(
+      "for a of [true, false]:",
+      "  for b of [true, false]:",
+      "    for c of [true, false]:",
+      "      if ((a or b) and c) or (a and b):",
+      '        print("in")',
+      "      else:",
+      '        print("out")',
+    ),
+  ],
+  [
+    "a group on the left of a while condition",
+    src(
+      "c = 5",
+      "while (c > 0) and c < 100:",
+      "  print(c)",
+      "  c = c - 1",
+    ),
+  ],
+  [
+    "a group on the left of an arithmetic comparison",
+    src("c = 50", "if (c + 1) > 2:", '  print("bigger")'),
+  ],
+];
+
+describe("a parenthesised operand on the left of a condition", () => {
+  for (const [name, source] of PAREN_CONDITIONS) {
+    itRunsPe(`compiles ${name} the way the interpreter runs it`, () => peAgrees(source));
+    itNative(`compiles ${name} the same way through the C backend`, native.agrees(source));
+  }
+
+  it("honours a leading group instead of dropping it", () => {
+    const truth = (condition: string) =>
+      interpreted(
+        src(
+          "for a of [true, false]:",
+          "  for b of [true, false]:",
+          "    for c of [true, false]:",
+          `      print(${condition})`,
+        ),
+      );
+
+    expect(truth("((a or b) and c) or (a and b)")).not.toBe(
+      truth("a or b and c or (a and b)"),
+    );
+    expect(truth("((a or b) and c) or (a and b)")).toBe(
+      truth("(a or b) and c or a and b"),
+    );
+  });
+
+  it("reads the same as the unparenthesised and fully wrapped spellings", () => {
+    const spellings = [
+      src(...CLASSIFY, "for c of [50, 45, 65]:", "  print(classify(c))"),
+      src(
+        "fn classify(c: int) -> int:",
+        "  if c >= 48 and c <= 57 or c == 45:",
+        "    return 1",
+        "  return 0",
+        "for c of [50, 45, 65]:",
+        "  print(classify(c))",
+      ),
+      src(
+        "fn classify(c: int) -> int:",
+        "  if ((c >= 48 and c <= 57) or c == 45):",
+        "    return 1",
+        "  return 0",
+        "for c of [50, 45, 65]:",
+        "  print(classify(c))",
+      ),
+    ];
+
+    expect(interpreted(spellings[0]!)).toBe("1\n1\n0\n");
+    for (const spelling of spellings) {
+      expect(interpreted(spelling)).toBe(interpreted(spellings[0]!));
+      expect(cText(spelling)).toBe(cText(spellings[0]!));
+    }
   });
 });

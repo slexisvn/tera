@@ -74,6 +74,12 @@ const CALLS_UNLOWERABLE = src(
   "print(describe(255))",
 );
 
+const KEEPS_UNLOWERABLE_ASIDE = src(
+  "fn describe(n: int) -> string:",
+  "  return n.to_string(16)",
+  "print(255)",
+);
+
 const REACTIVE = src(
   "signal price = 12.5",
   "computed total = price * 2",
@@ -326,6 +332,19 @@ describe("tera compile entry reporting", () => {
       expect(built.errors[1]).toBe(
         "tera compile: warning: skipped 'tera_program' (calls unavailable function describe)",
       );
+    });
+  });
+
+  itBuildsNatively("says a function it left out is not one the program runs", () => {
+    inWorkspace((dir) => {
+      const built = compile(dir, KEEPS_UNLOWERABLE_ASIDE);
+
+      expect(built.status).toBe(0);
+      expect(built.errors.join("\n")).toContain(
+        "note: 'describe' is not in the binary, and nothing the program runs calls it",
+      );
+      expect(built.errors.join("\n")).not.toContain("warning");
+      expect(output(built.output)).toBe("255");
     });
   });
 

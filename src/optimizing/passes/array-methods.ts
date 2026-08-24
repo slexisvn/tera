@@ -661,15 +661,56 @@ function lowerJoin(site: Site): boolean {
   return true;
 }
 
-function lowerSort(site: Site): boolean {
-  if (argumentsOf(site.node).length !== ONE_ARGUMENT) return false;
+function spellsElements(site: Site): boolean {
+  if (site.model.element === SCALAR_POINTER) return false;
+  if (answersText(site.model.element)) return true;
+  return builtinMethodIntrinsicFor(elementLattice(site.model.element), TO_STRING_MEMBER) !== null;
+}
+
+function comparingCallback(site: Site): SortOrdering | null {
   const callback = callbackAt(site, 0);
-  if (callback === null) return false;
-  if (callback.signature.params.length !== ORDERED_PAIR) return false;
+  if (callback === null || callback.signature.params.length !== ORDERED_PAIR) return null;
   const ordering = aotScalarOf(
     nominalLatticeType(callback.signature.returns, site.graph.classes),
   );
-  if (ordering !== SCALAR_INT32 && ordering !== SCALAR_FLOAT64) return false;
+  if (ordering !== SCALAR_INT32 && ordering !== SCALAR_FLOAT64) return null;
+  return { callback, ordering };
+}
+
+type SortOrdering = {
+  readonly callback: Callback;
+  readonly ordering: AotScalar;
+};
+
+function comesLater(
+  site: Site,
+  block: CFGBlock,
+  ordering: SortOrdering | null,
+  settled: CFGInstruction,
+  carried: CFGInstruction,
+): CFGInstruction {
+  if (ordering === null) {
+    const first = elementText(site, block, settled);
+    const second = elementText(site, block, carried);
+    return append(block, irGenericCompare(GREATER_THAN, first, second), site.stamp);
+  }
+  const order = invoke(site, block, ordering.callback, [settled, carried]);
+  const zero = append(block, irConstant(FIRST_INDEX), site.stamp);
+  return append(
+    block,
+    ordering.ordering === SCALAR_INT32
+      ? irInt32Compare(GREATER_THAN, order, zero)
+      : irFloat64Compare(GREATER_THAN, order, zero),
+    site.stamp,
+  );
+}
+
+function lowerSort(site: Site): boolean {
+  const args = argumentsOf(site.node);
+  if (args.length > ONE_ARGUMENT) return false;
+  const ordering = args.length === ONE_ARGUMENT ? comparingCallback(site) : null;
+  if (args.length === ONE_ARGUMENT && ordering === null) return false;
+  if (ordering === null && !spellsElements(site)) return false;
 
   const { graph, editor, node, model, stamp } = site;
   const entry = node.block!;
@@ -713,15 +754,7 @@ function lowerSort(site: Site): boolean {
   link(inner, place);
 
   const settled = appendLoad(site, probe, buffer, slot);
-  const order = invoke(site, probe, callback, [settled, carried]);
-  const zero = append(probe, irConstant(FIRST_INDEX), stamp);
-  const later = append(
-    probe,
-    ordering === SCALAR_INT32
-      ? irInt32Compare(GREATER_THAN, order, zero)
-      : irFloat64Compare(GREATER_THAN, order, zero),
-    stamp,
-  );
+  const later = comesLater(site, probe, ordering, settled, carried);
   append(probe, irBranch(later, shift, place), stamp);
   link(probe, shift);
   link(probe, place);
@@ -741,7 +774,7 @@ function lowerSort(site: Site): boolean {
   append(sorted, irJump(after), stamp);
   link(sorted, after);
 
-  replaceWith(site, array, [callback.source]);
+  replaceWith(site, array, ordering === null ? [] : [ordering.callback.source]);
   return true;
 }
 

@@ -24,6 +24,7 @@ export type RegisterBytecodeCompilerOptions = {
   moduleBindings?: ReadonlyMap<string, string>;
   moduleSpecs?: ReadonlySet<string>;
   moduleExports?: ReadonlyMap<string, string>;
+  importedInterfaces?: ReadonlyMap<string, RuntimeInterfaceContract>;
 };
 
 export interface RegisterBytecodeCompiler {
@@ -63,7 +64,7 @@ export class RegisterBytecodeCompiler {
     this._breakJumps = null;
     this._continueJumps = null;
     this._finallyBlocks = [];
-    this.interfaceContracts = new Map();
+    this.interfaceContracts = new Map(options.importedInterfaces ?? []);
     this.classAbstractMembers = new Map();
     this.classConstructors = new Map();
     this.sourceName = options.sourceName ?? null;

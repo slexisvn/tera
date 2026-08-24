@@ -26,6 +26,7 @@ import { ifConversion, valuesTargetSelects } from "../passes/if-conversion.js";
 import { legalizeOperations } from "../passes/operation-legalization.js";
 import { lowerGlobalBuiltins } from "../passes/global-builtin-lowering.js";
 import { lowerCollectionSurface } from "../passes/collection-surface.js";
+import { expandSpreadCalls } from "../passes/spread-calls.js";
 import { lowerJsonSurface } from "../passes/json-surface.js";
 import { lowerMathSurface } from "../passes/math-surface.js";
 import { lowerGlobalVariables } from "../passes/global-variable-lowering.js";
@@ -97,6 +98,14 @@ export function targetLegalizationPipeline(
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
       run: (graph, analyses) => ({
         changed: answerCallSignatures(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "spread-calls",
+      preserves: preservesControlFlow,
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: expandSpreadCalls(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
     {

@@ -111,8 +111,8 @@ describe("AOT error values", () => {
     declines(src("try:", '  throw Error("boom")', "catch e:", "  print(e)"));
   });
 
-  it("declines an error subclass that carries state of its own", () => {
-    declines(
+  itRunsPe("reads a field an error subclass added to the message it inherited", () => {
+    agrees(
       src(
         "class HttpError extends Error:",
         "  public status: int",
@@ -123,6 +123,101 @@ describe("AOT error values", () => {
         '  throw HttpError("nope", 404)',
         "catch e:",
         "  print(e.message, e.status)",
+      ),
+    );
+  });
+
+  itRunsPe("carries the state of an error subclass out of the function that raised it", () => {
+    agrees(
+      src(
+        "class HttpError extends Error:",
+        "  public status: int",
+        "  public constructor(msg: string, status: int):",
+        "    super(msg)",
+        "    this.status = status",
+        "fn fetch(path: string) -> int:",
+        '  if path == "/missing":',
+        '    throw HttpError("no such page", 404)',
+        "  return 200",
+        "try:",
+        '  print(fetch("/home"))',
+        '  print(fetch("/missing"))',
+        "catch e:",
+        "  print(e.status, e.message)",
+      ),
+    );
+  });
+
+  itRunsPe("hands two sibling error subclasses to one handler", () => {
+    agrees(
+      src(
+        "class HttpError extends Error:",
+        "  public status: int",
+        "  public constructor(msg: string, status: int):",
+        "    super(msg)",
+        "    this.status = status",
+        "class IoError extends Error:",
+        "  public constructor(msg: string):",
+        "    super(msg)",
+        "fn risky(n: int) -> int:",
+        "  if n < 0:",
+        '    throw HttpError("http", 500)',
+        "  if n == 0:",
+        '    throw IoError("io")',
+        "  return n",
+        "for value of [1, 0, -1]:",
+        "  try:",
+        "    print(risky(value))",
+        "  catch e:",
+        "    print(e.message)",
+      ),
+    );
+  });
+
+  itRunsPe("keeps a thrown error alive while the handler allocates around it", () => {
+    agrees(
+      src(
+        "class HttpError extends Error:",
+        "  public status: int",
+        "  public constructor(msg: string, status: int):",
+        "    super(msg)",
+        "    this.status = status",
+        "class Box:",
+        "  public n: int",
+        "  public constructor(n: int):",
+        "    this.n = n",
+        "fn risky(n: int) -> int:",
+        "  if n % 3 == 0:",
+        '    throw HttpError("bad", n)',
+        "  return n",
+        "total: int = 0",
+        "i: int = 0",
+        "while i < 8000:",
+        "  try:",
+        "    total = total + risky(i)",
+        "  catch e:",
+        "    box = Box(e.status)",
+        "    total = total + box.n + e.message.length",
+        "  i += 1",
+        "print(total)",
+      ),
+    );
+  });
+
+  it("declines an error object where a promise rejection carries the same cell", () => {
+    declines(
+      src(
+        "async fn risky(n: int) -> int:",
+        "  if n < 0:",
+        '    throw Error("negative")',
+        "  return n",
+        "async fn go() -> int:",
+        "  try:",
+        "    print(await risky(-1))",
+        "  catch e:",
+        "    print(e.message)",
+        "  return 0",
+        "go()",
       ),
     );
   });
