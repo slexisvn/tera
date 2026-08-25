@@ -214,6 +214,7 @@ import {
   tryInline,
 } from "./inline.js";
 import { createIntrinsicOptimizationMetadata, intrinsicCallMetadata, type IntrinsicOptimizationMetadata } from "../metadata/intrinsics.js";
+import { compilerOptions, type CompilerOptions } from "../options.js";
 
 type AnyNode = ir.CFGInstruction | null;
 type AnyBlock = ir.CFGBlock;
@@ -338,12 +339,15 @@ export function buildIR(
   feedback: FeedbackSource,
   frameStates: FrameStateList,
   intrinsicMetadata: IntrinsicOptimizationMetadata = createIntrinsicOptimizationMetadata(),
+  options: CompilerOptions = compilerOptions(),
 ): void {
   const nexus =
     feedback instanceof FeedbackNexus ? feedback : new FeedbackNexus(feedback);
   let acc: AnyNode = null;
   const regs: NodeMap = new Map();
-  graph.inlineBudgetRemaining = 400;
+  graph.inlining = options.graphInlining;
+  graph.inlineBudgetRemaining = options.graphInlining.budget;
+  graph.inlineDepth = 0;
 
   const receiverSlots = graph.receiver === true ? 1 : 0;
   for (let i = 0; i < compiledFn.paramCount; i++) {

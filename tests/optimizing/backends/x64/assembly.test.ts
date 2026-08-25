@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { createX64Backend } from "../../../../src/optimizing/backends/x64/backend.js";
 import type { AotProgram } from "../../../../src/optimizing/drivers/aot.js";
-import { hostBackendId } from "../../../../src/optimizing/backends/index.js";
+import { hostBackendId } from "../../../../src/optimizing/backends/host.js";
 
 const HOST_TARGET = hostBackendId()!;
 const CONFIGURED_TARGET = "x64-configured";

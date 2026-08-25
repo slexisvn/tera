@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { main } from "../../../src/cli/main.js";
-import { hostBackendId } from "../../../src/optimizing/backends/index.js";
+import { hostBackendId } from "../../../src/optimizing/backends/host.js";
 
 const FIXTURE = fileURLToPath(new URL("./fixture", import.meta.url));
 const ENTRY = path.join(FIXTURE, "src", "main.tera");

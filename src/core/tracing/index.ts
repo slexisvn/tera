@@ -53,9 +53,17 @@ export class TracerEvent {
   }
 }
 
+/**
+ * Receives every event instead of the console. A sink owns delivery entirely:
+ * nothing is kept in `history` while one is installed, so a long-running host
+ * does not accumulate events it already consumed.
+ */
+export type TraceSink = (event: TracerEvent) => void;
+
 export class Tracer {
   enabled: boolean;
   categories: Set<string>;
+  sink: TraceSink | null;
   history: TracerEvent[];
   maxHistory: number;
   counters: Map<string, number>;
@@ -66,6 +74,7 @@ export class Tracer {
   constructor() {
     this.enabled = false;
     this.categories = new Set(["all"]);
+    this.sink = null;
     this.history = [];
     this.maxHistory = 10000;
     this.counters = new Map();
@@ -108,10 +117,14 @@ export class Tracer {
     if (!this.shouldLog(category)) return;
 
     const event = new TracerEvent(category, message, performance.now(), data);
+    if (this.sink !== null) {
+      this.sink(event);
+      return;
+    }
+
     if (this.history.length < this.maxHistory) {
       this.history.push(event);
     }
-
     console.log(this.formatMessage(category, message));
   }
 

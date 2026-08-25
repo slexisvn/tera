@@ -26,11 +26,6 @@ describe("ExecutionProfile", () => {
       expect(profile.recentTimes[0]).toBe(8);
     });
 
-    it("increments callsSinceLastICTransition", () => {
-      profile.recordExecution(1);
-      profile.recordExecution(1);
-      expect(profile.callsSinceLastICTransition).toBe(2);
-    });
   });
 
   describe("avgTimeMs", () => {
@@ -71,35 +66,6 @@ describe("ExecutionProfile", () => {
     });
   });
 
-  describe("recordICTransition", () => {
-    it("resets callsSinceLastICTransition", () => {
-      profile.recordExecution(1);
-      profile.recordExecution(1);
-      profile.recordExecution(1);
-      profile.recordICTransition();
-      expect(profile.callsSinceLastICTransition).toBe(0);
-      expect(profile.icTransitionCount).toBe(1);
-    });
-  });
-
-  describe("isStable", () => {
-    it("false before 50 calls since last IC transition", () => {
-      for (let i = 0; i < 49; i++) profile.recordExecution(1);
-      expect(profile.isStable()).toBe(false);
-    });
-
-    it("true after 50 calls since last IC transition", () => {
-      for (let i = 0; i < 50; i++) profile.recordExecution(1);
-      expect(profile.isStable()).toBe(true);
-    });
-
-    it("resets on IC transition", () => {
-      for (let i = 0; i < 50; i++) profile.recordExecution(1);
-      expect(profile.isStable()).toBe(true);
-      profile.recordICTransition();
-      expect(profile.isStable()).toBe(false);
-    });
-  });
 
   describe("recordLoopIterations", () => {
     it("accumulates loop count", () => {

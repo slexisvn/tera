@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { Engine } from "../../../src/index.js";
 import { parseArgs } from "../../../src/cli/args.js";
 import { runCompile } from "../../../src/cli/compile.js";
-import { HOST_PLATFORM, hostBackendId } from "../../../src/optimizing/backends/index.js";
+import { HOST_PLATFORM, hostBackendId } from "../../../src/optimizing/backends/host.js";
 import { itNative } from "../../helpers/c-executor.js";
 
 const src = (...lines: string[]) => lines.join("\n");

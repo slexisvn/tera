@@ -1,10 +1,21 @@
 export const BACK_EDGES_PER_SAFEPOINT = 1024;
 
-export const DEFAULT_TIERING_POLICY = Object.freeze({
+export interface TieringThresholds {
+  readonly baselineThreshold: number;
+  readonly jitThreshold: number;
+  readonly loopOsrThreshold: number;
+  readonly maxDeoptCount: number;
+  readonly feedbackSettleMs: number;
+  readonly compileCooldownStepMs: number;
+  readonly maxCompileCooldownMs: number;
+}
+
+export const DEFAULT_TIERING_POLICY: TieringThresholds = Object.freeze({
   baselineThreshold: 8,
   jitThreshold: 50,
   loopOsrThreshold: 30,
   maxDeoptCount: 3,
+  feedbackSettleMs: 100,
   compileCooldownStepMs: 250,
   maxCompileCooldownMs: 5000,
 });

@@ -407,6 +407,12 @@ export const COMPILE_COMMAND: CommandSpec<CompileConfig> = {
       summary: "check SSA form after every pass that changes the graph",
       apply: (config) => (config.verify = true),
     },
+    {
+      name: "print-after-all",
+      group: "Optimization",
+      summary: "print the IR after every middle-end pass",
+      apply: (config) => (config.printAfterAll = true),
+    },
   ],
   defaults: () => ({
     command: "compile",
@@ -422,6 +428,7 @@ export const COMPILE_COMMAND: CommandSpec<CompileConfig> = {
     heapBytes: null,
     keepTemps: false,
     verify: false,
+    printAfterAll: false,
     modulePaths: [],
   }),
   accept: acceptSingleFile("compile"),

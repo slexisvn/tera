@@ -27,6 +27,7 @@ import {
   type AotLegality,
 } from "../../../src/optimizing/analyses/aot-legality.js";
 import { compileMachineFunction } from "../../../src/optimizing/machine/pipeline.js";
+import { compilerOptions } from "../../../src/optimizing/options.js";
 import { isVirtual, registerOperandsOf } from "../../../src/optimizing/machine/ir.js";
 import { emittedOpcodesOf } from "../../../src/optimizing/machine/select.js";
 import { legalizeOperations } from "../../../src/optimizing/passes/operation-legalization.js";
@@ -59,7 +60,14 @@ function compile(graph: CFGFunction, lowering: MachineLowering) {
   graph.emits = emittedOpcodesOf(lowering);
   legalizeOperations(graph);
   const { legality, analyses } = legalityOf(graph);
-  return compileMachineFunction(graph, legality, lowering, analyses, graph.name);
+  return compileMachineFunction(
+    graph,
+    legality,
+    lowering,
+    analyses,
+    graph.name,
+    compilerOptions("speed", { verifyEachPass: true }),
+  );
 }
 
 function countingLoop(name: string): CFGFunction {

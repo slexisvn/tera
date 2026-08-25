@@ -196,8 +196,6 @@ type TieringPolicyLike = {
   shouldOptimize?: (compiledFn: bytecode.RegisterCompiledFunction) => boolean;
   shouldOSR?: (compiledFn: bytecode.RegisterCompiledFunction, loopCount: number) => boolean;
   recordLoopIterations?: (compiledFn: bytecode.RegisterCompiledFunction, loopCount: number) => void;
-  notifyCompilationStart?: () => void;
-  notifyCompilationEnd?: () => void;
 };
 type JitEngineLike = {
   microtaskQueue?: MicrotaskQueue;
@@ -522,9 +520,7 @@ function tryTierUp(
       Date.now() >= (compiled.optimizationCooldownUntil || 0);
 
   if (shouldJIT && !requiresInterpreterOnly(compiled) && typeof engine.optimizeFunction === "function") {
-    if (policy.shouldOptimize) policy.notifyCompilationStart?.();
     engine.optimizeFunction(compiled);
-    if (policy.shouldOptimize) policy.notifyCompilationEnd?.();
     if (compiled.optimizedCode) {
       updateCallMode(compiled);
       return compiled.optimizedCode(args, thisValue, interpreter, closureEnv);
@@ -1008,11 +1004,7 @@ export class RegisterInterpreter {
         if (loopBudgetTriggered && compiledFn.feedbackVector) {
           compiledFn.feedbackVector.resetLoopBudget();
         }
-        if (this.tieringPolicy.shouldOptimize)
-          this.tieringPolicy.notifyCompilationStart?.();
         this.jitEngine.optimizeFunction(compiledFn);
-        if (this.tieringPolicy.shouldOptimize)
-          this.tieringPolicy.notifyCompilationEnd?.();
         if (compiledFn.optimizedCode) {
           return finishExecution(
             compiledFn.optimizedCode(

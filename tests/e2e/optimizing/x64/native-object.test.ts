@@ -10,7 +10,7 @@ import {
   itReadsElf,
   linkAndRun,
 } from "../../../helpers/gnu-assembler.js";
-import { hostBackendId } from "../../../../src/optimizing/backends/index.js";
+import { hostBackendId } from "../../../../src/optimizing/backends/host.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 

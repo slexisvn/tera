@@ -2,6 +2,7 @@ import { AdaptiveTieringPolicy } from "./adaptive.js";
 import { DEFAULT_TIERING_POLICY } from "./defaults.js";
 
 export { DEFAULT_TIERING_POLICY, compileCooldownUntil } from "./defaults.js";
+export type { TieringThresholds } from "./defaults.js";
 
 export type TieringPolicyOptions =
   | "adaptive"

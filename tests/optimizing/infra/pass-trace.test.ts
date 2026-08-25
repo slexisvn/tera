@@ -48,9 +48,9 @@ function harness(analyses: Array<AnalysisPass<Graph, number>> = []) {
   const registry = new AnalysisRegistry<Graph>();
   for (const analysis of analyses) registry.register(analysis);
   const manager = new AnalysisManager<Graph>(graph, registry);
-  const records: PassTraceRecord[] = [];
+  const records: PassTraceRecord<Graph>[] = [];
   const traced = new PassManager<Graph>(manager, compilerOptions(), {
-    tracer: { probe, sink: (record) => records.push(record) },
+    tracing: { probe, trace: (record) => void records.push(record) },
   });
   const untraced = new PassManager<Graph>(manager, compilerOptions());
   return { graph, manager, records, traced, untraced };
@@ -132,16 +132,36 @@ describe("pass tracing", () => {
     expect(probeCalls).toEqual({ count: 0, dump: 0 });
   });
 
+  it("leaves dumping to the sink so an unused dump costs nothing", () => {
+    const { graph, traced } = harness();
+
+    traced.run(graph, [resizeBy("grow", 4)]);
+
+    expect(probeCalls.dump).toBe(0);
+  });
+
+  it("hands the sink the live graph so it can capture any form it wants", () => {
+    const { graph, records, traced } = harness();
+
+    traced.run(graph, [resizeBy("grow", 4)]);
+
+    expect(records[0].graph).toBe(graph);
+    expect(probe.dump(records[0].graph)).toBe("graph(14)");
+  });
+
   it("renders a section header naming the pass, delta and invalidated analyses", () => {
-    const rendered = formatPassTrace({
-      ordinal: 3,
-      pass: "licm",
-      changed: true,
-      nodesBefore: 12,
-      nodesAfter: 9,
-      invalidated: [analysisId("points-to"), analysisId("mod-ref")],
-      graph: "BODY",
-    });
+    const rendered = formatPassTrace(
+      {
+        ordinal: 3,
+        pass: "licm",
+        changed: true,
+        nodesBefore: 12,
+        nodesAfter: 9,
+        invalidated: [analysisId("points-to"), analysisId("mod-ref")],
+        graph: { nodes: 9 },
+      },
+      "BODY",
+    );
 
     expect(rendered).toBe(
       "*** IR after #3 licm [changed, nodes 12 -> 9 (-3), invalidated points-to mod-ref] ***\nBODY",
@@ -149,15 +169,18 @@ describe("pass tracing", () => {
   });
 
   it("renders growth with an explicit plus sign and an empty invalidation set", () => {
-    const rendered = formatPassTrace({
-      ordinal: 0,
-      pass: "inline",
-      changed: true,
-      nodesBefore: 4,
-      nodesAfter: 11,
-      invalidated: [],
-      graph: "BODY",
-    });
+    const rendered = formatPassTrace(
+      {
+        ordinal: 0,
+        pass: "inline",
+        changed: true,
+        nodesBefore: 4,
+        nodesAfter: 11,
+        invalidated: [],
+        graph: { nodes: 11 },
+      },
+      "BODY",
+    );
 
     expect(rendered.split("\n")[0]).toBe(
       "*** IR after #0 inline [changed, nodes 4 -> 11 (+7), invalidated nothing] ***",

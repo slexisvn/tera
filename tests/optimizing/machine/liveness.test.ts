@@ -136,3 +136,72 @@ describe("LiveInterval intersection", () => {
     expect(left.intersectionWith(right)).toBe(-1);
   });
 });
+
+describe("splitting a live interval", () => {
+  function interval(ranges: ReadonlyArray<readonly [number, number]>, uses: readonly number[]) {
+    const built = new LiveInterval({ kind: "virtual", id: 0, classId: TEST_GPR, width: 8 });
+    for (const [from, to] of [...ranges].reverse()) built.addRange(from, to);
+    for (const at of [...uses].reverse()) built.addUse(at, 1);
+    built.orderUses();
+    return built;
+  }
+
+  it("splits a range in two that meet exactly at the split", () => {
+    const whole = interval([[0, 10]], [0, 4, 8]);
+    const child = whole.splitAt(4);
+    expect(whole.ranges).toEqual([{ from: 0, to: 4 }]);
+    expect(child.ranges).toEqual([{ from: 4, to: 10 }]);
+    expect(whole.end).toBe(child.start);
+  });
+
+  it("moves uses at or after the split to the child", () => {
+    const whole = interval([[0, 10]], [0, 4, 8]);
+    const child = whole.splitAt(4);
+    expect(whole.uses.map((at) => at.position)).toEqual([0]);
+    expect(child.uses.map((at) => at.position)).toEqual([4, 8]);
+  });
+
+  it("keeps whole ranges on the side of the split they fall on", () => {
+    const whole = interval(
+      [
+        [0, 4],
+        [10, 20],
+      ],
+      [0, 12],
+    );
+    const child = whole.splitAt(12);
+    expect(whole.ranges).toEqual([
+      { from: 0, to: 4 },
+      { from: 10, to: 12 },
+    ]);
+    expect(child.ranges).toEqual([{ from: 12, to: 20 }]);
+  });
+
+  it("carries the register of the value it was split from", () => {
+    const whole = interval([[0, 10]], [0, 8]);
+    expect(whole.splitAt(4).register).toBe(whole.register);
+  });
+
+  it("is splittable only strictly inside one of its ranges", () => {
+    const whole = interval(
+      [
+        [0, 4],
+        [10, 20],
+      ],
+      [0, 12],
+    );
+    expect(whole.splittableAt(2)).toBe(true);
+    expect(whole.splittableAt(0)).toBe(false);
+    expect(whole.splittableAt(4)).toBe(false);
+    expect(whole.splittableAt(6)).toBe(false);
+    expect(whole.splittableAt(10)).toBe(false);
+    expect(whole.splittableAt(20)).toBe(false);
+  });
+
+  it("reports the first use strictly after a position", () => {
+    const whole = interval([[0, 10]], [0, 4, 8]);
+    expect(whole.firstUseAfter(0)).toBe(4);
+    expect(whole.firstUseAfter(4)).toBe(8);
+    expect(whole.firstUseAfter(8)).toBe(-1);
+  });
+});

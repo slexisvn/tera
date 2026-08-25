@@ -2,6 +2,7 @@ import type {
   OptimizedCode,
 } from "../../bytecode/register/ops/bytecode.js";
 import type { CompilationUnit } from "../compilation-unit.js";
+import type { CompilerOptions } from "../options.js";
 import type { CodeBackend } from "./backend.js";
 
 export type RejectionKind = "unsupported" | "speculation" | "malformed";
@@ -13,6 +14,7 @@ export interface CompileRejection {
 
 export interface JitCompileRequest {
   readonly unit: CompilationUnit;
+  readonly options?: CompilerOptions;
 }
 
 export interface JitRejection {

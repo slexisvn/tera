@@ -93,6 +93,7 @@ import { lowerModuleCaptures } from "../metadata/module-captures.js";
 import { convertClosures } from "../metadata/closure-conversion.js";
 import { PROGRAM_ENTRY_NAME } from "../target/program-entry.js";
 import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
+import type { ModuleTracer } from "./module-trace.js";
 
 export interface AotProgram {
   readonly files: readonly AotOutputFile[];
@@ -660,26 +661,42 @@ export function compileModule(
 
   const classes = moduleClasses(module);
 
-  uniquifyGraphNames(module);
-  nameCalleeConstants(module);
-  lowerModuleCaptures(module, PROGRAM_ENTRY_NAME);
-  dropFunctionBindings(module);
-  lowerErrorSurface(module, classes);
-  const start = startModules(module, options.moduleInits ?? []);
+  const tracer: ModuleTracer | null = opts.moduleTracer;
+  let traced = 0;
+  const stage = <T>(name: string, run: () => T): T => {
+    const value = run();
+    if (tracer !== null) tracer({ ordinal: traced++, stage: name, module });
+    return value;
+  };
+
+  stage("uniquify-graph-names", () => uniquifyGraphNames(module));
+  stage("name-callee-constants", () => nameCalleeConstants(module));
+  stage("module-captures", () => lowerModuleCaptures(module, PROGRAM_ENTRY_NAME));
+  stage("drop-function-bindings", () => dropFunctionBindings(module));
+  stage("error-surface", () => lowerErrorSurface(module, classes));
+  const start = stage("module-start", () => startModules(module, options.moduleInits ?? []));
   const started = start.started;
-  promoteRunOnceGlobals(module, runOnceGraphs(module, backend, options));
-  convertClosures(module, classes);
-  const promises = lowerPromiseSurface(module);
-  if (promises.length > 0) module = { ...module, units: [...module.units, ...promises] };
-  module = withSpecializations(module, specializeFunctionArguments(module));
-  nameFunctionValues(module, classes);
-  const byArgumentType = adoptInferredTypes(module, classes);
-  if (byArgumentType.added.length > 0) {
-    module = withSpecializations(module, byArgumentType);
-    adoptInferredTypes(module, classes);
-  }
+  stage("promote-run-once-globals", () =>
+    promoteRunOnceGlobals(module, runOnceGraphs(module, backend, options)),
+  );
+  stage("closure-conversion", () => convertClosures(module, classes));
+  stage("promise-surface", () => {
+    const promises = lowerPromiseSurface(module);
+    if (promises.length > 0) module = { ...module, units: [...module.units, ...promises] };
+  });
+  stage("argument-specialization", () => {
+    module = withSpecializations(module, specializeFunctionArguments(module));
+  });
+  stage("name-function-values", () => nameFunctionValues(module, classes));
+  stage("adopt-inferred-types", () => {
+    const byArgumentType = adoptInferredTypes(module, classes);
+    if (byArgumentType.added.length > 0) {
+      module = withSpecializations(module, byArgumentType);
+      adoptInferredTypes(module, classes);
+    }
+  });
   requireDeclaredParameters(module);
-  if (classes !== null) declareGlobalVariables(module, classes);
+  if (classes !== null) stage("declare-global-variables", () => declareGlobalVariables(module, classes));
 
   const sleeping = classes === null ? [] : sleepers(module);
   const clocked = backend.target.capabilities.has("timers");
@@ -713,9 +730,11 @@ export function compileModule(
   }
 
   if (classes !== null) {
-    const generated = splitGenerators(module, classes, signatures, failures);
-    for (const failure of failures) declined.add(failure.name);
-    if (generated.length > 0) module = { ...module, units: [...module.units, ...generated] };
+    stage("split-generators", () => {
+      const generated = splitGenerators(module, classes, signatures, failures);
+      for (const failure of failures) declined.add(failure.name);
+      if (generated.length > 0) module = { ...module, units: [...module.units, ...generated] };
+    });
   }
 
   const lowered: Array<{
@@ -754,7 +773,7 @@ export function compileModule(
     return name === null ? null : settled.get(name) ?? null;
   };
 
-  inlineModuleCalls(module, opts, declined);
+  stage("module-inlining", () => inlineModuleCalls(module, opts, declined));
 
   for (const unit of module.units) {
     const graph = unit.graph;
@@ -814,7 +833,7 @@ export function compileModule(
   for (const { graph, analyses } of emitting) {
     let emitted;
     try {
-      emitted = backend.createEmitter(graph, analyses).emit();
+      emitted = backend.createEmitter(graph, analyses, opts).emit();
     } catch (error) {
       if (!isBackendLoweringError(error)) throw error;
       skipped.push({ name: graph.name, reason: error.message });

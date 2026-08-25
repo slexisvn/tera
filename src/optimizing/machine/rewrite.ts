@@ -15,6 +15,8 @@ import {
 } from "./ir.js";
 import type { MachineLowering } from "./lowering.js";
 import type { Allocation } from "./linear-scan.js";
+import { resolveSplitIntervals } from "./resolve.js";
+import type { LiveInterval } from "./liveness.js";
 
 export class OutOfScratchRegistersError extends BackendLoweringError {
   constructor(opcode: string, classId: RegisterClassId) {
@@ -35,15 +37,25 @@ function isRedundantCopy(node: MachineInstruction): boolean {
   );
 }
 
-function applyAssignment(
+function locationOf(
+  allocation: Allocation,
   node: MachineInstruction,
-  assignment: ReadonlyMap<VirtualRegister, PhysicalRegister>,
-): void {
+  register: VirtualRegister,
+): LiveInterval {
+  const part = allocation.locationAt(register, node.position);
+  if (part === undefined) {
+    throw new Error(`v${register.id} has no live range at ${node.opcode}`);
+  }
+  return part;
+}
+
+function applyAssignment(allocation: Allocation, node: MachineInstruction): void {
   for (const operand of registerOperandsOf(node)) {
-    if (!isVirtual(operand.register)) continue;
-    const physical = assignment.get(operand.register);
-    if (physical === undefined) {
-      throw new Error(`v${operand.register.id} survived allocation without a register`);
+    const register = operand.register;
+    if (!isVirtual(register)) continue;
+    const physical = locationOf(allocation, node, register).assigned;
+    if (physical === null) {
+      throw new Error(`v${register.id} survived allocation without a register`);
     }
     operand.register = physical;
   }
@@ -55,24 +67,22 @@ export function rewriteAllocations(
   lowering: MachineLowering,
   allocation: Allocation,
 ): readonly PhysicalRegister[] {
-  const usedScratch = new Set<PhysicalRegister>();
-  const assignment = new Map<VirtualRegister, PhysicalRegister>();
-  const slots = new Map<VirtualRegister, StackSlot>();
-  for (const interval of allocation.intervals) {
-    const register = interval.register;
-    if (!isVirtual(register)) continue;
-    if (interval.assigned !== null) assignment.set(register, interval.assigned);
-    else slots.set(register, interval.spillSlot!);
-  }
+  const usedScratch = new Set<PhysicalRegister>(
+    resolveSplitIntervals(fn, target, lowering, allocation),
+  );
+  const spillSlotAt = (node: MachineInstruction, operand: RegisterOperand): StackSlot | null =>
+    isVirtual(operand.register)
+      ? locationOf(allocation, node, operand.register).spillSlot
+      : null;
 
   for (const block of fn.blocks) {
     const rewritten: MachineInstruction[] = [];
     for (const node of block.instructions) {
       const operands = registerOperandsOf(node).filter(
-        (operand) => isVirtual(operand.register) && slots.has(operand.register),
+        (operand) => spillSlotAt(node, operand) !== null,
       );
       if (operands.length === 0) {
-        applyAssignment(node, assignment);
+        applyAssignment(allocation, node);
         if (!isRedundantCopy(node)) rewritten.push(node);
         continue;
       }
@@ -96,24 +106,25 @@ export function rewriteAllocations(
       claim("def", new Map<RegisterClassId, number>());
 
       const reloaded = new Set<VirtualRegister>();
-      const stored = new Map<VirtualRegister, RegisterOperand>();
+      const stored = new Map<VirtualRegister, { slot: StackSlot; source: RegisterOperand }>();
       for (const operand of operands) {
         const register = operand.register as VirtualRegister;
+        const slot = spillSlotAt(node, operand)!;
         const scratch = scratchOf.get(register)!;
         if (operand.role === "use" && !reloaded.has(register)) {
           reloaded.add(register);
-          rewritten.push(
-            lowering.reload(def(scratch, register.width), slots.get(register)!),
-          );
+          rewritten.push(lowering.reload(def(scratch, register.width), slot));
         }
-        if (operand.role === "def") stored.set(register, use(scratch, register.width));
+        if (operand.role === "def") {
+          stored.set(register, { slot, source: use(scratch, register.width) });
+        }
         operand.register = scratch;
       }
 
-      applyAssignment(node, assignment);
+      applyAssignment(allocation, node);
       rewritten.push(node);
-      for (const [register, source] of stored) {
-        rewritten.push(lowering.spill(slots.get(register)!, source));
+      for (const { slot, source } of stored.values()) {
+        rewritten.push(lowering.spill(slot, source));
       }
     }
     block.instructions.length = 0;

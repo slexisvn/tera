@@ -1,4 +1,5 @@
-import { createBackendRegistry, HOST_PLATFORM } from "../optimizing/backends/index.js";
+import { createBackendRegistry } from "../optimizing/backends/index.js";
+import { HOST_PLATFORM } from "../optimizing/backends/host.js";
 import { isAotBackend, type AotBackend } from "../optimizing/target/backend.js";
 import type { AotOutputFormat } from "../optimizing/target/artifact.js";
 import type { EmitKind } from "./config.js";

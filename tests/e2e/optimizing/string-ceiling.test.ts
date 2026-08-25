@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../helpers/engine.js";
-import { hostBackendId } from "../../../src/optimizing/backends/index.js";
+import { hostBackendId } from "../../../src/optimizing/backends/host.js";
 import { compilerOptions } from "../../../src/optimizing/options.js";
 
 const KEEPS_CALLS = compilerOptions("speed", { inlineBudget: 0 });

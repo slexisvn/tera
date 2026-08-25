@@ -12,7 +12,7 @@ export type Alias = { find: RegExp; replacement: string };
 
 export const aliases: Alias[] = [
   { find: /^@\/(.*)$/, replacement: `${posix(EXT_ROOT, "src")}/$1` },
-  { find: /^@notebook\/(.*)$/, replacement: `${posix(ROOT, "notebook/src")}/$1` },
+  { find: /^@notebook\/(.*)$/, replacement: `${posix(ROOT, "tools/notebook/src")}/$1` },
   { find: /^tera$/, replacement: posix(ROOT, "src/index.ts") },
   { find: /^tera\/(.*)$/, replacement: `${posix(ROOT, "src")}/$1` },
   { find: /^tera-data\/(.*)$/, replacement: `${posix(ROOT, "data")}/$1` },

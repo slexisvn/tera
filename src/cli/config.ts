@@ -61,6 +61,7 @@ export interface CompileConfig {
   heapBytes: number | null;
   keepTemps: boolean;
   verify: boolean;
+  printAfterAll: boolean;
   modulePaths: string[];
 }
 

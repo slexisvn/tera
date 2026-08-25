@@ -1,4 +1,3 @@
-const STABILITY_WINDOW = 50;
 const CALL_RATE_WINDOW_MS = 100;
 const MAX_RECENT_TIMES = 32;
 const EMA_ALPHA = 0.3;
@@ -15,8 +14,6 @@ export class ExecutionProfile {
   lastCallTime: number;
   callsInWindow: number;
   windowStart: number;
-  icTransitionCount: number;
-  callsSinceLastICTransition: number;
   loopIterations: number;
   compileFailureCount?: number;
   lastCompileFailureReason?: string | null;
@@ -34,8 +31,6 @@ export class ExecutionProfile {
     this.lastCallTime = 0;
     this.callsInWindow = 0;
     this.windowStart = 0;
-    this.icTransitionCount = 0;
-    this.callsSinceLastICTransition = 0;
     this.loopIterations = 0;
   }
 
@@ -62,8 +57,6 @@ export class ExecutionProfile {
     } else {
       this.callsInWindow++;
     }
-
-    this.callsSinceLastICTransition++;
   }
 
   recordDeopt(reason: string): void {
@@ -73,11 +66,6 @@ export class ExecutionProfile {
     if (this.deoptReasons.length > 10) {
       this.deoptReasons.shift();
     }
-  }
-
-  recordICTransition(): void {
-    this.icTransitionCount++;
-    this.callsSinceLastICTransition = 0;
   }
 
   recordLoopIterations(count: number): void {
@@ -95,10 +83,6 @@ export class ExecutionProfile {
 
   hotness(loopWeight = 0): number {
     return this.callFrequency * this.emaTimeMs * (1 + loopWeight);
-  }
-
-  isStable(): boolean {
-    return this.callsSinceLastICTransition >= STABILITY_WINDOW;
   }
 
   timeSinceLastDeopt(): number {

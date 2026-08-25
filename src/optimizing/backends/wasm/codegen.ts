@@ -6,7 +6,7 @@ import type {
 } from "../../../bytecode/register/ops/bytecode.js";
 import type { FrameState, FrameValue } from "../../../deopt/frame-state.js";
 
-import { RegisterFrame } from "../../../bytecode/register/interpreter/index.js";
+import { MAX_DEOPT_COUNT, RegisterFrame } from "../../../bytecode/register/interpreter/index.js";
 import { registerExternalRootProvider } from "../../../gc/external-roots.js";
 import {
   isSmi,
@@ -4299,7 +4299,7 @@ export class WasmCodegen {
           policy.recordDeopt(compiledFn, reason);
         }
 
-        const maxDeoptCount = policy?.maxDeoptCount ?? 3;
+        const maxDeoptCount = policy?.maxDeoptCount ?? MAX_DEOPT_COUNT;
         if (compiledFn.deoptCount >= maxDeoptCount) {
           compiledFn.disableOptimization = true;
         }

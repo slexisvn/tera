@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { nodeEngine } from "../../helpers/engine.js";
+import { printIR } from "../../../src/optimizing/ir/text.js";
 import type { RegisterCompiledFunction } from "../../../src/bytecode/register/ops/bytecode.js";
 
 const roots: string[] = [];
@@ -38,7 +39,7 @@ function run(files: Record<string, string>): Run {
     tieringPolicy: { jitThreshold: 4, baselineThreshold: 2, loopOsrThreshold: 4 },
     onOptimize: (fn: RegisterCompiledFunction, graph) => {
       optimized.push(fn.name ?? "<anonymous>");
-      const dump = graph.dump();
+      const dump = printIR(graph);
       for (const line of dump.split("\n")) {
         if (line.includes("CallKnownFunction") || line.includes("CheckCallTarget")) {
           inlined.push(line.trim());

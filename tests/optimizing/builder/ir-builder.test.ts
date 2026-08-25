@@ -7,6 +7,7 @@ import {
   ROP_RETURN,
 } from "../../../src/bytecode/register/ops/bytecode.js";
 import { buildIR } from "../../../src/optimizing/builder/ir-builder.js";
+import { printIR } from "../../../src/optimizing/ir/text.js";
 import {
   CFGValue,
   CFGInstruction,
@@ -326,7 +327,7 @@ describe("CFGFunction", () => {
       b0.addNode(c);
       const ret = irReturn(c);
       b0.addNode(ret);
-      const output = graph.dump();
+      const output = printIR(graph);
       expect(output).toContain("myFn");
       expect(output).toContain("B0");
       expect(output).toContain("Return");

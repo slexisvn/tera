@@ -27,7 +27,11 @@ export class WasmBackend implements JitBackend {
   }
 
   jitCompile(request: JitCompileRequest): JitCompileResult {
-    const legalization = this.legalize(request.unit.graph, request.unit.analyses);
+    const legalization = this.legalize(
+      request.unit.graph,
+      request.unit.analyses,
+      request.options ?? compilerOptions(),
+    );
     if (legalization !== null) {
       return { code: null, rejection: { compileRejection: legalization, analysisFailure: null } };
     }

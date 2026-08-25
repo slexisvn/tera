@@ -1,4 +1,4 @@
-name: Deploy notebook to GitHub Pages
+name: Deploy notebook and visualizer to GitHub Pages
 
 on:
   push:
@@ -30,31 +30,31 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            notebook/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install tera dependencies
+      - name: Install dependencies
         run: npm install
-
-      - name: Install notebook dependencies
-        run: npm install
-        working-directory: notebook
 
       - name: Build tera browser bundles
         run: npm run build
 
       - name: Build notebook
-        run: npm run build
-        working-directory: notebook
+        run: npm run nb:build
 
-      - name: Disable Jekyll
-        run: touch notebook/dist/.nojekyll
+      - name: Build visualizer
+        run: npm run viz:build
+
+      - name: Assemble Pages site
+        run: |
+          mkdir -p site/visualizer
+          cp -r tools/notebook/dist/. site/
+          cp -r tools/visualizer/dist/. site/visualizer/
+          touch site/.nojekyll
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: notebook/dist
+          path: site
 
   deploy:
     runs-on: ubuntu-latest

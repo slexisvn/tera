@@ -528,3 +528,26 @@ describe("FeedbackVector", () => {
     });
   });
 });
+
+describe("summary statistics report the most recent IC shape change", () => {
+  it("reports no transition for a vector nothing has recorded into", () => {
+    const vector = new FeedbackVector(2);
+    vector.initSlot(0, FEEDBACK_PROPERTY);
+    expect(vector.getSummaryStats().lastTransitionAt).toBe(0);
+  });
+
+  it("reports the newest transition across every slot", () => {
+    const vector = new FeedbackVector(2);
+    vector.initSlot(0, FEEDBACK_PROPERTY);
+    vector.initSlot(1, FEEDBACK_PROPERTY);
+    vector.getSlot(0).recordPropertyAccess(1, 0, 10);
+    vector.getSlot(1).recordPropertyAccess(1, 0, 10);
+    vector.getSlot(1).recordPropertyAccess(2, 4, 20);
+    const newest = Math.max(
+      vector.getSlot(0).lastTransitionTimestamp,
+      vector.getSlot(1).lastTransitionTimestamp,
+    );
+    expect(newest).toBeGreaterThan(0);
+    expect(vector.getSummaryStats().lastTransitionAt).toBe(newest);
+  });
+});

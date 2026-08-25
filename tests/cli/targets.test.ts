@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HOST_PLATFORM, hostBackendId } from "../../src/optimizing/backends/index.js";
+import { HOST_PLATFORM, hostBackendId } from "../../src/optimizing/backends/host.js";
 import {
   aotBackends,
   architectures,

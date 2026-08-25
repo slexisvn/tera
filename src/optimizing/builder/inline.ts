@@ -35,6 +35,7 @@ import {
 } from "./feedback-utils.js";
 import { genericDeletePropNode } from "./property-nodes.js";
 
+
 type AnyNode = ir.CFGInstruction;
 type AnyBlock = ir.CFGBlock;
 type AnyGraph = ir.CFGFunction & {
@@ -193,15 +194,14 @@ function canInlineTarget(
   if (referencesUpvalues(target)) return false;
   if (referencesThis(target)) return false;
   if (!target.feedbackVector) return false;
+  const policy = graph.inlining;
+  if (graph.inlineDepth >= policy.maxDepth) return false;
   const size = target.instructions.length;
-  const maxSize = 150;
-  if (size > maxSize) return false;
+  if (size > policy.maxCalleeSize) return false;
   if ((graph.inlineBudgetRemaining ?? 0) < size) return false;
   return true;
 }
 
-const COLD_CALL_THRESHOLD = 5;
-const MAX_LOOPING_INLINE_INSTRUCTIONS = 80;
 const ACC_SLOT = -1;
 
 export function selectInlineTarget(
@@ -213,7 +213,7 @@ export function selectInlineTarget(
   if (!callHint || !callHint.slot)
     return { target: null, targets: null, reason: "missing-feedback" };
 
-  if (callHint.frequency < COLD_CALL_THRESHOLD) {
+  if (callHint.frequency < graph.inlining.minCallFrequency) {
     return { target: null, targets: null, reason: "cold-call-site" };
   }
 
@@ -258,6 +258,18 @@ export function recordInlineDecision(
 }
 
 export function tryInline(
+  ...parameters: Parameters<typeof inlineCallee>
+): InlineResult {
+  const graph = parameters[1];
+  graph.inlineDepth++;
+  try {
+    return inlineCallee(...parameters);
+  } finally {
+    graph.inlineDepth--;
+  }
+}
+
+function inlineCallee(
   targetFn: AnyCompiledFunction,
   graph: AnyGraph,
   block: AnyBlock,
@@ -319,7 +331,7 @@ export function tryInline(
         const target = instr.operands[0];
         if (target <= i) {
           hasBackwardJump = true;
-          if (instructions.length > MAX_LOOPING_INLINE_INSTRUCTIONS) return null;
+          if (instructions.length > graph.inlining.maxLoopingCalleeSize) return null;
           if (!inlineBlockMap.has(target)) {
             inlineBlockMap.set(target, graph.addBlock());
           }

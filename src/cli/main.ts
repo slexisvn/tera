@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { createReactiveCheckOptions } from "@slexisvn/reactive/tera";
+import { printIR } from "../optimizing/ir/text.js";
 import { Engine } from "../api/engine.js";
 import type { EngineOptions, EngineUnhandledRejection, OptimizedGraph } from "../api/engine.js";
 import type { TeraExtension } from "../api/extensions.js";
@@ -14,7 +15,8 @@ import { nodeModuleFileSystem } from "../frontend/modules/node-file-system.js";
 import { searchPathsForEntry, searchPathsIn } from "../frontend/packages.js";
 import { parseArgs, CliUsageError } from "./args.js";
 import type { CheckConfig, CliConfig, EngineFlags, RunConfig, SourceInputs } from "./config.js";
-import { printAst } from "./ast-printer.js";
+import { printAst } from "../frontend/ast-text.js";
+import type { TieringThresholds } from "../runtime/tiering/policy.js";
 import { runDebug } from "./debug.js";
 import { helpFor } from "./help.js";
 import { hostEngineOptions } from "./host.js";
@@ -44,15 +46,8 @@ function matchesFilter(filter: string | null, name: string | null | undefined): 
   return typeof name === "string" && name.includes(filter);
 }
 
-type TieringOverrides = {
-  baselineThreshold?: number;
-  jitThreshold?: number;
-  loopOsrThreshold?: number;
-  maxDeoptCount?: number;
-};
-
-function buildTiering(config: EngineFlags): TieringOverrides | undefined {
-  const policy: TieringOverrides = {};
+function buildTiering(config: EngineFlags): Partial<TieringThresholds> | undefined {
+  const policy: { -readonly [K in keyof TieringThresholds]?: number } = {};
   if (config.optMode === "none") {
     policy.jitThreshold = Number.MAX_SAFE_INTEGER;
     policy.loopOsrThreshold = Number.MAX_SAFE_INTEGER;
@@ -83,7 +78,7 @@ export function buildEngineOptions(config: EngineFlags): EngineOptions {
   if (!config.osr) options.osr = false;
 
   const tiering = buildTiering(config);
-  if (tiering) options.tieringPolicy = tiering as EngineOptions["tieringPolicy"];
+  if (tiering) options.tieringPolicy = tiering;
 
   if (config.traceCategories.length > 0) {
     options.trace = true;
@@ -97,7 +92,7 @@ export function buildEngineOptions(config: EngineFlags): EngineOptions {
   }
   if (config.printIr) {
     options.onOptimize = (fn: RegisterCompiledFunction, graph: OptimizedGraph) => {
-      if (matchesFilter(config.filter, fn.name)) console.log(graph.dump());
+      if (matchesFilter(config.filter, fn.name)) console.log(printIR(graph));
     };
   }
 

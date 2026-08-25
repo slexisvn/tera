@@ -18,7 +18,9 @@ import {
   type ProgramEntryShape,
 } from "../optimizing/target/entry.js";
 import { PROGRAM_ENTRY_NAME } from "../optimizing/target/program-entry.js";
-import { compilerOptions } from "../optimizing/options.js";
+import { compilerOptions, type CompilerOptions } from "../optimizing/options.js";
+import { consolePassTracer } from "../optimizing/infra/pass-trace.js";
+import { cfgGraphProbe } from "../optimizing/ir/probe.js";
 import type { CompileConfig, EmitKind } from "./config.js";
 import {
   aotBackends,
@@ -27,10 +29,22 @@ import {
   emitsOf,
   hostArchitecture,
 } from "./targets.js";
-import { HOST_PLATFORM } from "../optimizing/backends/index.js";
+import { HOST_PLATFORM } from "../optimizing/backends/host.js";
 import { nodeModuleFileSystem } from "../frontend/modules/node-file-system.js";
 import { searchPathsForEntry } from "../frontend/packages.js";
 import { hostEngineOptions } from "./host.js";
+
+function aotCompilerOptions(
+  config: Pick<CompileConfig, "verify" | "printAfterAll">,
+): { compilerOptions?: CompilerOptions } {
+  if (!config.verify && !config.printAfterAll) return {};
+  return {
+    compilerOptions: compilerOptions("speed", {
+      verifyEachPass: config.verify,
+      passTracer: config.printAfterAll ? consolePassTracer(cfgGraphProbe) : null,
+    }),
+  };
+}
 
 const HEADER_SUFFIX = ".h";
 const TRANSLATED = /\.(c|s)$/;
@@ -327,9 +341,7 @@ function compile(config: CompileConfig): number {
       ...(config.entry === null ? {} : { entry: config.entry }),
       ...(config.result === null ? {} : { result: config.result }),
       ...(config.heapBytes === null ? {} : { heapBytes: config.heapBytes }),
-      ...(config.verify
-        ? { compilerOptions: compilerOptions("speed", { verifyEachPass: true }) }
-        : {}),
+      ...aotCompilerOptions(config),
     });
   } catch (error) {
     if (error instanceof AotLinkError) warnSkipped(error.skipped);

@@ -95,12 +95,13 @@ export class Optimizer {
   compile(
     compiledFn: CompiledFunctionLike,
     osrOffset: number | null = null,
+    options: CompilerOptions = compilerOptions(),
   ): SpeculativeCompileResult {
     const feedback = compiledFn.feedbackVector;
     if (!feedback) {
       throw new Error("Cannot optimize without feedback");
     }
-    return this.build(compiledFn, feedback, osrOffset);
+    return this.build(compiledFn, feedback, osrOffset, options);
   }
 
   compileStatic(
@@ -153,7 +154,15 @@ export class Optimizer {
     }
 
     const entryBlock = graph.addBlock();
-    buildIR(graph, entryBlock, compiledFn, feedback, this.frameStates, this.intrinsicMetadata);
+    buildIR(
+      graph,
+      entryBlock,
+      compiledFn,
+      feedback,
+      this.frameStates,
+      this.intrinsicMetadata,
+      options,
+    );
     if (graph.bailout) return this.resultFor(graph, compiledFn, osrOffset);
     graph.rebuildUses();
     eliminateUnreachableBlocks(graph);

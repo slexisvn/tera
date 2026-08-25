@@ -1,4 +1,5 @@
 export * from "./worklist.js";
+export * from "./priority-queue.js";
 export * from "./lattice.js";
 export * from "./dataflow.js";
 export * from "./snapshot-dataflow.js";

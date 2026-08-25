@@ -41,7 +41,7 @@ import { spreadsArguments } from "../optimizing/passes/spread-calls.js";
 import { astChildren, NodeType } from "../frontend/ast/index.js";
 import type { AotOutputFormat } from "../optimizing/target/artifact.js";
 import { createModuleIR, type CompilationUnit } from "../optimizing/compilation-unit.js";
-import { IR_GENERIC_CALL, type CFGInstruction } from "../optimizing/ir/index.js";
+import { IR_GENERIC_CALL, type CFGFunction, type CFGInstruction } from "../optimizing/ir/index.js";
 import { CALLEE_SYMBOL_PROP, genericCalleeName } from "../optimizing/metadata/call-signatures.js";
 import { memberCallTargets, type MemberCallTargets } from "../optimizing/passes/class-member-lowering.js";
 import { typeInferenceAnalysisId } from "../optimizing/analyses/type-inference.js";
@@ -54,7 +54,7 @@ import { Deoptimizer } from "../deopt/deoptimizer.js";
 import { DependencyRegistry, withDependencyRegistry } from "../deopt/dependencies.js";
 import { DEP_CALL_TARGET } from "../deopt/dependencies.js";
 import type { Dependency } from "../deopt/dependencies.js";
-import { tracer } from "../core/tracing/index.js";
+import { tracer, type TraceSink } from "../core/tracing/index.js";
 import { getPayload, getTag, isObject, isPromise, mkObject, mkUndefined, toDisplayString, ValueHeap, withValueHeap } from "../core/value/index.js";
 import type { HeapPayload } from "../core/value/index.js";
 import type { TaggedValue } from "../core/value/index.js";
@@ -64,7 +64,7 @@ import {
 } from "../objects/maps/hidden-class.js";
 import { getMigrationStats } from "../objects/heap/js-object.js";
 import { IRNodeIdAllocator, resetIRNodeIds, withIRNodeIdAllocator } from "../optimizing/ir/index.js";
-import type { CompilerOptions } from "../optimizing/options.js";
+import { compilerOptions, type CompilerOptions } from "../optimizing/options.js";
 import { compileCooldownUntil, createTieringPolicy } from "../runtime/tiering/policy.js";
 import type { TieringPolicyOptions } from "../runtime/tiering/policy.js";
 import {
@@ -108,6 +108,7 @@ export type EngineOptions = {
   gc?: ConstructorParameters<typeof GenerationalGC>[0];
   trace?: boolean;
   traceCategories?: Iterable<string>;
+  onTrace?: TraceSink;
   debugger?: RuntimeDebugger | null;
   extensions?: readonly TeraExtension[];
   syntaxPlugins?: readonly SyntaxPlugin[];
@@ -117,6 +118,7 @@ export type EngineOptions = {
   checkerBuiltins?: readonly ExternalBuiltinSignature[];
   checkerAliases?: BindOptions["aliases"];
   checkerInterfaces?: BindOptions["interfaces"];
+  compilerOptions?: CompilerOptions;
   onCompile?: (fn: RegisterCompiledFunction) => void;
   onOptimize?: (fn: RegisterCompiledFunction, graph: OptimizedGraph) => void;
   onUnhandledRejection?: (rejections: EngineUnhandledRejection[]) => void;
@@ -128,7 +130,7 @@ export type EngineUnhandledRejection = {
   message: string;
 };
 
-export type OptimizedGraph = { dump(): string };
+export type OptimizedGraph = CFGFunction;
 
 const IMPORT_PROBE = /^[ \t]*(?:import|from)\s/m;
 const STRICT_TYPECHECK: TypecheckMode = "strict";
@@ -713,6 +715,7 @@ export class Engine {
     Map<string, RuntimeInterfaceContract>
   >();
   nativeModules: readonly TeraNativeModule[];
+  compilerOptions: CompilerOptions;
   onCompile?: (fn: RegisterCompiledFunction) => void;
   onOptimize?: (fn: RegisterCompiledFunction, graph: OptimizedGraph) => void;
   onUnhandledRejection?: (rejections: EngineUnhandledRejection[]) => void;
@@ -745,6 +748,7 @@ export class Engine {
     this.input = options.input;
     this.diagnostics = [];
     this.osrEnabled = options.osr !== false;
+    this.compilerOptions = options.compilerOptions ?? compilerOptions();
     this.onCompile = options.onCompile;
     this.onOptimize = options.onOptimize;
     this.onUnhandledRejection = options.onUnhandledRejection;
@@ -784,6 +788,7 @@ export class Engine {
         tracer.setCategories(options.traceCategories);
       }
     }
+    tracer.sink = options.onTrace ?? null;
   }
 
   private hostAsyncBinding() {
@@ -1700,9 +1705,12 @@ ${prelude}`);
     try {
       resetIRNodeIds();
       this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
-      const result = this.optimizer.compile(compiledFn, offset);
+      const result = this.optimizer.compile(compiledFn, offset, this.compilerOptions);
       if (!result.graph.bailout) {
-        const code = this.jitBackend.jitCompile({ unit: result.unit }).code;
+        const code = this.jitBackend.jitCompile({
+          unit: result.unit,
+          options: this.compilerOptions,
+        }).code;
         if (code) {
           entry = { code, slots: result.graph.osrParamSlots ?? [] };
           this.dependencyRegistry.registerOsr(compiledFn, result.graph.dependencies);
@@ -1746,9 +1754,12 @@ ${prelude}`);
     try {
       resetIRNodeIds();
       this.optimizer.setCompilerExtensions(this.compilerExtensionsFor(compiledFn));
-      const optimizerResult = this.optimizer.compile(compiledFn);
-      this.onOptimize?.(compiledFn, optimizerResult.graph as OptimizedGraph);
-      const jitResult = this.jitBackend.jitCompile({ unit: optimizerResult.unit });
+      const optimizerResult = this.optimizer.compile(compiledFn, null, this.compilerOptions);
+      this.onOptimize?.(compiledFn, optimizerResult.graph);
+      const jitResult = this.jitBackend.jitCompile({
+        unit: optimizerResult.unit,
+        options: this.compilerOptions,
+      });
       const wasmFn = jitResult.code;
 
       if (wasmFn) {

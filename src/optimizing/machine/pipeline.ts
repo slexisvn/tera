@@ -15,6 +15,9 @@ import { placeLoopHeadersAfterBodies } from "./placement.js";
 import { scheduleMachineCode } from "./schedule.js";
 import { selectMachineFunction } from "./select.js";
 import { lowerTwoAddress } from "./two-address.js";
+import { validateMachineFunction, type MachineStage } from "./verifier.js";
+import type { MachineTracer } from "./trace.js";
+import { compilerOptions, type CompilerOptions } from "../options.js";
 
 export interface CompiledMachineFunction {
   readonly fn: MachineFunction;
@@ -29,23 +32,36 @@ export function compileMachineFunction(
   lowering: MachineLowering,
   analyses: AnalysisManager<CFGFunction>,
   symbol: string,
+  options: CompilerOptions = compilerOptions(),
 ): CompiledMachineFunction {
+  const trace: MachineTracer | null = options.machineTracer;
+  let ordinal = 0;
+  const verify = (fn: MachineFunction, stage: MachineStage, after: string): void => {
+    if (options.verifyEachPass) validateMachineFunction(fn, stage, after);
+    if (trace !== null) trace({ ordinal: ordinal++, symbol, stage, after, fn });
+  };
   const layout = analyses.get(dominanceAnalysisId).reversePostorder();
   const fn = selectMachineFunction(graph, legality, lowering, layout, symbol);
+  verify(fn, "pre-allocation", "instruction-selection");
   scheduleMachineCode(fn, lowering);
+  verify(fn, "pre-allocation", "scheduling");
   lowerTwoAddress(fn, lowering);
+  verify(fn, "pre-allocation", "two-address-lowering");
   assignPositions(fn);
   const liveness = computeLiveness(fn);
-  const allocation = allocateRegisters(fn, lowering.target, liveness);
+  const allocation = allocateRegisters(fn, lowering.target, liveness, options.splitLiveRanges);
   const usedScratch = rewriteAllocations(fn, lowering.target, lowering, allocation);
+  verify(fn, "post-allocation", "register-allocation");
   const preserved = new Set(lowering.target.abi.callingConvention.calleeSaved);
   const frame = layoutFrame(fn, lowering.target, [
     ...allocation.usedCalleeSaved,
     ...usedScratch.filter((register) => preserved.has(register)),
   ]);
   insertFrameCode(fn, frame, lowering);
+  verify(fn, "post-allocation", "frame-code");
   placeLoopHeadersAfterBodies(fn);
   coalesceRoundTrips(fn, lowering.target.abi.callingConvention);
   peepholeMachineCode(fn, lowering);
+  verify(fn, "post-allocation", "peephole");
   return { fn, frame, liveness, allocation };
 }

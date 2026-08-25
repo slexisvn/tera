@@ -7,7 +7,7 @@ import {
 } from "../../../helpers/gnu-assembler.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
 import type { AotProgram } from "../../../../src/optimizing/drivers/aot.js";
-import { hostBackendId } from "../../../../src/optimizing/backends/index.js";
+import { hostBackendId } from "../../../../src/optimizing/backends/host.js";
 
 const HOST_TARGET = hostBackendId()!;
 const SOURCE_NAME = "loop.tera";

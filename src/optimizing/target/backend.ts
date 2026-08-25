@@ -36,7 +36,11 @@ export interface AotBackend extends CodeBackend {
   readonly platform: TargetPlatform | null;
   readonly emits: ReadonlySet<string>;
   symbolOf(name: string): string;
-  createEmitter(graph: CFGFunction, analyses: AnalysisManager<CFGFunction>): Emitter;
+  createEmitter(
+    graph: CFGFunction,
+    analyses: AnalysisManager<CFGFunction>,
+    options: CompilerOptions,
+  ): Emitter;
   link(
     functions: readonly LinkableFunction[],
     options: AotLinkOptions,

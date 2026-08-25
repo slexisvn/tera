@@ -6,7 +6,7 @@ import { nodeEngine } from "../../../helpers/engine.js";
 import type { AotProgram } from "../../../../src/optimizing/drivers/aot.js";
 import { itAssembles, nativeFile, runNativeFunction } from "../../../helpers/native-executor.js";
 import { cSource, runCFunction } from "../../../helpers/c-executor.js";
-import { hostBackendId } from "../../../../src/optimizing/backends/index.js";
+import { hostBackendId } from "../../../../src/optimizing/backends/host.js";
 
 const HOST_TARGET = hostBackendId();
 

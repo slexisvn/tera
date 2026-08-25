@@ -1,0 +1,27 @@
+{
+  "name": "@tera/editor",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./editor.css": "./src/editor.css"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.18.7",
+    "@codemirror/lint": "^6.8.5",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.2",
+    "@slexisvn/reactive": "^0.1.2",
+    "@slexisvn/tera": "file:../..",
+    "@uiw/react-codemirror": "^4.25.3",
+    "react": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.4"
+  }
+}

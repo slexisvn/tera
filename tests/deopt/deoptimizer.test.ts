@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { LazyDeoptMarker, Deoptimizer } from "../../src/deopt/deoptimizer.js";
+import { AdaptiveTieringPolicy } from "../../src/runtime/tiering/adaptive.js";
+import { DEFAULT_TIERING_POLICY } from "../../src/runtime/tiering/defaults.js";
 import {
   mkSmi,
   mkString,
@@ -279,6 +281,29 @@ describe("Deoptimizer.handleDisableOptimization", () => {
     deopt.handleDisableOptimization(fn);
     expect(fn.deoptCount).toBe(2);
     expect(fn.disableOptimization).toBe(true);
+  });
+
+  it("honours the shared deopt cap under the adaptive policy", () => {
+    const policy = new AdaptiveTieringPolicy();
+    const deopt = new Deoptimizer({ tieringPolicy: policy });
+    deopt.lastDeoptReason = "map-check-failed";
+    const fn = {
+      name: "test",
+      deoptCount: DEFAULT_TIERING_POLICY.maxDeoptCount - 1,
+      optimizedCode: {},
+      optimizedDependencies: [],
+    };
+    deopt.handleDisableOptimization(fn);
+    expect(fn.deoptCount).toBe(DEFAULT_TIERING_POLICY.maxDeoptCount);
+    expect(fn.disableOptimization).toBe(true);
+  });
+
+  it("keeps optimization alive under the adaptive policy below the cap", () => {
+    const deopt = new Deoptimizer({ tieringPolicy: new AdaptiveTieringPolicy() });
+    deopt.lastDeoptReason = "map-check-failed";
+    const fn = { name: "test", deoptCount: 0, optimizedCode: {}, optimizedDependencies: [] };
+    deopt.handleDisableOptimization(fn);
+    expect(fn.disableOptimization).toBeUndefined();
   });
 
   it("calls tieringPolicy.recordDeopt when available", () => {

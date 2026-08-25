@@ -16,6 +16,7 @@ import {
 } from "../../../src/optimizing/machine/liveness.js";
 import { allocateRegisters } from "../../../src/optimizing/machine/linear-scan.js";
 import { rewriteAllocations } from "../../../src/optimizing/machine/rewrite.js";
+import type { Allocation } from "../../../src/optimizing/machine/linear-scan.js";
 import { lowerTwoAddress } from "../../../src/optimizing/machine/two-address.js";
 import {
   expectDisjointAllocation,
@@ -31,12 +32,16 @@ const lowering = testLowering(target);
 function allocate(fn: MachineFunction) {
   assignPositions(fn);
   const liveness = computeLiveness(fn);
-  const allocation = allocateRegisters(fn, target, liveness);
+  const allocation = allocateRegisters(fn, target, liveness, true);
   return { liveness, allocation };
 }
 
-function isSpilled(liveness: Liveness, register: VirtualRegister): boolean {
-  return liveness.intervalOf(register)!.spillSlot !== null;
+function partsOf(allocation: Allocation, register: VirtualRegister) {
+  return allocation.intervals.filter((part) => part.register === register);
+}
+
+function isSpilled(allocation: Allocation, register: VirtualRegister): boolean {
+  return partsOf(allocation, register).some((part) => part.spillSlot !== null);
 }
 
 function connect(from: MachineBlock, to: MachineBlock): void {
@@ -83,12 +88,76 @@ describe("linear scan allocation", () => {
     const { fn, values } = overlapping(7);
     const { liveness, allocation } = allocate(fn);
 
-    expect(allocation.spilled.length).toBe(3);
+    const spilledRegisters = new Set(allocation.spilled.map((part) => part.register));
+    expect(spilledRegisters.size).toBe(3);
     expectDisjointAllocation(liveness, allocation);
     for (const interval of allocation.intervals) {
       expect(interval.assigned !== null || interval.spillSlot !== null).toBe(true);
     }
     expect(values.length).toBe(7);
+  });
+
+  function crowdedOut(reads = 1): {
+    fn: MachineFunction;
+    value: VirtualRegister;
+    definition: MachineInstruction;
+    read: MachineInstruction;
+  } {
+    const fn = new MachineFunction("crowded", "crowded");
+    const block = fn.createBlock(".L0");
+    const value = fn.createVirtual(TEST_GPR, 8);
+    const held = ["a0", "a1", "a2", "a3"].map((name) => target.registers.register(name));
+
+    const definition = instruction("define", [def(value, 8)]);
+    block.instructions.push(definition);
+    for (const register of held) {
+      block.instructions.push(instruction("define", [def(register, 8)]));
+    }
+    block.instructions.push(
+      instruction("consume", held.map((register) => use(register, 8))),
+    );
+    const read = instruction("consume", [use(value, 8)]);
+    block.instructions.push(read);
+    for (let extra = 1; extra < reads; extra++) {
+      block.instructions.push(instruction("consume", [use(value, 8)]));
+    }
+    return { fn, value, definition, read };
+  }
+
+  it("spills a crowded-out value only up to the use that needs it back", () => {
+    const { fn, value, definition, read } = crowdedOut(2);
+    const { allocation } = allocate(fn);
+
+    expect(allocation.locationAt(value, definition.position)!.spillSlot).not.toBeNull();
+    expect(allocation.locationAt(value, read.position)!.assigned).not.toBeNull();
+  });
+
+  it("reloads a crowded-out value once however many times it is read after", () => {
+    const { fn } = crowdedOut(3);
+    const { allocation } = allocate(fn);
+    rewriteAllocations(fn, target, lowering, allocation);
+
+    expectFullyAllocated(fn);
+    const opcodes = fn.blocks[0]!.instructions.map((node) => node.opcode);
+    expect(opcodes.filter((opcode) => opcode === "store").length).toBe(1);
+    expect(opcodes.filter((opcode) => opcode === "reload").length).toBe(1);
+  });
+
+  it("leaves the whole value spilled when splitting is switched off", () => {
+    const { fn, value, read } = crowdedOut(3);
+    assignPositions(fn);
+    const allocation = allocateRegisters(fn, target, computeLiveness(fn), false);
+
+    expect(allocation.splitRegisters).toEqual([]);
+    expect(allocation.locationAt(value, read.position)!.assigned).toBeNull();
+  });
+
+  it("leaves a value read only once fully spilled, since a split would not pay", () => {
+    const { fn, value, read } = crowdedOut(1);
+    const { allocation } = allocate(fn);
+
+    expect(allocation.splitRegisters).not.toContain(value);
+    expect(allocation.locationAt(value, read.position)!.assigned).toBeNull();
   });
 
   it("never reuses a register a fixed interval is holding", () => {
@@ -219,6 +288,8 @@ describe("spill weights", () => {
     fn: MachineFunction;
     outer: VirtualRegister;
     inner: VirtualRegister;
+    readsInner: MachineInstruction;
+    readsOuter: MachineInstruction;
   } {
     const fn = new MachineFunction("weights", "weights");
     const entry = fn.createBlock(".L0");
@@ -242,25 +313,27 @@ describe("spill weights", () => {
     body.instructions.push(
       instruction("consume", [use(temporaries[0]!, 8), use(temporaries[1]!, 8)]),
     );
-    body.instructions.push(
-      instruction("consume", [use(temporaries[2]!, 8), use(inner, 8)]),
-    );
+    const readsInner = instruction("consume", [use(temporaries[2]!, 8), use(inner, 8)]);
+    body.instructions.push(readsInner);
     body.instructions.push(
       instruction("branch", [label(body), label(exit)], { terminator: true }),
     );
 
-    for (const _ of [0, 1, 2]) {
+    const readsOuter = instruction("consume", [use(outer, 8)]);
+    exit.instructions.push(readsOuter);
+    for (const _ of [0, 1]) {
       exit.instructions.push(instruction("consume", [use(outer, 8)]));
     }
-    return { fn, outer, inner };
+    return { fn, outer, inner, readsInner, readsOuter };
   }
 
-  it("spills the value read outside the loop over the one read inside it", () => {
-    const { fn, outer, inner } = loopPressure();
+  it("keeps the value read inside the loop in a register and pays for the outer one", () => {
+    const { fn, outer, inner, readsInner, readsOuter } = loopPressure();
     const { liveness, allocation } = allocate(fn);
 
-    expect(isSpilled(liveness, inner)).toBe(false);
-    expect(isSpilled(liveness, outer)).toBe(true);
+    expect(allocation.locationAt(inner, readsInner.position)!.assigned).not.toBeNull();
+    expect(allocation.locationAt(outer, readsOuter.position)!.assigned).toBeNull();
+    expect(isSpilled(allocation, outer)).toBe(true);
     expectDisjointAllocation(liveness, allocation);
   });
 });

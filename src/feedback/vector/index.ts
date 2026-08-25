@@ -854,6 +854,7 @@ export class FeedbackVector {
     let polymorphicSlots = 0;
     let megamorphicSlots = 0;
     let totalRecords = 0;
+    let lastTransitionAt = 0;
 
     for (let i = 0; i < this.slots.length; i++) {
       totalSlots++;
@@ -861,6 +862,7 @@ export class FeedbackVector {
       if (!slot) continue;
       initializedSlots++;
       totalRecords += slot.totalRecordCount;
+      lastTransitionAt = Math.max(lastTransitionAt, slot.lastTransitionTimestamp);
       if (slot.isStable) stableSlots++;
       if (slot.icState === IC_MONOMORPHIC) monomorphicSlots++;
       else if (slot.icState === IC_POLYMORPHIC) polymorphicSlots++;
@@ -875,6 +877,7 @@ export class FeedbackVector {
       polymorphicSlots,
       megamorphicSlots,
       totalRecords,
+      lastTransitionAt,
       createdAt: this.createdAt,
     };
   }

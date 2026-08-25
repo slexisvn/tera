@@ -1,5 +1,6 @@
 import type { CFGFunction } from "../ir/index.js";
 import type { AnalysisManager } from "../infra/analysis-manager.js";
+import type { CompilerOptions } from "../options.js";
 import { aotLegalityAnalysisId } from "../analyses/aot-legality.js";
 import type { AotBackend, LinkableFunction, TargetPlatform } from "../target/backend.js";
 import type { Emitter } from "../target/emitter.js";
@@ -307,7 +308,11 @@ export function createNativeBackend(options: NativeBackendOptions): AotBackend {
     target,
     symbolOf: (name: string) => target.symbolOf(name),
     loweringPipeline: (options) => targetLegalizationPipeline(target, options),
-    createEmitter(graph: CFGFunction, analyses: AnalysisManager<CFGFunction>): Emitter {
+    createEmitter(
+      graph: CFGFunction,
+      analyses: AnalysisManager<CFGFunction>,
+      compileOptions: CompilerOptions,
+    ): Emitter {
       return {
         emit: () => {
           const result = analyses.get(aotLegalityAnalysisId);
@@ -315,7 +320,14 @@ export function createNativeBackend(options: NativeBackendOptions): AotBackend {
           const legality = result.legality;
           const symbol = target.symbolOf(graph.name);
           const returns = nativeReturnScalar(legality);
-          const compiled = compileMachineFunction(graph, legality, lowering, analyses, symbol);
+          const compiled = compileMachineFunction(
+            graph,
+            legality,
+            lowering,
+            analyses,
+            symbol,
+            compileOptions,
+          );
           const runtime: NativeRuntimeRoutine[] = [];
           for (const external of compiled.fn.externals) {
             const routine = target.runtime.get(external);

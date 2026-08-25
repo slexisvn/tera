@@ -6,13 +6,13 @@ import {
   type Preservation,
   type TransformPass,
 } from "./infra/pass-manager.js";
-import { consolePassTraceSink, type PassTracer } from "./infra/pass-trace.js";
+import type { PassTracing } from "./infra/pass-trace.js";
 import { cfgGraphProbe } from "./ir/probe.js";
 import { compilerOptions, type CompilerOptions } from "./options.js";
 import { GraphValidationError, validateGraphInvariants } from "./validation/graph-validator.js";
 import { buildFrameStateIndex } from "./ir/frame-state-values.js";
 import { homeFloatingValues } from "./ir/graph-edit.js";
-import { hoistLoopInvariants, loopUnrolling } from "./passes/loop-opts.js";
+import { hoistLoopInvariants, peelLoopChecks } from "./passes/loop-opts.js";
 import { loopUnswitching } from "./passes/unswitching.js";
 import {
   eliminateRedundantChecks,
@@ -214,15 +214,22 @@ export function middleEndPhases(
       ),
       step("strength-reduction", preservesControlFlow, (g) => strengthReduction(g)),
       step(
-        "loop-unrolling",
+        "loop-check-peeling",
         preservesControlFlow,
         (g, analyses) =>
-          loopUnrolling(
+          peelLoopChecks(
             g,
             analyses.get(loopForestAnalysisId),
             analyses.get(dominanceAnalysisId),
+            options.peelBudget,
           ),
         [loopId, dominanceId],
+      ),
+      step(
+        "redundant-checks-after-peeling",
+        preservesControlFlow,
+        (g, analyses) => eliminateRedundantChecks(g, analyses.get(dominanceAnalysisId)),
+        [dominanceId],
       ),
       step("trivial-phi-elimination", preservesControlFlow, (g) => eliminateTrivialPhis(g)),
       step("dead-phi-elimination", preservesControlFlow, (g) => eliminateDeadPhis(g)),
@@ -269,9 +276,9 @@ export function middleEndPipeline(
   return middleEndPhases(options).flatMap((pipelinePhase) => pipelinePhase.passes);
 }
 
-export function cfgPassTracer(options: CompilerOptions): PassTracer<CFGFunction> | null {
-  if (!options.printAfterAll) return null;
-  return { probe: cfgGraphProbe, sink: consolePassTraceSink };
+export function cfgPassTracing(options: CompilerOptions): PassTracing<CFGFunction> | null {
+  if (options.passTracer === null) return null;
+  return { probe: cfgGraphProbe, trace: options.passTracer };
 }
 
 const BUILT = "it was built";
@@ -292,11 +299,13 @@ export function cfgPassManager(
   options: CompilerOptions,
 ): PassManager<CFGFunction> {
   return new PassManager<CFGFunction>(analyses, options, {
-    tracer: cfgPassTracer(options),
+    tracing: cfgPassTracing(options),
     maintain: maintainGraph,
     verify: options.verifyEachPass ? verifyAfterPass : null,
   });
 }
+
+export const IR_BUILDER_STAGE = "ir-builder";
 
 export function runMiddleEnd(
   graph: CFGFunction,
@@ -304,6 +313,18 @@ export function runMiddleEnd(
 ): AnalysisManager<CFGFunction> {
   const analyses = new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
   if (options.verifyEachPass) verifyAfterPass(graph, BUILT);
+  if (options.passTracer !== null) {
+    const nodes = cfgGraphProbe.nodeCount(graph);
+    options.passTracer({
+      ordinal: -1,
+      pass: IR_BUILDER_STAGE,
+      changed: true,
+      nodesBefore: nodes,
+      nodesAfter: nodes,
+      invalidated: [],
+      graph,
+    });
+  }
   const passManager = cfgPassManager(analyses, options);
   for (const pipelinePhase of middleEndPhases(options)) {
     passManager.run(graph, pipelinePhase.passes);

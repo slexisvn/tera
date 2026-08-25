@@ -1,0 +1,119 @@
+.editor-wrap { position: relative; }
+.editor-wrap .cm-editor {
+  background: transparent;
+  color: var(--text);
+}
+.editor-wrap .cm-editor .cm-content,
+.editor-wrap .cm-editor .cm-line {
+  color: var(--text);
+}
+.editor-wrap .cm-editor .cm-activeLine {
+  background: color-mix(in srgb, var(--accent-soft) 42%, transparent);
+}
+.editor-wrap .cm-editor .cm-selectionBackground,
+.editor-wrap .cm-editor.cm-focused .cm-selectionBackground {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.editor-wrap .cm-editor .cm-cursor {
+  border-left-color: var(--accent);
+}
+
+.tok-kw { color: var(--c-kw); }
+.tok-builtin { color: var(--c-fn); }
+.tok-method { color: var(--c-fn); }
+.tok-prop { color: inherit; }
+.tok-ident { color: inherit; }
+.tok-num { color: var(--c-num); }
+.tok-str { color: var(--c-str); }
+.tok-com { color: var(--c-com); font-style: italic; }
+.tok-type { color: var(--c-type); }
+
+.editor-wrap .cm-editor .tok-kw { color: var(--c-kw); }
+.editor-wrap .cm-editor .tok-builtin { color: var(--c-fn); }
+.editor-wrap .cm-editor .tok-method { color: var(--c-fn); }
+.editor-wrap .cm-editor .tok-prop { color: var(--text); }
+.editor-wrap .cm-editor .tok-ident { color: var(--text); }
+.editor-wrap .cm-editor .tok-num { color: var(--c-num); }
+.editor-wrap .cm-editor .tok-str { color: var(--c-str); }
+.editor-wrap .cm-editor .tok-com { color: var(--c-com); font-style: italic; }
+.editor-wrap .cm-editor .tok-type { color: var(--c-type); }
+
+.cm-tera-hover {
+  max-width: 360px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  color: var(--text);
+}
+.cm-tera-hover-title {
+  margin-bottom: 2px;
+  color: var(--accent);
+  font-family: var(--code-font);
+  font-size: 13.5px;
+}
+.cm-tera-hover-kind {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+.cm-tera-hover-desc {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.cm-tera-hover-signature {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-family: var(--code-font);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.cm-tera-hover-diagnostics {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-family: var(--code-font);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.cm-tera-hover-diagnostic + .cm-tera-hover-diagnostic {
+  margin-top: 5px;
+}
+.cm-tera-hover-diagnostic.error {
+  color: var(--error);
+}
+.cm-tera-hover-diagnostic.warning {
+  color: var(--warning);
+}
+
+.cm-tera-linked-line {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.ir-value { color: var(--c-num); }
+.ir-block { color: var(--c-type); font-weight: 600; }
+.ir-opcode { color: var(--c-fn); font-weight: 600; }
+.ir-keyword { color: var(--c-kw); }
+.ir-prop { color: var(--muted); }
+.ir-string { color: var(--c-str); }
+.ir-number { color: var(--c-num); }
+.ir-frame-state { color: var(--accent-2); }
+.ir-flag { color: var(--accent-2); font-style: italic; }
+.ir-punct { color: var(--muted); }
+.ir-editor .cm-gutters {
+  background: var(--gutter-bg);
+  border-right: 1px solid var(--border);
+  color: var(--muted);
+}
+
+/* The pre-CodeMirror editor scaled down on small screens through `.editor`;
+   that class has no users any more, so the rule has to name the real scroller. */
+@media (max-width: 560px) {
+  .editor-wrap .cm-editor .cm-scroller { font-size: 12.5px; }
+  .editor-wrap .cm-editor .cm-content { padding: 10px; }
+}

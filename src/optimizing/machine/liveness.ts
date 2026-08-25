@@ -121,6 +121,52 @@ export class LiveInterval {
     return span <= 0 ? Number.POSITIVE_INFINITY : this.weightFrom(position) / span;
   }
 
+  useCountFrom(position: number): number {
+    let total = 0;
+    for (const at of this.uses) {
+      if (at.position >= position) total++;
+    }
+    return total;
+  }
+
+  firstUseAfter(position: number): number {
+    for (const at of this.uses) {
+      if (at.position > position) return at.position;
+    }
+    return -1;
+  }
+
+  splittableAt(position: number): boolean {
+    return this.ranges.some((range) => range.from < position && position < range.to);
+  }
+
+  splitAt(position: number): LiveInterval {
+    const child = new LiveInterval(this.register);
+    const kept: LiveRange[] = [];
+    for (const range of this.ranges) {
+      if (range.to <= position) {
+        kept.push(range);
+        continue;
+      }
+      if (range.from >= position) {
+        child.ranges.push(range);
+        continue;
+      }
+      kept.push({ from: range.from, to: position });
+      child.ranges.push({ from: position, to: range.to });
+    }
+    this.ranges.length = 0;
+    this.ranges.push(...kept);
+    const keptUses: UsePosition[] = [];
+    for (const at of this.uses) {
+      if (at.position < position) keptUses.push(at);
+      else child.uses.push(at);
+    }
+    this.uses.length = 0;
+    this.uses.push(...keptUses);
+    return child;
+  }
+
   shortenTo(position: number): boolean {
     const last = this.ranges[this.ranges.length - 1]!;
     if (last.from >= position) return false;

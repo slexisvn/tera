@@ -1,5 +1,5 @@
 import type { AnalysisId, AnalysisManager } from "./analysis-manager.js";
-import type { PassTracer } from "./pass-trace.js";
+import type { PassTracing } from "./pass-trace.js";
 import type { CompilerOptions } from "../options.js";
 
 export interface TransformOutcome {
@@ -25,14 +25,14 @@ export type GraphMaintenance<G> = (graph: G) => void;
 export type GraphVerification<G> = (graph: G, pass: string) => void;
 
 export interface PassManagerHooks<G> {
-  readonly tracer?: PassTracer<G> | null;
+  readonly tracing?: PassTracing<G> | null;
   readonly maintain?: GraphMaintenance<G> | null;
   readonly verify?: GraphVerification<G> | null;
 }
 
 export class PassManager<G> {
   private ordinal = 0;
-  private readonly tracer: PassTracer<G> | null;
+  private readonly tracing: PassTracing<G> | null;
   private readonly maintain: GraphMaintenance<G> | null;
   private readonly verify: GraphVerification<G> | null;
 
@@ -41,17 +41,17 @@ export class PassManager<G> {
     private readonly options: CompilerOptions,
     hooks: PassManagerHooks<G> = {},
   ) {
-    this.tracer = hooks.tracer ?? null;
+    this.tracing = hooks.tracing ?? null;
     this.maintain = hooks.maintain ?? null;
     this.verify = hooks.verify ?? null;
   }
 
   run(graph: G, pipeline: Iterable<TransformPass<G>>): boolean {
-    const tracer = this.tracer;
+    const tracing = this.tracing;
     let anyChanged = false;
     for (const pass of pipeline) {
       for (const id of pass.requires ?? []) this.analyses.get(id);
-      const nodesBefore = tracer === null ? 0 : tracer.probe.nodeCount(graph);
+      const nodesBefore = tracing === null ? 0 : tracing.probe.nodeCount(graph);
       const outcome = pass.run(graph, this.analyses, this.options);
       if (outcome.changed && this.maintain !== null) this.maintain(graph);
       if (outcome.changed && this.verify !== null) this.verify(graph, pass.name);
@@ -59,15 +59,15 @@ export class PassManager<G> {
         ? this.applyInvalidation(pass.preserves)
         : NOTHING_INVALIDATED;
       if (outcome.changed) anyChanged = true;
-      if (tracer === null) continue;
-      tracer.sink({
+      if (tracing === null) continue;
+      tracing.trace({
         ordinal: this.ordinal++,
         pass: pass.name,
         changed: outcome.changed,
         nodesBefore,
-        nodesAfter: tracer.probe.nodeCount(graph),
+        nodesAfter: tracing.probe.nodeCount(graph),
         invalidated,
-        graph: tracer.probe.dump(graph),
+        graph,
       });
     }
     return anyChanged;

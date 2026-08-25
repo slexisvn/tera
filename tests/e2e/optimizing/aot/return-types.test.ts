@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
-import { hostBackendId } from "../../../../src/optimizing/backends/index.js";
+import { hostBackendId } from "../../../../src/optimizing/backends/host.js";
 import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
 
 const HOST_TARGET = hostBackendId()!;

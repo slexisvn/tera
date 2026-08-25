@@ -1,0 +1,23 @@
+{
+  "name": "@tera/ui",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./vite": "./vite.ts",
+    "./tokens.css": "./src/tokens.css",
+    "./shell.css": "./src/shell.css"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.4"
+  }
+}

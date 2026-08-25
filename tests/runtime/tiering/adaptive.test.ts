@@ -149,30 +149,6 @@ describe("AdaptiveTieringPolicy", () => {
     });
   });
 
-  describe("compilation pressure", () => {
-    it("notifyCompilationStart/End adjusts pressure", () => {
-      const policy = new AdaptiveTieringPolicy();
-      expect(policy.compilationPressure).toBe(0);
-      policy.notifyCompilationStart();
-      policy.notifyCompilationStart();
-      expect(policy.compilationPressure).toBe(2);
-      policy.notifyCompilationEnd();
-      expect(policy.compilationPressure).toBe(1.5);
-    });
-
-    it("pressure caps at 10", () => {
-      const policy = new AdaptiveTieringPolicy();
-      for (let i = 0; i < 20; i++) policy.notifyCompilationStart();
-      expect(policy.compilationPressure).toBe(10);
-    });
-
-    it("pressure floors at 0", () => {
-      const policy = new AdaptiveTieringPolicy();
-      for (let i = 0; i < 5; i++) policy.notifyCompilationEnd();
-      expect(policy.compilationPressure).toBe(0);
-    });
-  });
-
   describe("getProfileStats", () => {
     it("returns comprehensive stats object", () => {
       const policy = new AdaptiveTieringPolicy();
@@ -186,7 +162,6 @@ describe("AdaptiveTieringPolicy", () => {
       expect(stats.avgTimeMs).toBe(7.5);
       expect(stats.emaTimeMs).toBe(profile.emaTimeMs);
       expect(stats.deoptCount).toBe(0);
-      expect(stats.isStable).toBe(false);
       expect(stats.hotness).toBe(profile.hotness(0));
     });
 
@@ -223,5 +198,67 @@ describe("createTieringPolicy", () => {
     const policy = createTieringPolicy({ mode: "adaptive", jitThreshold: 77 });
     expect(policy).toBeInstanceOf(AdaptiveTieringPolicy);
     expect(policy.jitThreshold).toBe(77);
+  });
+});
+
+describe("re-optimizing after a deopt waits for the feedback shape to settle", () => {
+  const shapedAt = (lastTransitionAt: number) => ({
+    getSummaryStats: () => ({
+      initializedSlots: 1,
+      stableSlots: 1,
+      monomorphicSlots: 1,
+      megamorphicSlots: 0,
+      totalRecords: 4,
+      lastTransitionAt,
+    }),
+  });
+
+  const deoptedOnce = (lastTransitionAt: number) => {
+    const policy = new AdaptiveTieringPolicy({ jitThreshold: 5, feedbackSettleMs: 100 });
+    const fn = {
+      name: "test",
+      invocationCount: 50,
+      optimizationCooldownUntil: 0,
+      feedbackVector: shapedAt(lastTransitionAt),
+    };
+    policy.recordDeopt(fn, "map-check-failed");
+    fn.optimizationCooldownUntil = 0;
+    return { policy, fn };
+  };
+
+  it("declines while a slot changed shape inside the settle window", () => {
+    const { policy, fn } = deoptedOnce(Date.now());
+    expect(policy.shouldOptimize(fn)).toBe(false);
+  });
+
+  it("allows once the settle window has passed", () => {
+    const { policy, fn } = deoptedOnce(Date.now() - 1000);
+    expect(policy.shouldOptimize(fn)).toBe(true);
+  });
+
+  it("allows a function whose feedback never changed shape", () => {
+    const { policy, fn } = deoptedOnce(0);
+    expect(policy.shouldOptimize(fn)).toBe(true);
+  });
+
+  it("ignores the settle window for a function that has never deopted", () => {
+    const policy = new AdaptiveTieringPolicy({ jitThreshold: 5, feedbackSettleMs: 100 });
+    const fn = { name: "test", invocationCount: 50, feedbackVector: shapedAt(Date.now()) };
+    expect(policy.shouldOptimize(fn)).toBe(true);
+  });
+});
+
+describe("adaptive tiering thresholds come from the shared defaults", () => {
+  it("takes every unset threshold from DEFAULT_TIERING_POLICY", () => {
+    const policy = new AdaptiveTieringPolicy();
+    expect(policy.baselineThreshold).toBe(DEFAULT_TIERING_POLICY.baselineThreshold);
+    expect(policy.jitThreshold).toBe(DEFAULT_TIERING_POLICY.jitThreshold);
+    expect(policy.loopOsrThreshold).toBe(DEFAULT_TIERING_POLICY.loopOsrThreshold);
+    expect(policy.feedbackSettleMs).toBe(DEFAULT_TIERING_POLICY.feedbackSettleMs);
+  });
+
+  it("honours a threshold of zero instead of falling back to a default", () => {
+    const policy = new AdaptiveTieringPolicy({ baselineThreshold: 0 });
+    expect(policy.shouldBaselineCompile({ name: "cold", invocationCount: 0 })).toBe(true);
   });
 });

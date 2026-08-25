@@ -3,21 +3,13 @@ import { tracer } from "../../core/tracing/index.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 import { DEFAULT_TIERING_POLICY } from "./defaults.js";
 
-const DEFAULT_HOTNESS_THRESHOLD = 50;
 const COOLDOWN_BASE_MS = 500;
 const COOLDOWN_FACTOR = 4;
 const MAX_CONSECUTIVE_DEOPTS = 10;
 const OSR_URGENCY_MULTIPLIER = 0.1;
 const MAX_COMPILE_FAILURES = 4;
 
-type AdaptiveTieringOptions = {
-  hotnessThreshold?: number;
-  baselineThreshold?: number;
-  loopOsrThreshold?: number;
-  jitThreshold?: number;
-  compileCooldownStepMs?: number;
-  maxCompileCooldownMs?: number;
-};
+type AdaptiveTieringOptions = Partial<typeof DEFAULT_TIERING_POLICY>;
 type FeedbackSummary = Record<string, number>;
 type TieringFunctionRecord = {
   name?: string | null;
@@ -35,12 +27,11 @@ export class AdaptiveTieringPolicy {
   profiles: Map<string, ExecutionProfile>;
   objectProfileKeys: WeakMap<object, string>;
   nextProfileKey: number;
-  hotnessThreshold: number;
   baselineThreshold: number;
   loopOsrThreshold: number;
   maxDeoptCount: number;
+  feedbackSettleMs: number;
   jitThreshold: number;
-  compilationPressure: number;
   compileCooldownStepMs: number;
   maxCompileCooldownMs: number;
 
@@ -49,13 +40,11 @@ export class AdaptiveTieringPolicy {
     this.profiles = new Map();
     this.objectProfileKeys = new WeakMap();
     this.nextProfileKey = 1;
-    this.hotnessThreshold =
-      opts.hotnessThreshold || DEFAULT_HOTNESS_THRESHOLD;
-    this.baselineThreshold = opts.baselineThreshold || 10;
-    this.loopOsrThreshold = opts.loopOsrThreshold || 30;
-    this.maxDeoptCount = Infinity;
-    this.jitThreshold = opts.jitThreshold || 50;
-    this.compilationPressure = 0;
+    this.baselineThreshold = opts.baselineThreshold ?? DEFAULT_TIERING_POLICY.baselineThreshold;
+    this.loopOsrThreshold = opts.loopOsrThreshold ?? DEFAULT_TIERING_POLICY.loopOsrThreshold;
+    this.maxDeoptCount = opts.maxDeoptCount ?? DEFAULT_TIERING_POLICY.maxDeoptCount;
+    this.feedbackSettleMs = opts.feedbackSettleMs ?? DEFAULT_TIERING_POLICY.feedbackSettleMs;
+    this.jitThreshold = opts.jitThreshold ?? DEFAULT_TIERING_POLICY.jitThreshold;
     this.compileCooldownStepMs =
       opts.compileCooldownStepMs ?? DEFAULT_TIERING_POLICY.compileCooldownStepMs;
     this.maxCompileCooldownMs =
@@ -102,10 +91,6 @@ export class AdaptiveTieringPolicy {
     );
   }
 
-  recordICTransition(fn: TieringFunctionRecord): void {
-    this.getProfile(fn).recordICTransition();
-  }
-
   recordLoopIterations(fn: TieringFunctionRecord, count: number): void {
     if (count > 0) this.getProfile(fn).recordLoopIterations(count);
   }
@@ -139,7 +124,7 @@ export class AdaptiveTieringPolicy {
       return false;
     }
 
-    if (profile.deoptCount > 0 && !profile.isStable()) {
+    if (profile.deoptCount > 0 && !feedbackHasSettled(fn, this.feedbackSettleMs)) {
       return false;
     }
 
@@ -201,14 +186,6 @@ export class AdaptiveTieringPolicy {
     );
   }
 
-  notifyCompilationStart(): void {
-    this.compilationPressure = Math.min(this.compilationPressure + 1, 10);
-  }
-
-  notifyCompilationEnd(): void {
-    this.compilationPressure = Math.max(this.compilationPressure - 0.5, 0);
-  }
-
   getProfileStats(fn: TieringFunctionRecord): Record<string, string | number | boolean | null> {
     const profile = this.getProfile(fn);
     return {
@@ -218,7 +195,7 @@ export class AdaptiveTieringPolicy {
       deoptCount: profile.deoptCount,
       compileFailureCount: profile.compileFailureCount || 0,
       lastCompileFailureReason: profile.lastCompileFailureReason || null,
-      isStable: profile.isStable(),
+      feedbackSettled: feedbackHasSettled(fn, this.feedbackSettleMs),
       feedbackStable: hasStableFeedback(fn),
       osrFeedbackReady: hasOSRReadyFeedback(fn),
       osrEntryReady: hasOptimizedOSREntry(fn),
@@ -229,10 +206,12 @@ export class AdaptiveTieringPolicy {
   }
 }
 
-function hasUsableFeedback(fn: TieringFunctionRecord): boolean {
+export function feedbackHasSettled(fn: TieringFunctionRecord, settleMs: number): boolean {
   const stats = fn.feedbackVector ? fn.feedbackVector.getSummaryStats() : null;
-  if (!stats || stat(stats, "initializedSlots") === 0) return true;
-  return stat(stats, "megamorphicSlots") === 0;
+  if (!stats) return true;
+  const lastTransitionAt = stat(stats, "lastTransitionAt");
+  if (lastTransitionAt === 0) return true;
+  return Date.now() - lastTransitionAt >= settleMs;
 }
 
 function hasOSRReadyFeedback(fn: TieringFunctionRecord): boolean {

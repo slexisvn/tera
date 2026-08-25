@@ -1,5 +1,6 @@
 import type { GraphProbe } from "../infra/pass-trace.js";
 import type { CFGFunction } from "./index.js";
+import { printIR } from "./text.js";
 
 export const cfgGraphProbe: GraphProbe<CFGFunction> = {
   nodeCount(graph) {
@@ -8,6 +9,6 @@ export const cfgGraphProbe: GraphProbe<CFGFunction> = {
     return count;
   },
   dump(graph) {
-    return graph.dump();
+    return printIR(graph);
   },
 };

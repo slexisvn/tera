@@ -8,7 +8,7 @@ import {
   type NativeArgument,
 } from "../../../helpers/native-executor.js";
 import { cSource, runCStringFunction, type CArgument } from "../../../helpers/c-executor.js";
-import { hostBackendId } from "../../../../src/optimizing/backends/index.js";
+import { hostBackendId } from "../../../../src/optimizing/backends/host.js";
 
 const HOST_TARGET = hostBackendId()!;
 

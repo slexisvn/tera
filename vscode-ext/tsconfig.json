@@ -16,7 +16,7 @@
     "types": ["node", "vscode"],
     "paths": {
       "@/*": ["./src/*"],
-      "@notebook/*": ["../notebook/src/*"],
+      "@notebook/*": ["../tools/notebook/src/*"],
       "tera": ["../src/index.ts"],
       "tera/*": ["../src/*"],
       "tera-data/*": ["../data/*"]

@@ -57,6 +57,7 @@ export {
 } from "./packages.js";
 export type { InstalledPackage, InstalledPackages } from "./packages.js";
 export { buildLanguageData, buildLanguageDataFromSpec, collectLanguageDataSource, parseParams } from "./language-data.js";
+export { printAst } from "./ast-text.js";
 export {
   extractReceiverExpression,
   highlightSpanEnd,

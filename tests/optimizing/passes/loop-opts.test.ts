@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   hoistLoopInvariants,
+  peelLoopChecks,
 } from "../../../src/optimizing/passes/loop-opts.js";
+import { FrameState } from "../../../src/deopt/frame-state.js";
 import { DominatorTree } from "../../../src/optimizing/analyses/dominance.js";
 import { LoopForest } from "../../../src/optimizing/analyses/loops.js";
 import { AnalysisManager } from "../../../src/optimizing/infra/analysis-manager.js";
@@ -297,5 +299,44 @@ describe("hoistLoopInvariants speculation and memory dependence", () => {
     });
 
     expect(body.nodes.some((n) => n.type === IR_STORE_FIELD)).toBe(true);
+  });
+});
+
+describe("peelLoopChecks", () => {
+  function loopWithBodyCheck() {
+    const { graph, preHeader, header, body, exit } = makeSimpleLoop();
+    const param = graph.addParameter(0);
+    const cond = irConstant(1);
+    header.addNode(cond);
+    header.addNode(irBranch(cond, body, exit));
+    const check = irCheckSmi(param);
+    check.frameState = new FrameState(null, 0);
+    check.block = body;
+    body.nodes.splice(0, 0, check);
+    exit.addNode(irReturn(irConstant(0)));
+    graph.rebuildUses();
+    return { graph, preHeader };
+  }
+
+  function peel(graph: CFGFunction, budget: number): number {
+    return peelLoopChecks(graph, loopForest(graph), new DominatorTree(graph), budget);
+  }
+
+  it("peels a body check into the pre-header when the loop fits the budget", () => {
+    const { graph, preHeader } = loopWithBodyCheck();
+    expect(peel(graph, 4)).toBe(1);
+    expect(preHeader.nodes.map((n) => n.type)).toContain(IR_CHECK_SMI);
+  });
+
+  it("leaves the loop untouched when its node count exceeds the budget", () => {
+    const { graph, preHeader } = loopWithBodyCheck();
+    expect(peel(graph, 3)).toBe(0);
+    expect(preHeader.nodes.every((n) => n.type !== IR_CHECK_SMI)).toBe(true);
+  });
+
+  it("peels nothing at a zero budget", () => {
+    const { graph, preHeader } = loopWithBodyCheck();
+    expect(peel(graph, 0)).toBe(0);
+    expect(preHeader.nodes.every((n) => n.type !== IR_CHECK_SMI)).toBe(true);
   });
 });

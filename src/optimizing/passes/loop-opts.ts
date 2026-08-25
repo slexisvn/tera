@@ -21,7 +21,6 @@ function isSideEffectFree(node: LoopNode): boolean {
   return ir.isMovable(node) && node.frameState === null;
 }
 
-const MAX_PEEL_NODES = 80;
 
 export function hoistLoopInvariants(
   graph: LoopGraph,
@@ -113,12 +112,13 @@ export function hoistLoopInvariants(
   return hoistedCount;
 }
 
-export function loopUnrolling(
+export function peelLoopChecks(
   graph: LoopGraph,
   forest: LoopForest,
   dominators: DominatorTree,
+  budget: number,
 ): number {
-  let unrollCount = 0;
+  let peelCount = 0;
   const blockById = new Map<RuntimeValue, LoopBlock>();
   for (const block of graph.blocks) blockById.set(block.id, block);
 
@@ -132,7 +132,7 @@ export function loopUnrolling(
       totalNodes += block.nodes.length;
     }
 
-    if (totalNodes > MAX_PEEL_NODES) continue;
+    if (totalNodes > budget) continue;
 
     const headerTerm = header.getTerminator();
     if (!headerTerm || headerTerm.type !== ir.IR_BRANCH) continue;
@@ -216,15 +216,15 @@ export function loopUnrolling(
 
       tracer.jitCompile(
         graph.name,
-        `LoopUnroll: peeled ${original.type} v${original.id} into pre-header B${preHeader.id}`,
+        `LoopPeel: peeled ${original.type} v${original.id} into pre-header B${preHeader.id}`,
       );
     }
     preHeader.nodes.splice(insertIdx, 0, ...clones);
 
-    unrollCount++;
+    peelCount++;
   }
 
-  return unrollCount;
+  return peelCount;
 }
 
 function buildNodeToBlock(graph: LoopGraph): Map<number, LoopBlock> {

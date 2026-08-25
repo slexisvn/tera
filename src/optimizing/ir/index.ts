@@ -4,6 +4,7 @@ import type { Representation } from "../types/representation.js";
 import type { ClassTable } from "../metadata/class-table.js";
 import type { StringEscapeModel } from "../analyses/aot-legality.js";
 import type { AotScalar } from "../types/scalar.js";
+import { DEFAULT_COMPILER_OPTIONS, type GraphInliningPolicy } from "../options.js";
 import * as ops from "./operations.js";
 import { canDeoptimize, isTerminator } from "./operations.js";
 
@@ -245,6 +246,8 @@ export class CFGFunction {
   dependencies: CFGDependency[];
   private readonly dependencyKeys: Set<string>;
   inlineBudgetRemaining: number;
+  inlineDepth: number;
+  inlining: GraphInliningPolicy;
   bailout: string | null;
   osrCandidates: Map<number, OsrCandidate>;
   osrParamSlots: number[] | null;
@@ -276,6 +279,8 @@ export class CFGFunction {
     this.dependencyKeys = new Set();
     this.bailout = null;
     this.inlineBudgetRemaining = 0;
+    this.inlineDepth = 0;
+    this.inlining = DEFAULT_COMPILER_OPTIONS.graphInlining;
     this.osrCandidates = new Map();
     this.osrParamSlots = null;
     this.declaredSignature = null;
@@ -336,33 +341,6 @@ export class CFGFunction {
     }
   }
 
-  dump() {
-    let out = `=== CFG Function: ${this.name} ===\n`;
-
-    if (this.parameters.length > 0) {
-      out += `Parameters:\n`;
-      for (const p of this.parameters) out += `  ${p.toString()}\n`;
-    }
-
-    for (const block of this.blocks) {
-      const preds = block.predecessors.map((b) => `B${b.id}`).join(", ");
-      const succs = block.successors.map((b) => `B${b.id}`).join(", ");
-      const phis = block.phis
-        .map((p) => `v${p.id}=[${p.inputs.map((v) => valueLabel(v)).join(", ")}]`)
-        .join(", ");
-      const flags = [];
-      if (block.isLoopHeader) flags.push("loop-header");
-      const flagStr = flags.length ? ` (${flags.join(", ")})` : "";
-      const predsStr = preds ? ` <- [${preds}]` : "";
-      const succsStr = succs ? ` -> [${succs}]` : "";
-
-      out += `\nBlock B${block.id}${phis ? `(${phis})` : ""}${flagStr}${predsStr}${succsStr}:\n`;
-      for (const node of block.nodes) out += `  ${node.toString()}\n`;
-    }
-
-    out += `=== End CFG Function ===\n`;
-    return out;
-  }
 }
 
 export function homeInstruction(
