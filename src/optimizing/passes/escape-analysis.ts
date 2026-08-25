@@ -81,8 +81,11 @@ export function escapeAnalysisAndScalarReplacement(
     );
     const safeUses = safeReceiverUses(aliases);
     if (hasUnsupportedAliasUses(aliases, safeUses)) continue;
+    if (hasUndominatedAliasPhi(aliases, allocBlock, dominance)) continue;
     if (hasUnresolvedElementIndex(safeUses)) continue;
-    if (hasUntrackedLoopStore(graph, safeUses, aliases, dominance)) continue;
+
+    const carryingHeaders = loopHeadersUnder(graph, allocBlock, dominance);
+    if (hasUntrackedLoopStore(carryingHeaders, safeUses, aliases, dominance)) continue;
     if (callerFrameStatesReferenceAliases(graph, aliases)) continue;
 
     let allDominated = true;
@@ -100,10 +103,11 @@ export function escapeAnalysisAndScalarReplacement(
     if (!allDominated) continue;
 
     const initialOffset = initialOffsetState(alloc);
-    if (requiresUnsupportedMergeState(graph, safeUses, aliases, initialOffset, dominance)) continue;
+    if (requiresUnsupportedMergeState(carryingHeaders, safeUses, aliases, initialOffset, dominance))
+      continue;
 
     const phiFieldStates = createPhiFieldStates(
-      graph,
+      carryingHeaders,
       aliases,
       safeUses,
       initialOffset,
@@ -353,8 +357,30 @@ function hasUnsupportedAliasUses(
   return false;
 }
 
-function requiresUnsupportedMergeState(
+function hasUndominatedAliasPhi(
+  aliases: ReadonlySet<EscapeNode>,
+  allocBlock: EscapeBlock,
+  dominance: DominatorTree,
+): boolean {
+  for (const alias of aliases) {
+    if (alias.type !== ir.IR_PHI) continue;
+    if (!alias.block || !dominance.dominates(allocBlock, alias.block)) return true;
+  }
+  return false;
+}
+
+function loopHeadersUnder(
   graph: EscapeGraph,
+  allocBlock: EscapeBlock,
+  dominance: DominatorTree,
+): EscapeBlock[] {
+  return graph.blocks.filter(
+    (block) => isLoopHeader(block, dominance) && dominance.dominates(allocBlock, block),
+  );
+}
+
+function requiresUnsupportedMergeState(
+  carryingHeaders: readonly EscapeBlock[],
   safeUses: ReadonlySet<EscapeNode>,
   aliases: ReadonlySet<EscapeNode>,
   initialOffset: ValueState,
@@ -385,8 +411,7 @@ function requiresUnsupportedMergeState(
       return true;
     }
   }
-  for (const header of graph.blocks) {
-    if (!isLoopHeader(header, dominance)) continue;
+  for (const header of carryingHeaders) {
     const keys = new Set<ir.IRMetadataValue>();
     for (const use of safeUses) {
       if (IDENTITY_GUARDS.has(use.type)) continue;
@@ -425,7 +450,7 @@ function initialOffsetState(alloc: EscapeNode): ValueState {
 }
 
 function createPhiFieldStates(
-  graph: EscapeGraph,
+  carryingHeaders: readonly EscapeBlock[],
   aliases: ReadonlySet<EscapeNode>,
   safeUses: ReadonlySet<EscapeNode>,
   initialOffset: ValueState,
@@ -489,8 +514,7 @@ function createPhiFieldStates(
       });
     }
   }
-  for (const header of graph.blocks) {
-    if (!isLoopHeader(header, dominance)) continue;
+  for (const header of carryingHeaders) {
     const fieldKeys = fieldKeysForLoopHeader(header, safeUses, aliases, dominance);
     for (const key of fieldKeys) {
       createFieldPhi(header, key, (predecessor, _index, phi) => {
@@ -540,13 +564,12 @@ function naturalLoopBody(
 }
 
 function hasUntrackedLoopStore(
-  graph: EscapeGraph,
+  carryingHeaders: readonly EscapeBlock[],
   safeUses: ReadonlySet<EscapeNode>,
   aliases: ReadonlySet<EscapeNode>,
   dominance: DominatorTree,
 ): boolean {
-  for (const header of graph.blocks) {
-    if (!isLoopHeader(header, dominance)) continue;
+  for (const header of carryingHeaders) {
     const body = naturalLoopBody(header, dominance);
     for (const use of safeUses) {
       if (!AGGREGATE_STORES.has(use.type)) continue;

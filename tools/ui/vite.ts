@@ -14,6 +14,17 @@ export interface TeraAppConfig {
   readonly outDir?: string;
 }
 
+export type TeraTestEnvironment = "node" | "jsdom";
+
+export interface TeraTestConfig {
+  readonly environment: TeraTestEnvironment;
+  readonly include: string[];
+}
+
+export function teraTestConfig(environment: TeraTestEnvironment = "node"): TeraTestConfig {
+  return { environment, include: ["tests/**/*.test.ts"] };
+}
+
 export function teraAliases() {
   return [
     { find: /^@notebook\/(.*)$/, replacement: `${posix(toolsRoot, "notebook/src")}/$1` },

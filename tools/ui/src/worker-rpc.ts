@@ -35,7 +35,12 @@ export class WorkerRpc {
     const promise = new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
     });
-    this.worker.postMessage({ id, type, payload }, transfer);
+    try {
+      this.worker.postMessage({ id, type, payload }, transfer);
+    } catch (thrown) {
+      this.pending.get(id)?.reject(thrown instanceof Error ? thrown : new Error(String(thrown)));
+      this.pending.delete(id);
+    }
     return promise;
   }
 

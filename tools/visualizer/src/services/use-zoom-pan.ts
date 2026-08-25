@@ -6,11 +6,13 @@ export type Viewport = {
   readonly k: number;
 };
 
+export type FitMode = "width" | "contain";
+
 export type ZoomPan = {
   readonly surface: React.RefObject<SVGSVGElement | null>;
   readonly view: Viewport;
+  readonly box: Size;
   readonly panning: boolean;
-  /** True while the gesture that just ended was a drag, not a tap. */
   wasDragged(): boolean;
   zoomBy(factor: number): void;
   fit(): void;
@@ -21,17 +23,12 @@ const MIN_SCALE = 0.15;
 const MAX_SCALE = 5;
 const WHEEL_SENSITIVITY = 0.0018;
 const FIT_MARGIN = 16;
-// Below this much movement the gesture is a tap on a node, not a pan.
 const DRAG_THRESHOLD = 4;
 
 export function clampScale(scale: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 }
 
-/**
- * Rescale so the content under (px, py) stays under (px, py). Both coordinates
- * are relative to the surface, not the page.
- */
 export function zoomAround(view: Viewport, px: number, py: number, scale: number): Viewport {
   const k = clampScale(scale);
   if (k === view.k) return view;
@@ -42,29 +39,29 @@ export function zoomAround(view: Viewport, px: number, py: number, scale: number
   };
 }
 
-/** The viewport that centres `natural` inside a `box`, never magnifying past 1:1. */
-export function fitViewport(box: Size, natural: Size): Viewport | null {
+export function fitViewport(box: Size, natural: Size, mode: FitMode): Viewport | null {
   if (natural.width === 0 || natural.height === 0) return null;
   if (box.width === 0 || box.height === 0) return null;
-  const k = clampScale(
-    Math.min(
-      (box.width - FIT_MARGIN * 2) / natural.width,
-      (box.height - FIT_MARGIN * 2) / natural.height,
-      1,
-    ),
-  );
+  const byWidth = (box.width - FIT_MARGIN * 2) / natural.width;
+  const byHeight = (box.height - FIT_MARGIN * 2) / natural.height;
+  const k = clampScale(mode === "width" ? Math.min(byWidth, 1) : Math.min(byWidth, byHeight, 1));
   return { k, x: (box.width - natural.width * k) / 2, y: FIT_MARGIN };
 }
 
 type Size = { readonly width: number; readonly height: number };
 
-/**
- * Pan and zoom over an SVG surface, driven by pointer events so a mouse drag, a
- * one-finger drag and a two-finger pinch all go through the same path.
- */
-export function useZoomPan(natural: Size): ZoomPan {
+function capturePointerIfPresent(node: Element, pointerId: number): void {
+  try {
+    node.setPointerCapture(pointerId);
+  } catch {
+    return;
+  }
+}
+
+export function useZoomPan(natural: Size, mode: FitMode): ZoomPan {
   const surface = useRef<SVGSVGElement | null>(null);
   const [view, setView] = useState<Viewport>({ x: 0, y: 0, k: 1 });
+  const [box, setBox] = useState<Size>({ width: 0, height: 0 });
   const [panning, setPanning] = useState(false);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ distance: number; k: number } | null>(null);
@@ -79,40 +76,36 @@ export function useZoomPan(natural: Size): ZoomPan {
     setView((current) => zoomAround(current, px, py, scale));
   }, []);
 
-  // What the last fit produced, so a resize can tell "still framed as we left it"
-  // from "the reader has moved it" and only re-fit in the first case.
   const settled = useRef<Viewport | null>(null);
   const latest = useRef(view);
   latest.current = view;
 
   const fit = useCallback(() => {
-    const box = surface.current?.getBoundingClientRect();
-    if (box === undefined) return;
-    const next = fitViewport(box, natural);
+    const measured = surface.current?.getBoundingClientRect();
+    if (measured === undefined) return;
+    setBox({ width: measured.width, height: measured.height });
+    const next = fitViewport(measured, natural, mode);
     if (next === null) return;
     settled.current = next;
     setView(next);
-  }, [natural.height, natural.width]);
+  }, [mode, natural.height, natural.width]);
 
   const reset = useCallback(() => setView({ x: 0, y: 0, k: 1 }), []);
 
-  const zoomBy = useCallback(
-    (factor: number) => {
-      const box = surface.current?.getBoundingClientRect();
-      if (box === undefined) return;
-      zoomAt(box.left + box.width / 2, box.top + box.height / 2, view.k * factor);
-    },
-    [view.k, zoomAt],
-  );
+  const zoomBy = useCallback((factor: number) => {
+    const measured = surface.current?.getBoundingClientRect();
+    if (measured === undefined) return;
+    setView((current) => zoomAround(current, measured.width / 2, measured.height / 2, current.k * factor));
+  }, []);
 
-  // The first fit can land before the surface has been laid out, and rotating a
-  // phone changes the box under it, so re-fit on resize until the reader takes over.
   useEffect(() => {
     settled.current = null;
     fit();
     const node = surface.current;
     if (node === null || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
+    const observer = new ResizeObserver((entries) => {
+      const measured = entries[0]?.contentRect;
+      if (measured !== undefined) setBox({ width: measured.width, height: measured.height });
       const framed = settled.current;
       const now = latest.current;
       if (framed === null || (now.k === framed.k && now.x === framed.x && now.y === framed.y)) {
@@ -123,8 +116,6 @@ export function useZoomPan(natural: Size): ZoomPan {
     return () => observer.disconnect();
   }, [fit]);
 
-  // React attaches wheel passively, so the browser would scroll the page behind
-  // the canvas; this listener has to be registered by hand to refuse that.
   useEffect(() => {
     const node = surface.current;
     if (node === null) return;
@@ -163,8 +154,6 @@ export function useZoomPan(natural: Size): ZoomPan {
         pinch.current = { distance: midpoint().distance, k: view.k };
         return;
       }
-      // No pointer capture yet: capturing here would swallow the click that
-      // selects a node, so the gesture has to prove it is a drag first.
       origin.current = { x: event.clientX, y: event.clientY };
       dragged.current = false;
     };
@@ -190,11 +179,7 @@ export function useZoomPan(natural: Size): ZoomPan {
         if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < DRAG_THRESHOLD) return;
         dragged.current = true;
         setPanning(true);
-        try {
-          node.setPointerCapture(event.pointerId);
-        } catch {
-          /* the pointer is already gone */
-        }
+        capturePointerIfPresent(node, event.pointerId);
       }
 
       event.preventDefault();
@@ -226,5 +211,5 @@ export function useZoomPan(natural: Size): ZoomPan {
 
   const wasDragged = useCallback(() => dragged.current, []);
 
-  return { surface, view, panning, wasDragged, zoomBy, fit, reset };
+  return { surface, view, box, panning, wasDragged, zoomBy, fit, reset };
 }

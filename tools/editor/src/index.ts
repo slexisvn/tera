@@ -1,9 +1,15 @@
 export { TeraEditor } from "./TeraEditor";
-export type { TeraEditorProps } from "./TeraEditor";
+export type { TeraEditorHandle, TeraEditorProps } from "./TeraEditor";
+export { TERA_BASIC_SETUP } from "./setup";
 export { teraEditorTheme } from "./theme";
 export { teraCodeMirrorExtensions, teraHoverDocFor } from "./extensions/tera-language";
 export { makeCompletionSource } from "./extensions/completion";
-export { applyHighlightedLine, highlightedLineExtension, setHighlightedLine } from "./extensions/highlight-line";
+export {
+  applyHighlightedLine,
+  highlightedLineExtension,
+  revealLine,
+  setHighlightedLine,
+} from "./extensions/highlight-line";
 export { IrEditor } from "./ir/IrEditor";
 export type { IrEditorProps } from "./ir/IrEditor";
 export { irCodeMirrorExtensions } from "./ir/language";

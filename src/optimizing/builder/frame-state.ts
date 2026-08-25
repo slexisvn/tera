@@ -1,5 +1,6 @@
 import { FrameState } from "../../deopt/frame-state.js";
 import type { FrameValue } from "../../deopt/frame-state.js";
+import { registerLiveness } from "./register-liveness.js";
 
 type CompiledFunctionLike = ConstructorParameters<typeof FrameState>[0];
 
@@ -31,7 +32,9 @@ export function captureFrameStateWithCaller(
   const fs = new FrameState(compiledFn, bytecodeOffset);
 
   if (regs instanceof Map) {
+    const liveness = registerLiveness(compiledFn);
     for (const [slot, node] of regs) {
+      if (liveness && !liveness.isLive(bytecodeOffset, slot)) continue;
       fs.setLocal(slot, node);
     }
   }

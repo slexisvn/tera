@@ -52,6 +52,22 @@ function declined(source: string): string {
 
 const MATCHES: ReadonlyArray<readonly [string, string]> = [
   [
+    "a promise a loop names before awaiting it in the same iteration",
+    src(
+      G,
+      "async fn f(n: int) -> int:",
+      "  total = 0",
+      "  i = 0",
+      "  while i < n:",
+      "    q = g()",
+      "    total = total + await q",
+      "    i = i + 1",
+      "  return total",
+      "p = f(3)",
+      "print(await p)",
+    ),
+  ],
+  [
     "two coroutines resume in the order they suspended",
     src(
       G,
@@ -1170,23 +1186,6 @@ const DECLINES: ReadonlyArray<readonly [string, string, string]> = [
   [
     "a promise used as a plain value",
     src(G, "fn mid() -> Promise<int>:", "  return g()", "mid()"),
-    "used as a plain value",
-  ],
-  [
-    "a promise that escapes into a value the compiler cannot follow",
-    src(
-      G,
-      "async fn f(n: int) -> int:",
-      "  total = 0",
-      "  i = 0",
-      "  while i < n:",
-      "    q = g()",
-      "    total = total + await q",
-      "    i = i + 1",
-      "  return total",
-      "p = f(3)",
-      "print(await p)",
-    ),
     "used as a plain value",
   ],
   [

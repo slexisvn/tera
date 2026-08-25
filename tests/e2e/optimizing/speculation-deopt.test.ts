@@ -1505,7 +1505,7 @@ describe("speculation → deopt: frameState localValues mapping completeness", (
   let engine;
   beforeEach(() => { engine = jitEngine(); });
 
-  it("function with 3 params: frameState captures all param slots as localValues", () => {
+  it("function with 3 params: frameState records the params the resume point still reads", () => {
     engine.run(`fn f(a, b, c):
   return a+b+c
 i = 0
@@ -1519,7 +1519,9 @@ while i < 10:
     expect(checks.length).toBeGreaterThan(0);
 
     const fs = checks[0].frameState;
-    expect(fs.localValues.size).toBeGreaterThanOrEqual(3);
+    const slotOf = (name) => fn.localNames.indexOf(name);
+    expect(fs.hasLocal(slotOf("c"))).toBe(true);
+    expect([slotOf("a"), slotOf("b")].filter((slot) => fs.hasLocal(slot))).toEqual([]);
 
     const runtimeValues = new Map();
     for (const [slot, irNode] of fs.localValues) {

@@ -90,10 +90,11 @@
   color: var(--warning);
 }
 
-.cm-tera-linked-line {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+.editor-wrap .cm-editor .cm-tera-linked-line {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   box-shadow: inset 2px 0 0 var(--accent);
 }
+.editor-wrap .cm-editor .cm-gutters .cm-tera-linked-line { color: var(--text); }
 
 .ir-value { color: var(--c-num); }
 .ir-block { color: var(--c-type); font-weight: 600; }
@@ -105,14 +106,7 @@
 .ir-frame-state { color: var(--accent-2); }
 .ir-flag { color: var(--accent-2); font-style: italic; }
 .ir-punct { color: var(--muted); }
-.ir-editor .cm-gutters {
-  background: var(--gutter-bg);
-  border-right: 1px solid var(--border);
-  color: var(--muted);
-}
 
-/* The pre-CodeMirror editor scaled down on small screens through `.editor`;
-   that class has no users any more, so the rule has to name the real scroller. */
 @media (max-width: 560px) {
   .editor-wrap .cm-editor .cm-scroller { font-size: 12.5px; }
   .editor-wrap .cm-editor .cm-content { padding: 10px; }

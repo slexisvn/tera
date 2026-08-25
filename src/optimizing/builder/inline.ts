@@ -1,5 +1,6 @@
 import * as ir from "../ir/index.js";
 import * as bytecode from "../../bytecode/register/ops/bytecode.js";
+import { jumpTargetOf } from "../../bytecode/register/ops/register-effects.js";
 import { tracer } from "../../core/tracing/index.js";
 import {
   DEP_MAP,
@@ -302,13 +303,8 @@ function inlineCallee(
   const inlineBlockMap = new Map<number, AnyBlock>();
 
   for (let i = 0; i < instructions.length; i++) {
-    const instr = instructions[i];
-    if (
-      instr.opcode === bytecode.ROP_JUMP ||
-      instr.opcode === bytecode.ROP_JUMP_IF_FALSE ||
-      instr.opcode === bytecode.ROP_JUMP_IF_TRUE
-    ) {
-      const target = instr.operands[0];
+    const target = jumpTargetOf(instructions[i]);
+    if (target !== null) {
       if (!inlineBlockMap.has(target)) {
         inlineBlockMap.set(target, graph.addBlock());
       }
@@ -322,21 +318,14 @@ function inlineCallee(
   let hasBackwardJump = false;
   if (hasControlFlow) {
     for (let i = 0; i < instructions.length; i++) {
-      const instr = instructions[i];
-      if (
-        instr.opcode === bytecode.ROP_JUMP ||
-        instr.opcode === bytecode.ROP_JUMP_IF_FALSE ||
-        instr.opcode === bytecode.ROP_JUMP_IF_TRUE
-      ) {
-        const target = instr.operands[0];
-        if (target <= i) {
-          hasBackwardJump = true;
-          if (instructions.length > graph.inlining.maxLoopingCalleeSize) return null;
-          if (!inlineBlockMap.has(target)) {
-            inlineBlockMap.set(target, graph.addBlock());
-          }
-          inlineBlockMap.get(target)!.isLoopHeader = true;
+      const target = jumpTargetOf(instructions[i]);
+      if (target !== null && target <= i) {
+        hasBackwardJump = true;
+        if (instructions.length > graph.inlining.maxLoopingCalleeSize) return null;
+        if (!inlineBlockMap.has(target)) {
+          inlineBlockMap.set(target, graph.addBlock());
         }
+        inlineBlockMap.get(target)!.isLoopHeader = true;
       }
     }
   }

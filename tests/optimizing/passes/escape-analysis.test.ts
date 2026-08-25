@@ -566,4 +566,131 @@ describe("escapeAnalysisAndScalarReplacement", () => {
     expect(ret.inputs[0]?.inputs).toContain(initial);
     expect(ret.inputs[0]?.inputs).toContain(next);
   });
+  it("scalar replaces a loop-body allocation whose reads load elimination already forwarded", () => {
+    const graph = new CFGFunction("test");
+    const entry = graph.addBlock();
+    const header = graph.addBlock();
+    const body = graph.addBlock();
+    const exit = graph.addBlock();
+
+    const initial = irConstant(0);
+    entry.addNode(initial);
+    link(entry, header);
+    entry.addNode(irJump(header));
+
+    const total = addPhi(header, [initial]);
+    const cond = irConstant(1);
+    header.addNode(cond);
+    link(header, body);
+    link(header, exit);
+    header.addNode(irBranch(cond, body, exit));
+
+    const alloc = irNewObject();
+    const seven = irConstant(7);
+    const eight = irConstant(8);
+    body.addNode(alloc);
+    body.addNode(seven);
+    body.addNode(eight);
+    body.addNode(irStoreField(alloc, 0, seven));
+    body.addNode(irStoreField(alloc, 1, eight));
+    const partial = irInt32Add(total, seven);
+    const next = irInt32Add(partial, eight);
+    body.addNode(partial);
+    body.addNode(next);
+    connect(body, header, [next]);
+    body.addNode(irJump(header));
+
+    const ret = irReturn(total);
+    exit.addNode(ret);
+
+    const count = runEscapeAnalysis(graph);
+
+    expect(count).toBe(1);
+    expect(body.nodes.some(n => n.type === IR_NEW_OBJECT)).toBe(false);
+    expect(body.nodes.some(n => n.type === IR_STORE_FIELD)).toBe(false);
+    expect(next.inputs[0]).toBe(partial);
+    expect(next.inputs[1]).toBe(eight);
+  });
+
+  it("scalar replaces an object the loop body allocates fresh each iteration", () => {
+    const graph = new CFGFunction("test");
+    const entry = graph.addBlock();
+    const header = graph.addBlock();
+    const body = graph.addBlock();
+    const exit = graph.addBlock();
+
+    const initial = irConstant(0);
+    entry.addNode(initial);
+    link(entry, header);
+    entry.addNode(irJump(header));
+
+    const total = addPhi(header, [initial]);
+    const cond = irConstant(1);
+    header.addNode(cond);
+    link(header, body);
+    link(header, exit);
+    header.addNode(irBranch(cond, body, exit));
+
+    const alloc = irNewObject();
+    const seven = irConstant(7);
+    body.addNode(alloc);
+    body.addNode(seven);
+    body.addNode(irStoreField(alloc, 0, seven));
+    const field = irLoadField(alloc, 0);
+    const next = irInt32Add(total, field);
+    body.addNode(field);
+    body.addNode(next);
+    connect(body, header, [next]);
+    body.addNode(irJump(header));
+
+    const ret = irReturn(total);
+    exit.addNode(ret);
+
+    const count = runEscapeAnalysis(graph);
+
+    expect(count).toBe(1);
+    expect(body.nodes.some(n => n.type === IR_NEW_OBJECT)).toBe(false);
+    expect(body.nodes.some(n => n.type === IR_STORE_FIELD)).toBe(false);
+    expect(body.nodes.some(n => n.type === IR_LOAD_FIELD)).toBe(false);
+    expect(next.inputs[1]).toBe(seven);
+  });
+
+  it("does NOT replace an object a loop phi carries in from the iteration before", () => {
+    const graph = new CFGFunction("test");
+    const entry = graph.addBlock();
+    const header = graph.addBlock();
+    const body = graph.addBlock();
+    const exit = graph.addBlock();
+
+    const before = irConstant(undefined);
+    entry.addNode(before);
+    link(entry, header);
+    entry.addNode(irJump(header));
+
+    const carried = addPhi(header, [before]);
+    const cond = irConstant(1);
+    header.addNode(cond);
+    link(header, body);
+    link(header, exit);
+    header.addNode(irBranch(cond, body, exit));
+
+    const alloc = irNewObject();
+    const seven = irConstant(7);
+    body.addNode(alloc);
+    body.addNode(seven);
+    body.addNode(irStoreField(alloc, 0, seven));
+    connect(body, header, [alloc]);
+    body.addNode(irJump(header));
+
+    const ret = irReturn(irConstant(0));
+    exit.addNode(ret.inputs[0]!);
+    exit.addNode(ret);
+
+    const count = runEscapeAnalysis(graph);
+
+    expect(count).toBe(0);
+    expect(body.nodes.some(n => n.type === IR_NEW_OBJECT)).toBe(true);
+    expect(body.nodes.some(n => n.type === IR_STORE_FIELD)).toBe(true);
+    expect(header.phis).toContain(carried);
+  });
 });

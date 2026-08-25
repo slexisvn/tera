@@ -4,6 +4,7 @@ import { languageData, type Builtin, type Method } from "../language-data";
 import type { AnalysisProvider } from "../types";
 
 const memberItems = Object.values(languageData.pseudoTypes).flat();
+const membersByType = new Map(Object.entries(languageData.pseudoTypes));
 const chartItems = languageData.builtins.find((item) => item.name === "chart")?.methods ?? [];
 
 export function makeCompletionSource(completionNames: readonly string[], analysis?: AnalysisProvider, documentId?: string) {
@@ -30,6 +31,8 @@ export function makeCompletionSource(completionNames: readonly string[], analysi
       const members = typeName && currentAnalysis ? currentAnalysis.symbols.membersOf(typeName, currentAnalysis.positionFor(documentId!, source, word.from)) : [];
       if (members.length) {
         for (const item of members) add(item.name, item.kind === "method" ? "method" : item.kind === "property" ? "property" : "field", item.typeName ?? item.kind);
+      } else if (owner !== null && membersByType.has(owner)) {
+        for (const item of membersByType.get(owner)!) addMethod(item, owner);
       } else {
         for (const item of memberItems) addMethod(item, item.isGetter ? "property" : "method");
       }

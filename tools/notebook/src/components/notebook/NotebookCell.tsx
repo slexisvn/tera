@@ -1,8 +1,11 @@
-import { TeraEditor, type AnalysisProvider, type TeraDiagnostic } from "@tera/editor";
+import { TERA_BASIC_SETUP, TeraEditor, type AnalysisProvider, type TeraDiagnostic } from "@tera/editor";
+import type { BasicSetupOptions } from "@uiw/react-codemirror";
 import { memo, type MutableRefObject } from "react";
 import { KernelClient } from "@notebook/services/kernel-client";
 import type { AddCellOptions, CellOutput, CellState } from "@notebook/types/notebook";
 import { Output } from "../outputs/Output";
+
+const CELL_SETUP: BasicSetupOptions = { ...TERA_BASIC_SETUP, lineNumbers: false };
 
 type NotebookCellProps = {
   cell: CellState;
@@ -32,6 +35,7 @@ export const NotebookCell = memo(function NotebookCell({ cell, diagnostics, comp
         <TeraEditor
           value={cell.source}
           documentId={cell.id}
+          basicSetup={CELL_SETUP}
           analysis={analysis}
           diagnostics={diagnostics}
           completionNames={completionNames}

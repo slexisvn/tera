@@ -9,7 +9,7 @@ export const SAMPLES: readonly Sample[] = [
   {
     id: "counted-loop",
     label: "Counted loop",
-    hint: "licm, bounds-check-elimination, gvn, strength-reduction",
+    hint: "licm lifts the two constants out of the loop; strength-reduction turns i * 3 into a shift plus an add, and the node count goes up",
     source: [
       "fn work(n: int) -> int:",
       "  total = 0",
@@ -45,7 +45,7 @@ export const SAMPLES: readonly Sample[] = [
   {
     id: "branching-call",
     label: "Branching call",
-    hint: "inlining, type-narrowing, if-conversion",
+    hint: "type-narrowing is the one to read: once the branch proves the type, the generic compare and subtract become int32 ones",
     source: [
       "fn pick(n: int) -> int:",
       "  if (n > 10):",
@@ -66,7 +66,7 @@ export const SAMPLES: readonly Sample[] = [
   {
     id: "escaping-object",
     label: "Object in a loop",
-    hint: "load-elimination forwards the field stores, then dead-store-elimination deletes them",
+    hint: "load-elimination forwards both field reads and dead-store-elimination drops the writes — yet the NewObject survives, because the loop phi for `point` still names the object the iteration before built, and a deopt frame can record only one rebuild per allocation site. Compare with \"Object per iteration\"",
     source: [
       "fn total(n: int) -> int:",
       "  acc = 0",
@@ -81,9 +81,25 @@ export const SAMPLES: readonly Sample[] = [
     ].join("\n"),
   },
   {
+    id: "sunk-object",
+    label: "Object per iteration",
+    hint: "the same object, with no local to carry it across the backedge: escape-analysis-late scalar replaces it and the loop body ends up pure arithmetic — no NewObject, no CheckMap, no StoreField",
+    source: [
+      "fn total(n: int) -> int:",
+      "  acc = 0",
+      "  i = 0",
+      "  while (i < n):",
+      "    acc = (acc + { x: i, y: (i * 2) }.x)",
+      "    i = (i + 1)",
+      "  return acc",
+      "",
+      "print(total(300))",
+    ].join("\n"),
+  },
+  {
     id: "polymorphic",
     label: "Polymorphic call site",
-    hint: "watch the runtime timeline: the inline cache goes monomorphic then polymorphic",
+    hint: "JIT only — shape is untyped, so AOT refuses it. Open Runtime and watch the inline cache go monomorphic then polymorphic",
     source: [
       "fn area(shape) -> float:",
       "  return shape.w * shape.h",
@@ -105,7 +121,7 @@ export const SAMPLES: readonly Sample[] = [
   {
     id: "async-await",
     label: "Async function",
-    hint: "the JIT declines async outright; AOT splits it into a frame plus a step function",
+    hint: "produce collects feedback like any function and the JIT still returns no graph for it; AOT splits it into a frame plus a step function",
     source: [
       "async fn produce(n: int) -> int:",
       "  return (n + 1)",

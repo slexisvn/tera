@@ -31,6 +31,7 @@ import {
   type RunResult,
   type RuntimeEvent,
   type Stage,
+  type VisualizerPassName,
   type StageGroup,
   type TargetInfo,
 } from "../types/stage";
@@ -46,9 +47,6 @@ type WorkerRequest = {
 const HOT_TIERING = { jitThreshold: 2, baselineThreshold: 1, loopOsrThreshold: 2 };
 const TRACED_CATEGORIES = ["jit", "deopt", "ic", "feedback", "hidden_class", "gc", "wasm"];
 
-// A hot loop emits inline-cache hits by the thousand. One shared cap lets that
-// flood push the deopt off the end of the timeline — which is the one event the
-// reader came for — so each category gets its own budget instead.
 const EVENT_BUDGET: Readonly<Record<string, number>> = {
   jit: 200,
   deopt: 200,
@@ -121,9 +119,15 @@ class StageCollector {
 
   recording = true;
 
-  plain(stage: Omit<Stage, "ordinal" | "positions" | "owner"> & { owner?: string }): void {
+  plain(
+    stage: Omit<Stage, "ordinal" | "positions" | "owner" | "failed"> & {
+      owner?: string;
+      failed?: boolean;
+    },
+  ): void {
     this.stages.push({
       ...stage,
+      failed: stage.failed ?? false,
       owner: stage.owner ?? stage.title,
       positions: NO_POSITIONS,
       ordinal: this.ordinal++,
@@ -133,8 +137,6 @@ class StageCollector {
   tracer = (record: PassTraceRecord<CFGFunction>): void => {
     if (!this.recording) return;
     const owner = record.graph.name;
-    // Both pipelines share the middle end, so the phase a pass belongs to comes
-    // from the pass itself, never from which pipeline happens to be running.
     const group: StageGroup = this.middleEnd.has(record.pass) ? "middle-end" : "lowering";
     const previous = this.lastTextOf("ir", owner);
     this.stages.push({
@@ -146,6 +148,7 @@ class StageCollector {
       owner,
       ordinal: this.ordinal++,
       changed: record.changed,
+      failed: false,
       text: record.changed || previous === null ? printIR(record.graph) : previous,
       passName: record.pass,
       metrics: { nodesBefore: record.nodesBefore, nodesAfter: record.nodesAfter },
@@ -165,6 +168,7 @@ class StageCollector {
       owner: record.symbol,
       ordinal: this.ordinal++,
       changed: text !== this.lastTextOf("machine", record.symbol),
+      failed: false,
       text,
       passName: record.after,
       metrics: null,
@@ -184,6 +188,7 @@ class StageCollector {
       owner: MODULE_OWNER,
       ordinal: this.ordinal++,
       changed: text !== this.lastTextOf("ir", MODULE_OWNER),
+      failed: false,
       text,
       passName: record.stage,
       metrics: null,
@@ -191,6 +196,10 @@ class StageCollector {
       positions: NO_POSITIONS,
     });
   };
+
+  produced(owner: string): boolean {
+    return this.stages.some((stage) => stage.kind === "ir" && stage.owner === owner);
+  }
 
   private lastTextOf(kind: Stage["kind"], owner: string): string | null {
     for (let at = this.stages.length - 1; at >= 0; at--) {
@@ -237,23 +246,26 @@ type FrontendResult = {
   readonly text: string;
   readonly kind?: Stage["kind"];
   readonly changed?: boolean;
+  readonly failed?: boolean;
 };
 
-/**
- * A frontend step that throws still earns a stage saying so: a syntax error must
- * not cost the reader the stages that already succeeded.
- */
 function stageOrExplain(
   collect: StageCollector,
   id: string,
-  title: string,
+  title: VisualizerPassName,
   build: () => FrontendResult,
 ): void {
   let result: FrontendResult;
   try {
     result = build();
   } catch (error) {
-    result = { subtitle: "failed", text: messageOf(error), kind: "diagnostics", changed: true };
+    result = {
+      subtitle: "failed",
+      text: messageOf(error),
+      kind: "diagnostics",
+      changed: true,
+      failed: true,
+    };
   }
   collect.plain({
     id,
@@ -262,6 +274,7 @@ function stageOrExplain(
     title,
     subtitle: result.subtitle,
     changed: result.changed ?? true,
+    failed: result.failed ?? false,
     text: result.text,
     passName: title,
     metrics: null,
@@ -285,7 +298,7 @@ function bytecodeStages(collect: StageCollector, functions: readonly CompiledFn[
       subtitle: compiled.feedbackVector === null ? "no feedback yet" : "has feedback",
       changed: true,
       text: compiled.disassemble(),
-      passName: "bytecode",
+      passName: "bytecode" satisfies VisualizerPassName,
       metrics: null,
       invalidated: [],
     });
@@ -367,9 +380,6 @@ function run(request: RunRequest): RunResult {
 function runJit(engine: Engine, collect: StageCollector, request: RunRequest): string | null {
   let error: string | null = null;
 
-  // The engine tiers functions up on its own while the program runs, which would
-  // interleave a half-finished pass trace with the one below. Let the run produce
-  // runtime events only, then trace exactly one optimization per hot function.
   collect.recording = false;
   try {
     engine.run(request.source);
@@ -386,7 +396,22 @@ function runJit(engine: Engine, collect: StageCollector, request: RunRequest): s
     return error ?? "No function collected feedback: call a function so the JIT has something to optimize.";
   }
   for (const compiled of hot) {
+    const name = compiled.name ?? "<anonymous>";
     engine.optimizeFunction(compiled);
+    if (collect.produced(name)) continue;
+    collect.plain({
+      id: `declined/${name}`,
+      group: "bytecode",
+      kind: "diagnostics",
+      title: name,
+      subtitle: "no graph",
+      changed: true,
+      text: `${name} collected feedback and was handed to the optimizer, which returned no graph for it. The interpreter keeps running this function; nothing below this line applies to it.`,
+      passName: "declined" satisfies VisualizerPassName,
+      metrics: null,
+      invalidated: [],
+      owner: name,
+    });
   }
   return error;
 }
@@ -431,7 +456,7 @@ function runAot(engine: Engine, collect: StageCollector, request: RunRequest): s
       subtitle: text ? `${file.contents.length} chars` : `${file.contents.length} bytes`,
       changed: true,
       text: typeof file.contents === "string" ? file.contents : hexDump(file.contents),
-      passName: "codegen",
+      passName: "codegen" satisfies VisualizerPassName,
       metrics: null,
       invalidated: [],
     });

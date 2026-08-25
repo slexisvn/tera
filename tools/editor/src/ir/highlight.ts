@@ -3,7 +3,8 @@ export type IrToken = {
   readonly cls: string;
 };
 
-const TOKEN = /(v\d+|B\d+|!fs|loop-header|"(?:\\.|[^"\n])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?n?|[A-Za-z_$][\w$]*|[^\sA-Za-z0-9_$"]+|\s+)/g;
+const TOKEN =
+  /(v\d+|B\d+|!fs|loop-header|"(?:\\.|[^"\n])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?n?|[A-Za-z_$][\w$]*|(?:[^\sA-Za-z0-9_$"-]|-(?!\d))+|\s+)/g;
 const KEYWORDS = new Set(["fn", "graph", "params", "succs", "preds"]);
 
 export function highlightIr(line: string): readonly IrToken[] {

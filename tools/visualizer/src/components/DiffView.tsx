@@ -4,7 +4,14 @@ import { IrLine } from "./IrLine";
 
 const MARKS = { same: " ", added: "+", removed: "-", changed: "~", moved: "»" } as const;
 
-export function DiffView({ before, after }: { before: string | null; after: string }) {
+const SUMMARY: readonly { kind: "added" | "removed" | "changed" | "moved"; mark: string; label: string }[] = [
+  { kind: "added", mark: "+", label: "added" },
+  { kind: "removed", mark: "-", label: "removed" },
+  { kind: "changed", mark: "~", label: "rewritten" },
+  { kind: "moved", mark: "»", label: "moved to another block" },
+];
+
+export function DiffView({ before, after, wrap = false }: { before: string | null; after: string; wrap?: boolean }) {
   const rows = useMemo(() => diffIR(before ?? "", after), [after, before]);
   const totals = useMemo(() => summarize(rows), [rows]);
 
@@ -19,12 +26,17 @@ export function DiffView({ before, after }: { before: string | null; after: stri
   return (
     <div className="diff">
       <div className="diff-summary">
-        <span className="added">+{totals.added} added</span>
-        <span className="removed">-{totals.removed} removed</span>
-        <span className="changed">~{totals.changed} rewritten</span>
-        <span className="moved">»{totals.moved} moved</span>
+        {SUMMARY.filter((entry) => totals[entry.kind] > 0).map((entry) => (
+          <span className={entry.kind} key={entry.kind}>
+            {entry.mark}
+            {totals[entry.kind]} {entry.label}
+          </span>
+        ))}
+        {SUMMARY.every((entry) => totals[entry.kind] === 0) && (
+          <span className="diff-none">nothing changed in this graph</span>
+        )}
       </div>
-      <pre className="code">
+      <pre className={`code${wrap ? " wrap" : ""}`}>
         {rows.map((row) => (
           <div className={`diff-row ${row.kind}`} key={`${row.kind}-${row.key}`}>
             <span className="diff-mark">{MARKS[row.kind]}</span>

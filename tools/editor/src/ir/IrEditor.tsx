@@ -1,10 +1,15 @@
 import { EditorView } from "@codemirror/view";
 import CodeMirror, { type BasicSetupOptions } from "@uiw/react-codemirror";
 import { memo, useMemo } from "react";
+import { TERA_BASIC_SETUP } from "../setup";
 import { teraEditorTheme } from "../theme";
 import { irCodeMirrorExtensions } from "./language";
 
-const BASIC_SETUP: BasicSetupOptions = { foldGutter: false, lineNumbers: true, highlightActiveLine: false };
+const BASIC_SETUP: BasicSetupOptions = {
+  ...TERA_BASIC_SETUP,
+  highlightActiveLine: false,
+  highlightActiveLineGutter: false,
+};
 
 export type IrEditorProps = {
   value: string;
@@ -21,6 +26,7 @@ export const IrEditor = memo(function IrEditor({ value, onChange, readOnly = fal
         value={value}
         readOnly={readOnly}
         basicSetup={BASIC_SETUP}
+        indentWithTab={false}
         extensions={extensions}
         onChange={onChange ?? (() => undefined)}
       />

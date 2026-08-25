@@ -61,16 +61,6 @@ import {
   THROW_BUILTIN,
 } from "../metadata/builtin-methods.js";
 
-const HANDLER_OPCODES = {
-  tryStart: bytecode.ROP_TRY_START,
-  tryEnd: bytecode.ROP_TRY_END,
-  jump: bytecode.ROP_JUMP,
-  jumpIfTrue: bytecode.ROP_JUMP_IF_TRUE,
-  jumpIfFalse: bytecode.ROP_JUMP_IF_FALSE,
-  returns: bytecode.ROP_RETURN,
-  throws: bytecode.ROP_THROW,
-} as const;
-
 const RECOVERABLE_CALLS: ReadonlySet<number> = new Set([
   bytecode.ROP_CALL,
   bytecode.ROP_CALL_METHOD,
@@ -206,6 +196,12 @@ function defineStaticField(
   block.addNode(ir.irGenericSetProp(owner!, member, acc));
 }
 import { captureFrameState } from "./frame-state.js";
+import {
+  closureCaptures,
+  closureCapturedSlots,
+  handlerTargetOf,
+  jumpTargetOf,
+} from "../../bytecode/register/ops/register-effects.js";
 import { compiledFunctionConstant } from "../ir/compiled-function.js";
 import {
   buildPolymorphicDispatch,
@@ -247,40 +243,13 @@ function hotSuccessorOf(
   return bias === "likely-true" ? jumpTaken : notTaken;
 }
 
-function upvalueSlot(upvalue: bytecode.UpvalueDescriptor | undefined): number | null {
-  if (!upvalue) return null;
-  const slot = upvalue.outerSlot ?? upvalue.index;
-  return typeof slot === "number" ? slot : null;
-}
-
-function closureCaptures(target: bytecode.RegisterCompiledFunction): ir.ClosureCapture[] {
-  const captures: ir.ClosureCapture[] = [];
-  for (const upvalue of target.upvalues) {
-    const slot = upvalueSlot(upvalue);
-    if (slot === null) continue;
-    captures.push({
-      source:
-        upvalue?.outerType === "upvalue" || upvalue?.isLocal === false
-          ? "upvalue"
-          : "local",
-      slot,
-    });
-  }
-  return captures;
-}
-
 function capturedLocalSlots(
   compiledFn: AnyCompiledFunction,
   erased: ReadonlySet<number>,
 ): Set<number> {
   const slots = new Set<number>();
-  for (const instr of compiledFn.instructions) {
-    if (instr.opcode !== bytecode.ROP_MAKE_CLOSURE) continue;
-    const target = compiledFn.constants[instr.operands[0]];
-    if (!(target instanceof bytecode.RegisterCompiledFunction)) continue;
-    for (const capture of closureCaptures(target)) {
-      if (capture.source === "local" && !erased.has(capture.slot)) slots.add(capture.slot);
-    }
+  for (const slot of closureCapturedSlots(compiledFn)) {
+    if (!erased.has(slot)) slots.add(slot);
   }
   return slots;
 }
@@ -381,13 +350,8 @@ export function buildIR(
   const recovers = graph.recoversThrows;
   for (let i = 0; i < instructions.length; i++) {
     const instr = instructions[i];
-    if (
-      instr.opcode === bytecode.ROP_JUMP ||
-      instr.opcode === bytecode.ROP_JUMP_IF_FALSE ||
-      instr.opcode === bytecode.ROP_JUMP_IF_TRUE ||
-      (recovers && instr.opcode === bytecode.ROP_TRY_START)
-    ) {
-      const target = instr.operands[0];
+    const target = jumpTargetOf(instr) ?? (recovers ? handlerTargetOf(instr) : null);
+    if (target !== null) {
       if (!blockMap.has(target)) {
         blockMap.set(target, graph.addBlock());
       }
@@ -398,23 +362,16 @@ export function buildIR(
   }
 
   for (let i = 0; i < instructions.length; i++) {
-    const instr = instructions[i];
-    if (
-      instr.opcode === bytecode.ROP_JUMP ||
-      instr.opcode === bytecode.ROP_JUMP_IF_FALSE ||
-      instr.opcode === bytecode.ROP_JUMP_IF_TRUE
-    ) {
-      const target = instr.operands[0];
-      if (target <= i && blockMap.has(target)) {
-        blockMap.get(target)!.isLoopHeader = true;
-      }
+    const target = jumpTargetOf(instructions[i]);
+    if (target !== null && target <= i && blockMap.has(target)) {
+      blockMap.get(target)!.isLoopHeader = true;
     }
   }
 
   const loopPhiMap: LoopPhiMap = new Map();
   const savedBlockRegs: SavedBlockRegs = new Map();
   const handlerStacks = recovers
-    ? handlerStacksOf(instructions, HANDLER_OPCODES)
+    ? handlerStacksOf(instructions)
     : ([] as ReadonlyArray<readonly number[]>);
 
   for (let i = 0; i < instructions.length; i++) {

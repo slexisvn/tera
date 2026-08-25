@@ -19,7 +19,6 @@ export type IrGraphModel = {
   readonly name: string;
   readonly parameters: readonly IrNode[];
   readonly blocks: readonly IrBlock[];
-  /** Printed position of each block, so edge direction is a lookup, not a scan. */
   readonly orderOf: ReadonlyMap<string, number>;
 };
 
@@ -119,8 +118,6 @@ export function layerBlocks(model: IrGraphModel): readonly (readonly IrBlock[])[
     }
   }
 
-  // A block no edge reaches still has to be drawn; park it one row below the
-  // deepest reachable one rather than letting it invent a row of its own.
   const deepest = depth.size === 0 ? 0 : Math.max(...depth.values());
   const rows: IrBlock[][] = [];
   for (const block of model.blocks) {

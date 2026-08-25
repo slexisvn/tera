@@ -14,10 +14,18 @@ const TABS: readonly { id: Tab; label: string }[] = [
   { id: "explain", label: "Explain" },
 ];
 
-function Raw({ stage }: { stage: Stage }) {
-  if (stage.kind !== "ir" && stage.kind !== "machine") return <pre className="code">{stage.text}</pre>;
+const WHY_DISABLED: Readonly<Record<Tab, string>> = {
+  diff: "There is no earlier version of this stage to compare against",
+  graph: "Only SSA stages draw as a graph",
+  raw: "",
+  explain: "",
+};
+
+function Raw({ stage, wrap }: { stage: Stage; wrap: boolean }) {
+  const className = `code${wrap ? " wrap" : ""}`;
+  if (stage.kind !== "ir" && stage.kind !== "machine") return <pre className={className}>{stage.text}</pre>;
   return (
-    <pre className="code">
+    <pre className={className}>
       {stage.text.split("\n").map((line, at) => (
         <div key={at}>
           <IrLine text={line} />
@@ -44,7 +52,10 @@ function Explain({ stage }: { stage: Stage }) {
       </p>
       {note.rerun !== undefined && <p className="explain-rerun">{note.rerun}</p>}
       <p className="explain-tier">
-        Runs in: <span className={`tier tier-${note.tier}`}>{note.tier === "both" ? "JIT and AOT" : note.tier.toUpperCase()}</span>
+        Does its work in:{" "}
+        <span className={`tier tier-${note.tier}`}>
+          {note.tier === "both" ? "JIT and AOT" : note.tier.toUpperCase()}
+        </span>
       </p>
       {note.source !== undefined && <code className="explain-source">{note.source}</code>}
     </div>
@@ -61,14 +72,20 @@ type StageViewerProps = {
 
 export function StageViewer({ stage, previous, selectedNode, onSelectNode, onHoverNode }: StageViewerProps) {
   const [tab, setTab] = useState<Tab>("diff");
+  const [wrap, setWrap] = useState(false);
 
   if (stage === null) {
     return <section className="viewer viewer-empty">Pick a stage on the left.</section>;
   }
 
-  const drawable = stage.kind === "ir";
-  const diffable = drawable || stage.kind === "machine";
-  const active = (tab === "graph" && !drawable) || (tab === "diff" && !diffable) ? "raw" : tab;
+  const available: Readonly<Record<Tab, boolean>> = {
+    diff: (stage.kind === "ir" || stage.kind === "machine") && previous !== null,
+    graph: stage.kind === "ir",
+    raw: true,
+    explain: true,
+  };
+  const active: Tab = available[tab] ? tab : available.diff ? "diff" : available.graph ? "graph" : "raw";
+  const showsCode = active === "raw" || active === "diff";
 
   return (
     <section className="viewer">
@@ -79,21 +96,40 @@ export function StageViewer({ stage, previous, selectedNode, onSelectNode, onHov
         </div>
         <div className="viewer-facts">
           {stage.metrics !== null && (
-            <span className="fact">
+            <span className="fact" title="Nodes in the graph before and after this pass ran">
               nodes {stage.metrics.nodesBefore} → {stage.metrics.nodesAfter}
             </span>
           )}
-          <span className={`fact ${stage.changed ? "yes" : "no"}`}>{stage.changed ? "changed" : "unchanged"}</span>
+          <span className={`fact ${stage.failed ? "failed" : stage.changed ? "yes" : "no"}`}>
+            {stage.failed ? "failed" : stage.changed ? "changed" : "unchanged"}
+          </span>
           {stage.invalidated.length > 0 && (
-            <span className="fact">invalidated {stage.invalidated.join(" ")}</span>
+            <span
+              className="fact"
+              title="Cached analyses this pass invalidated — whatever needs them next has to recompute them."
+            >
+              invalidated {stage.invalidated.join(" ")}
+            </span>
           )}
         </div>
         <div className="viewer-tabs">
+          {showsCode && (
+            <button
+              type="button"
+              className="wrap-toggle"
+              aria-pressed={wrap}
+              onClick={() => setWrap((on) => !on)}
+              title="Wrap long lines instead of scrolling sideways"
+            >
+              wrap
+            </button>
+          )}
           {TABS.map((entry) => (
             <button
               type="button"
               key={entry.id}
-              disabled={entry.id === "graph" ? !drawable : entry.id === "diff" && !diffable}
+              disabled={!available[entry.id]}
+              title={available[entry.id] ? undefined : WHY_DISABLED[entry.id]}
               aria-pressed={entry.id === active}
               onClick={() => setTab(entry.id)}
             >
@@ -102,7 +138,7 @@ export function StageViewer({ stage, previous, selectedNode, onSelectNode, onHov
           ))}
         </div>
       </header>
-      {active === "diff" && <DiffView before={previous === null ? null : previous.text} after={stage.text} />}
+      {active === "diff" && <DiffView before={previous === null ? null : previous.text} after={stage.text} wrap={wrap} />}
       {active === "graph" && (
         <GraphView
           text={stage.text}
@@ -112,7 +148,7 @@ export function StageViewer({ stage, previous, selectedNode, onSelectNode, onHov
           onHoverNode={onHoverNode}
         />
       )}
-      {active === "raw" && <Raw stage={stage} />}
+      {active === "raw" && <Raw stage={stage} wrap={wrap} />}
       {active === "explain" && <Explain stage={stage} />}
     </section>
   );

@@ -23,6 +23,7 @@ export type Stage = {
   readonly owner: string;
   readonly ordinal: number;
   readonly changed: boolean;
+  readonly failed: boolean;
   readonly text: string;
   readonly passName: string | null;
   readonly metrics: StageMetrics | null;
@@ -52,7 +53,6 @@ export type RunRequest = {
 export type RunResult = {
   readonly stages: readonly Stage[];
   readonly events: readonly RuntimeEvent[];
-  /** Events the per-category budget refused, so the timeline can say so. */
   readonly dropped: Readonly<Record<string, number>>;
   readonly error: string | null;
   readonly elapsedMs: number;
@@ -75,6 +75,17 @@ export type TargetInfo = {
   readonly pipeline: PipelineId;
   readonly label: string;
 };
+
+export const VISUALIZER_PASS_NAMES = [
+  "tokenize",
+  "parse",
+  "typecheck",
+  "bytecode",
+  "codegen",
+  "declined",
+] as const;
+
+export type VisualizerPassName = (typeof VISUALIZER_PASS_NAMES)[number];
 
 export const GROUP_ORDER: readonly StageGroup[] = [
   "frontend",

@@ -19,8 +19,8 @@ type HoverDiagnostic = {
 };
 
 const builtinDocs = new Map<string, HoverDoc>();
-const memberDocs = new Map<string, HoverDoc>();
 const memberDocsByOwner = new Map<string, HoverDoc>();
+const memberOwners = new Map<string, string[]>();
 const chartDocs = new Map<string, HoverDoc>();
 
 for (const item of languageData.builtins) {
@@ -40,8 +40,8 @@ for (const [typeName, methods] of Object.entries(languageData.pseudoTypes)) {
       description: method.description || "",
       signature: method.signature?.display,
     };
-    memberDocs.set(method.name, doc);
     memberDocsByOwner.set(`${typeName}.${method.name}`, doc);
+    memberOwners.set(method.name, [...(memberOwners.get(method.name) ?? []), typeName]);
   }
 }
 
@@ -154,7 +154,7 @@ function memberHoverFor(source: string, token: string, from: number, options: Do
     }
   }
 
-  return memberDocs.get(token) ?? null;
+  return memberFallback(owner, token);
 }
 
 function typeHoverFor(view: EditorView, token: string, from: number, options: DocumentContext): HoverDoc | null {
@@ -182,6 +182,20 @@ function receiverType(source: string, from: number, options: DocumentContext): s
   return resolveMemberReceiverType(analysis.source, position, analysis.symbols, languageData.globalNamespaces);
 }
 
+function memberFallback(owner: string | null, token: string): HoverDoc | null {
+  const named = owner === null ? undefined : memberDocsByOwner.get(`${owner}.${token}`);
+  if (named) return named;
+  const owners = memberOwners.get(token);
+  if (owners === undefined) return null;
+  if (owners.length === 1) return memberDocsByOwner.get(`${owners[0]}.${token}`) ?? null;
+  const docs = owners.flatMap((type) => memberDocsByOwner.get(`${type}.${token}`) ?? []);
+  return {
+    title: token,
+    kind: docs.every((doc) => doc.kind === "property") ? "property" : "method",
+    description: `Defined on ${owners.join(", ")}. Nothing here says which of them this is.`,
+  };
+}
+
 function methodDoc(typeName: string, token: string): HoverDoc | null {
   const element = typeName.endsWith("[]") ? "Array" : typeName;
   return memberDocsByOwner.get(`${element}.${token}`) ?? memberDocsByOwner.get(`${typeName}.${token}`) ?? null;
@@ -191,7 +205,7 @@ function hoverDocFor(source: string, token: string, from: number): HoverDoc | nu
   if (nonSpaceBefore(source, from) === ".") {
     const owner = ownerBeforeDot(source, from);
     if (owner === "chart") return chartDocs.get(token) ?? null;
-    return memberDocs.get(token) ?? null;
+    return memberFallback(owner, token);
   }
   if (KEYWORD_SET.has(token)) return { title: token, kind: "keyword", description: "Tera language keyword." };
   if (BUILTIN_SET.has(token)) return builtinDocs.get(token) ?? { title: token, kind: "builtin", description: "Tera builtin." };

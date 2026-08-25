@@ -1,4 +1,10 @@
 import * as ir from "../ir/index.js";
+import {
+  controlEffectOf,
+  handlerTargetOf,
+  jumpTargetOf,
+  type RegisterInstructionLike,
+} from "../../bytecode/register/ops/register-effects.js";
 import { link } from "../ir/cfg-edit.js";
 import {
   rememberIncomingState,
@@ -158,24 +164,10 @@ interface HandlerEdge {
   readonly stack: readonly number[];
 }
 
-interface BytecodeLike {
-  readonly opcode: number;
-  readonly operands: readonly number[];
-}
-
-interface HandlerOpcodes {
-  readonly tryStart: number;
-  readonly tryEnd: number;
-  readonly jump: number;
-  readonly jumpIfTrue: number;
-  readonly jumpIfFalse: number;
-  readonly returns: number;
-  readonly throws: number;
-}
+const NO_HANDLERS: readonly number[] = [];
 
 export function handlerStacksOf(
-  instructions: readonly BytecodeLike[],
-  opcodes: HandlerOpcodes,
+  instructions: readonly RegisterInstructionLike[],
 ): ReadonlyArray<readonly number[]> {
   const stacks: Array<readonly number[] | undefined> = new Array(instructions.length);
   const pending: HandlerEdge[] = [{ at: 0, stack: [] }];
@@ -183,27 +175,24 @@ export function handlerStacksOf(
     const { at, stack } = pending.pop()!;
     if (at >= instructions.length || stacks[at] !== undefined) continue;
     stacks[at] = stack;
-    const { opcode, operands } = instructions[at]!;
-    if (opcode === opcodes.returns || opcode === opcodes.throws) continue;
-    if (opcode === opcodes.tryStart) {
-      pending.push({ at: operands[0]!, stack });
-      pending.push({ at: at + 1, stack: [...stack, operands[0]!] });
+    const instruction = instructions[at]!;
+    const control = controlEffectOf(instruction.opcode);
+    if (control === "terminate") continue;
+    if (control === "enter-handler") {
+      const handler = handlerTargetOf(instruction)!;
+      pending.push({ at: handler, stack });
+      pending.push({ at: at + 1, stack: [...stack, handler] });
       continue;
     }
-    if (opcode === opcodes.tryEnd) {
+    if (control === "leave-handler") {
       pending.push({ at: at + 1, stack: stack.slice(0, -1) });
       continue;
     }
-    if (opcode === opcodes.jump) {
-      pending.push({ at: operands[0]!, stack });
-      continue;
-    }
-    if (opcode === opcodes.jumpIfTrue || opcode === opcodes.jumpIfFalse) {
-      pending.push({ at: operands[0]!, stack });
-    }
-    pending.push({ at: at + 1, stack });
+    const target = jumpTargetOf(instruction);
+    if (target !== null) pending.push({ at: target, stack });
+    if (control !== "jump") pending.push({ at: at + 1, stack });
   }
-  return stacks.map((stack) => stack ?? []);
+  return Array.from(stacks, (stack) => stack ?? NO_HANDLERS);
 }
 
 export function recoverAfterCall(

@@ -2,16 +2,20 @@ import { autocompletion } from "@codemirror/autocomplete";
 import { linter } from "@codemirror/lint";
 import { EditorView } from "@codemirror/view";
 import CodeMirror, { type BasicSetupOptions, type ReactCodeMirrorRef } from "@uiw/react-codemirror";
-import { memo, useEffect, useMemo, useRef, type KeyboardEventHandler } from "react";
+import { memo, useEffect, useImperativeHandle, useMemo, useRef, type KeyboardEventHandler, type Ref } from "react";
 import { makeCompletionSource } from "./extensions/completion";
-import { applyHighlightedLine, highlightedLineExtension } from "./extensions/highlight-line";
+import { applyHighlightedLine, highlightedLineExtension, revealLine } from "./extensions/highlight-line";
 import { teraCodeMirrorExtensions } from "./extensions/tera-language";
+import { TERA_BASIC_SETUP } from "./setup";
 import { teraEditorTheme } from "./theme";
 import type { AnalysisProvider, TeraDiagnostic } from "./types";
 
 const NO_DIAGNOSTICS: readonly TeraDiagnostic[] = [];
 const NO_NAMES: readonly string[] = [];
-const BASIC_SETUP: BasicSetupOptions = { foldGutter: false, lineNumbers: false };
+
+export type TeraEditorHandle = {
+  goToLine(line: number): void;
+};
 
 export type TeraEditorProps = {
   value: string;
@@ -24,6 +28,7 @@ export type TeraEditorProps = {
   basicSetup?: BasicSetupOptions;
   highlightedLine?: number | null;
   onKeyDown?: KeyboardEventHandler<HTMLDivElement>;
+  handle?: Ref<TeraEditorHandle>;
 };
 
 export const TeraEditor = memo(function TeraEditor({
@@ -34,9 +39,10 @@ export const TeraEditor = memo(function TeraEditor({
   diagnostics = NO_DIAGNOSTICS,
   completionNames = NO_NAMES,
   readOnly = false,
-  basicSetup = BASIC_SETUP,
+  basicSetup = TERA_BASIC_SETUP,
   highlightedLine = null,
   onKeyDown,
+  handle,
 }: TeraEditorProps) {
   const editor = useRef<ReactCodeMirrorRef>(null);
   const extensions = useMemo(() => [
@@ -59,6 +65,16 @@ export const TeraEditor = memo(function TeraEditor({
     applyHighlightedLine(view, highlightedLine);
   }, [highlightedLine, value]);
 
+  useImperativeHandle(handle, () => ({
+    goToLine(line: number): void {
+      const view = editor.current?.view;
+      if (view === undefined || line < 1 || line > view.state.doc.lines) return;
+      revealLine(view, line);
+      view.dispatch({ selection: { anchor: view.state.doc.line(line).from } });
+      view.focus();
+    },
+  }), []);
+
   return (
     <div className="editor-wrap">
       <CodeMirror
@@ -66,6 +82,7 @@ export const TeraEditor = memo(function TeraEditor({
         value={value}
         readOnly={readOnly}
         basicSetup={basicSetup}
+        indentWithTab={false}
         extensions={extensions}
         onChange={onChange}
         onKeyDown={onKeyDown}

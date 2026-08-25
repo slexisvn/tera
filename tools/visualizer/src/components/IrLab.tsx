@@ -26,8 +26,6 @@ export function IrLab({ client, optLevel, seed, onSeedTaken }: IrLabProps) {
   const [result, setResult] = useState<LabResult | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // A result belongs to the text and pass it came from; changing either makes the
-  // pane below lie, so it is dropped rather than left to look current.
   const edit = useCallback((next: string) => {
     setText(next);
     setResult(null);

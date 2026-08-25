@@ -1,4 +1,4 @@
-import { TeraEditor, useTeraAnalysis } from "@tera/editor";
+import { TeraEditor, useTeraAnalysis, type TeraEditorHandle } from "@tera/editor";
 import { useTheme } from "@tera/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CompareView } from "../components/CompareView";
@@ -6,10 +6,11 @@ import { IrLab } from "../components/IrLab";
 import { PipelineRail } from "../components/PipelineRail";
 import { RuntimeTimeline } from "../components/RuntimeTimeline";
 import { StageViewer } from "../components/StageViewer";
-import { SAMPLES } from "../content/samples";
+import { StartPanel } from "../components/StartPanel";
+import { SAMPLES, type Sample } from "../content/samples";
 import { DOCUMENT_ID, SOURCE_KEY, THEME_KEY } from "../config/constants";
 import { CompilerClient } from "../services/compiler-client";
-import type { OptLevelId, RunResult, TargetInfo } from "../types/stage";
+import type { OptLevelId, RunResult, Stage, TargetInfo } from "../types/stage";
 
 type Mode = "pipeline" | "lab" | "compare";
 type Pane = "source" | "stages" | "detail";
@@ -29,6 +30,27 @@ const MODES: readonly { id: Mode; label: string }[] = [
 const OPT_LEVELS: readonly OptLevelId[] = ["none", "baseline", "speed", "max"];
 const EMPTY: RunResult = { stages: [], events: [], dropped: {}, error: null, elapsedMs: 0 };
 
+const ERROR_POSITION = /\bat (\d+):(\d+)\b/;
+
+function errorLineOf(message: string | null): number | null {
+  if (message === null) return null;
+  const found = ERROR_POSITION.exec(message);
+  return found === null ? null : Number(found[1]);
+}
+
+function landingStage(stages: readonly Stage[], keep: string | null): string | null {
+  if (keep !== null && stages.some((stage) => stage.id === keep)) return keep;
+  const failure = stages.find((stage) => stage.failed);
+  if (failure !== undefined) return failure.id;
+  return (
+    stages.find((stage) => stage.kind === "ir" && stage.changed)?.id ??
+    stages.find((stage) => stage.kind === "ir")?.id ??
+    stages.find((stage) => stage.changed)?.id ??
+    stages[0]?.id ??
+    null
+  );
+}
+
 function initialSource(): string {
   return localStorage.getItem(SOURCE_KEY) ?? SAMPLES[0]!.source;
 }
@@ -42,16 +64,19 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("pipeline");
   const [result, setResult] = useState<RunResult>(EMPTY);
   const [rival, setRival] = useState<RunResult>(EMPTY);
+  const [compiledSource, setCompiledSource] = useState<string | null>(null);
+  const [sampleHint, setSampleHint] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
-  const [hideUnchanged, setHideUnchanged] = useState(false);
+  const [hideUnchanged, setHideUnchanged] = useState(true);
   const [showTimeline, setShowTimeline] = useState(false);
   const [labSeed, setLabSeed] = useState<string | null>(null);
   const [pane, setPane] = useState<Pane>("source");
   const [busy, setBusy] = useState(false);
   const [client, setClient] = useState<CompilerClient | null>(null);
   const clientRef = useRef<CompilerClient | null>(null);
+  const editor = useRef<TeraEditorHandle>(null);
 
   const documents = useMemo(() => [{ id: DOCUMENT_ID, source }], [source]);
   const { analysis, diagnosticsFor } = useTeraAnalysis(documents);
@@ -82,32 +107,65 @@ export default function App() {
     return targets.find((target) => target.pipeline === "aot")?.id ?? "c";
   }, [pipelineOf, targetId, targets]);
 
-  const run = useCallback(async () => {
-    const worker = clientRef.current;
-    if (worker === null) return;
-    setBusy(true);
-    try {
-      if (mode === "compare") {
-        const [jit, aot] = await Promise.all([
-          worker.run({ source, pipeline: "jit", optLevel, target: "wasm" }),
-          worker.run({ source, pipeline: "aot", optLevel, target: aotTargetId }),
-        ]);
-        setResult(jit);
-        setRival(aot);
+  const run = useCallback(
+    async (override?: string) => {
+      const worker = clientRef.current;
+      if (worker === null) return;
+      const text = override ?? source;
+      if (text.trim() === "") {
+        setResult({ ...EMPTY, error: "There is no code to compile yet — write something, or pick a sample." });
+        setCompiledSource(text);
+        setSelectedId(null);
         return;
       }
-      const next = await worker.run({ source, pipeline: pipelineOf(targetId), optLevel, target: targetId });
-      setResult(next);
-      setSelectedId(next.stages.find((stage) => stage.changed)?.id ?? next.stages[0]?.id ?? null);
-      setSelectedNode(null);
-      setHoveredNode(null);
-      setPane("stages");
-    } catch (error) {
-      setResult({ ...EMPTY, error: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setBusy(false);
-    }
-  }, [aotTargetId, mode, optLevel, pipelineOf, source, targetId]);
+      setBusy(true);
+      try {
+        if (mode === "compare") {
+          const [jit, aot] = await Promise.all([
+            worker.run({ source: text, pipeline: "jit", optLevel, target: "wasm" }),
+            worker.run({ source: text, pipeline: "aot", optLevel, target: aotTargetId }),
+          ]);
+          setResult(jit);
+          setRival(aot);
+          setCompiledSource(text);
+          setSelectedId((current) => landingStage(jit.stages, current));
+          return;
+        }
+        const next = await worker.run({
+          source: text,
+          pipeline: pipelineOf(targetId),
+          optLevel,
+          target: targetId,
+        });
+        setResult(next);
+        setCompiledSource(text);
+        setSelectedId((current) => landingStage(next.stages, current));
+        setSelectedNode(null);
+        setHoveredNode(null);
+        setPane("stages");
+      } catch (error) {
+        setResult({ ...EMPTY, error: error instanceof Error ? error.message : String(error) });
+        setCompiledSource(text);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [aotTargetId, mode, optLevel, pipelineOf, source, targetId],
+  );
+
+  const loadSample = useCallback(
+    (sample: Sample) => {
+      setSource(sample.source);
+      setSampleHint(sample.hint);
+      void run(sample.source);
+    },
+    [run],
+  );
+
+  const edit = useCallback((next: string) => {
+    setSource(next);
+    setSampleHint(null);
+  }, []);
 
   const visible = useMemo(
     () => (hideUnchanged ? result.stages.filter((stage) => stage.changed) : result.stages),
@@ -127,6 +185,12 @@ export default function App() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (mode !== "pipeline") return;
+      if (event.altKey && (event.code === "KeyJ" || event.code === "KeyK")) {
+        event.preventDefault();
+        step(event.code === "KeyJ" ? 1 : -1);
+        return;
+      }
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
       const target = event.target as HTMLElement | null;
       if (target !== null && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
       if (event.key === "j") step(1);
@@ -137,11 +201,12 @@ export default function App() {
   }, [mode, step]);
 
   const selected = result.stages.find((stage) => stage.id === selectedId) ?? null;
-  // Hovering a value is the cheap way to ask "which line is this?"; clicking
-  // pins it so the answer survives moving the pointer away.
   const linkedNode = hoveredNode ?? selectedNode;
+  const failureLine = errorLineOf(result.error);
   const highlightedLine =
-    selected === null || linkedNode === null ? null : (selected.positions[linkedNode] ?? null);
+    selected === null || linkedNode === null
+      ? failureLine
+      : (selected.positions[linkedNode] ?? failureLine);
   const previous = useMemo(() => {
     if (selected === null || (selected.kind !== "ir" && selected.kind !== "machine")) return null;
     for (let at = result.stages.indexOf(selected) - 1; at >= 0; at--) {
@@ -164,11 +229,50 @@ export default function App() {
     setMode("lab");
   }, [selected]);
 
+  const hasRun = compiledSource !== null;
+  const stale = hasRun && compiledSource !== source;
+  const status =
+    mode === "lab"
+      ? null
+      : busy
+        ? "Compiling…"
+        : !hasRun
+          ? null
+          : result.error !== null
+            ? "compile failed"
+            : `${result.stages.length} stages · ${result.elapsedMs.toFixed(0)}ms`;
+
+  const errors = useMemo(
+    () => [...new Set([result.error, mode === "compare" ? rival.error : null])].filter(
+      (message): message is string => message !== null,
+    ),
+    [mode, result.error, rival.error],
+  );
+
+  const errorBanner = errors.map((message) => {
+    const line = errorLineOf(message);
+    return line === null ? (
+      <pre className="run-error" key={message}>
+        {message}
+      </pre>
+    ) : (
+      <button
+        type="button"
+        className="run-error"
+        key={message}
+        onClick={() => editor.current?.goToLine(line)}
+      >
+        {message}
+        <span className="run-error-go">go to line {line}</span>
+      </button>
+    );
+  });
+
   return (
     <>
       <header className="toolbar">
         <div className="brand">
-          <span className="logo">Tera</span>
+          <h1 className="logo">Tera</h1>
           <span className="sub">compiler visualizer</span>
         </div>
         <div className="actions">
@@ -190,7 +294,7 @@ export default function App() {
               aria-label="Load a sample"
               onChange={(event) => {
                 const sample = SAMPLES.find((item) => item.id === event.target.value);
-                if (sample) setSource(sample.source);
+                if (sample) loadSample(sample);
                 event.currentTarget.value = "";
               }}
             >
@@ -223,16 +327,36 @@ export default function App() {
             ))}
           </select>
           {mode !== "lab" && (
-            <button type="button" onClick={run} disabled={busy}>
-              {busy ? "Compiling…" : mode === "compare" ? "Compare" : "Compile"}
+            <button
+              type="button"
+              className={stale || !hasRun ? "primary" : ""}
+              onClick={() => run()}
+              disabled={busy}
+            >
+              {busy ? "Compiling…" : "Compile"}
             </button>
           )}
           {mode === "pipeline" && (
             <>
-              <button type="button" onClick={sendToLab} disabled={selected === null || selected.kind !== "ir"}>
+              <button
+                type="button"
+                className="desk-only"
+                onClick={sendToLab}
+                disabled={selected === null || selected.kind !== "ir"}
+                title={
+                  selected === null || selected.kind !== "ir"
+                    ? "Open an IR stage to send its graph to the lab"
+                    : "Edit this graph by hand in the IR lab"
+                }
+              >
                 Send to lab
               </button>
-              <button type="button" aria-pressed={showTimeline} onClick={() => setShowTimeline((on) => !on)}>
+              <button
+                type="button"
+                className="desk-only"
+                aria-pressed={showTimeline}
+                onClick={() => setShowTimeline((on) => !on)}
+              >
                 Runtime
               </button>
             </>
@@ -240,8 +364,8 @@ export default function App() {
           <button type="button" onClick={toggleTheme}>
             {theme === "dark" ? "Light" : "Dark"}
           </button>
-          <span className={`status${busy ? " busy" : ""}`}>
-            {result.stages.length} stages · {result.elapsedMs.toFixed(0)}ms
+          <span className={`status${busy ? " busy" : ""}`} role="status" aria-live="polite">
+            {status}
           </span>
         </div>
       </header>
@@ -257,15 +381,23 @@ export default function App() {
           <aside className="source-pane">
             <TeraEditor
               value={source}
+              handle={editor}
               documentId={DOCUMENT_ID}
               analysis={analysis}
               diagnostics={diagnosticsFor(DOCUMENT_ID)}
-              onChange={setSource}
+              highlightedLine={highlightedLine}
+              onChange={edit}
             />
-            {result.error !== null && <pre className="run-error">{result.error}</pre>}
-            {rival.error !== null && <pre className="run-error">{rival.error}</pre>}
+            {errorBanner}
           </aside>
-          <CompareView left={result} right={rival} leftLabel="JIT · wasm" rightLabel={`AOT · ${aotTargetId}`} />
+          <CompareView
+            left={result}
+            right={rival}
+            leftLabel="JIT · wasm"
+            rightLabel={`AOT · ${aotTargetId}`}
+            hasRun={hasRun}
+            failed={errors.length > 0}
+          />
         </div>
       )}
 
@@ -286,34 +418,44 @@ export default function App() {
           <aside className="source-pane">
             <TeraEditor
               value={source}
+              handle={editor}
               documentId={DOCUMENT_ID}
               analysis={analysis}
               diagnostics={diagnosticsFor(DOCUMENT_ID)}
               highlightedLine={highlightedLine}
-              onChange={setSource}
+              onChange={edit}
             />
-            {result.error !== null && <pre className="run-error">{result.error}</pre>}
-            <p className="source-hint">
-              <kbd>j</kbd>/<kbd>k</kbd> step through passes
-            </p>
+            {errorBanner}
+            {sampleHint !== null && <p className="source-hint">{sampleHint}</p>}
           </aside>
 
           <PipelineRail
             stages={result.stages}
             selectedId={selectedId}
             hideUnchanged={hideUnchanged}
+            hasRun={hasRun}
             onSelect={showStage}
             onToggleUnchanged={() => setHideUnchanged((on) => !on)}
           />
 
           <div className="detail">
-            <StageViewer
-              stage={selected}
-              previous={previous}
-              selectedNode={selectedNode}
-              onSelectNode={setSelectedNode}
-              onHoverNode={setHoveredNode}
-            />
+            {stale && (
+              <button type="button" className="stale-banner" onClick={() => run()} disabled={busy}>
+                Source changed — these stages are from the previous version.{" "}
+                <strong>Compile again</strong>
+              </button>
+            )}
+            {hasRun ? (
+              <StageViewer
+                stage={selected}
+                previous={previous}
+                selectedNode={selectedNode}
+                onSelectNode={setSelectedNode}
+                onHoverNode={setHoveredNode}
+              />
+            ) : (
+              <StartPanel busy={busy} onPick={loadSample} />
+            )}
             {showTimeline && <RuntimeTimeline events={result.events} dropped={result.dropped} />}
           </div>
         </div>
