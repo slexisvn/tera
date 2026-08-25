@@ -49,10 +49,19 @@ export type GraphLayout = {
   readonly height: number;
 };
 
+export const ARROW_LENGTH = 9;
+export const ARROW_WIDTH = 7;
+
+const CORNER = 10;
+const ARROW_NECK = ARROW_LENGTH;
+const DATA_LANE_NEAR = ARROW_LENGTH + ARROW_NECK + CORNER;
+const DATA_LANE_FAR = DATA_LANE_NEAR + CORNER;
+const DATA_GUTTER = DATA_LANE_FAR + ARROW_LENGTH;
+
 const BLOCK_WIDTH = 260;
 const BLOCK_RADIUS = 8;
 const ROW_GAP = 46;
-const COLUMN_GAP = 32;
+const COLUMN_GAP = DATA_GUTTER;
 const HEADER_HEIGHT = 26;
 const NODE_HEIGHT = 17;
 const FOOT_HEIGHT = 8;
@@ -61,16 +70,9 @@ const LABEL_BASELINE = 17;
 const NODE_INSET = 12;
 const NODE_BASELINE = HEADER_HEIGHT + 12;
 const ANCHOR_RISE = 4;
-const PADDING = 24;
-const CORNER = 10;
+const PADDING = DATA_GUTTER;
 const SIDE_BULGE = 30;
-
-export const ARROW_LENGTH = 9;
-export const ARROW_WIDTH = 7;
-
-const ARROW_NECK = ARROW_LENGTH;
-const DATA_LANE_NEAR = ARROW_LENGTH + ARROW_NECK;
-const DATA_LANE_FAR = ARROW_LENGTH * 3;
+const DATA_LOOP_RISE = NODE_HEIGHT;
 
 const LANE_SHARE: Readonly<Record<ControlKind, number>> = { forward: 0.3, back: 0.72 };
 
@@ -223,10 +225,11 @@ function routeOf(plan: EdgePlan, ports: ReadonlyMap<string, Anchor>, rows: reado
 function dataEdge(key: string, from: Anchor, to: Anchor, lane: number): RoutedEdge {
   const tip = to.x - ARROW_LENGTH;
   const approach = tip - ARROW_NECK;
+  const leave = from.y === to.y ? from.y - DATA_LOOP_RISE : from.y;
   return {
     key,
     kind: "data",
-    trail: `M ${from.x} ${from.y} C ${lane} ${from.y}, ${lane} ${to.y}, ${approach} ${to.y} L ${tip} ${to.y}`,
+    trail: `M ${from.x} ${from.y} C ${lane} ${leave}, ${lane} ${to.y}, ${approach} ${to.y} L ${tip} ${to.y}`,
     neck: `M ${approach} ${to.y} L ${tip} ${to.y}`,
   };
 }

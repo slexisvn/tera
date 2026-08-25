@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ARROW_LENGTH,
+  ARROW_WIDTH,
   arrowMarkerId,
   dataEdgesInto,
   layoutGraph,
@@ -64,6 +65,16 @@ const REPEATED = `fn twice params=0 {
     v0 = Constant [value=6]
     v1 = Int32Add v0, v0
     v2 = Return v1
+}
+`;
+
+const SELF_PHI = `fn spin params=1 {
+  v0 = Parameter [index=0]
+  B0 succs=B1 preds=:
+    v1 = Jump [targetBlock=1]
+  B1 loop-header succs=B1 preds=B0,B1:
+    v2 = Phi v0, v2 [index=0]
+    v3 = Jump [targetBlock=1]
 }
 `;
 
@@ -137,7 +148,17 @@ function endOf(path: string): Anchor {
 
 function headingOf(from: Anchor, to: Anchor): Anchor {
   const span = Math.hypot(to.x - from.x, to.y - from.y);
-  return { x: Math.round(((to.x - from.x) / span) * 1e6), y: Math.round(((to.y - from.y) / span) * 1e6) };
+  return { x: (to.x - from.x) / span, y: (to.y - from.y) / span };
+}
+
+function travelBack(path: string, distance: number): Anchor {
+  const points = flatten(path);
+  let travelled = 0;
+  for (let at = points.length - 1; at > 0; at--) {
+    travelled += Math.hypot(points[at]!.x - points[at - 1]!.x, points[at]!.y - points[at - 1]!.y);
+    if (travelled >= distance) return points[at - 1]!;
+  }
+  return points[0]!;
 }
 
 function startOf(path: string): Anchor {
@@ -291,7 +312,8 @@ describe("routing control flow between blocks", () => {
 
       expect(endOf(edge.neck)).toEqual(head);
       expect(Math.hypot(head.x - base.x, head.y - base.y)).toBeGreaterThanOrEqual(ARROW_LENGTH);
-      expect(headingOf(base, head)).toEqual(headingOf(arrowBaseOf(edge.trail), head));
+      expect(headingOf(base, head).x).toBeCloseTo(headingOf(arrowBaseOf(edge.trail), head).x, 6);
+      expect(headingOf(base, head).y).toBeCloseTo(headingOf(arrowBaseOf(edge.trail), head).y, 6);
     }
   });
 
@@ -343,6 +365,32 @@ describe("routing the values that feed a node", () => {
       expect(startOf(edge.neck).y).toBeCloseTo(endOf(edge.trail).y, 6);
       expect(startOf(edge.neck).x).toBeLessThan(endOf(edge.trail).x);
     }
+  });
+
+  it("comes in behind the arrow head rather than side-on to it", () => {
+    const layout = layoutOf(REPEATED);
+    const model = parseGraphText(REPEATED)!;
+
+    for (const edge of dataEdgesInto(layout, nodeByKey(model, "v1")!)) {
+      const head = endOf(edge.trail);
+      const heading = headingOf(startOf(edge.neck), head);
+      const neck = Math.hypot(head.x - startOf(edge.neck).x, head.y - startOf(edge.neck).y);
+      const entry = travelBack(edge.trail, neck * 2);
+      const along = (head.x - entry.x) * heading.x + (head.y - entry.y) * heading.y;
+      const across = (head.x - entry.x) * -heading.y + (head.y - entry.y) * heading.x;
+
+      expect(Math.abs(along)).toBeGreaterThan(Math.abs(across));
+    }
+  });
+
+  it("loops an input that feeds itself off its own line instead of flattening onto it", () => {
+    const layout = layoutOf(SELF_PHI);
+    const model = parseGraphText(SELF_PHI)!;
+    const anchor = layout.anchorOf.get("v2")!;
+    const self = dataEdgesInto(layout, nodeByKey(model, "v2")!).find((edge) => edge.key.endsWith("-v2"))!;
+
+    expect(Math.max(...flatten(self.trail).map((point) => anchor.y - point.y))).toBeGreaterThan(ARROW_WIDTH);
+    expect(endOf(self.trail)).toEqual(endOf(self.neck));
   });
 
   it("answers nothing for inputs the layout never placed", () => {
