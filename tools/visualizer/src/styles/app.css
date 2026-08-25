@@ -943,18 +943,6 @@ button.failure:hover { border-color: var(--error); }
 }
 .workspace[data-density="compact"] .lab-pane { border-right: 0; }
 
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 10px;
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--border);
-}
-  padding: 0;
-  border: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
 /* ---------- narrow screens ---------- */
 
 @media (max-width: 1240px) {
