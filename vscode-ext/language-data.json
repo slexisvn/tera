@@ -130,6 +130,7 @@
     "DataFrame",
     "DataLoader",
     "Dataset",
+    "Error",
     "GroupedData",
     "IndexTensor",
     "JSON",
@@ -530,7 +531,7 @@
       {
         "name": "floor",
         "description": null,
-        "returns": "float",
+        "returns": "int",
         "effect": "sync",
         "isGetter": false,
         "signature": {
@@ -543,13 +544,13 @@
               "defaultValue": null
             }
           ],
-          "display": "floor(x: float) -> float"
+          "display": "floor(x: float) -> int"
         }
       },
       {
         "name": "ceil",
         "description": null,
-        "returns": "float",
+        "returns": "int",
         "effect": "sync",
         "isGetter": false,
         "signature": {
@@ -562,13 +563,13 @@
               "defaultValue": null
             }
           ],
-          "display": "ceil(x: float) -> float"
+          "display": "ceil(x: float) -> int"
         }
       },
       {
         "name": "round",
         "description": null,
-        "returns": "float",
+        "returns": "int",
         "effect": "sync",
         "isGetter": false,
         "signature": {
@@ -581,13 +582,13 @@
               "defaultValue": null
             }
           ],
-          "display": "round(x: float) -> float"
+          "display": "round(x: float) -> int"
         }
       },
       {
         "name": "trunc",
         "description": null,
-        "returns": "float",
+        "returns": "int",
         "effect": "sync",
         "isGetter": false,
         "signature": {
@@ -600,13 +601,13 @@
               "defaultValue": null
             }
           ],
-          "display": "trunc(x: float) -> float"
+          "display": "trunc(x: float) -> int"
         }
       },
       {
         "name": "sign",
         "description": null,
-        "returns": "float",
+        "returns": "int",
         "effect": "sync",
         "isGetter": false,
         "signature": {
@@ -619,7 +620,7 @@
               "defaultValue": null
             }
           ],
-          "display": "sign(x: float) -> float"
+          "display": "sign(x: float) -> int"
         }
       },
       {
@@ -929,6 +930,41 @@
         "signature": {
           "params": [],
           "display": "value_of() -> this"
+        }
+      }
+    ],
+    "Error": [
+      {
+        "name": "message",
+        "description": null,
+        "returns": "string",
+        "effect": "sync",
+        "isGetter": true,
+        "signature": {
+          "params": [],
+          "display": "message"
+        }
+      },
+      {
+        "name": "name",
+        "description": null,
+        "returns": "string",
+        "effect": "sync",
+        "isGetter": true,
+        "signature": {
+          "params": [],
+          "display": "name"
+        }
+      },
+      {
+        "name": "to_string",
+        "description": null,
+        "returns": "string",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "to_string() -> string"
         }
       }
     ],
@@ -5812,6 +5848,26 @@
       "methods": []
     },
     {
+      "name": "Error",
+      "kind": "function",
+      "description": "Create an error value carrying a message.",
+      "returns": "Error",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "message",
+            "type": "string",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "Error(message?: string) -> Error"
+      },
+      "methods": []
+    },
+    {
       "name": "String",
       "kind": "function",
       "description": "Convert a value to its string representation.",
@@ -5828,6 +5884,26 @@
           }
         ],
         "display": "String(value: any) -> string"
+      },
+      "methods": []
+    },
+    {
+      "name": "sleep",
+      "kind": "function",
+      "description": "Settle after a number of milliseconds; await it to suspend the caller.",
+      "returns": "Promise<void>",
+      "effect": "sync",
+      "signature": {
+        "params": [
+          {
+            "name": "millis",
+            "type": "float",
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "display": "sleep(millis: float) -> Promise<void>"
       },
       "methods": []
     },
