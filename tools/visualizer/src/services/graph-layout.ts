@@ -36,7 +36,8 @@ export type PlacedRow = { readonly bottom: number; readonly right: number };
 export type RoutedEdge = {
   readonly key: string;
   readonly kind: ArrowKind;
-  readonly path: string;
+  readonly trail: string;
+  readonly neck: string;
 };
 
 export type GraphLayout = {
@@ -67,7 +68,9 @@ const SIDE_BULGE = 30;
 export const ARROW_LENGTH = 9;
 export const ARROW_WIDTH = 7;
 
-const DATA_LANE = ARROW_LENGTH * 3;
+const ARROW_NECK = ARROW_LENGTH;
+const DATA_LANE_NEAR = ARROW_LENGTH + ARROW_NECK;
+const DATA_LANE_FAR = ARROW_LENGTH * 3;
 
 const LANE_SHARE: Readonly<Record<ControlKind, number>> = { forward: 0.3, back: 0.72 };
 
@@ -88,8 +91,11 @@ function trim(corner: Anchor, toward: Anchor): Anchor {
   return { x: corner.x + (dx / length) * reach, y: corner.y + (dy / length) * reach };
 }
 
-function orthogonal(route: readonly Anchor[]): string {
-  const points = route.filter((point, at) => at === 0 || !sameAnchor(point, route[at - 1]!));
+function distinct(route: readonly Anchor[]): readonly Anchor[] {
+  return route.filter((point, at) => at === 0 || !sameAnchor(point, route[at - 1]!));
+}
+
+function orthogonal(points: readonly Anchor[]): string {
   if (points.length < 2) return "";
   const parts = [`M ${points[0]!.x} ${points[0]!.y}`];
   for (let at = 1; at < points.length - 1; at++) {
@@ -101,6 +107,23 @@ function orthogonal(route: readonly Anchor[]): string {
   const last = points[points.length - 1]!;
   parts.push(`L ${last.x} ${last.y}`);
   return parts.join(" ");
+}
+
+function neckOf(points: readonly Anchor[]): string {
+  if (points.length < 2) return "";
+  const end = points[points.length - 1]!;
+  const before = points[points.length - 2]!;
+  const dx = end.x - before.x;
+  const dy = end.y - before.y;
+  const span = Math.hypot(dx, dy);
+  const straight = points.length > 2 ? span - Math.min(CORNER, span / 2) : span;
+  const reach = Math.min(ARROW_NECK, straight);
+  return `M ${end.x - (dx / span) * reach} ${end.y - (dy / span) * reach} L ${end.x} ${end.y}`;
+}
+
+function routedEdge(key: string, kind: ControlKind, corners: readonly Anchor[]): RoutedEdge {
+  const points = distinct(corners);
+  return { key, kind, trail: orthogonal(points), neck: neckOf(points) };
 }
 
 function laneBelow(rows: readonly PlacedRow[], row: number, kind: ControlKind): number {
@@ -197,11 +220,15 @@ function routeOf(plan: EdgePlan, ports: ReadonlyMap<string, Anchor>, rows: reado
   };
 }
 
-function dataPath(from: Anchor, to: Anchor): string {
-  const lane = Math.min(from.x, to.x) - DATA_LANE;
+function dataEdge(key: string, from: Anchor, to: Anchor, lane: number): RoutedEdge {
   const tip = to.x - ARROW_LENGTH;
-  const approach = tip - ARROW_LENGTH;
-  return `M ${from.x} ${from.y} C ${lane} ${from.y}, ${lane} ${to.y}, ${approach} ${to.y} L ${tip} ${to.y}`;
+  const approach = tip - ARROW_NECK;
+  return {
+    key,
+    kind: "data",
+    trail: `M ${from.x} ${from.y} C ${lane} ${from.y}, ${lane} ${to.y}, ${approach} ${to.y} L ${tip} ${to.y}`,
+    neck: `M ${approach} ${to.y} L ${tip} ${to.y}`,
+  };
 }
 
 function placeBlock(block: IrBlock, row: number, x: number, y: number): PlacedBlock {
@@ -263,7 +290,7 @@ export function layoutGraph(model: IrGraphModel): GraphLayout {
   for (const plan of plans) {
     const route = routeOf(plan, ports, rows);
     reach = Math.max(reach, route.reach);
-    edges.push({ key: plan.key, kind: plan.kind, path: orthogonal(route.corners) });
+    edges.push(routedEdge(plan.key, plan.kind, route.corners));
   }
 
   const anchorOf = new Map<string, Anchor>();
@@ -277,9 +304,11 @@ export function layoutGraph(model: IrGraphModel): GraphLayout {
 export function dataEdgesInto(layout: GraphLayout, target: IrNode): readonly RoutedEdge[] {
   const to = layout.anchorOf.get(target.key);
   if (to === undefined) return [];
+  const spread = Math.max(1, target.inputs.length - 1);
   return target.inputs.flatMap((input, at) => {
     const from = layout.anchorOf.get(input);
     if (from === undefined) return [];
-    return [{ key: `data-${at}-${input}`, kind: "data" as const, path: dataPath(from, to) }];
+    const depth = DATA_LANE_NEAR + ((DATA_LANE_FAR - DATA_LANE_NEAR) * at) / spread;
+    return [dataEdge(`data-${at}-${input}`, from, to, Math.min(from.x, to.x) - depth)];
   });
 }

@@ -366,8 +366,10 @@ button.run-error:hover { filter: brightness(1.12); }
 .graph-node.feeds { fill: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .graph-node.empty { fill: var(--muted); font-style: italic; }
 .graph-edge { fill: none; stroke: var(--border-strong); stroke-width: 1.4; }
-.graph-edge.back { stroke: var(--accent-2); stroke-dasharray: 5 3; }
-.graph-edge.data { stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 3 2; }
+.graph-edge.back { stroke: var(--accent-2); }
+.graph-edge.data { stroke: var(--accent); stroke-width: 1.6; }
+.graph-edge.back .graph-trail { stroke-dasharray: 5 3; }
+.graph-edge.data .graph-trail { stroke-dasharray: 3 2; }
 .graph-arrow.forward { fill: var(--border-strong); }
 .graph-arrow.back { fill: var(--accent-2); }
 .graph-arrow.data { fill: var(--accent); }

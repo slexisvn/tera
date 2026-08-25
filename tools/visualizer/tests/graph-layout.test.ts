@@ -135,6 +135,15 @@ function endOf(path: string): Anchor {
   return points[points.length - 1]!;
 }
 
+function headingOf(from: Anchor, to: Anchor): Anchor {
+  const span = Math.hypot(to.x - from.x, to.y - from.y);
+  return { x: Math.round(((to.x - from.x) / span) * 1e6), y: Math.round(((to.y - from.y) / span) * 1e6) };
+}
+
+function startOf(path: string): Anchor {
+  return flatten(path)[0]!;
+}
+
 function arrowBaseOf(path: string): Anchor {
   const points = flatten(path);
   let travelled = 0;
@@ -173,7 +182,7 @@ describe("placing the blocks of a printed graph", () => {
 
   it("widens the canvas to hold the lane a climbing edge is routed through", () => {
     const layout = layoutOf(LOOP);
-    const lane = Math.max(...flatten(edgeOf(layout, "B2", "B1").path).map((point) => point.x));
+    const lane = Math.max(...flatten(edgeOf(layout, "B2", "B1").trail).map((point) => point.x));
 
     expect(layout.width).toBeGreaterThan(lane);
   });
@@ -182,7 +191,7 @@ describe("placing the blocks of a printed graph", () => {
 describe("routing control flow between blocks", () => {
   it("runs an edge straight down when both blocks sit in the same column", () => {
     const layout = layoutOf(LOOP);
-    const drawn = flatten(edgeOf(layout, "B0", "B1").path);
+    const drawn = flatten(edgeOf(layout, "B0", "B1").trail);
 
     expect(new Set(drawn.map((point) => point.x)).size).toBe(1);
   });
@@ -190,8 +199,8 @@ describe("routing control flow between blocks", () => {
   it("stops the stroke one arrow head short of the border it points at", () => {
     const layout = layoutOf(LOOP);
 
-    expect(endOf(edgeOf(layout, "B1", "B3").path).y).toBe(blockOf(layout, "B3").y - ARROW_LENGTH);
-    expect(endOf(edgeOf(layout, "B2", "B1").path).y).toBe(
+    expect(endOf(edgeOf(layout, "B1", "B3").trail).y).toBe(blockOf(layout, "B3").y - ARROW_LENGTH);
+    expect(endOf(edgeOf(layout, "B2", "B1").trail).y).toBe(
       blockOf(layout, "B1").y + blockOf(layout, "B1").height + ARROW_LENGTH,
     );
   });
@@ -202,7 +211,7 @@ describe("routing control flow between blocks", () => {
       ["B1", "B3"],
       ["B2", "B1"],
     ]) {
-      const path = edgeOf(layout, from!, to!).path;
+      const path = edgeOf(layout, from!, to!).trail;
 
       expect(arrowBaseOf(path).x).toBeCloseTo(endOf(path).x, 6);
     }
@@ -213,7 +222,7 @@ describe("routing control flow between blocks", () => {
     const source = blockOf(layout, "B1");
     const target = blockOf(layout, "B3");
 
-    for (const point of flatten(edgeOf(layout, "B1", "B3").path)) {
+    for (const point of flatten(edgeOf(layout, "B1", "B3").trail)) {
       expect(point.y).toBeGreaterThanOrEqual(source.y + source.height);
       expect(point.y).toBeLessThanOrEqual(target.y);
     }
@@ -221,7 +230,7 @@ describe("routing control flow between blocks", () => {
 
   it("never doubles back on itself while rounding a corner", () => {
     const layout = layoutOf(MERGE);
-    const drawn = flatten(edgeOf(layout, "B4", "B5").path);
+    const drawn = flatten(edgeOf(layout, "B4", "B5").trail);
 
     for (let at = 1; at < drawn.length; at++) {
       expect(drawn[at]!.y).toBeGreaterThanOrEqual(drawn[at - 1]!.y - 1e-9);
@@ -231,22 +240,22 @@ describe("routing control flow between blocks", () => {
   it("sends an edge that climbs the page around the right of every row it spans", () => {
     const layout = layoutOf(MERGE);
     const spanned = layout.rows.slice(0, blockOf(layout, "B5").row + 1);
-    const lane = Math.max(...flatten(edgeOf(layout, "B5", "B0").path).map((point) => point.x));
+    const lane = Math.max(...flatten(edgeOf(layout, "B5", "B0").trail).map((point) => point.x));
 
     for (const row of spanned) expect(lane).toBeGreaterThan(row.right);
   });
 
   it("gives every edge arriving at a block its own point on the border", () => {
     const layout = layoutOf(MERGE);
-    const arrivals = ["B1", "B2", "B3", "B4"].map((from) => endOf(edgeOf(layout, from, "B5").path).x);
+    const arrivals = ["B1", "B2", "B3", "B4"].map((from) => endOf(edgeOf(layout, from, "B5").trail).x);
 
     expect(new Set(arrivals).size).toBe(arrivals.length);
   });
 
   it("keeps an arriving back edge off the points the target's own edges leave from", () => {
     const layout = layoutOf(LOOP);
-    const arrival = endOf(edgeOf(layout, "B2", "B1").path).x;
-    const departures = ["B2", "B3"].map((to) => flatten(edgeOf(layout, "B1", to).path)[0]!.x);
+    const arrival = endOf(edgeOf(layout, "B2", "B1").trail).x;
+    const departures = ["B2", "B3"].map((to) => flatten(edgeOf(layout, "B1", to).trail)[0]!.x);
 
     expect(departures).not.toContain(arrival);
   });
@@ -257,20 +266,33 @@ describe("routing control flow between blocks", () => {
     const target = blockOf(layout, "B2");
     const floor = Math.min(source.y + source.height, target.y + target.height);
 
-    for (const point of flatten(edgeOf(layout, "B1", "B2").path)) {
+    for (const point of flatten(edgeOf(layout, "B1", "B2").trail)) {
       expect(point.y).toBeGreaterThanOrEqual(floor);
     }
-    expect(endOf(edgeOf(layout, "B1", "B2").path).y).toBe(target.y + target.height + ARROW_LENGTH);
+    expect(endOf(edgeOf(layout, "B1", "B2").trail).y).toBe(target.y + target.height + ARROW_LENGTH);
   });
 
   it("draws a block that jumps to itself as a loop below it, not as a point", () => {
     const layout = layoutOf(SELF);
     const block = blockOf(layout, "B0");
-    const drawn = flatten(layout.edges[0]!.path);
+    const drawn = flatten(layout.edges[0]!.trail);
 
     expect(layout.edges).toHaveLength(1);
-    expect(drawn[0]!.x).not.toBe(endOf(layout.edges[0]!.path).x);
+    expect(drawn[0]!.x).not.toBe(endOf(layout.edges[0]!.trail).x);
     expect(Math.max(...drawn.map((point) => point.y))).toBeGreaterThan(block.y + block.height);
+  });
+
+  it("hands the arrow head a straight run that reaches back into the trail it ends", () => {
+    const layout = layoutOf(MERGE);
+
+    for (const edge of layout.edges) {
+      const head = endOf(edge.trail);
+      const base = startOf(edge.neck);
+
+      expect(endOf(edge.neck)).toEqual(head);
+      expect(Math.hypot(head.x - base.x, head.y - base.y)).toBeGreaterThanOrEqual(ARROW_LENGTH);
+      expect(headingOf(base, head)).toEqual(headingOf(arrowBaseOf(edge.trail), head));
+    }
   });
 
   it("marks the edges that climb the page apart from the ones that descend", () => {
@@ -298,8 +320,29 @@ describe("routing the values that feed a node", () => {
     const [edge] = dataEdgesInto(layout, nodeByKey(model, "v1")!);
     const consumer = layout.anchorOf.get("v1")!;
 
-    expect(endOf(edge!.path).x).toBeCloseTo(consumer.x - ARROW_LENGTH, 6);
-    expect(arrowBaseOf(edge!.path).y).toBeCloseTo(endOf(edge!.path).y, 6);
+    expect(endOf(edge!.trail).x).toBeCloseTo(consumer.x - ARROW_LENGTH, 6);
+    expect(arrowBaseOf(edge!.trail).y).toBeCloseTo(endOf(edge!.trail).y, 6);
+  });
+
+  it("gives the two edges of a repeated input lanes of their own to travel in", () => {
+    const layout = layoutOf(REPEATED);
+    const model = parseGraphText(REPEATED)!;
+    const lanes = dataEdgesInto(layout, nodeByKey(model, "v1")!).map((edge) =>
+      Math.min(...flatten(edge.trail).map((point) => point.x)),
+    );
+
+    expect(new Set(lanes).size).toBe(lanes.length);
+  });
+
+  it("carries the arrow head on the straight run the trail ends with", () => {
+    const layout = layoutOf(REPEATED);
+    const model = parseGraphText(REPEATED)!;
+
+    for (const edge of dataEdgesInto(layout, nodeByKey(model, "v1")!)) {
+      expect(endOf(edge.neck)).toEqual(endOf(edge.trail));
+      expect(startOf(edge.neck).y).toBeCloseTo(endOf(edge.trail).y, 6);
+      expect(startOf(edge.neck).x).toBeLessThan(endOf(edge.trail).x);
+    }
   });
 
   it("answers nothing for inputs the layout never placed", () => {

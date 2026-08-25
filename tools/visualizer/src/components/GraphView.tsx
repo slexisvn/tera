@@ -37,7 +37,10 @@ function shorten(text: string): string {
 
 function EdgePath({ edge }: { edge: RoutedEdge }) {
   return (
-    <path className={`graph-edge ${edge.kind}`} markerEnd={`url(#${arrowMarkerId(edge.kind)})`} d={edge.path} />
+    <g className={`graph-edge ${edge.kind}`}>
+      <path className="graph-trail" d={edge.trail} />
+      <path className="graph-neck" markerEnd={`url(#${arrowMarkerId(edge.kind)})`} d={edge.neck} />
+    </g>
   );
 }
 
