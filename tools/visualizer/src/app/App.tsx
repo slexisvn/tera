@@ -134,10 +134,10 @@ export default function App() {
   const pipeline = mode === "compare" ? "jit" : pipelineOf(targetId);
 
   const run = useCallback(
-    async (override?: string) => {
+    async () => {
       const worker = clientRef.current;
       if (worker === null) return;
-      const text = override ?? source;
+      const text = source;
       if (text.trim() === "") {
         setResult({ ...EMPTY, error: "There is no code to compile yet — write something, or pick a sample." });
         setCompiledSource(text);
@@ -179,13 +179,10 @@ export default function App() {
     [aotTargetId, mode, optLevel, pipelineOf, source, targetId],
   );
 
-  const loadSample = useCallback(
-    (sample: Sample) => {
-      setSource(sample.source);
-      void run(sample.source);
-    },
-    [run],
-  );
+  const loadSample = useCallback((sample: Sample) => {
+    setSource(sample.source);
+    setPane("source");
+  }, []);
 
   const visible = useMemo(
     () => (hideUnchanged ? result.stages.filter((stage) => stage.changed) : result.stages),

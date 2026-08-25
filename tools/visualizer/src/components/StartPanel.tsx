@@ -17,8 +17,8 @@ export function StartPanel({ busy, onPick }: StartPanelProps) {
           result.
         </p>
         <p className="start-nudge">
-          Nothing to write? Start from one of these — each is built to make a particular pass do
-          something visible.
+          Nothing to write? Load one of these into the editor — each is built to make a particular pass
+          do something visible — then press <strong>Compile &amp; run</strong>.
         </p>
       </div>
       <ul className="start-samples">
