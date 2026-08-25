@@ -54,7 +54,10 @@ export type RunResult = {
   readonly stages: readonly Stage[];
   readonly events: readonly RuntimeEvent[];
   readonly dropped: Readonly<Record<string, number>>;
+  readonly output: readonly string[];
+  readonly outputDropped: number;
   readonly error: string | null;
+  readonly runError: string | null;
   readonly elapsedMs: number;
 };
 

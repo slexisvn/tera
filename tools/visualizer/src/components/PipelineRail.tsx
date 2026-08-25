@@ -70,9 +70,9 @@ export function PipelineRail({
               type="button"
               aria-pressed={hideUnchanged}
               onClick={onToggleUnchanged}
-              title="Show only the passes that rewrote something"
+              title={`Show only the passes that rewrote something — ${unchanged} passes left the graph alone`}
             >
-              hide unchanged <span className="rail-toggle-count">{unchanged}</span>
+              changed only <span className="rail-toggle-count">{unchanged} hidden</span>
             </button>
           </div>
           <label className="visually-hidden" htmlFor={filterId}>
@@ -123,7 +123,11 @@ export function PipelineRail({
             </ul>
           </section>
         ))}
-        {stages.length === 0 && <p className="rail-empty">Compile to see the pipeline.</p>}
+        {stages.length === 0 && (
+          <p className="rail-empty">
+            Every pass the compiler runs will be listed here, in order, once you compile.
+          </p>
+        )}
         {hasRun && stages.length > 0 && matched.length === 0 && (
           <p className="rail-empty">
             {needle === "" ? "No pass rewrote anything." : `No stage matches “${filter}”.`}

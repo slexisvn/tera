@@ -56,7 +56,23 @@ const EVENT_BUDGET: Readonly<Record<string, number>> = {
   ic: 150,
 };
 const DEFAULT_EVENT_BUDGET = 80;
+const OUTPUT_BUDGET = 400;
 const MODULE_OWNER = "<module>";
+
+type Outcome = {
+  readonly error: string | null;
+  readonly runError: string | null;
+};
+
+class OutputSink {
+  readonly lines: string[] = [];
+  dropped = 0;
+
+  write = (text: string): void => {
+    if (this.lines.length >= OUTPUT_BUDGET) this.dropped++;
+    else this.lines.push(String(text));
+  };
+}
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const { id, type, payload } = event.data;
@@ -201,6 +217,10 @@ class StageCollector {
     return this.stages.some((stage) => stage.kind === "ir" && stage.owner === owner);
   }
 
+  get broke(): boolean {
+    return this.stages.some((stage) => stage.failed);
+  }
+
   private lastTextOf(kind: Stage["kind"], owner: string): string | null {
     for (let at = this.stages.length - 1; at >= 0; at--) {
       const stage = this.stages[at]!;
@@ -319,20 +339,15 @@ function run(request: RunRequest): RunResult {
   const events: RuntimeEvent[] = [];
   const spent = new Map<string, number>();
   const dropped = new Map<string, number>();
+  const printed = new OutputSink();
   const options = compilerOptions(request.optLevel);
   const collect = new StageCollector(options);
-  let error: string | null = null;
+  let outcome: Outcome = { error: null, runError: null };
 
   try {
     frontendStages(collect, request.source);
   } catch (thrown) {
-    return {
-      stages: collect.done(),
-      events,
-      dropped: {},
-      error: messageOf(thrown),
-      elapsedMs: performance.now() - started,
-    };
+    return report(collect, events, dropped, printed, { error: messageOf(thrown), runError: null }, started);
   }
 
   const traced: CompilerOptions = {
@@ -348,7 +363,7 @@ function run(request: RunRequest): RunResult {
     trace: true,
     traceCategories: TRACED_CATEGORIES,
     compilerOptions: traced,
-    output: () => undefined,
+    output: printed.write,
     onTrace: (event) => {
       const budget = EVENT_BUDGET[event.category] ?? DEFAULT_EVENT_BUDGET;
       const taken = spent.get(event.category) ?? 0;
@@ -362,38 +377,64 @@ function run(request: RunRequest): RunResult {
   });
 
   try {
-    if (request.pipeline === "aot") error = runAot(engine, collect, request);
-    else error = runJit(engine, collect, request);
+    outcome =
+      request.pipeline === "aot"
+        ? runAot(engine, collect, request, printed)
+        : runJit(engine, collect, request);
   } catch (thrown) {
-    error = messageOf(thrown);
+    outcome = { ...outcome, error: messageOf(thrown) };
   }
 
+  return report(collect, events, dropped, printed, outcome, started);
+}
+
+function report(
+  collect: StageCollector,
+  events: readonly RuntimeEvent[],
+  dropped: ReadonlyMap<string, number>,
+  printed: OutputSink,
+  outcome: Outcome,
+  started: number,
+): RunResult {
   return {
     stages: collect.done(),
     events,
     dropped: Object.fromEntries(dropped),
-    error,
+    output: printed.lines,
+    outputDropped: printed.dropped,
+    error: outcome.error,
+    runError: outcome.runError,
     elapsedMs: performance.now() - started,
   };
 }
 
-function runJit(engine: Engine, collect: StageCollector, request: RunRequest): string | null {
+function runJit(engine: Engine, collect: StageCollector, request: RunRequest): Outcome {
+  let runError: string | null = null;
   let error: string | null = null;
 
   collect.recording = false;
   try {
     engine.run(request.source);
   } catch (thrown) {
-    error = messageOf(thrown);
+    if (collect.broke) error = messageOf(thrown);
+    else runError = messageOf(thrown);
   }
   collect.recording = true;
+
+  if (error !== null) return { error, runError: null };
 
   const functions = uniqueByName(engine.collectFunctions());
   bytecodeStages(collect, functions);
 
   const hot = functions.filter((compiled) => compiled.feedbackVector !== null);
   if (hot.length === 0) {
-    return error ?? "No function collected feedback: call a function so the JIT has something to optimize.";
+    return {
+      runError,
+      error:
+        runError !== null
+          ? null
+          : "No function collected feedback: call a function so the JIT has something to optimize.",
+    };
   }
   for (const compiled of hot) {
     const name = compiled.name ?? "<anonymous>";
@@ -413,7 +454,7 @@ function runJit(engine: Engine, collect: StageCollector, request: RunRequest): s
       owner: name,
     });
   }
-  return error;
+  return { error: null, runError };
 }
 
 function isCompiled(value: unknown): value is CompiledFn {
@@ -432,7 +473,12 @@ function nestedFunctions(root: CompiledFn): CompiledFn[] {
   return found;
 }
 
-function runAot(engine: Engine, collect: StageCollector, request: RunRequest): string | null {
+function runAot(
+  engine: Engine,
+  collect: StageCollector,
+  request: RunRequest,
+  printed: OutputSink,
+): Outcome {
   const entry = engine.compile(request.source);
   bytecodeStages(collect, uniqueByName(nestedFunctions(entry)));
 
@@ -462,9 +508,27 @@ function runAot(engine: Engine, collect: StageCollector, request: RunRequest): s
     });
   }
 
-  return program.skipped.length === 0
-    ? null
-    : program.skipped.map((skip) => `${skip.name}: ${skip.reason}`).join("\n");
+  return {
+    error:
+      program.skipped.length === 0
+        ? null
+        : program.skipped.map((skip) => `${skip.name}: ${skip.reason}`).join("\n"),
+    runError: execute(request.source, printed),
+  };
+}
+
+function execute(source: string, printed: OutputSink): string | null {
+  const engine = new Engine({
+    ...createReactiveTeraOptions({ nativeToTagged, taggedToNative }),
+    typecheck: "off",
+    output: printed.write,
+  });
+  try {
+    engine.run(source);
+    return null;
+  } catch (thrown) {
+    return messageOf(thrown);
+  }
 }
 
 function hexDump(bytes: Uint8Array): string {

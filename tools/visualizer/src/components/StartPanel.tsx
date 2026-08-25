@@ -11,9 +11,10 @@ export function StartPanel({ busy, onPick }: StartPanelProps) {
       <div className="start-lead">
         <h2>Watch a program go through the compiler</h2>
         <p>
-          Compile the code on the left and every step the compiler takes shows up as a stage you can
-          open: the tokens, the syntax tree, then each optimisation pass in turn — with a diff of what
-          it rewrote and a control flow graph of the result.
+          Press <strong>Compile &amp; run</strong> under the editor: the program runs, and every step the
+          compiler took on the way shows up as a stage you can open — the tokens, the syntax tree, then
+          each optimisation pass in turn, with a diff of what it rewrote and a control flow graph of the
+          result.
         </p>
         <p className="start-nudge">
           Nothing to write? Start from one of these — each is built to make a particular pass do

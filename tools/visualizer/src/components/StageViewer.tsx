@@ -68,14 +68,26 @@ type StageViewerProps = {
   selectedNode: string | null;
   onSelectNode: (key: string | null) => void;
   onHoverNode: (key: string | null) => void;
+  onSendToLab: () => void;
 };
 
-export function StageViewer({ stage, previous, selectedNode, onSelectNode, onHoverNode }: StageViewerProps) {
+export function StageViewer({
+  stage,
+  previous,
+  selectedNode,
+  onSelectNode,
+  onHoverNode,
+  onSendToLab,
+}: StageViewerProps) {
   const [tab, setTab] = useState<Tab>("diff");
   const [wrap, setWrap] = useState(false);
 
   if (stage === null) {
-    return <section className="viewer viewer-empty">Pick a stage on the left.</section>;
+    return (
+      <section className="viewer viewer-empty">
+        Pick a stage from the list to see what it rewrote.
+      </section>
+    );
   }
 
   const available: Readonly<Record<Tab, boolean>> = {
@@ -136,6 +148,16 @@ export function StageViewer({ stage, previous, selectedNode, onSelectNode, onHov
               {entry.label}
             </button>
           ))}
+          {stage.kind === "ir" && (
+            <button
+              type="button"
+              className="viewer-send"
+              onClick={onSendToLab}
+              title="Open this graph in the IR lab and run a single pass over it by hand"
+            >
+              Send to IR lab
+            </button>
+          )}
         </div>
       </header>
       {active === "diff" && <DiffView before={previous === null ? null : previous.text} after={stage.text} wrap={wrap} />}
