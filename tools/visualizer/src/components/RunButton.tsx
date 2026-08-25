@@ -2,20 +2,21 @@ export const RUN_SHORTCUT = navigator.platform.startsWith("Mac") ? "⌘⏎" : "C
 
 type RunButtonProps = {
   busy: boolean;
+  ready: boolean;
   onRun: () => void;
-  className?: string;
 };
 
-export function RunButton({ busy, onRun, className = "" }: RunButtonProps) {
+export function RunButton({ busy, ready, onRun }: RunButtonProps) {
   return (
     <button
       type="button"
-      className={`run-button ${className}`.trim()}
+      className="run-button"
+      data-busy={busy || undefined}
       onClick={onRun}
-      disabled={busy}
-      title={`Compile the code and run it — ${RUN_SHORTCUT}`}
+      disabled={busy || !ready}
+      title={ready ? `Compile the code and run it — ${RUN_SHORTCUT}` : "The compiler is still loading"}
     >
-      {busy ? "Compiling…" : "Compile & run"}
+      {ready ? "Compile & run" : "Loading compiler…"}
       <span className="run-shortcut">{RUN_SHORTCUT}</span>
     </button>
   );

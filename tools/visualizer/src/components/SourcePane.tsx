@@ -1,6 +1,5 @@
 import { TeraEditor, type TeraEditorHandle, type TeraEditorProps } from "@tera/editor";
 import type { Ref } from "react";
-import { RunConsole, type RunConsoleProps } from "./RunConsole";
 
 type SourcePaneProps = {
   source: string;
@@ -10,7 +9,6 @@ type SourcePaneProps = {
   diagnostics: TeraEditorProps["diagnostics"];
   highlightedLine: number | null;
   onChange: (next: string) => void;
-  console: RunConsoleProps;
 };
 
 export function SourcePane({
@@ -21,7 +19,6 @@ export function SourcePane({
   diagnostics,
   highlightedLine,
   onChange,
-  console: consoleProps,
 }: SourcePaneProps) {
   return (
     <aside className="source-pane">
@@ -34,7 +31,6 @@ export function SourcePane({
         highlightedLine={highlightedLine}
         onChange={onChange}
       />
-      <RunConsole {...consoleProps} />
     </aside>
   );
 }

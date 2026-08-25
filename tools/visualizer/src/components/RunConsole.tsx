@@ -1,104 +1,72 @@
-import { useState } from "react";
-import { failuresOf, statusOf, type Failure } from "../services/run-report";
+import { CONSOLE_TABS, wordingOf, type ConsoleTab } from "../config/panes";
+import type { Failure, RunStatus } from "../services/run-report";
 import type { PipelineId, RunResult } from "../types/stage";
+import { Badge, type Badges } from "./Badge";
+import { FailureBlock } from "./FailureBlock";
 import { RunButton, RUN_SHORTCUT } from "./RunButton";
-import { RuntimeTimeline, TRACE_LABEL, TRACE_TITLE } from "./RuntimeTimeline";
-
-type ConsoleTab = "output" | "runtime";
-
-export type ConsoleRun = {
-  readonly label: string | null;
-  readonly result: RunResult;
-};
+import { RuntimeTimeline } from "./RuntimeTimeline";
 
 export type RunConsoleProps = {
-  runs: readonly ConsoleRun[];
+  result: RunResult;
+  failures: readonly Failure[];
+  badges: Badges;
+  status: RunStatus;
   pipeline: PipelineId;
   busy: boolean;
+  ready: boolean;
   hasRun: boolean;
-  stale: boolean;
+  docked: boolean;
+  tab: ConsoleTab;
+  onTab: (tab: ConsoleTab) => void;
   onRun: () => void;
   onGoToLine: (line: number) => void;
 };
 
-function FailureBlock({ failure, onGoToLine }: { failure: Failure; onGoToLine: (line: number) => void }) {
-  const body = (
-    <>
-      <span className="failure-source">{failure.source}</span>
-      <span className="failure-message">{failure.message}</span>
-    </>
-  );
-  if (failure.line === null) return <div className="failure">{body}</div>;
-  return (
-    <button type="button" className="failure" onClick={() => onGoToLine(failure.line!)}>
-      {body}
-      <span className="failure-go">go to line {failure.line}</span>
-    </button>
-  );
-}
-
 export function RunConsole({
-  runs,
+  result,
+  failures,
+  badges,
+  status,
   pipeline,
   busy,
+  ready,
   hasRun,
-  stale,
+  docked,
+  tab,
+  onTab,
   onRun,
   onGoToLine,
 }: RunConsoleProps) {
-  const [tab, setTab] = useState<ConsoleTab>("output");
-  const [open, setOpen] = useState(true);
-
-  const primary = runs[0]!.result;
-  const status = statusOf({ result: primary, busy, hasRun, stale });
-  const failures = runs.flatMap((run) => failuresOf(run.result, run.label));
-  const printed = primary.output;
+  const printed = result.output;
 
   return (
-    <section className={`console${open ? "" : " shut"}`} aria-label="Program output">
-      <header className="console-head">
-        <div className="console-tabs" role="group" aria-label="Console tab">
-          <button
-            type="button"
-            aria-pressed={open && tab === "output"}
-            onClick={() => {
-              setTab("output");
-              setOpen(true);
-            }}
-          >
-            Output
-            {printed.length > 0 && <span className="console-badge">{printed.length}</span>}
-            {failures.length > 0 && <span className="console-badge bad">{failures.length}</span>}
-          </button>
-          <button
-            type="button"
-            aria-pressed={open && tab === "runtime"}
-            title={TRACE_TITLE[pipeline]}
-            onClick={() => {
-              setTab("runtime");
-              setOpen(true);
-            }}
-          >
-            {TRACE_LABEL[pipeline]}
-            {primary.events.length > 0 && <span className="console-badge">{primary.events.length}</span>}
-          </button>
-        </div>
-        <span className={`console-status tone-${status.tone}`} role="status" aria-live="polite">
-          {status.text}
-        </span>
-        <button
-          type="button"
-          className="console-fold"
-          aria-pressed={!open}
-          title={open ? "Collapse the panel" : "Expand the panel"}
-          onClick={() => setOpen((on) => !on)}
-        >
-          {open ? "▾" : "▴"}
-        </button>
-        <RunButton busy={busy} onRun={onRun} />
-      </header>
+    <section className="console" aria-label="Program output">
+      {docked && (
+        <header className="console-head">
+          <span className={`run-status tone-${status.tone}`} role="status" aria-live="polite">
+            {status.text}
+          </span>
+          <div className="console-row">
+            <RunButton busy={busy} ready={ready} onRun={onRun} />
+            <div className="console-tabs" role="group" aria-label="Console tab">
+              {CONSOLE_TABS.map((entry) => (
+                <button
+                  type="button"
+                  key={entry.id}
+                  aria-pressed={tab === entry.consoleTab}
+                  title={wordingOf(entry.title, pipeline)}
+                  onClick={() => onTab(entry.consoleTab)}
+                >
+                  {wordingOf(entry.label, pipeline)}
+                  <Badge badge={badges[entry.id]} />
+                </button>
+              ))}
+            </div>
+          </div>
+        </header>
+      )}
 
-      {open && tab === "output" && (
+      {tab === "output" && (
         <div className="console-body">
           {printed.length > 0 && (
             <pre className="console-print">
@@ -107,8 +75,8 @@ export function RunConsole({
               ))}
             </pre>
           )}
-          {primary.outputDropped > 0 && (
-            <p className="console-note">+{primary.outputDropped} more lines printed, not shown.</p>
+          {result.outputDropped > 0 && (
+            <p className="console-note">+{result.outputDropped} more lines printed, not shown.</p>
           )}
           {failures.map((failure) => (
             <FailureBlock key={`${failure.source}-${failure.message}`} failure={failure} onGoToLine={onGoToLine} />
@@ -119,7 +87,7 @@ export function RunConsole({
           {!hasRun && (
             <p className="console-note">
               Nothing has run yet. Press <strong>Compile &amp; run</strong> ({RUN_SHORTCUT}) to compile
-              the code above and see what it prints.
+              the code and see what it prints.
             </p>
           )}
           {hasRun && pipeline === "aot" && (
@@ -131,9 +99,9 @@ export function RunConsole({
         </div>
       )}
 
-      {open && tab === "runtime" && (
+      {tab === "runtime" && (
         <div className="console-body">
-          <RuntimeTimeline events={primary.events} dropped={primary.dropped} pipeline={pipeline} />
+          <RuntimeTimeline events={result.events} dropped={result.dropped} pipeline={pipeline} />
         </div>
       )}
     </section>

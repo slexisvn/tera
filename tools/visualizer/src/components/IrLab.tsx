@@ -1,5 +1,6 @@
 import { IrEditor } from "@tera/editor";
 import { useCallback, useEffect, useState } from "react";
+import type { RegionId } from "../config/panes";
 import { noteFor } from "../content/passes";
 import { LAB_FIXTURES } from "../content/lab-fixtures";
 import type { CompilerClient } from "../services/compiler-client";
@@ -12,6 +13,7 @@ type IrLabProps = {
   client: CompilerClient | null;
   optLevel: OptLevelId;
   seed: string | null;
+  hidden: (region: RegionId) => boolean;
   onSeedTaken: () => void;
 };
 
@@ -19,7 +21,7 @@ function opaqueNames(text: string): readonly string[] {
   return [...new Set([...text.matchAll(OPAQUE)].map((found) => found[1]!))];
 }
 
-export function IrLab({ client, optLevel, seed, onSeedTaken }: IrLabProps) {
+export function IrLab({ client, optLevel, seed, hidden, onSeedTaken }: IrLabProps) {
   const [text, setText] = useState(LAB_FIXTURES[0]!.text);
   const [pass, setPass] = useState(LAB_FIXTURES[0]!.pass);
   const [passNames, setPassNames] = useState<readonly string[]>([]);
@@ -105,11 +107,11 @@ export function IrLab({ client, optLevel, seed, onSeedTaken }: IrLabProps) {
       )}
 
       <div className="lab-panes">
-        <div className="lab-pane">
+        <div className="lab-pane" data-region="lab-in" data-hidden={hidden("lab-in") || undefined}>
           <h3>Input IR</h3>
           <IrEditor value={text} onChange={edit} />
         </div>
-        <div className="lab-pane">
+        <div className="lab-pane" data-region="lab-out" data-hidden={hidden("lab-out") || undefined}>
           <h3>After {pass}</h3>
           {result === null && <div className="viewer-note">Press Run pass.</div>}
           {result !== null && result.error !== null && <pre className="run-error">{result.error}</pre>}

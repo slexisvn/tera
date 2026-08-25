@@ -21,16 +21,6 @@ type RuntimeTimelineProps = {
   pipeline: PipelineId;
 };
 
-export const TRACE_LABEL: Readonly<Record<PipelineId, string>> = {
-  jit: "JIT runtime",
-  aot: "AOT trace",
-};
-
-export const TRACE_TITLE: Readonly<Record<PipelineId, string>> = {
-  jit: "Tiering, deopt, inline-cache and GC events recorded while the engine ran your program",
-  aot: "What the AOT compiler did while it built the binary — it never runs your program",
-};
-
 const SPAN_NOTE: Readonly<Record<PipelineId, string>> = {
   jit: "while the engine ran your program",
   aot: "of AOT compilation",

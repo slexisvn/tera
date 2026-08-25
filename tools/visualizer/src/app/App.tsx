@@ -1,53 +1,42 @@
 import { useTeraAnalysis, type TeraEditorHandle } from "@tera/editor";
-import { useTheme } from "@tera/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CompareView } from "../components/CompareView";
+import { useMediaQuery, useTheme } from "@tera/ui";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
+import { ActionBar } from "../components/ActionBar";
+import type { Badges } from "../components/Badge";
 import { IrLab } from "../components/IrLab";
+import { PaneTabs } from "../components/PaneTabs";
 import { PipelineRail } from "../components/PipelineRail";
-import { RunButton } from "../components/RunButton";
+import { Region } from "../components/Region";
+import { RunConsole } from "../components/RunConsole";
+import { SetupControls } from "../components/SetupControls";
 import { SourcePane } from "../components/SourcePane";
+import { Splitter } from "../components/Splitter";
 import { StageViewer } from "../components/StageViewer";
 import { StartPanel } from "../components/StartPanel";
-import type { ConsoleRun } from "../components/RunConsole";
+import {
+  BUSY_DELAY_MS,
+  COMPACT_QUERY,
+  DOCUMENT_ID,
+  SOURCE_KEY,
+  SPLIT_QUERY,
+  THEME_KEY,
+} from "../config/constants";
+import {
+  FAILURE_TAB,
+  MODES,
+  stackedRegions,
+  tabsFor,
+  type ConsoleTab,
+  type Density,
+  type Mode,
+  type PaneTab,
+  type RegionId,
+  type TabId,
+} from "../config/panes";
 import { SAMPLES, type Sample } from "../content/samples";
-import { DOCUMENT_ID, SOURCE_KEY, THEME_KEY } from "../config/constants";
 import { CompilerClient } from "../services/compiler-client";
-import { errorLineOf } from "../services/run-report";
+import { errorLineOf, failuresOf, statusOf } from "../services/run-report";
 import type { OptLevelId, RunResult, Stage, TargetInfo } from "../types/stage";
-
-type Mode = "pipeline" | "lab" | "compare";
-type Pane = "source" | "stages" | "detail";
-
-const PANES: readonly { id: Pane; label: string }[] = [
-  { id: "source", label: "Code" },
-  { id: "stages", label: "Passes" },
-  { id: "detail", label: "Viewer" },
-];
-
-const MODES: readonly { id: Mode; label: string; title: string }[] = [
-  {
-    id: "pipeline",
-    label: "Pipeline",
-    title: "Compile one program and step through every stage the compiler goes through",
-  },
-  {
-    id: "lab",
-    label: "IR lab",
-    title: "Hand-write an SSA graph and run a single pass over it",
-  },
-  {
-    id: "compare",
-    label: "JIT vs AOT",
-    title: "Compile the same program down both pipelines and line the passes up side by side",
-  },
-];
-
-const OPT_LEVELS: readonly { id: OptLevelId; label: string }[] = [
-  { id: "none", label: "-O none · no passes" },
-  { id: "baseline", label: "-O baseline" },
-  { id: "speed", label: "-O speed" },
-  { id: "max", label: "-O max" },
-];
 
 const EMPTY: RunResult = {
   stages: [],
@@ -61,6 +50,7 @@ const EMPTY: RunResult = {
 };
 
 const JIT_LABEL = "JIT · wasm";
+const SEPARATOR = "\u0000";
 
 function landingStage(stages: readonly Stage[], keep: string | null): string | null {
   if (keep !== null && stages.some((stage) => stage.id === keep)) return keep;
@@ -87,18 +77,29 @@ export default function App() {
   const [optLevel, setOptLevel] = useState<OptLevelId>("speed");
   const [mode, setMode] = useState<Mode>("pipeline");
   const [result, setResult] = useState<RunResult>(EMPTY);
-  const [rival, setRival] = useState<RunResult>(EMPTY);
-  const [compiledSource, setCompiledSource] = useState<string | null>(null);
+  const [compiled, setCompiled] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [hideUnchanged, setHideUnchanged] = useState(true);
   const [labSeed, setLabSeed] = useState<string | null>(null);
-  const [pane, setPane] = useState<Pane>("source");
+  const [pane, setPane] = useState<TabId>("source");
+  const [consoleTab, setConsoleTab] = useState<ConsoleTab>("output");
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [codeSize, setCodeSize] = useState<number | null>(null);
+  const [railSize, setRailSize] = useState<number | null>(null);
+  const [consoleSize, setConsoleSize] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [slow, setSlow] = useState(false);
   const [client, setClient] = useState<CompilerClient | null>(null);
   const clientRef = useRef<CompilerClient | null>(null);
+  const running = useRef(false);
   const editor = useRef<TeraEditorHandle>(null);
+  const setupId = useId();
+
+  const compact = useMediaQuery(COMPACT_QUERY);
+  const split = useMediaQuery(SPLIT_QUERY);
+  const density: Density = compact ? "compact" : split ? "split" : "wide";
 
   const documents = useMemo(() => [{ id: DOCUMENT_ID, source }], [source]);
   const { analysis, diagnosticsFor } = useTeraAnalysis(documents);
@@ -119,69 +120,101 @@ export default function App() {
     return () => window.clearTimeout(handle);
   }, [source]);
 
+  useEffect(() => {
+    if (!busy) {
+      setSlow(false);
+      return;
+    }
+    const handle = window.setTimeout(() => setSlow(true), BUSY_DELAY_MS);
+    return () => window.clearTimeout(handle);
+  }, [busy]);
+
   const pipelineOf = useCallback(
     (id: string) => targets.find((target) => target.id === id)?.pipeline ?? "jit",
     [targets],
   );
 
-  const aotTargets = useMemo(() => targets.filter((target) => target.pipeline === "aot"), [targets]);
+  const pipeline = pipelineOf(targetId);
+  const request = [mode, optLevel, targetId, source].join(SEPARATOR);
+  const hasRun = compiled !== null;
 
-  const aotTargetId = useMemo(() => {
-    if (pipelineOf(targetId) === "aot") return targetId;
-    return aotTargets[0]?.id ?? "c";
-  }, [aotTargets, pipelineOf, targetId]);
-
-  const pipeline = mode === "compare" ? "jit" : pipelineOf(targetId);
-
-  const run = useCallback(
-    async () => {
-      const worker = clientRef.current;
-      if (worker === null) return;
-      const text = source;
-      if (text.trim() === "") {
-        setResult({ ...EMPTY, error: "There is no code to compile yet — write something, or pick a sample." });
-        setCompiledSource(text);
-        setSelectedId(null);
-        return;
-      }
-      setBusy(true);
-      try {
-        if (mode === "compare") {
-          const [jit, aot] = await Promise.all([
-            worker.run({ source: text, pipeline: "jit", optLevel, target: "wasm" }),
-            worker.run({ source: text, pipeline: "aot", optLevel, target: aotTargetId }),
-          ]);
-          setResult(jit);
-          setRival(aot);
-          setCompiledSource(text);
-          setSelectedId((current) => landingStage(jit.stages, current));
-          return;
-        }
-        const next = await worker.run({
-          source: text,
-          pipeline: pipelineOf(targetId),
-          optLevel,
-          target: targetId,
-        });
-        setResult(next);
-        setCompiledSource(text);
-        setSelectedId((current) => landingStage(next.stages, current));
-        setSelectedNode(null);
-        setHoveredNode(null);
-        setPane((current) => (current === "source" ? "stages" : current));
-      } catch (error) {
-        setResult({ ...EMPTY, error: error instanceof Error ? error.message : String(error) });
-        setCompiledSource(text);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [aotTargetId, mode, optLevel, pipelineOf, source, targetId],
+  const tabs = useMemo(() => tabsFor(mode, density), [density, mode]);
+  const activeTab = useMemo(() => tabs.find((tab) => tab.id === pane) ?? tabs[0] ?? null, [pane, tabs]);
+  const stacked = useMemo(() => stackedRegions(density), [density]);
+  const hidden = useCallback(
+    (region: RegionId) => stacked.has(region) && region !== activeTab?.region,
+    [activeTab, stacked],
   );
+
+  const showRunBar = tabs.every((tab) => tab.region !== "source") || activeTab?.region === "source";
+
+  const pickTab = useCallback((tab: PaneTab) => {
+    setPane(tab.id);
+    if (tab.consoleTab !== undefined) setConsoleTab(tab.consoleTab);
+  }, []);
+
+  const openMode = useCallback(
+    (next: Mode) => {
+      const entry = MODES.find((mode) => mode.id === next)!;
+      setMode(next);
+      setPane(entry.landing !== undefined && !hasRun ? "source" : entry.home);
+    },
+    [hasRun],
+  );
+
+  const land = useCallback(
+    (failed: boolean) => {
+      const home = MODES.find((entry) => entry.id === mode)?.landing;
+      const reports = tabsFor(mode, "compact").some((tab) => tab.id === FAILURE_TAB);
+      const landing = failed && reports ? FAILURE_TAB : home;
+      if (landing === undefined) return;
+      if (landing === FAILURE_TAB) setConsoleTab("output");
+      setPane((current) => (current === "source" ? landing : current));
+    },
+    [mode],
+  );
+
+  const run = useCallback(async () => {
+    const worker = clientRef.current;
+    if (worker === null || running.current) return;
+    const text = source;
+    const signature = request;
+    if (text.trim() === "") {
+      setResult({ ...EMPTY, error: "There is no code to compile yet — write something, or pick a sample." });
+      setCompiled(signature);
+      setSelectedId(null);
+      land(true);
+      return;
+    }
+    running.current = true;
+    setBusy(true);
+    try {
+      const next = await worker.run({
+        source: text,
+        pipeline: pipelineOf(targetId),
+        optLevel,
+        target: targetId,
+      });
+      setResult(next);
+      setCompiled(signature);
+      setSelectedId((current) => landingStage(next.stages, current));
+      setSelectedNode(null);
+      setHoveredNode(null);
+      land(next.error !== null || next.runError !== null);
+    } catch (error) {
+      setResult({ ...EMPTY, error: error instanceof Error ? error.message : String(error) });
+      setCompiled(signature);
+      land(true);
+    } finally {
+      running.current = false;
+      setBusy(false);
+    }
+  }, [land, optLevel, pipelineOf, request, source, targetId]);
 
   const loadSample = useCallback((sample: Sample) => {
     setSource(sample.source);
     setPane("source");
+    setSetupOpen(false);
   }, []);
 
   const visible = useMemo(
@@ -248,45 +281,71 @@ export default function App() {
   const sendToLab = useCallback(() => {
     if (selected === null || selected.kind !== "ir") return;
     setLabSeed(selected.text);
-    setMode("lab");
-  }, [selected]);
+    openMode("lab");
+  }, [openMode, selected]);
 
   const goToLine = useCallback((line: number) => editor.current?.goToLine(line), []);
 
-  const hasRun = compiledSource !== null;
-  const stale = hasRun && compiledSource !== source;
+  const stale = hasRun && compiled !== request;
 
-  const runs = useMemo<readonly ConsoleRun[]>(
-    () =>
-      mode === "compare"
-        ? [
-            { label: JIT_LABEL, result },
-            { label: targets.find((target) => target.id === aotTargetId)?.label ?? "AOT", result: rival },
-          ]
-        : [{ label: null, result }],
-    [aotTargetId, mode, result, rival, targets],
+  const failures = useMemo(() => failuresOf(result), [result]);
+
+  const status = useMemo(
+    () => statusOf({ result, busy: slow, hasRun, stale }),
+    [hasRun, result, slow, stale],
   );
 
-  const sourcePane = (
-    <SourcePane
-      source={source}
-      handle={editor}
-      documentId={DOCUMENT_ID}
-      analysis={analysis}
-      diagnostics={diagnosticsFor(DOCUMENT_ID)}
-      highlightedLine={highlightedLine}
-      onChange={setSource}
-      console={{
-        runs,
-        pipeline,
-        busy,
-        hasRun,
-        stale,
-        onRun: () => void run(),
-        onGoToLine: goToLine,
-      }}
+  const badges = useMemo<Badges>(
+    () => ({
+      output:
+        failures.length > 0
+          ? { count: failures.length, tone: "bad" }
+          : { count: result.output.length, tone: "info" },
+      runtime: { count: result.events.length, tone: "info" },
+    }),
+    [failures.length, result.events.length, result.output.length],
+  );
+
+  const workspaceStyle = useMemo(() => {
+    const sized: Record<string, string> = {};
+    if (codeSize !== null) sized["--code-w"] = `${codeSize}px`;
+    if (railSize !== null) sized["--rail-w"] = `${railSize}px`;
+    if (consoleSize !== null) sized["--console-h"] = `${consoleSize}px`;
+    return sized as CSSProperties;
+  }, [codeSize, consoleSize, railSize]);
+
+  const setup = (
+    <SetupControls
+      mode={mode}
+      targets={targets}
+      targetId={targetId}
+      optLevel={optLevel}
+      theme={theme}
+      onSample={loadSample}
+      onTarget={setTargetId}
+      onOptLevel={setOptLevel}
+      onToggleTheme={toggleTheme}
     />
   );
+
+  const setupToggle = (
+    <button
+      type="button"
+      className="setup-toggle"
+      aria-expanded={setupOpen}
+      aria-controls={setupId}
+      title="Sample program, compile target and optimisation level"
+      onClick={() => setSetupOpen((on) => !on)}
+    >
+      Setup
+    </button>
+  );
+
+  const setupSheet = setupOpen ? (
+    <div className="actions setup" id={setupId}>
+      {setup}
+    </div>
+  ) : null;
 
   return (
     <>
@@ -295,140 +354,156 @@ export default function App() {
           <h1 className="logo">Tera</h1>
           <span className="sub">compiler visualizer</span>
         </div>
-        <div className="actions">
-          <div className="mode-switch" role="group" aria-label="Mode">
-            {MODES.map((entry) => (
-              <button
-                type="button"
-                key={entry.id}
-                title={entry.title}
-                aria-pressed={mode === entry.id}
-                onClick={() => setMode(entry.id)}
-              >
-                {entry.label}
-              </button>
-            ))}
-          </div>
-          {mode !== "lab" && (
-            <label className="field">
-              <span>Sample</span>
-              <select
-                value=""
-                onChange={(event) => {
-                  const sample = SAMPLES.find((item) => item.id === event.target.value);
-                  if (sample) loadSample(sample);
-                  event.currentTarget.value = "";
-                }}
-              >
-                <option value="">load…</option>
-                {SAMPLES.map((sample) => (
-                  <option key={sample.id} value={sample.id}>
-                    {sample.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {mode === "pipeline" && (
-            <label className="field">
-              <span>Compile for</span>
-              <select value={targetId} onChange={(event) => setTargetId(event.target.value)}>
-                {targets.map((target) => (
-                  <option key={target.id} value={target.id}>
-                    {target.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label className="field">
-            <span>Passes</span>
-            <select value={optLevel} onChange={(event) => setOptLevel(event.target.value as OptLevelId)}>
-              {OPT_LEVELS.map((level) => (
-                <option key={level.id} value={level.id}>
-                  {level.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button type="button" className="theme-toggle" onClick={toggleTheme}>
-            {theme === "dark" ? "Light" : "Dark"}
-          </button>
+        <div className="mode-switch" role="group" aria-label="Mode">
+          {MODES.map((entry) => (
+            <button
+              type="button"
+              key={entry.id}
+              data-label={entry.label}
+              title={entry.title}
+              aria-pressed={mode === entry.id}
+              onClick={() => openMode(entry.id)}
+            >
+              <span>{entry.label}</span>
+            </button>
+          ))}
         </div>
+        <div className="actions">{density === "wide" ? setup : setupToggle}</div>
+        {density !== "wide" && setupSheet}
       </header>
 
-      {mode === "lab" && (
-        <div className="layout">
-          <IrLab client={client} optLevel={optLevel} seed={labSeed} onSeedTaken={takeLabSeed} />
-        </div>
-      )}
-
-      {mode === "compare" && (
-        <div className="layout compare-layout">
-          {sourcePane}
-          <CompareView
-            left={result}
-            right={rival}
-            leftLabel={JIT_LABEL}
-            rightLabel={targets.find((target) => target.id === aotTargetId)?.label ?? "AOT"}
-            rightTargets={aotTargets}
-            rightTargetId={aotTargetId}
-            onPickRightTarget={setTargetId}
-            hasRun={hasRun}
-            failed={result.error !== null || rival.error !== null}
+      <div className="workspace" data-mode={mode} data-density={density} style={workspaceStyle}>
+        {tabs.length > 1 && (
+          <PaneTabs
+            tabs={tabs}
+            active={activeTab?.id ?? null}
+            pipeline={pipeline}
+            badges={badges}
+            onPick={pickTab}
           />
-        </div>
-      )}
+        )}
 
-      {mode === "pipeline" && (
-        <div className="layout pipeline-layout" data-pane={pane}>
-          <nav className="pane-switch" aria-label="Pane">
-            {PANES.map((entry) => (
-              <button
-                type="button"
-                key={entry.id}
-                data-pane={entry.id}
-                aria-pressed={pane === entry.id}
-                onClick={() => setPane(entry.id)}
-              >
-                {entry.label}
-              </button>
-            ))}
-            <RunButton busy={busy} onRun={() => void run()} className="pane-run" />
-          </nav>
-          {sourcePane}
-
-          <PipelineRail
-            stages={result.stages}
-            selectedId={selectedId}
-            hideUnchanged={hideUnchanged}
-            hasRun={hasRun}
-            onSelect={showStage}
-            onToggleUnchanged={() => setHideUnchanged((on) => !on)}
-          />
-
-          <div className="detail">
-            {stale && hasRun && (
-              <button type="button" className="stale-banner" onClick={() => void run()} disabled={busy}>
-                These stages are from the previous version of the code.{" "}
-                <strong>Compile &amp; run again</strong>
-              </button>
-            )}
-            {hasRun ? (
-              <StageViewer
-                stage={selected}
-                previous={previous}
-                selectedNode={selectedNode}
-                onSelectNode={setSelectedNode}
-                onHoverNode={setHoveredNode}
-                onSendToLab={sendToLab}
+        {mode === "lab" ? (
+          <Region id="lab" hidden={false}>
+            <IrLab
+              client={client}
+              optLevel={optLevel}
+              seed={labSeed}
+              hidden={hidden}
+              onSeedTaken={takeLabSeed}
+            />
+          </Region>
+        ) : (
+          <>
+            <Region id="source" hidden={hidden("source")}>
+              <SourcePane
+                source={source}
+                handle={editor}
+                documentId={DOCUMENT_ID}
+                analysis={analysis}
+                diagnostics={diagnosticsFor(DOCUMENT_ID)}
+                highlightedLine={highlightedLine}
+                onChange={setSource}
               />
-            ) : (
-              <StartPanel busy={busy} onPick={loadSample} />
+            </Region>
+
+            {mode === "pipeline" && (
+              <>
+                <Region id="stages" hidden={hidden("stages")}>
+                  <PipelineRail
+                    stages={result.stages}
+                    selectedId={selectedId}
+                    hideUnchanged={hideUnchanged}
+                    hasRun={hasRun}
+                    onSelect={showStage}
+                    onToggleUnchanged={() => setHideUnchanged((on) => !on)}
+                  />
+                </Region>
+
+                <Region id="detail" hidden={hidden("detail")}>
+                  {stale && hasRun && (
+                    <button type="button" className="stale-banner" onClick={() => void run()} disabled={busy}>
+                      These stages are from the previous compile — the code or the settings changed
+                      since. <strong>Compile &amp; run again</strong>
+                    </button>
+                  )}
+                  {hasRun ? (
+                    <StageViewer
+                      stage={selected}
+                      previous={previous}
+                      selectedNode={selectedNode}
+                      onSelectNode={setSelectedNode}
+                      onHoverNode={setHoveredNode}
+                      onSendToLab={sendToLab}
+                    />
+                  ) : (
+                    <StartPanel busy={busy} onPick={loadSample} />
+                  )}
+                </Region>
+              </>
             )}
-          </div>
-        </div>
-      )}
+
+            <Region id="console" hidden={hidden("console")}>
+              <RunConsole
+                result={result}
+                failures={failures}
+                badges={badges}
+                status={status}
+                pipeline={pipeline}
+                busy={slow}
+                ready={client !== null}
+                hasRun={hasRun}
+                docked={!compact}
+                tab={consoleTab}
+                onTab={setConsoleTab}
+                onRun={() => void run()}
+                onGoToLine={goToLine}
+              />
+            </Region>
+
+            {compact && showRunBar && (
+              <ActionBar status={status} busy={slow} ready={client !== null} onRun={() => void run()} />
+            )}
+
+            {!compact && (
+              <>
+                <Splitter
+                  axis="x"
+                  area="vcode"
+                  region="source"
+                  dir={1}
+                  min={220}
+                  maxRatio={0.6}
+                  label="width of the code pane"
+                  onResize={setCodeSize}
+                />
+                <Splitter
+                  axis="y"
+                  area="hcode"
+                  region="console"
+                  dir={-1}
+                  min={72}
+                  maxRatio={0.8}
+                  label="height of the run console under the editor"
+                  onResize={setConsoleSize}
+                />
+                {density === "wide" && mode === "pipeline" && (
+                  <Splitter
+                    axis="x"
+                    area="vrail"
+                    region="stages"
+                    dir={1}
+                    min={180}
+                    maxRatio={0.4}
+                    label="width of the pass list"
+                    onResize={setRailSize}
+                  />
+                )}
+              </>
+            )}
+          </>
+        )}
+      </div>
     </>
   );
 }

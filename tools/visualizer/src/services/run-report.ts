@@ -35,17 +35,16 @@ export function statusOf({ result, busy, hasRun, stale }: RunState): RunStatus {
     return { tone: "failed", text: result.error !== null ? "compile failed" : "threw while running" };
   }
   const ran = `${result.stages.length} stages · ${result.elapsedMs.toFixed(0)}ms`;
-  return stale ? { tone: "stale", text: `${ran} · source changed` } : { tone: "ok", text: ran };
+  return stale ? { tone: "stale", text: `${ran} · out of date` } : { tone: "ok", text: ran };
 }
 
-export function failuresOf(result: RunResult, label: string | null = null): readonly Failure[] {
-  const where = (kind: string): string => (label === null ? kind : `${label} · ${kind}`);
+export function failuresOf(result: RunResult): readonly Failure[] {
   const found: Failure[] = [];
   if (result.error !== null) {
-    found.push({ source: where("compiler"), message: result.error, line: errorLineOf(result.error) });
+    found.push({ source: "compiler", message: result.error, line: errorLineOf(result.error) });
   }
   if (result.runError !== null && result.runError !== result.error) {
-    found.push({ source: where("runtime"), message: result.runError, line: errorLineOf(result.runError) });
+    found.push({ source: "runtime", message: result.runError, line: errorLineOf(result.runError) });
   }
   return found;
 }
