@@ -36,6 +36,7 @@ import {
   markReentrantFunctions,
 } from "../metadata/call-graph.js";
 import { inlineKnownCalls } from "../passes/inlining.js";
+import { remarks } from "../infra/pass-remarks.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
 import { inferredReturnName } from "../analyses/returned-type.js";
 import type { AotBackend, LinkableFunction } from "../target/backend.js";
@@ -664,9 +665,16 @@ export function compileModule(
   const tracer: ModuleTracer | null = opts.moduleTracer;
   let traced = 0;
   const stage = <T>(name: string, run: () => T): T => {
-    const value = run();
-    if (tracer !== null) tracer({ ordinal: traced++, stage: name, module });
-    return value;
+    if (tracer === null) return run();
+    remarks.open(name);
+    try {
+      const value = run();
+      tracer({ ordinal: traced++, stage: name, remarks: remarks.close(), module });
+      return value;
+    } catch (error) {
+      remarks.close();
+      throw error;
+    }
   };
 
   stage("uniquify-graph-names", () => uniquifyGraphNames(module));

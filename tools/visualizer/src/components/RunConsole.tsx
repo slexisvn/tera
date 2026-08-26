@@ -1,10 +1,12 @@
 import { CONSOLE_TABS, wordingOf, type ConsoleTab } from "../config/panes";
+import type { DeoptTarget } from "../services/deopt-link";
 import type { Failure, RunStatus } from "../services/run-report";
-import type { PipelineId, RunResult } from "../types/stage";
+import type { DeoptOrigin, PipelineId, RunResult } from "../types/stage";
 import { Badge, type Badges } from "./Badge";
 import { FailureBlock } from "./FailureBlock";
 import { RunButton, RUN_SHORTCUT } from "./RunButton";
 import { RuntimeTimeline } from "./RuntimeTimeline";
+import { ShapeTree } from "./ShapeTree";
 
 export type RunConsoleProps = {
   result: RunResult;
@@ -20,6 +22,8 @@ export type RunConsoleProps = {
   onTab: (tab: ConsoleTab) => void;
   onRun: () => void;
   onGoToLine: (line: number) => void;
+  onOpenDeopt: (origin: DeoptOrigin) => void;
+  resolveDeopt: (origin: DeoptOrigin) => DeoptTarget | null;
 };
 
 export function RunConsole({
@@ -36,6 +40,8 @@ export function RunConsole({
   onTab,
   onRun,
   onGoToLine,
+  onOpenDeopt,
+  resolveDeopt,
 }: RunConsoleProps) {
   const printed = result.output;
 
@@ -99,9 +105,21 @@ export function RunConsole({
         </div>
       )}
 
+      {tab === "shapes" && (
+        <div className="console-body">
+          <ShapeTree edges={result.shapes} />
+        </div>
+      )}
+
       {tab === "runtime" && (
         <div className="console-body">
-          <RuntimeTimeline events={result.events} dropped={result.dropped} pipeline={pipeline} />
+          <RuntimeTimeline
+            events={result.events}
+            dropped={result.dropped}
+            pipeline={pipeline}
+            onOpenDeopt={onOpenDeopt}
+            resolveDeopt={resolveDeopt}
+          />
         </div>
       )}
     </section>

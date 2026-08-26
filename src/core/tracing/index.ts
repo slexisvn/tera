@@ -156,11 +156,17 @@ export class Tracer {
     if (this.indentLevel > 0) this.indentLevel--;
   }
 
-  hcTransition(fromId: number, toId: number, propertyName: string): void {
+  hcTransition(
+    fromId: number,
+    toId: number,
+    propertyName: string,
+    propertyCount?: number,
+  ): void {
     this.incrementCounter("hc_transitions");
     this.log(
       "hidden_class",
       `Transition: HC${fromId} --"${propertyName}"--> HC${toId}`,
+      { edge: "add", from: fromId, to: toId, property: propertyName, properties: propertyCount ?? null },
     );
   }
 
@@ -169,6 +175,7 @@ export class Tracer {
     this.log(
       "hidden_class",
       `Delete: HC${fromId} --del("${propertyName}")--> HC${toId}`,
+      { edge: "delete", from: fromId, to: toId, property: propertyName, properties: null },
     );
   }
 
@@ -231,10 +238,15 @@ export class Tracer {
     this.log("jit", `OSR "${funcName}" at loop offset ${loopOffset}`);
   }
 
-  jitDeopt(funcName: string, reason: string, bytecodeOffset: number): void {
+  jitDeopt(
+    funcName: string,
+    reason: string,
+    bytecodeOffset: number,
+    data?: TraceData,
+  ): void {
     this.incrementCounter("jit_deopts");
     const bcStr = bytecodeOffset >= 0 ? ` at bytecode:${bytecodeOffset}` : "";
-    this.log("deopt", `DEOPT "${funcName}": ${reason}${bcStr}`);
+    this.log("deopt", `DEOPT "${funcName}": ${reason}${bcStr}`, data);
   }
 
   jitResume(funcName: string, bytecodeOffset: number): void {

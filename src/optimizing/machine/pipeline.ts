@@ -17,6 +17,7 @@ import { selectMachineFunction } from "./select.js";
 import { lowerTwoAddress } from "./two-address.js";
 import { validateMachineFunction, type MachineStage } from "./verifier.js";
 import type { MachineTracer } from "./trace.js";
+import { allocationReport } from "./allocation-report.js";
 import { compilerOptions, type CompilerOptions } from "../options.js";
 
 export interface CompiledMachineFunction {
@@ -50,6 +51,7 @@ export function compileMachineFunction(
   assignPositions(fn);
   const liveness = computeLiveness(fn);
   const allocation = allocateRegisters(fn, lowering.target, liveness, options.splitLiveRanges);
+  options.allocationTracer?.(allocationReport(symbol, fn, liveness, allocation));
   const usedScratch = rewriteAllocations(fn, lowering.target, lowering, allocation);
   verify(fn, "post-allocation", "register-allocation");
   const preserved = new Set(lowering.target.abi.callingConvention.calleeSaved);

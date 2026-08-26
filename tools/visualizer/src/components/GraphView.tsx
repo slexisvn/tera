@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useZoomPan } from "../services/use-zoom-pan";
 import { diffIR } from "../services/ir-diff";
 import { nodeByKey, parseGraphText } from "../services/ir-graph";
@@ -18,8 +18,14 @@ type GraphViewProps = {
   text: string;
   before: string | null;
   selectedNode: string | null;
+  focus: GraphFocus | null;
   onSelectNode: (key: string | null) => void;
   onHoverNode: (key: string | null) => void;
+};
+
+export type GraphFocus = {
+  readonly node: string;
+  readonly at: number;
 };
 
 const NODE_TEXT_LIMIT = 40;
@@ -44,7 +50,14 @@ function EdgePath({ edge }: { edge: RoutedEdge }) {
   );
 }
 
-export function GraphView({ text, before, selectedNode, onSelectNode, onHoverNode }: GraphViewProps) {
+export function GraphView({
+  text,
+  before,
+  selectedNode,
+  focus,
+  onSelectNode,
+  onHoverNode,
+}: GraphViewProps) {
   const model = useMemo(() => parseGraphText(text), [text]);
   const marks = useMemo(() => {
     if (before === null) return new Map<string, string>();
@@ -62,6 +75,7 @@ export function GraphView({ text, before, selectedNode, onSelectNode, onHoverNod
       layout={layout}
       marks={marks}
       selectedNode={selectedNode}
+      focus={focus}
       onSelectNode={onSelectNode}
       onHoverNode={onHoverNode}
     />
@@ -73,16 +87,30 @@ type GraphCanvasProps = {
   layout: GraphLayout | null;
   marks: ReadonlyMap<string, string>;
   selectedNode: string | null;
+  focus: GraphFocus | null;
   onSelectNode: (key: string | null) => void;
   onHoverNode: (key: string | null) => void;
 };
 
-function GraphCanvas({ model, layout, marks, selectedNode, onSelectNode, onHoverNode }: GraphCanvasProps) {
-  const { surface, view, box, panning, wasDragged, zoomBy, fit, reset } = useZoomPan(
+function GraphCanvas({
+  model,
+  layout,
+  marks,
+  selectedNode,
+  focus,
+  onSelectNode,
+  onHoverNode,
+}: GraphCanvasProps) {
+  const { surface, view, box, panning, wasDragged, zoomBy, centerOn, fit, reset } = useZoomPan(
     { width: layout?.width ?? 0, height: layout?.height ?? 0 },
     "width",
   );
   const [cursor, setCursor] = useState(0);
+
+  const anchor = focus === null || layout === null ? undefined : layout.anchorOf.get(focus.node);
+  useEffect(() => {
+    if (anchor !== undefined) centerOn(anchor.x, anchor.y);
+  }, [anchor, centerOn, focus?.at]);
 
   const walk = useMemo(
     () => (layout === null ? [] : layout.blocks.flatMap((placed) => placed.nodes)),

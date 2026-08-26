@@ -11,7 +11,7 @@ export type RegionId =
   | "lab-in"
   | "lab-out";
 
-export type ConsoleTab = "output" | "runtime";
+export type ConsoleTab = "output" | "runtime" | "shapes";
 
 export type TabId = Exclude<RegionId, "console" | "lab"> | ConsoleTab;
 
@@ -115,6 +115,14 @@ export const TABS: readonly PaneTab[] = [
     label: TRACE_LABEL,
     title: TRACE_TITLE,
     consoleTab: "runtime",
+  },
+  {
+    id: "shapes",
+    region: "console",
+    modes: ["pipeline"],
+    label: "Shapes",
+    title: "The hidden class tree the objects in your program walked as they gained properties",
+    consoleTab: "shapes",
   },
 ];
 

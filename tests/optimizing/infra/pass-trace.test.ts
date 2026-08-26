@@ -158,6 +158,7 @@ describe("pass tracing", () => {
         nodesBefore: 12,
         nodesAfter: 9,
         invalidated: [analysisId("points-to"), analysisId("mod-ref")],
+        remarks: [],
         graph: { nodes: 9 },
       },
       "BODY",
@@ -165,6 +166,32 @@ describe("pass tracing", () => {
 
     expect(rendered).toBe(
       "*** IR after #3 licm [changed, nodes 12 -> 9 (-3), invalidated points-to mod-ref] ***\nBODY",
+    );
+  });
+
+  it("prints each remark between the header and the graph", () => {
+    const rendered = formatPassTrace(
+      {
+        ordinal: 1,
+        pass: "checks",
+        changed: false,
+        nodesBefore: 5,
+        nodesAfter: 5,
+        invalidated: [],
+        remarks: [
+          { kind: "missed", pass: "checks", node: 7, message: "index range unknown" },
+          { kind: "analysis", pass: "checks", node: null, message: "budget is zero" },
+        ],
+        graph: { nodes: 5 },
+      },
+      "BODY",
+    );
+
+    expect(rendered).toBe(
+      "*** IR after #1 checks [unchanged, nodes 5 -> 5 (+0), invalidated nothing] ***\n" +
+        "remark missed v7: index range unknown\n" +
+        "remark analysis: budget is zero\n" +
+        "BODY",
     );
   });
 
@@ -177,6 +204,7 @@ describe("pass tracing", () => {
         nodesBefore: 4,
         nodesAfter: 11,
         invalidated: [],
+        remarks: [],
         graph: { nodes: 11 },
       },
       "BODY",

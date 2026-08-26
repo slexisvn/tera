@@ -17,6 +17,7 @@ import {
   withMaterializedAllocations,
 } from "./materializer.js";
 import { tracer } from "../core/tracing/index.js";
+import { deoptOriginData, type DeoptSiteLookup } from "./origin.js";
 import { dependencyRegistry } from "./dependencies.js";
 import type { Dependency } from "./dependencies.js";
 import {
@@ -50,6 +51,7 @@ type CompiledFunctionLike = RegisterCompiledFunction & {
   optimizedDependencies?: Dependency[];
   lastDeoptReason?: string;
   baselineCode?: BaselineCode | null;
+  optimizedDeoptSites?: DeoptSiteLookup | null;
 };
 
 type LazyDeoptInfo = {
@@ -80,6 +82,20 @@ type DeoptSignalLike = {
 
 function getFunctionName(compiledFn: CompiledFunctionLike | null | undefined): string {
   return compiledFn?.name || "<anonymous>";
+}
+
+function deoptOrigin(
+  compiledFn: CompiledFunctionLike | null | undefined,
+  signal: DeoptSignalLike,
+  bytecodeOffset: number,
+) {
+  return deoptOriginData({
+    name: getFunctionName(compiledFn),
+    reason: signal.reason,
+    bytecodeOffset,
+    frameStateId: signal.frameStateId ?? -1,
+    sites: compiledFn?.optimizedDeoptSites ?? null,
+  });
 }
 
 function requireCompiledFunction(
@@ -214,7 +230,12 @@ export class Deoptimizer {
     const compiledFn = frameState.compiledFunction as CompiledFunctionLike | null;
     const bytecodeOffset = frameState.bytecodeOffset;
 
-    tracer.jitDeopt(getFunctionName(compiledFn), signal.reason, bytecodeOffset);
+    tracer.jitDeopt(
+      getFunctionName(compiledFn),
+      signal.reason,
+      bytecodeOffset,
+      deoptOrigin(compiledFn, signal, bytecodeOffset),
+    );
 
     const resolved = withMaterializedAllocations(
       frameState as Parameters<typeof withMaterializedAllocations>[0],
@@ -253,7 +274,12 @@ export class Deoptimizer {
 
   deoptimizeFromSignalState(signal: DeoptSignalLike): never {
     const fnName = "<unknown>";
-    tracer.jitDeopt(fnName, signal.reason, signal.bytecodeOffset);
+    tracer.jitDeopt(
+      fnName,
+      signal.reason,
+      signal.bytecodeOffset,
+      deoptOrigin(null, signal, signal.bytecodeOffset),
+    );
     throw new Error(
       `Deoptimization without FrameState not fully supported yet: ${signal.reason}`,
     );

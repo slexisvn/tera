@@ -6,6 +6,7 @@ import { LAB_FIXTURES } from "../content/lab-fixtures";
 import type { CompilerClient } from "../services/compiler-client";
 import type { LabResult, OptLevelId } from "../types/stage";
 import { DiffView } from "./DiffView";
+import { RemarkList } from "./RemarkList";
 
 const OPAQUE = /<opaque:([A-Za-z0-9_]+)>/g;
 
@@ -116,7 +117,12 @@ export function IrLab({ client, optLevel, seed, hidden, onSeedTaken }: IrLabProp
           {result === null && <div className="viewer-note">Press Run pass.</div>}
           {result !== null && result.error !== null && <pre className="run-error">{result.error}</pre>}
           {result !== null && result.error === null && (
-            <DiffView before={result.before} after={result.after} />
+            <>
+              <DiffView before={result.before} after={result.after} />
+              {result.remarks.length > 0 && (
+                <RemarkList remarks={result.remarks} selectedNode={null} />
+              )}
+            </>
           )}
         </div>
       </div>

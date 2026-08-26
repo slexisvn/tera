@@ -2,6 +2,7 @@ import type { RuntimeValue } from "../../core/value/index.js";
 import * as ir from "../ir/index.js";
 
 import { tracer } from "../../core/tracing/index.js";
+import { remarks } from "../infra/pass-remarks.js";
 import { DominatorTree } from "../analyses/dominance.js";
 import {
   replaceGraphFrameStateValue,
@@ -74,19 +75,58 @@ export function escapeAnalysisAndScalarReplacement(
     const allocBlock = blockOf.get(alloc);
     if (!allocBlock) continue;
 
-    if (pointsTo.escapes(alloc)) continue;
+    if (pointsTo.escapes(alloc)) {
+      remarks.missed(
+        alloc,
+        "the allocation escapes: points-to found a use that lets the object outlive this frame, so its fields cannot become plain values",
+      );
+      continue;
+    }
 
     const aliases = new Set<EscapeNode>(
       values.filter((value) => pointsTo.allocClassOf(value) === alloc.id),
     );
     const safeUses = safeReceiverUses(aliases);
-    if (hasUnsupportedAliasUses(aliases, safeUses)) continue;
-    if (hasUndominatedAliasPhi(aliases, allocBlock, dominance)) continue;
-    if (hasUnresolvedElementIndex(safeUses)) continue;
+    const unsupported = unsupportedAliasUse(aliases, safeUses);
+    if (unsupported !== null) {
+      remarks.missed(
+        alloc,
+        `v${unsupported.id} (${unsupported.type}) uses the object as something other than a receiver, so scalar replacement cannot rewrite it`,
+      );
+      continue;
+    }
+    const undominated = undominatedAliasPhi(aliases, allocBlock, dominance);
+    if (undominated !== null) {
+      remarks.missed(
+        alloc,
+        `phi v${undominated.id} merges the object on a path the allocation does not dominate, so there is no single set of fields to replace`,
+      );
+      continue;
+    }
+    const unresolved = unresolvedElementIndex(safeUses);
+    if (unresolved !== null) {
+      remarks.missed(
+        alloc,
+        `v${unresolved.id} indexes the array with a value that is not a constant in range, so the element it reads is not known statically`,
+      );
+      continue;
+    }
 
     const carryingHeaders = loopHeadersUnder(graph, allocBlock, dominance);
-    if (hasUntrackedLoopStore(carryingHeaders, safeUses, aliases, dominance)) continue;
-    if (callerFrameStatesReferenceAliases(graph, aliases)) continue;
+    if (hasUntrackedLoopStore(carryingHeaders, safeUses, aliases, dominance)) {
+      remarks.missed(
+        alloc,
+        "a store inside a loop writes a field this pass cannot track across the back edge",
+      );
+      continue;
+    }
+    if (callerFrameStatesReferenceAliases(graph, aliases)) {
+      remarks.missed(
+        alloc,
+        "an inlined caller frame state still holds the object, so a deopt would have to materialize it",
+      );
+      continue;
+    }
 
     let allDominated = true;
     for (const use of safeUses) {
@@ -96,6 +136,10 @@ export function escapeAnalysisAndScalarReplacement(
         break;
       }
       if (!dominance.dominates(allocBlock, useBlock)) {
+        remarks.missed(
+          alloc,
+          `v${use.id} reads the object in a block the allocation does not dominate, so the field may not have been written yet`,
+        );
         allDominated = false;
         break;
       }
@@ -103,8 +147,13 @@ export function escapeAnalysisAndScalarReplacement(
     if (!allDominated) continue;
 
     const initialOffset = initialOffsetState(alloc);
-    if (requiresUnsupportedMergeState(carryingHeaders, safeUses, aliases, initialOffset, dominance))
+    if (requiresUnsupportedMergeState(carryingHeaders, safeUses, aliases, initialOffset, dominance)) {
+      remarks.missed(
+        alloc,
+        "a control-flow merge needs a field state this pass cannot express as a phi",
+      );
       continue;
+    }
 
     const phiFieldStates = createPhiFieldStates(
       carryingHeaders,
@@ -114,7 +163,13 @@ export function escapeAnalysisAndScalarReplacement(
       blockOf,
       dominance,
     );
-    if (phiFieldStates === null) continue;
+    if (phiFieldStates === null) {
+      remarks.missed(
+        alloc,
+        "the loop header needs a phi per field and one of them could not be built",
+      );
+      continue;
+    }
 
     const toDelete = new Set<number>([...aliases].map((node) => node.id));
 
@@ -281,6 +336,10 @@ export function escapeAnalysisAndScalarReplacement(
       graph.name,
       `EscapeAnalysis: Scalar replaced object allocation v${alloc.id} (${toDelete.size} nodes removed)`,
     );
+    remarks.applied(
+      alloc,
+      `the object never escapes, so its fields became plain values and ${toDelete.size} nodes went away`,
+    );
     scalarReplCount++;
   }
 
@@ -343,30 +402,30 @@ function safeReceiverUses(aliases: ReadonlySet<EscapeNode>): Set<EscapeNode> {
   return uses;
 }
 
-function hasUnsupportedAliasUses(
+function unsupportedAliasUse(
   aliases: ReadonlySet<EscapeNode>,
   safeUses: ReadonlySet<EscapeNode>,
-): boolean {
+): EscapeNode | null {
   for (const alias of aliases) {
     for (const use of alias.uses) {
       if (safeUses.has(use)) continue;
       if (aliases.has(use) && use.type === ir.IR_PHI) continue;
-      return true;
+      return use;
     }
   }
-  return false;
+  return null;
 }
 
-function hasUndominatedAliasPhi(
+function undominatedAliasPhi(
   aliases: ReadonlySet<EscapeNode>,
   allocBlock: EscapeBlock,
   dominance: DominatorTree,
-): boolean {
+): EscapeNode | null {
   for (const alias of aliases) {
     if (alias.type !== ir.IR_PHI) continue;
-    if (!alias.block || !dominance.dominates(allocBlock, alias.block)) return true;
+    if (!alias.block || !dominance.dominates(allocBlock, alias.block)) return alias;
   }
-  return false;
+  return null;
 }
 
 function loopHeadersUnder(
@@ -708,17 +767,17 @@ function slotBeyondTheArray(node: EscapeNode, slot: number): boolean {
   return slot >= root.inputs.length;
 }
 
-function hasUnresolvedElementIndex(safeUses: ReadonlySet<EscapeNode>): boolean {
+function unresolvedElementIndex(safeUses: ReadonlySet<EscapeNode>): EscapeNode | null {
   for (const use of safeUses) {
     if (!ELEMENT_ACCESSES.has(use.type)) continue;
     if (use.props.index !== undefined) continue;
     const index = use.inputs[1];
-    if (!index || index.type !== ir.IR_CONSTANT) return true;
+    if (!index || index.type !== ir.IR_CONSTANT) return use;
     const slot = slotOf(use);
-    if (slot === null) return true;
-    if (slotBeyondTheArray(use, slot)) return true;
+    if (slot === null) return use;
+    if (slotBeyondTheArray(use, slot)) return use;
   }
-  return false;
+  return null;
 }
 
 function insertUndefinedConstant(block: EscapeBlock, index: number): EscapeNode {

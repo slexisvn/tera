@@ -29,6 +29,7 @@ import { cloneBlocks, cloneGraph } from "../ir/clone.js";
 import { GraphEditor } from "../ir/editor.js";
 import { addPhi, link, splitBlockBefore } from "../ir/cfg-edit.js";
 import { detachInputs, nodeIdStamper, type Stamp } from "../ir/graph-edit.js";
+import { remarks } from "../infra/pass-remarks.js";
 import { calleeSymbolName, NAMED_ARGUMENTS_PROP } from "../metadata/call-signatures.js";
 import { declaredAcceptsNull } from "../types/declared.js";
 import { declaredAotScalar } from "../metadata/class-table.js";
@@ -261,7 +262,13 @@ export function inlineKnownCalls(
   functions: ModuleFunctions,
   options: CompilerOptions,
 ): number {
-  if (options.inlineBudget === 0) return 0;
+  if (options.inlineBudget === 0) {
+    remarks.analysis(
+      null,
+      "inlining is switched off here: the budget is zero, so every call stays a call",
+    );
+    return 0;
+  }
   const editor = new GraphEditor(graph);
   const stamp = nodeIdStamper(graph);
   let remaining = options.inlineBudget;
@@ -273,14 +280,47 @@ export function inlineKnownCalls(
       const site = callSiteOf(node, functions);
       if (site === null) continue;
       const body = calleeBody(site.callee);
-      if (body === null || body.size > remaining) continue;
-      if (!inlinable(site, node, graph, body)) continue;
-      if (inlineCostOf(site, body) > options.inlineThreshold) continue;
+      if (body === null) {
+        remarks.missed(
+          node,
+          `${site.callee.name} has no shape this pass can splice in: it either never returns a value or contains an operation that is opaque to inlining`,
+        );
+        continue;
+      }
+      if (body.size > remaining) {
+        remarks.missed(
+          node,
+          `${site.callee.name} is ${body.size} nodes and only ${remaining} of the ${options.inlineBudget}-node budget is left, so it stays a call`,
+        );
+        continue;
+      }
+      if (!inlinable(site, node, graph, body)) {
+        remarks.missed(
+          node,
+          `${site.callee.name} cannot be inlined here: its arity, its return shape or a property like async, generator or throw-recovery rules it out`,
+        );
+        continue;
+      }
+      const cost = inlineCostOf(site, body);
+      if (cost > options.inlineThreshold) {
+        remarks.missed(
+          node,
+          `${site.callee.name} scores ${cost} against a threshold of ${options.inlineThreshold}: the body is not worth the code it would add here`,
+        );
+        continue;
+      }
       const spliced =
         site.callee.blocks.length === 1
           ? spliceStraightLine(graph, node, site, editor, stamp)
           : spliceRegion(graph, node, site, body, editor, stamp);
-      if (!spliced) continue;
+      if (!spliced) {
+        remarks.missed(node, `splicing ${site.callee.name} into this call failed late, so the call stands`);
+        continue;
+      }
+      remarks.applied(
+        node,
+        `inlined ${site.callee.name} here: ${body.size} nodes at cost ${cost}, leaving ${remaining - body.size} of the budget`,
+      );
       remaining -= body.size;
       inlined++;
     }

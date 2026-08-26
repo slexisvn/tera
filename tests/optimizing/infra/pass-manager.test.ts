@@ -6,9 +6,39 @@ import {
   type AnalysisPass,
 } from "../../../src/optimizing/infra/analysis-manager.js";
 import { PassManager, type TransformPass } from "../../../src/optimizing/infra/pass-manager.js";
+import { remarks } from "../../../src/optimizing/infra/pass-remarks.js";
+import type { PassTraceRecord } from "../../../src/optimizing/infra/pass-trace.js";
 import { compilerOptions } from "../../../src/optimizing/options.js";
 
 type Graph = { value: number };
+
+function noting(name: string, record: () => void): TransformPass<Graph> {
+  return {
+    name,
+    preserves: { kind: "all" },
+    run: () => {
+      record();
+      return { changed: false };
+    },
+  };
+}
+
+function tracedManager(): {
+  graph: Graph;
+  records: PassTraceRecord<Graph>[];
+  traced: PassManager<Graph>;
+} {
+  const graph = { value: 1 };
+  const manager = new AnalysisManager<Graph>(graph, new AnalysisRegistry<Graph>());
+  const records: PassTraceRecord<Graph>[] = [];
+  const traced = new PassManager<Graph>(manager, compilerOptions(), {
+    tracing: {
+      probe: { nodeCount: (g) => g.value, dump: (g) => String(g.value) },
+      trace: (record) => void records.push(record),
+    },
+  });
+  return { graph, records, traced };
+}
 
 function countingAnalysis(name: string) {
   let runs = 0;
@@ -207,5 +237,51 @@ describe("PassManager", () => {
     passes.run(graph, [inert, inert, inert]);
 
     expect(maintenanceRuns).toBe(0);
+  });
+
+  it("puts each pass's remarks on that pass's own trace record", () => {
+    const { graph, records, traced } = tracedManager();
+    traced.run(graph, [
+      noting("explains-itself", () => remarks.missed({ id: 4 }, "no room in the budget")),
+      { name: "says-nothing", preserves: { kind: "all" }, run: () => ({ changed: false }) },
+    ]);
+
+    expect(records[0]!.remarks).toEqual([
+      { kind: "missed", pass: "explains-itself", node: 4, message: "no room in the budget" },
+    ]);
+    expect(records[1]!.remarks).toEqual([]);
+  });
+
+  it("does not leak a throwing pass's remarks into the next run", () => {
+    const { graph, records, traced } = tracedManager();
+    const thrower: TransformPass<Graph> = {
+      name: "throws",
+      preserves: { kind: "all" },
+      run: () => {
+        remarks.missed({ id: 1 }, "recorded just before the crash");
+        throw new Error("pass failed");
+      },
+    };
+
+    expect(() => traced.run(graph, [thrower])).toThrow("pass failed");
+    traced.run(graph, [
+      { name: "after", preserves: { kind: "all" }, run: () => ({ changed: false }) },
+    ]);
+
+    expect(records).toHaveLength(1);
+    expect(records[0]!.pass).toBe("after");
+    expect(records[0]!.remarks).toEqual([]);
+  });
+
+  it("keeps the recorder shut when nobody is tracing", () => {
+    const { graph, passes } = managerWith([]);
+    let listened = true;
+    passes.run(graph, [
+      noting("checks-the-recorder", () => {
+        listened = remarks.listening;
+      }),
+    ]);
+
+    expect(listened).toBe(false);
   });
 });

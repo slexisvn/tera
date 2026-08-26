@@ -1,6 +1,7 @@
 import type { CFGFunction } from "./ir/index.js";
 import type { PassTracer } from "./infra/pass-trace.js";
 import type { MachineTracer } from "./machine/trace.js";
+import type { AllocationTracer } from "./machine/allocation-report.js";
 import type { ModuleTracer } from "./drivers/module-trace.js";
 
 export type OptLevel = "none" | "baseline" | "speed" | "max";
@@ -27,6 +28,7 @@ export interface CompilerOptions {
   readonly sinkAllocations: boolean;
   readonly passTracer: PassTracer<CFGFunction> | null;
   readonly machineTracer: MachineTracer | null;
+  readonly allocationTracer: AllocationTracer | null;
   readonly moduleTracer: ModuleTracer | null;
   readonly verifyEachPass: boolean;
 }
@@ -40,6 +42,7 @@ type OptLevelPreset = Omit<
   | "sinkAllocations"
   | "passTracer"
   | "machineTracer"
+  | "allocationTracer"
   | "moduleTracer"
   | "verifyEachPass"
 >;
@@ -115,6 +118,7 @@ export function compilerOptions(
     sinkAllocations: true,
     passTracer: null,
     machineTracer: null,
+    allocationTracer: null,
     moduleTracer: null,
     verifyEachPass: false,
     ...presets[optLevel],

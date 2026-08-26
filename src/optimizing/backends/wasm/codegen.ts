@@ -136,6 +136,8 @@ import {
   deoptReasonFromId,
   deoptReasonForNode,
 } from "./deopt-reasons.js";
+import { collectDeoptSites, siteOf, DeoptSiteTable, type DeoptSite } from "./deopt-sites.js";
+import { deoptOriginData } from "../../../deopt/origin.js";
 import {
   materializeFrameFromState,
   resumeFrameStateChain,
@@ -242,6 +244,7 @@ type WasmCompiledFunction = RegisterCompiledFunction & {
   optimizedCode?: OptimizedCode | null;
   disableOptimization?: boolean;
   optimizedStubSummary?: RuntimeStubTable["stubs"];
+  optimizedDeoptSites?: DeoptSiteTable | null;
 };
 type ObjectPointerInfo = {
   ptr: number;
@@ -4231,6 +4234,7 @@ export class WasmCodegen {
     } else {
       (compiledFn as WasmCompiledFunction).optimizedStubSummary = [];
     }
+    (compiledFn as WasmCompiledFunction).optimizedDeoptSites = collectDeoptSites(graph);
 
     return this.createWrapper(
       wasmFn,
@@ -4287,12 +4291,29 @@ export class WasmCodegen {
       closureEnv: Environment | null,
     ) {
       const interpreter = requireWasmInterpreter(rawInterpreter);
-      const recordWasmDeopt = (reason: string, bytecodeOffset: number) => {
+      const recordWasmDeopt = (
+        reason: string,
+        bytecodeOffset: number,
+        guard: DeoptSite | null = null,
+        frameStateId = -1,
+      ) => {
         compiledFn.deoptCount = (compiledFn.deoptCount || 0) + 1;
         compiledFn.lastDeoptReason = reason;
         dependencyRegistry.unregister(compiledFn);
         compiledFn.optimizedCode = null;
-        tracer.jitDeopt(compiledFn.name ?? "<anonymous>", reason, bytecodeOffset);
+        tracer.jitDeopt(
+          compiledFn.name ?? "<anonymous>",
+          reason,
+          bytecodeOffset,
+          deoptOriginData({
+            name: compiledFn.name ?? "<anonymous>",
+            reason,
+            bytecodeOffset,
+            frameStateId: guard?.frameStateId ?? frameStateId,
+            guard,
+            sites: compiledFn.optimizedDeoptSites ?? null,
+          }),
+        );
 
         const policy = interpreter && interpreter.tieringPolicy;
         if (policy && typeof policy.recordDeopt === "function") {
@@ -4320,7 +4341,7 @@ export class WasmCodegen {
       const failedGuard = failingEntryGuard(args);
       if (failedGuard) {
         const reason = deoptReasonForNode(failedGuard);
-        recordWasmDeopt(reason, 0);
+        recordWasmDeopt(reason, 0, siteOf(failedGuard));
 
         const frameState = failedGuard.frameState;
         if (!frameState) {
@@ -4673,7 +4694,7 @@ export class WasmCodegen {
             }
           }
 
-          recordWasmDeopt(e.reason, e.bytecodeOffset);
+          recordWasmDeopt(e.reason, e.bytecodeOffset, null, e.frameStateId);
 
 
           if (e.runtimeValues && e.runtimeValues.size > 0) {

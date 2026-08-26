@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import type { PipelineId, RuntimeEvent } from "../types/stage";
+import type { DeoptTarget } from "../services/deopt-link";
+import type { DeoptOrigin, PipelineId, RuntimeEvent } from "../types/stage";
 
 const LANES: readonly { id: string; label: string; matches: readonly string[] }[] = [
   { id: "tier", label: "Tiering", matches: ["jit"] },
@@ -19,7 +20,38 @@ type RuntimeTimelineProps = {
   events: readonly RuntimeEvent[];
   dropped: Readonly<Record<string, number>>;
   pipeline: PipelineId;
+  onOpenDeopt: (origin: DeoptOrigin) => void;
+  resolveDeopt: (origin: DeoptOrigin) => DeoptTarget | null;
 };
+
+const RECOMPILED =
+  "The graph on screen is a fresh optimisation of the same function, so its value numbers are not the ones the failing code used.";
+
+function originLabel(origin: DeoptOrigin, target: DeoptTarget | null): string {
+  if (target === null) return "no graph";
+  if (target.match === "node") {
+    return origin.opcode === null ? target.node! : `${target.node} ${origin.opcode}`;
+  }
+  if (target.match === "line") return `line ${target.line}`;
+  if (target.match === "retired") return "guard is gone";
+  return "open graph";
+}
+
+function originTitle(origin: DeoptOrigin, target: DeoptTarget | null): string {
+  if (target === null) {
+    return `Nothing was compiled for ${origin.owner}, so there is no graph to open`;
+  }
+  if (target.match === "node") {
+    return `Open the graph at ${target.node}, the ${origin.opcode ?? "guard"} whose failure sent this function back to the interpreter`;
+  }
+  if (target.match === "line") {
+    return `${RECOMPILED} Opening the one ${origin.opcode ?? "guard"} it has on line ${target.line}, which is where the failing guard stood.`;
+  }
+  if (target.match === "retired") {
+    return `The ${origin.opcode} that failed is not in this graph at all: once the deopt taught the optimizer that its speculation was wrong, it stopped emitting that guard. Opening the graph at line ${target.line}, where the guard used to stand.`;
+  }
+  return `${RECOMPILED} Opening the last graph of ${origin.owner} without picking a node, because nothing in it lines up with the failing guard.`;
+}
 
 const SPAN_NOTE: Readonly<Record<PipelineId, string>> = {
   jit: "while the engine ran your program",
@@ -31,7 +63,13 @@ const TIER_LANE: Readonly<Record<PipelineId, string>> = {
   aot: "Compiler",
 };
 
-export function RuntimeTimeline({ events, dropped, pipeline }: RuntimeTimelineProps) {
+export function RuntimeTimeline({
+  events,
+  dropped,
+  pipeline,
+  onOpenDeopt,
+  resolveDeopt,
+}: RuntimeTimelineProps) {
   const [muted, setMuted] = useState<ReadonlySet<string>>(() => new Set());
 
   const counts = useMemo(() => {
@@ -104,6 +142,13 @@ export function RuntimeTimeline({ events, dropped, pipeline }: RuntimeTimelinePr
             <span className="tl-what">
               <span className={`tl-tag tl-${laneOf(event.category)}`}>{event.category}</span>
               {event.message}
+              {event.origin !== null && (
+                <OriginButton
+                  origin={event.origin}
+                  target={resolveDeopt(event.origin)}
+                  onOpen={onOpenDeopt}
+                />
+              )}
             </span>
           </li>
         ))}
@@ -117,5 +162,25 @@ export function RuntimeTimeline({ events, dropped, pipeline }: RuntimeTimelinePr
         </p>
       )}
     </div>
+  );
+}
+
+type OriginButtonProps = {
+  origin: DeoptOrigin;
+  target: DeoptTarget | null;
+  onOpen: (origin: DeoptOrigin) => void;
+};
+
+function OriginButton({ origin, target, onOpen }: OriginButtonProps) {
+  return (
+    <button
+      type="button"
+      className={`tl-origin${target !== null && target.match !== "node" ? " approximate" : ""}`}
+      disabled={target === null}
+      title={originTitle(origin, target)}
+      onClick={() => onOpen(origin)}
+    >
+      {originLabel(origin, target)}
+    </button>
   );
 }

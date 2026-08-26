@@ -1,5 +1,6 @@
 import * as ir from "../ir/index.js";
 import { tracer } from "../../core/tracing/index.js";
+import { remarks } from "../infra/pass-remarks.js";
 import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
 import { detachUsesOfAll, retainNodes } from "../ir/graph-edit.js";
 
@@ -51,18 +52,38 @@ export function allocationSinking(graph: SinkGraph): { sunkCount: number } {
     for (const alloc of allocations) {
       const analysis = analyzeEscape(alloc);
       if (!analysis) continue;
-      if (analysis.fullyEscapes || analysis.escapePoints.length === 0) continue;
+      if (analysis.fullyEscapes) {
+        remarks.missed(
+          alloc,
+          "not sunk: the object escapes for real, not just into a deopt frame",
+        );
+        continue;
+      }
+      if (analysis.escapePoints.length === 0) {
+        remarks.analysis(
+          alloc,
+          "nothing to sink: the object has no escape point at all, so escape analysis should have removed it outright",
+        );
+        continue;
+      }
 
-      const onlyEscapesOnDeopt = analysis.escapePoints.every(
-        (ep) => ep.type === ir.IR_DEOPTIMIZE,
-      );
+      const held = analysis.escapePoints.filter((point) => point.type !== ir.IR_DEOPTIMIZE);
 
-      if (onlyEscapesOnDeopt) {
+      if (held.length === 0) {
         sinkToDeoptOnly(alloc, analysis, graph);
         sunkCount++;
         tracer.log(
           "JIT",
           `AllocationSinking: eliminated allocation v${alloc.id} - escapes only on deopt`,
+        );
+        remarks.applied(
+          alloc,
+          "sunk into the deopt frame: the only thing that needed this object was a bailout, so it is now materialized on demand",
+        );
+      } else {
+        remarks.missed(
+          alloc,
+          `not sunk: v${held[0]!.id} (${held[0]!.type}) needs the object on the fast path, not only on deopt`,
         );
       }
     }

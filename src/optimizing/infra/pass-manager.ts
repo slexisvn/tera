@@ -1,5 +1,6 @@
 import type { AnalysisId, AnalysisManager } from "./analysis-manager.js";
 import type { PassTracing } from "./pass-trace.js";
+import { remarks, type Remark } from "./pass-remarks.js";
 import type { CompilerOptions } from "../options.js";
 
 export interface TransformOutcome {
@@ -52,7 +53,14 @@ export class PassManager<G> {
     for (const pass of pipeline) {
       for (const id of pass.requires ?? []) this.analyses.get(id);
       const nodesBefore = tracing === null ? 0 : tracing.probe.nodeCount(graph);
-      const outcome = pass.run(graph, this.analyses, this.options);
+      let outcome: TransformOutcome;
+      let noted: readonly Remark[];
+      if (tracing !== null) remarks.open(pass.name);
+      try {
+        outcome = pass.run(graph, this.analyses, this.options);
+      } finally {
+        noted = remarks.close();
+      }
       if (outcome.changed && this.maintain !== null) this.maintain(graph);
       if (outcome.changed && this.verify !== null) this.verify(graph, pass.name);
       const invalidated = outcome.changed
@@ -66,7 +74,9 @@ export class PassManager<G> {
         changed: outcome.changed,
         nodesBefore,
         nodesAfter: tracing.probe.nodeCount(graph),
+        requires: pass.requires ?? NOTHING_INVALIDATED,
         invalidated,
+        remarks: noted,
         graph,
       });
     }

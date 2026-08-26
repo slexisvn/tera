@@ -498,7 +498,7 @@ export class HiddenClass {
     this.transitions.set(propertyName, newClass);
     this.checkStability();
 
-    tracer.hcTransition(this.id, newClass.id, propertyName);
+    tracer.hcTransition(this.id, newClass.id, propertyName, newClass.propertyCount);
 
     return newClass;
   }

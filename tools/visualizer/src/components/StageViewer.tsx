@@ -1,15 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { noteFor } from "../content/passes";
 import type { Stage } from "../types/stage";
+import { AllocationView } from "./AllocationView";
+import { AnalysesView } from "./AnalysesView";
 import { DiffView } from "./DiffView";
-import { GraphView } from "./GraphView";
+import { GraphView, type GraphFocus } from "./GraphView";
 import { IrLine } from "./IrLine";
+import { RemarkList } from "./RemarkList";
 
-type Tab = "diff" | "graph" | "raw" | "explain";
+type Tab = "diff" | "graph" | "why" | "analyses" | "registers" | "raw" | "explain";
 
 const TABS: readonly { id: Tab; label: string }[] = [
   { id: "diff", label: "Diff" },
   { id: "graph", label: "Graph" },
+  { id: "why", label: "Why" },
+  { id: "analyses", label: "Analyses" },
+  { id: "registers", label: "Registers" },
   { id: "raw", label: "Raw" },
   { id: "explain", label: "Explain" },
 ];
@@ -17,6 +23,9 @@ const TABS: readonly { id: Tab; label: string }[] = [
 const WHY_DISABLED: Readonly<Record<Tab, string>> = {
   diff: "There is no earlier version of this stage to compare against",
   graph: "Only SSA stages draw as a graph",
+  why: "This pass recorded nothing about the decisions it made",
+  analyses: "Only SSA stages carry the analyses a pass reads",
+  registers: "Only the register allocator reports where each value ended up",
   raw: "",
   explain: "",
 };
@@ -64,8 +73,10 @@ function Explain({ stage }: { stage: Stage }) {
 
 type StageViewerProps = {
   stage: Stage | null;
+  stages: readonly Stage[];
   previous: Stage | null;
   selectedNode: string | null;
+  focus: GraphFocus | null;
   onSelectNode: (key: string | null) => void;
   onHoverNode: (key: string | null) => void;
   onSendToLab: () => void;
@@ -73,14 +84,21 @@ type StageViewerProps = {
 
 export function StageViewer({
   stage,
+  stages,
   previous,
   selectedNode,
+  focus,
   onSelectNode,
   onHoverNode,
   onSendToLab,
 }: StageViewerProps) {
   const [tab, setTab] = useState<Tab>("diff");
   const [wrap, setWrap] = useState(false);
+
+  const focusAt = focus?.at ?? null;
+  useEffect(() => {
+    if (focusAt !== null) setTab("graph");
+  }, [focusAt]);
 
   if (stage === null) {
     return (
@@ -93,10 +111,14 @@ export function StageViewer({
   const available: Readonly<Record<Tab, boolean>> = {
     diff: (stage.kind === "ir" || stage.kind === "machine") && previous !== null,
     graph: stage.kind === "ir",
+    why: stage.remarks.length > 0,
+    analyses: stage.kind === "ir",
+    registers: stage.allocation !== null,
     raw: true,
     explain: true,
   };
-  const active: Tab = available[tab] ? tab : available.diff ? "diff" : available.graph ? "graph" : "raw";
+  const landing: Tab = available.diff ? "diff" : available.graph ? "graph" : "raw";
+  const active: Tab = available[tab] ? tab : landing;
   const showsCode = active === "raw" || active === "diff";
 
   return (
@@ -146,6 +168,9 @@ export function StageViewer({
               onClick={() => setTab(entry.id)}
             >
               {entry.label}
+              {entry.id === "why" && stage.remarks.length > 0 && (
+                <span className="tab-count">{stage.remarks.length}</span>
+              )}
             </button>
           ))}
           {stage.kind === "ir" && (
@@ -160,12 +185,36 @@ export function StageViewer({
           )}
         </div>
       </header>
-      {active === "diff" && <DiffView before={previous === null ? null : previous.text} after={stage.text} wrap={wrap} />}
+      {active === "diff" && (
+        <>
+          {!stage.changed && stage.remarks.length > 0 && (
+            <button type="button" className="why-nudge" onClick={() => setTab("why")}>
+              This pass left the graph alone. It recorded {stage.remarks.length}{" "}
+              {stage.remarks.length === 1 ? "remark" : "remarks"} saying why —{" "}
+              <strong>read them</strong>
+            </button>
+          )}
+          <DiffView before={previous === null ? null : previous.text} after={stage.text} wrap={wrap} />
+        </>
+      )}
+      {active === "analyses" && <AnalysesView stage={stage} stages={stages} />}
+      {active === "registers" && stage.allocation !== null && (
+        <AllocationView report={stage.allocation} />
+      )}
+      {active === "why" && (
+        <RemarkList
+          remarks={stage.remarks}
+          selectedNode={selectedNode}
+          onSelectNode={onSelectNode}
+          onHoverNode={onHoverNode}
+        />
+      )}
       {active === "graph" && (
         <GraphView
           text={stage.text}
           before={previous === null ? null : previous.text}
           selectedNode={selectedNode}
+          focus={focus}
           onSelectNode={onSelectNode}
           onHoverNode={onHoverNode}
         />

@@ -12,6 +12,7 @@ import { SetupControls } from "../components/SetupControls";
 import { SourcePane } from "../components/SourcePane";
 import { Splitter } from "../components/Splitter";
 import { StageViewer } from "../components/StageViewer";
+import type { GraphFocus } from "../components/GraphView";
 import { StartPanel } from "../components/StartPanel";
 import {
   BUSY_DELAY_MS,
@@ -35,8 +36,10 @@ import {
 } from "../config/panes";
 import { SAMPLES, type Sample } from "../content/samples";
 import { CompilerClient } from "../services/compiler-client";
+import { targetForDeopt } from "../services/deopt-link";
+import { notableOnly } from "../services/stage-filter";
 import { errorLineOf, failuresOf, statusOf } from "../services/run-report";
-import type { OptLevelId, RunResult, Stage, TargetInfo } from "../types/stage";
+import type { DeoptOrigin, OptLevelId, RunResult, Stage, TargetInfo } from "../types/stage";
 
 const EMPTY: RunResult = {
   stages: [],
@@ -44,6 +47,7 @@ const EMPTY: RunResult = {
   dropped: {},
   output: [],
   outputDropped: 0,
+  shapes: [],
   error: null,
   runError: null,
   elapsedMs: 0,
@@ -56,9 +60,10 @@ function landingStage(stages: readonly Stage[], keep: string | null): string | n
   if (keep !== null && stages.some((stage) => stage.id === keep)) return keep;
   const failure = stages.find((stage) => stage.failed);
   if (failure !== undefined) return failure.id;
+  const optimized = stages.filter((stage) => stage.group !== "executed");
   return (
-    stages.find((stage) => stage.kind === "ir" && stage.changed)?.id ??
-    stages.find((stage) => stage.kind === "ir")?.id ??
+    optimized.find((stage) => stage.kind === "ir" && stage.changed)?.id ??
+    optimized.find((stage) => stage.kind === "ir")?.id ??
     stages.find((stage) => stage.changed)?.id ??
     stages[0]?.id ??
     null
@@ -81,6 +86,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [focus, setFocus] = useState<GraphFocus | null>(null);
   const [hideUnchanged, setHideUnchanged] = useState(true);
   const [labSeed, setLabSeed] = useState<string | null>(null);
   const [pane, setPane] = useState<TabId>("source");
@@ -200,6 +206,7 @@ export default function App() {
       setSelectedId((current) => landingStage(next.stages, current));
       setSelectedNode(null);
       setHoveredNode(null);
+      setFocus(null);
       land(next.error !== null || next.runError !== null);
     } catch (error) {
       setResult({ ...EMPTY, error: error instanceof Error ? error.message : String(error) });
@@ -218,7 +225,7 @@ export default function App() {
   }, []);
 
   const visible = useMemo(
-    () => (hideUnchanged ? result.stages.filter((stage) => stage.changed) : result.stages),
+    () => (hideUnchanged ? notableOnly(result.stages) : result.stages),
     [hideUnchanged, result.stages],
   );
 
@@ -275,6 +282,7 @@ export default function App() {
 
   const showStage = useCallback((id: string) => {
     setSelectedId(id);
+    setFocus(null);
     setPane("detail");
   }, []);
 
@@ -285,6 +293,30 @@ export default function App() {
   }, [openMode, selected]);
 
   const goToLine = useCallback((line: number) => editor.current?.goToLine(line), []);
+
+  const resolveDeopt = useCallback(
+    (origin: DeoptOrigin) => targetForDeopt(result.stages, origin),
+    [result.stages],
+  );
+
+  const openDeopt = useCallback(
+    (origin: DeoptOrigin) => {
+      const target = targetForDeopt(result.stages, origin);
+      if (target === null) return;
+      setSelectedId(target.stageId);
+      setSelectedNode(target.node);
+      setHoveredNode(null);
+      setFocus(target.node === null ? null : { node: target.node, at: performance.now() });
+      setPane("detail");
+      if (target.line !== null) goToLine(target.line);
+    },
+    [goToLine, result.stages],
+  );
+
+  const pickNode = useCallback((key: string | null) => {
+    setSelectedNode(key);
+    setFocus(null);
+  }, []);
 
   const stale = hasRun && compiled !== request;
 
@@ -302,8 +334,9 @@ export default function App() {
           ? { count: failures.length, tone: "bad" }
           : { count: result.output.length, tone: "info" },
       runtime: { count: result.events.length, tone: "info" },
+      shapes: { count: result.shapes.length, tone: "info" },
     }),
-    [failures.length, result.events.length, result.output.length],
+    [failures.length, result.events.length, result.output.length, result.shapes.length],
   );
 
   const workspaceStyle = useMemo(() => {
@@ -430,9 +463,11 @@ export default function App() {
                   {hasRun ? (
                     <StageViewer
                       stage={selected}
+                      stages={result.stages}
                       previous={previous}
                       selectedNode={selectedNode}
-                      onSelectNode={setSelectedNode}
+                      focus={focus}
+                      onSelectNode={pickNode}
                       onHoverNode={setHoveredNode}
                       onSendToLab={sendToLab}
                     />
@@ -458,6 +493,8 @@ export default function App() {
                 onTab={setConsoleTab}
                 onRun={() => void run()}
                 onGoToLine={goToLine}
+                onOpenDeopt={openDeopt}
+                resolveDeopt={resolveDeopt}
               />
             </Region>
 

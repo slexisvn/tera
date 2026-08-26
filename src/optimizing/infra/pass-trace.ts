@@ -1,4 +1,5 @@
 import type { AnalysisId } from "./analysis-manager.js";
+import type { Remark } from "./pass-remarks.js";
 
 export interface GraphProbe<G> {
   nodeCount(graph: G): number;
@@ -11,7 +12,9 @@ export interface PassTraceRecord<G> {
   readonly changed: boolean;
   readonly nodesBefore: number;
   readonly nodesAfter: number;
+  readonly requires: readonly AnalysisId<unknown>[];
   readonly invalidated: readonly AnalysisId<unknown>[];
+  readonly remarks: readonly Remark[];
   readonly graph: G;
 }
 
@@ -31,6 +34,11 @@ function signedDelta(before: number, after: number): string {
   return delta < 0 ? String(delta) : `+${delta}`;
 }
 
+export function formatRemark(remark: Remark): string {
+  const where = remark.node === null ? "" : ` v${remark.node}`;
+  return `remark ${remark.kind}${where}: ${remark.message}`;
+}
+
 export function formatPassTrace<G>(record: PassTraceRecord<G>, dump: string): string {
   const invalidated = record.invalidated.map(analysisName);
   const facts = [
@@ -38,7 +46,8 @@ export function formatPassTrace<G>(record: PassTraceRecord<G>, dump: string): st
     `nodes ${record.nodesBefore} -> ${record.nodesAfter} (${signedDelta(record.nodesBefore, record.nodesAfter)})`,
     `invalidated ${invalidated.length === 0 ? "nothing" : invalidated.join(" ")}`,
   ];
-  return `*** IR after #${record.ordinal} ${record.pass} [${facts.join(", ")}] ***\n${dump}`;
+  const notes = record.remarks.map((remark) => `${formatRemark(remark)}\n`).join("");
+  return `*** IR after #${record.ordinal} ${record.pass} [${facts.join(", ")}] ***\n${notes}${dump}`;
 }
 
 export function consolePassTracer<G>(probe: GraphProbe<G>): PassTracer<G> {

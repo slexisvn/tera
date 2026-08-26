@@ -13,6 +13,7 @@ import { visitFrameStateValues } from "../ir/frame-state-values.js";
 import { nodeIdStamper, type Stamp } from "../ir/graph-edit.js";
 import { metadataNumber } from "../ir/metadata.js";
 import { eliminateUnreachableBlocks } from "./dce.js";
+import { remarks } from "../infra/pass-remarks.js";
 import type { Loop, LoopForest } from "../analyses/loops.js";
 
 interface InvariantBranch {
@@ -107,10 +108,28 @@ function unswitchLoop(
   stamp: Stamp,
 ): boolean {
   const preheader = loop.preheader;
-  if (preheader === null || preheader.getTerminator()?.type !== IR_JUMP) return false;
-  if (loop.exitBlocks.length !== 1) return false;
+  if (preheader === null || preheader.getTerminator()?.type !== IR_JUMP) {
+    remarks.missed(
+      found.condition,
+      `loop B${loop.header.id} has no single preheader ending in a jump, so there is nowhere to put the hoisted test`,
+    );
+    return false;
+  }
+  if (loop.exitBlocks.length !== 1) {
+    remarks.missed(
+      found.condition,
+      `loop B${loop.header.id} leaves through ${loop.exitBlocks.length} exits, and unswitching would have to duplicate every one of them`,
+    );
+    return false;
+  }
   const exit = loop.exitBlocks[0]!;
-  if (exit.predecessors.some((entered) => !loop.blocks.has(entered))) return false;
+  if (exit.predecessors.some((entered) => !loop.blocks.has(entered))) {
+    remarks.missed(
+      found.condition,
+      `the exit of loop B${loop.header.id} is also reached from outside the loop, so the two copies could not agree on what flows out of it`,
+    );
+    return false;
+  }
 
   routeEscapesThroughExit(graph, loop, exit, stamp);
   const region = [...loop.blocks];
@@ -133,15 +152,38 @@ export function loopUnswitching(
   forest: LoopForest,
   budget: number,
 ): number {
-  if (budget <= 0) return 0;
+  if (budget <= 0) {
+    remarks.analysis(
+      null,
+      "unswitching is switched off here: the budget is zero, either because this optimisation level does not pay for loop duplication or because the target can deoptimize instead",
+    );
+    return 0;
+  }
   const stamp = nodeIdStamper(graph);
   let unswitched = 0;
 
   for (const loop of forest.loops()) {
-    if (loopSize(loop) > budget) continue;
+    const size = loopSize(loop);
+    if (size > budget) {
+      remarks.missed(
+        null,
+        `loop B${loop.header.id} is ${size} nodes and the budget is ${budget}: duplicating it would cost more code than the branch it removes is worth`,
+      );
+      continue;
+    }
     const found = invariantBranchIn(loop);
-    if (found === null) continue;
+    if (found === null) {
+      remarks.missed(
+        null,
+        `loop B${loop.header.id} has no branch whose condition is computed outside the loop, so there is nothing to hoist`,
+      );
+      continue;
+    }
     if (!unswitchLoop(graph, loop, found, stamp)) continue;
+    remarks.applied(
+      found.condition,
+      `hoisted this loop-invariant test out of B${loop.header.id}: the loop is now two copies, one per outcome, and neither tests it again`,
+    );
     unswitched++;
   }
 

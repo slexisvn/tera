@@ -6,7 +6,6 @@ import {
   Engine,
   IR_BUILDER_STAGE,
   isAotBackend,
-  afterNamedPass,
   middleEndPassNames,
   nativeToTagged,
   parse,
@@ -14,23 +13,31 @@ import {
   printIR,
   printMachineFunction,
   printModuleIR,
+  runNamedPass,
   taggedToNative,
   tokenize,
   type CFGFunction,
   type CompilerOptions,
   type MachineTraceRecord,
   type ModuleTraceRecord,
+  type AllocationReport,
   type PassTraceRecord,
+  type Remark,
   type Token,
 } from "tera";
 import {
+  NO_ANALYSES,
   NO_POSITIONS,
+  NO_REMARKS,
+  type DeoptOrigin,
+  type ShapeEdge,
   type LabRequest,
   type LabResult,
   type RunRequest,
   type RunResult,
   type RuntimeEvent,
   type Stage,
+  type StageRemark,
   type VisualizerPassName,
   type StageGroup,
   type TargetInfo,
@@ -57,7 +64,17 @@ const EVENT_BUDGET: Readonly<Record<string, number>> = {
 };
 const DEFAULT_EVENT_BUDGET = 80;
 const OUTPUT_BUDGET = 400;
+const SHAPE_BUDGET = 300;
 const MODULE_OWNER = "<module>";
+const EXECUTED_PASS = "executed-graph" satisfies VisualizerPassName;
+
+type ExecutedGraph = {
+  ordinal: number;
+  pass: string;
+  text: string;
+  positions: Record<string, number>;
+  frozen: boolean;
+};
 
 type Outcome = {
   readonly error: string | null;
@@ -92,14 +109,91 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 function runPass(request: LabRequest): LabResult {
   const options = compilerOptions(request.optLevel);
   try {
-    return { before: request.text, after: afterNamedPass(request.text, request.pass, options), error: null };
+    const outcome = runNamedPass(request.text, request.pass, options);
+    return {
+      before: request.text,
+      after: outcome.text,
+      remarks: outcome.remarks.map(stageRemark),
+      error: null,
+    };
   } catch (error) {
-    return { before: request.text, after: request.text, error: messageOf(error) };
+    return {
+      before: request.text,
+      after: request.text,
+      remarks: NO_REMARKS,
+      error: messageOf(error),
+    };
   }
+}
+
+function stageRemark(remark: Remark): StageRemark {
+  return {
+    kind: remark.kind,
+    node: remark.node === null ? null : `v${remark.node}`,
+    message: remark.message,
+  };
 }
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function analysisName(id: { description?: string | undefined }): string {
+  return id.description ?? "anonymous";
+}
+
+type TracedShape = {
+  readonly edge?: unknown;
+  readonly from?: unknown;
+  readonly to?: unknown;
+  readonly property?: unknown;
+  readonly properties?: unknown;
+};
+
+function shapeEdgeOf(category: string, data: unknown): ShapeEdge | null {
+  if (category !== "hidden_class" || typeof data !== "object" || data === null) return null;
+  const traced = data as TracedShape;
+  if (typeof traced.from !== "number" || typeof traced.to !== "number") return null;
+  if (typeof traced.property !== "string") return null;
+  return {
+    kind: traced.edge === "delete" ? "delete" : "add",
+    from: traced.from,
+    to: traced.to,
+    property: traced.property,
+    properties: typeof traced.properties === "number" ? traced.properties : null,
+  };
+}
+
+type TracedDeopt = {
+  readonly function?: unknown;
+  readonly reason?: unknown;
+  readonly nodeId?: unknown;
+  readonly opcode?: unknown;
+  readonly line?: unknown;
+  readonly candidates?: unknown;
+};
+
+function textOr(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function valueName(value: unknown): string | null {
+  return typeof value === "number" ? `v${value}` : null;
+}
+
+function deoptOriginOf(category: string, data: unknown): DeoptOrigin | null {
+  if (category !== "deopt" || typeof data !== "object" || data === null) return null;
+  const traced = data as TracedDeopt;
+  if (typeof traced.reason !== "string") return null;
+  const candidates = Array.isArray(traced.candidates) ? traced.candidates : [];
+  return {
+    owner: textOr(traced.function, "<anonymous>"),
+    reason: traced.reason,
+    node: valueName(traced.nodeId),
+    opcode: typeof traced.opcode === "string" ? traced.opcode : null,
+    line: typeof traced.line === "number" ? traced.line : null,
+    candidates: candidates.map(valueName).filter((name): name is string => name !== null),
+  };
 }
 
 function targets(): TargetInfo[] {
@@ -136,7 +230,10 @@ class StageCollector {
   recording = true;
 
   plain(
-    stage: Omit<Stage, "ordinal" | "positions" | "owner" | "failed"> & {
+    stage: Omit<
+      Stage,
+      "ordinal" | "positions" | "owner" | "failed" | "remarks" | "requires" | "allocation"
+    > & {
       owner?: string;
       failed?: boolean;
     },
@@ -145,13 +242,75 @@ class StageCollector {
       ...stage,
       failed: stage.failed ?? false,
       owner: stage.owner ?? stage.title,
+      requires: NO_ANALYSES,
+      remarks: NO_REMARKS,
+      allocation: null,
       positions: NO_POSITIONS,
       ordinal: this.ordinal++,
     });
   }
 
+  private readonly executed = new Map<string, ExecutedGraph>();
+  private readonly allocations = new Map<string, AllocationReport>();
+
+  allocated = (report: AllocationReport): void => {
+    this.allocations.set(report.symbol, report);
+  };
+
+  private capture(record: PassTraceRecord<CFGFunction>): void {
+    const owner = record.graph.name;
+    const held = this.executed.get(owner);
+    if (held === undefined) {
+      this.executed.set(owner, {
+        ordinal: record.ordinal,
+        pass: record.pass,
+        text: printIR(record.graph),
+        positions: sourceLinesOf(record.graph),
+        frozen: false,
+      });
+      return;
+    }
+    if (held.frozen) return;
+    if (record.ordinal <= held.ordinal) {
+      held.frozen = true;
+      return;
+    }
+    held.ordinal = record.ordinal;
+    if (!record.changed) return;
+    held.pass = record.pass;
+    held.text = printIR(record.graph);
+    held.positions = sourceLinesOf(record.graph);
+  }
+
+  executedStages(): void {
+    for (const [owner, held] of this.executed) {
+      this.stages.push({
+        id: `executed/${owner}`,
+        group: "executed",
+        kind: "ir",
+        title: owner,
+        subtitle: `as the engine ran it, after ${held.pass}`,
+        owner,
+        ordinal: this.ordinal++,
+        changed: true,
+        failed: false,
+        text: held.text,
+        passName: EXECUTED_PASS,
+        metrics: null,
+        requires: NO_ANALYSES,
+        invalidated: [],
+        remarks: NO_REMARKS,
+        allocation: null,
+        positions: held.positions,
+      });
+    }
+  }
+
   tracer = (record: PassTraceRecord<CFGFunction>): void => {
-    if (!this.recording) return;
+    if (!this.recording) {
+      this.capture(record);
+      return;
+    }
     const owner = record.graph.name;
     const group: StageGroup = this.middleEnd.has(record.pass) ? "middle-end" : "lowering";
     const previous = this.lastTextOf("ir", owner);
@@ -168,7 +327,10 @@ class StageCollector {
       text: record.changed || previous === null ? printIR(record.graph) : previous,
       passName: record.pass,
       metrics: { nodesBefore: record.nodesBefore, nodesAfter: record.nodesAfter },
-      invalidated: record.invalidated.map((id) => id.description ?? "anonymous"),
+      requires: record.requires.map(analysisName),
+      invalidated: record.invalidated.map(analysisName),
+      remarks: record.remarks.map(stageRemark),
+      allocation: null,
       positions: sourceLinesOf(record.graph),
     });
   };
@@ -188,7 +350,10 @@ class StageCollector {
       text,
       passName: record.after,
       metrics: null,
+      requires: NO_ANALYSES,
       invalidated: [],
+      remarks: NO_REMARKS,
+      allocation: this.allocations.get(record.symbol) ?? null,
       positions: NO_POSITIONS,
     });
   };
@@ -208,7 +373,10 @@ class StageCollector {
       text,
       passName: record.stage,
       metrics: null,
+      requires: NO_ANALYSES,
       invalidated: [],
+      remarks: record.remarks.map(stageRemark),
+      allocation: null,
       positions: NO_POSITIONS,
     });
   };
@@ -340,6 +508,7 @@ function run(request: RunRequest): RunResult {
   const spent = new Map<string, number>();
   const dropped = new Map<string, number>();
   const printed = new OutputSink();
+  const shapes: ShapeEdge[] = [];
   const options = compilerOptions(request.optLevel);
   const collect = new StageCollector(options);
   let outcome: Outcome = { error: null, runError: null };
@@ -347,7 +516,7 @@ function run(request: RunRequest): RunResult {
   try {
     frontendStages(collect, request.source);
   } catch (thrown) {
-    return report(collect, events, dropped, printed, { error: messageOf(thrown), runError: null }, started);
+    return report(collect, events, dropped, printed, shapes, { error: messageOf(thrown), runError: null }, started);
   }
 
   const traced: CompilerOptions = {
@@ -371,8 +540,15 @@ function run(request: RunRequest): RunResult {
         dropped.set(event.category, (dropped.get(event.category) ?? 0) + 1);
         return;
       }
+      const shape = shapeEdgeOf(event.category, event.data);
+      if (shape !== null && shapes.length < SHAPE_BUDGET) shapes.push(shape);
       spent.set(event.category, taken + 1);
-      events.push({ category: event.category, message: event.message, at: event.timestamp });
+      events.push({
+        category: event.category,
+        message: event.message,
+        at: event.timestamp,
+        origin: deoptOriginOf(event.category, event.data),
+      });
     },
   });
 
@@ -385,7 +561,7 @@ function run(request: RunRequest): RunResult {
     outcome = { ...outcome, error: messageOf(thrown) };
   }
 
-  return report(collect, events, dropped, printed, outcome, started);
+  return report(collect, events, dropped, printed, shapes, outcome, started);
 }
 
 function report(
@@ -393,6 +569,7 @@ function report(
   events: readonly RuntimeEvent[],
   dropped: ReadonlyMap<string, number>,
   printed: OutputSink,
+  shapes: readonly ShapeEdge[],
   outcome: Outcome,
   started: number,
 ): RunResult {
@@ -402,6 +579,7 @@ function report(
     dropped: Object.fromEntries(dropped),
     output: printed.lines,
     outputDropped: printed.dropped,
+    shapes,
     error: outcome.error,
     runError: outcome.runError,
     elapsedMs: performance.now() - started,
@@ -420,6 +598,7 @@ function runJit(engine: Engine, collect: StageCollector, request: RunRequest): O
     else runError = messageOf(thrown);
   }
   collect.recording = true;
+  collect.executedStages();
 
   if (error !== null) return { error, runError: null };
 
@@ -488,6 +667,7 @@ function runAot(
       ...compilerOptions(request.optLevel),
       passTracer: (record) => collect.tracer(record as PassTraceRecord<CFGFunction>),
       machineTracer: collect.machine,
+      allocationTracer: collect.allocated,
       moduleTracer: collect.module,
     },
   });

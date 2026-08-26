@@ -15,6 +15,7 @@ export type ZoomPan = {
   readonly panning: boolean;
   wasDragged(): boolean;
   zoomBy(factor: number): void;
+  centerOn(x: number, y: number): void;
   fit(): void;
   reset(): void;
 };
@@ -27,6 +28,11 @@ const DRAG_THRESHOLD = 4;
 
 export function clampScale(scale: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
+}
+
+export function centeredOn(view: Viewport, box: Size, x: number, y: number): Viewport {
+  if (box.width === 0 || box.height === 0) return view;
+  return { k: view.k, x: box.width / 2 - x * view.k, y: box.height / 2 - y * view.k };
 }
 
 export function zoomAround(view: Viewport, px: number, py: number, scale: number): Viewport {
@@ -91,6 +97,16 @@ export function useZoomPan(natural: Size, mode: FitMode): ZoomPan {
   }, [mode, natural.height, natural.width]);
 
   const reset = useCallback(() => setView({ x: 0, y: 0, k: 1 }), []);
+
+  const centerOn = useCallback((x: number, y: number) => {
+    const measured = surface.current?.getBoundingClientRect();
+    if (measured === undefined) return;
+    setView((current) => {
+      const next = centeredOn(current, measured, x, y);
+      settled.current = next;
+      return next;
+    });
+  }, []);
 
   const zoomBy = useCallback((factor: number) => {
     const measured = surface.current?.getBoundingClientRect();
@@ -211,5 +227,5 @@ export function useZoomPan(natural: Size, mode: FitMode): ZoomPan {
 
   const wasDragged = useCallback(() => dragged.current, []);
 
-  return { surface, view, box, panning, wasDragged, zoomBy, fit, reset };
+  return { surface, view, box, panning, wasDragged, zoomBy, centerOn, fit, reset };
 }

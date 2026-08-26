@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 
 vi.mock("../../src/bytecode/register/interpreter/index.js", async () => {
   const { CODE_UNDEFINED } = await import("../../src/core/value/index.js");
@@ -18,6 +18,8 @@ vi.mock("../../src/bytecode/register/interpreter/index.js", async () => {
 import { Deoptimizer } from "../../src/deopt/deoptimizer.js";
 import { DeoptSignal } from "../../src/deopt/signal.js";
 import { FrameState } from "../../src/deopt/frame-state.js";
+import { DeoptSiteTable } from "../../src/optimizing/backends/wasm/deopt-sites.js";
+import { tracer } from "../../src/core/tracing/index.js";
 import { Environment } from "../../src/runtime/intrinsics/environment.js";
 import {
   mkSmi,
@@ -588,5 +590,87 @@ describe("Deoptimizer.deoptimize — activation args reach the resumed frame", (
     deopt.deoptimize(new DeoptSignal("overflow", 0, 0, new Map()), [fs], [], receiver);
 
     expect(calls[0].thisValue).toBe(receiver);
+  });
+});
+
+describe("Deoptimizer.deoptimize — the trace event says where in the graph the bailout came from", () => {
+  const BOUNDS = "bounds-check-failed";
+  const MAP = "map-check-failed";
+
+  function site(nodeId, reason, frameStateId, line) {
+    return {
+      nodeId,
+      opcode: reason === BOUNDS ? "CheckBounds" : "CheckMap",
+      reason,
+      blockId: 0,
+      frameStateId,
+      bytecodeOffset: 12,
+      line,
+    };
+  }
+
+  function withSites(sites) {
+    return { ...makeFn("hot"), optimizedDeoptSites: sites };
+  }
+
+  function deoptOnce(fn, reason, frameStateId) {
+    const seen = [];
+    tracer.sink = (event) => void seen.push(event);
+    tracer.enable();
+    tracer.setCategories(["deopt"]);
+
+    const fs = new FrameState(fn, 12);
+    fs.id = frameStateId;
+    const frameStates = [];
+    frameStates[frameStateId] = fs;
+    const deopt = new Deoptimizer(makeInterpreter(mkSmi(0)));
+    deopt.deoptimize(new DeoptSignal(reason, 12, frameStateId, new Map()), frameStates);
+
+    return seen.filter((event) => event.category === "deopt" && event.message.startsWith("DEOPT"));
+  }
+
+  beforeEach(() => {
+    tracer.sink = null;
+    tracer.disable();
+  });
+
+  afterEach(() => {
+    tracer.sink = null;
+    tracer.disable();
+    tracer.setCategories(["all"]);
+  });
+
+  it("names the guard node when the reason and frame state pick out exactly one", () => {
+    const table = new DeoptSiteTable([site(37, BOUNDS, 5, 9), site(41, MAP, 5, 11)]);
+
+    const [event] = deoptOnce(withSites(table), BOUNDS, 5);
+
+    expect(event.data).toMatchObject({
+      function: "hot",
+      reason: BOUNDS,
+      nodeId: 37,
+      opcode: "CheckBounds",
+      line: 9,
+      candidates: [37],
+    });
+  });
+
+  it("leaves the guard unnamed but lists the candidates when several share the frame state", () => {
+    const table = new DeoptSiteTable([site(37, BOUNDS, 5, 9), site(41, BOUNDS, 5, 11)]);
+
+    const [event] = deoptOnce(withSites(table), BOUNDS, 5);
+
+    expect(event.data).toMatchObject({ nodeId: null, candidates: [37, 41] });
+  });
+
+  it("still reports the reason when the function was compiled without a site table", () => {
+    const [event] = deoptOnce(withSites(null), BOUNDS, 5);
+
+    expect(event.data).toMatchObject({
+      function: "hot",
+      reason: BOUNDS,
+      nodeId: null,
+      candidates: [],
+    });
   });
 });

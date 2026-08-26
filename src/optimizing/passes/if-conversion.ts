@@ -17,6 +17,7 @@ import { GraphEditor } from "../ir/editor.js";
 import { removePhis } from "../ir/cfg-edit.js";
 import { detachInputs, nodeIdStamper, type Stamp } from "../ir/graph-edit.js";
 import { metadataNumber } from "../ir/metadata.js";
+import { remarks } from "../infra/pass-remarks.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import type { Capability } from "../target/capabilities.js";
 import type { TargetModel } from "../target/model.js";
@@ -196,7 +197,13 @@ export function ifConversion(
   selects: SelectsValue,
   budget: number,
 ): number {
-  if (budget <= 0) return 0;
+  if (budget <= 0) {
+    remarks.analysis(
+      null,
+      "if-conversion is switched off here: the budget is zero, so every branch stays a branch",
+    );
+    return 0;
+  }
   const stamp = nodeIdStamper(graph);
   const retired = new Set<CFGBlock>();
   let converted = 0;
@@ -205,12 +212,30 @@ export function ifConversion(
     if (retired.has(head)) continue;
     const diamond = diamondAt(head);
     if (diamond === null) continue;
-    if (diamond.arms.some((arm) => arm.cost > budget)) continue;
-    if (!diamond.join.phis.every(selects)) continue;
+    const overBudget = diamond.arms.find((arm) => arm.cost > budget);
+    if (overBudget !== undefined) {
+      remarks.missed(
+        null,
+        `left the branch at B${head.id} alone: one arm costs ${overBudget.cost} against a budget of ${budget}, and running both arms unconditionally would be slower than predicting the branch`,
+      );
+      continue;
+    }
+    const unselectable = diamond.join.phis.find((phi) => !selects(phi));
+    if (unselectable !== undefined) {
+      remarks.missed(
+        unselectable,
+        `left the branch at B${head.id} alone: this phi merges values the target cannot express as a select`,
+      );
+      continue;
+    }
     convert(graph, diamond, stamp);
     for (const arm of diamond.arms) {
       if (arm.block !== null) retired.add(arm.block);
     }
+    remarks.applied(
+      null,
+      `turned the branch at B${head.id} into selects: both arms are cheap enough to run unconditionally, so the branch is gone`,
+    );
     converted++;
   }
 

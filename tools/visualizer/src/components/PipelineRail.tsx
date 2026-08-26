@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import { noteFor } from "../content/passes";
+import { notableOnly, quietCount } from "../services/stage-filter";
 import { GROUP_ORDER, GROUP_TITLES, type Stage, type StageGroup } from "../types/stage";
 
 type PipelineRailProps = {
@@ -46,7 +47,7 @@ export function PipelineRail({
           stage.title.toLowerCase().includes(needle) || stage.subtitle.toLowerCase().includes(needle),
       );
     }
-    return hideUnchanged ? stages.filter((stage) => stage.changed) : stages;
+    return hideUnchanged ? notableOnly(stages) : stages;
   }, [hideUnchanged, needle, stages]);
 
   const groups = useMemo(() => {
@@ -56,7 +57,7 @@ export function PipelineRail({
     return [...buckets.entries()].filter(([, bucket]) => bucket.length > 0);
   }, [matched]);
 
-  const unchanged = stages.length - stages.filter((stage) => stage.changed).length;
+  const quiet = quietCount(stages);
 
   return (
     <nav className="rail" aria-label="Compiler stages">
@@ -70,9 +71,9 @@ export function PipelineRail({
               type="button"
               aria-pressed={hideUnchanged}
               onClick={onToggleUnchanged}
-              title={`Show only the passes that rewrote something — ${unchanged} passes left the graph alone`}
+              title={`Show only the passes that rewrote something or explained why they did not — ${quiet} passes did neither`}
             >
-              changed only <span className="rail-toggle-count">{unchanged} hidden</span>
+              changed only <span className="rail-toggle-count">{quiet} hidden</span>
             </button>
           </div>
           <label className="visually-hidden" htmlFor={filterId}>
@@ -111,7 +112,17 @@ export function PipelineRail({
                   aria-current={stage.id === selectedId ? "true" : undefined}
                   onClick={() => onSelect(stage.id)}
                 >
-                  <span className="rail-title">{stage.title}</span>
+                  <span className="rail-title">
+                    {stage.title}
+                    {stage.remarks.length > 0 && (
+                      <span
+                        className="rail-remarks"
+                        title={`${stage.remarks.length} remarks explaining what this pass decided`}
+                      >
+                        {stage.remarks.length}
+                      </span>
+                    )}
+                  </span>
                   <span className="rail-meta">
                     {delta(stage) !== null && <span className="rail-delta">{delta(stage)}</span>}
                     <span className="rail-sub">{scopeOf(stage)}</span>
@@ -130,7 +141,9 @@ export function PipelineRail({
         )}
         {hasRun && stages.length > 0 && matched.length === 0 && (
           <p className="rail-empty">
-            {needle === "" ? "No pass rewrote anything." : `No stage matches “${filter}”.`}
+            {needle === ""
+              ? "No pass rewrote anything, and none of them recorded why."
+              : `No stage matches “${filter}”.`}
           </p>
         )}
       </div>

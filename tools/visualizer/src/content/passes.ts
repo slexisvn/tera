@@ -531,6 +531,11 @@ export const PASS_NOTES: Record<string, PassNote> = {
     why: "The end of the road: the C, assembly or object bytes a linker turns into a binary.",
     tier: "aot",
   },
+  "executed-graph": {
+    what: "The optimized graph the engine actually compiled and ran, the first time this function got hot.",
+    why: "Every other stage on this screen comes from optimizing the function again after the program finished, by which time feedback has changed. This is the one graph whose value numbers match what the runtime reports — a deopt event points here.",
+    tier: "jit",
+  },
 };
 
 export function noteFor(pass: string | null): PassNote | null {

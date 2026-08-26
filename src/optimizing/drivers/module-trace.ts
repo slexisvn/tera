@@ -1,9 +1,11 @@
 import { printIR } from "../ir/text.js";
+import type { Remark } from "../infra/pass-remarks.js";
 import type { ModuleIR } from "../compilation-unit.js";
 
 export interface ModuleTraceRecord {
   readonly ordinal: number;
   readonly stage: string;
+  readonly remarks: readonly Remark[];
   readonly module: ModuleIR;
 }
 

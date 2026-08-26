@@ -1,6 +1,7 @@
 import * as ir from "../ir/index.js";
 
 import { tracer } from "../../core/tracing/index.js";
+import { remarks } from "../infra/pass-remarks.js";
 import { DominatorTree } from "../analyses/dominance.js";
 import type { LoopForest } from "../analyses/loops.js";
 import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
@@ -125,6 +126,15 @@ export function eliminateRedundantChecks(
   return elimCount;
 }
 
+const RANGE_MAX = 0x7fffffff;
+const RANGE_MIN = -0x80000000;
+
+function rangeText(range: Range): string {
+  const low = range.min <= RANGE_MIN ? "-inf" : String(range.min);
+  const high = range.max >= RANGE_MAX ? "+inf" : String(range.max);
+  return `[${low},${high}]`;
+}
+
 export function rangeAnalysisAndBoundsCheckElimination(
   graph: IRGraphLike,
   forest: LoopForest,
@@ -132,8 +142,8 @@ export function rangeAnalysisAndBoundsCheckElimination(
   const blockById = new Map<number, IRBlockLike>();
   for (const block of graph.blocks) blockById.set(block.id, block);
   const ranges = new Map<number, Range>();
-  const INF = 0x7fffffff;
-  const NEG_INF = -0x80000000;
+  const INF = RANGE_MAX;
+  const NEG_INF = RANGE_MIN;
 
   const setRange = (id: number, min: number, max: number): void => {
     ranges.set(id, { min, max });
@@ -618,7 +628,15 @@ export function rangeAnalysisAndBoundsCheckElimination(
       const arrayNode = node.inputs[1];
       const indexRange = getRange(indexNode.id);
 
-      if (indexRange.min >= 0 && indexRange.max >= 0 && indexRange.max < INF) {
+      if (!(indexRange.min >= 0 && indexRange.max >= 0 && indexRange.max < INF)) {
+        remarks.missed(
+          node,
+          `kept the bounds check: index v${indexNode.id} has range ${rangeText(indexRange)}, which does not prove it is a non-negative number with a known upper bound`,
+        );
+        continue;
+      }
+
+      {
         let bounded = false;
 
         for (const pred of block.predecessors) {
@@ -686,6 +704,15 @@ export function rangeAnalysisAndBoundsCheckElimination(
           tracer.jitCompile(
             "",
             `RangeAnalysis: eliminated CheckBounds (index range [${indexRange.min},${indexRange.max}])`,
+          );
+          remarks.applied(
+            node,
+            `dropped the bounds check: index v${indexNode.id} is provably inside the array, range ${rangeText(indexRange)}`,
+          );
+        } else {
+          remarks.missed(
+            node,
+            `kept the bounds check: index v${indexNode.id} has range ${rangeText(indexRange)}, but nothing proves it stays below the length of v${arrayNode.id} — no dominating comparison, no guarded induction variable, no known length`,
           );
         }
       }

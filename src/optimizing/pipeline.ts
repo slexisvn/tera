@@ -321,7 +321,9 @@ export function runMiddleEnd(
       changed: true,
       nodesBefore: nodes,
       nodesAfter: nodes,
+      requires: [],
       invalidated: [],
+      remarks: [],
       graph,
     });
   }

@@ -3,6 +3,7 @@ import { parseIR, printIR } from "../ir/text.js";
 import { AnalysisManager } from "../infra/analysis-manager.js";
 import { createAnalysisRegistry } from "../analyses/index.js";
 import type { TransformPass } from "../infra/pass-manager.js";
+import { remarks, type Remark } from "../infra/pass-remarks.js";
 import { compilerOptions, type CompilerOptions } from "../options.js";
 import { middleEndPipeline } from "../pipeline.js";
 import { maintainGraph } from "../pipeline.js";
@@ -43,15 +44,37 @@ export function afterPass(text: string, run: IRTransform): string {
   return printIR(graph);
 }
 
+export interface NamedPassOutcome {
+  readonly text: string;
+  readonly changed: boolean;
+  readonly remarks: readonly Remark[];
+}
+
+export function runNamedPass(
+  text: string,
+  name: string,
+  options: CompilerOptions = compilerOptions(),
+): NamedPassOutcome {
+  const pass = passByName(name, options);
+  if (pass === null) throw new UnknownPassError(name);
+  let changed = false;
+  let noted: readonly Remark[] = [];
+  const printed = afterPass(text, (graph, analyses) => {
+    remarks.open(name);
+    try {
+      changed = pass.run(graph, analyses, options).changed;
+      if (changed) maintainGraph(graph);
+    } finally {
+      noted = remarks.close();
+    }
+  });
+  return { text: printed, changed, remarks: noted };
+}
+
 export function afterNamedPass(
   text: string,
   name: string,
   options: CompilerOptions = compilerOptions(),
 ): string {
-  const pass = passByName(name, options);
-  if (pass === null) throw new UnknownPassError(name);
-  return afterPass(text, (graph, analyses) => {
-    const outcome = pass.run(graph, analyses, options);
-    if (outcome.changed) maintainGraph(graph);
-  });
+  return runNamedPass(text, name, options).text;
 }
