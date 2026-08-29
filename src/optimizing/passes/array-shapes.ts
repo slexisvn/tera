@@ -687,7 +687,7 @@ function replacePush(
   const grown = pushElement(editor, node, node.inputs[1]!, node.inputs[2]!, model, stamp);
   editor.replaceAllUses(node, grown);
   editor.remove(node);
-  if (callee.uses.length === 0) editor.remove(callee);
+  editor.removeIfDead(callee);
 }
 
 function readsLength(node: CFGInstruction): boolean {

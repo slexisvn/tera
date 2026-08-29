@@ -1,4 +1,9 @@
-import type { CFGFunction } from "../ir/index.js";
+import {
+  IRNodeIdAllocator,
+  withIRNodeIdAllocator,
+  type CFGFunction,
+} from "../ir/index.js";
+import { maxNodeId } from "../ir/graph-edit.js";
 import { parseIR, printIR } from "../ir/text.js";
 import { AnalysisManager } from "../infra/analysis-manager.js";
 import { createAnalysisRegistry } from "../analyses/index.js";
@@ -39,7 +44,8 @@ export function passByName(
 
 export function afterPass(text: string, run: IRTransform): string {
   const graph = parseIR(text);
-  run(graph, analysesFor(graph));
+  const ids = new IRNodeIdAllocator(maxNodeId(graph) + 1);
+  withIRNodeIdAllocator(ids, () => run(graph, analysesFor(graph)));
   graph.rebuildUses();
   return printIR(graph);
 }

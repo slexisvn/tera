@@ -255,10 +255,8 @@ function comparedWithMissing(
 
 function retire(site: Site, sources: readonly CFGInstruction[]): void {
   site.editor.remove(site.node);
-  if (site.callee.uses.length === 0) site.editor.remove(site.callee);
-  for (const source of sources) {
-    if (source.uses.length === 0) site.editor.remove(source);
-  }
+  site.editor.removeIfDead(site.callee);
+  for (const source of sources) site.editor.removeIfDead(source);
 }
 
 function replaceWith(

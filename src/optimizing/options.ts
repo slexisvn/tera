@@ -3,6 +3,7 @@ import type { PassTracer } from "./infra/pass-trace.js";
 import type { MachineTracer } from "./machine/trace.js";
 import type { AllocationTracer } from "./machine/allocation-report.js";
 import type { ModuleTracer } from "./drivers/module-trace.js";
+import type { OptBisect } from "./infra/opt-bisect.js";
 
 export type OptLevel = "none" | "baseline" | "speed" | "max";
 
@@ -31,6 +32,7 @@ export interface CompilerOptions {
   readonly allocationTracer: AllocationTracer | null;
   readonly moduleTracer: ModuleTracer | null;
   readonly verifyEachPass: boolean;
+  readonly optBisect: OptBisect | null;
 }
 
 type OptLevelPreset = Omit<
@@ -45,6 +47,7 @@ type OptLevelPreset = Omit<
   | "allocationTracer"
   | "moduleTracer"
   | "verifyEachPass"
+  | "optBisect"
 >;
 
 const presets: Record<OptLevel, OptLevelPreset> = {
@@ -121,6 +124,7 @@ export function compilerOptions(
     allocationTracer: null,
     moduleTracer: null,
     verifyEachPass: false,
+    optBisect: null,
     ...presets[optLevel],
     ...overrides,
   };

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { summarizeDeopts, type DeoptGroup } from "../services/deopt-summary";
 import type { DeoptTarget } from "../services/deopt-link";
 import type { DeoptOrigin, PipelineId, RuntimeEvent } from "../types/stage";
 
@@ -86,6 +87,8 @@ export function RuntimeTimeline({
     [events, muted],
   );
 
+  const deopts = useMemo(() => summarizeDeopts(events), [events]);
+
   if (events.length === 0) {
     return (
       <p className="console-note">
@@ -109,6 +112,29 @@ export function RuntimeTimeline({
 
   return (
     <div className="timeline">
+      {deopts.total > 0 && (
+        <section className="deopts">
+          <h3>
+            {deopts.total} {deopts.total === 1 ? "deopt" : "deopts"} in {deopts.groups.length}{" "}
+            {deopts.groups.length === 1 ? "place" : "places"}
+            {deopts.looping > 0 && (
+              <span className="deopt-loop">
+                {deopts.looping} repeating — the engine gives up optimizing after that
+              </span>
+            )}
+          </h3>
+          <ul>
+            {deopts.groups.map((group) => (
+              <DeoptRow
+                key={group.key}
+                group={group}
+                target={resolveDeopt(group.origin)}
+                onOpen={onOpenDeopt}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
       <div className="tl-lanes">
         {LANES.filter((lane) => (counts.get(lane.id) ?? 0) > 0).map((lane) => (
           <button
@@ -162,6 +188,23 @@ export function RuntimeTimeline({
         </p>
       )}
     </div>
+  );
+}
+
+type DeoptRowProps = {
+  group: DeoptGroup;
+  target: DeoptTarget | null;
+  onOpen: (origin: DeoptOrigin) => void;
+};
+
+function DeoptRow({ group, target, onOpen }: DeoptRowProps) {
+  return (
+    <li className={group.looping ? "looping" : undefined}>
+      <span className="deopt-count">{group.count}x</span>
+      <span className="deopt-owner">{group.owner}</span>
+      <span className="deopt-reason">{group.reason}</span>
+      <OriginButton origin={group.origin} target={target} onOpen={onOpen} />
+    </li>
   );
 }
 

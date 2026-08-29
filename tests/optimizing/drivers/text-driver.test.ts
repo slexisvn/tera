@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { resetIRNodeIds } from "../../../src/optimizing/ir/index.js";
+import { irConstant, resetIRNodeIds } from "../../../src/optimizing/ir/index.js";
 import { compilerOptions } from "../../../src/optimizing/options.js";
 import { middleEndPipeline } from "../../../src/optimizing/pipeline.js";
 import {
@@ -17,6 +17,15 @@ const FOLDABLE = `fn folds params=0 {
     v0 = Constant [value=20]
     v1 = Constant [value=22]
     v2 = Int32Add v0, v1
+    v3 = Return v2
+}
+`;
+
+const SCALED = `fn scaled params=1 {
+  v0 = Parameter [index=0]
+  B0 succs= preds=:
+    v1 = Constant [value=8]
+    v2 = Int32Mul v0, v1 [noOverflow=true]
     v3 = Return v2
 }
 `;
@@ -83,5 +92,12 @@ describe("running one named pass over textual IR", () => {
     const after = afterNamedPass(FOLDABLE, "sccp");
 
     expect(afterNamedPass(after, "gvn")).toBe(after);
+  });
+
+  it("names the values a pass mints the same way however much has been compiled", () => {
+    const first = afterNamedPass(SCALED, "strength-reduction");
+    for (let i = 0; i < 40; i++) irConstant(i);
+
+    expect(afterNamedPass(SCALED, "strength-reduction")).toBe(first);
   });
 });

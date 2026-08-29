@@ -4,11 +4,21 @@ import {
   RegisterInstruction,
   ROP_LDA_CONST,
   ROP_RETURN,
+  ROP_CALL,
+  ROP_STAR,
 } from "../../../src/bytecode/register/ops/bytecode.js";
-import { FeedbackVector, type FeedbackSlot } from "../../../src/feedback/vector/index.js";
+import {
+  FEEDBACK_CALL,
+  FeedbackVector,
+  type FeedbackSlot,
+} from "../../../src/feedback/vector/index.js";
 import { FEEDBACK_HINT_MONOMORPHIC } from "../../../src/feedback/nexus/index.js";
 import { selectInlineTarget } from "../../../src/optimizing/builder/inline.js";
-import { IRGraph } from "../../../src/optimizing/ir/index.js";
+import {
+  IRGraph,
+  IR_CHECK_CALL_TARGET,
+  IR_CHECK_SMI,
+} from "../../../src/optimizing/ir/index.js";
 import { compilerOptions, type OptLevel } from "../../../src/optimizing/options.js";
 import { buildIR } from "../../../src/optimizing/builder/ir-builder.js";
 
@@ -34,10 +44,11 @@ const decideAt = (
   target: RegisterCompiledFunction,
   graph: IRGraph,
   frequency = HOT_ENOUGH,
+  slot: FeedbackSlot = {} as FeedbackSlot,
 ) =>
   selectInlineTarget(
     {
-      slot: {} as FeedbackSlot,
+      slot,
       kind: FEEDBACK_HINT_MONOMORPHIC,
       frequency,
       targetRef: target,
@@ -46,6 +57,14 @@ const decideAt = (
     0,
     graph,
   );
+
+const siteAnswering = (...tags: string[]): FeedbackSlot => {
+  const vector = new FeedbackVector(1);
+  vector.initSlot(0, FEEDBACK_CALL);
+  const slot = vector.getSlot(0)!;
+  for (const tag of tags) slot.recordReturnType(tag);
+  return slot;
+};
 
 const decide = (target: RegisterCompiledFunction) => decideAt(target, callerGraph());
 
@@ -141,6 +160,92 @@ describe("the graph-builder inliner obeys the inlining policy of its compiler op
       g.inlineBudgetRemaining = policy.budget;
     });
     expect(decideAt(callee("anything"), graph)).toEqual(DECLINED);
+  });
+});
+
+describe("inlining a callee whose declared int return must still wrap", () => {
+  const declaring = (returns: string): RegisterCompiledFunction => {
+    const fn = callee(`answers-${returns}`);
+    fn.declaredSignature = { params: [], returns };
+    return fn;
+  };
+
+  it("inlines a declared int callee only where the site answered small ints", () => {
+    expect(decideAt(declaring("int"), callerGraph(), HOT_ENOUGH, siteAnswering("smi"))).toMatchObject(
+      { reason: "inlined" },
+    );
+    expect(
+      decideAt(declaring("int"), callerGraph(), HOT_ENOUGH, siteAnswering("smi", "double")),
+    ).toEqual({ target: null, targets: null, reason: "cannot-inline" });
+  });
+
+  it("declines a declared int callee at a site with no return history to speculate on", () => {
+    expect(decideAt(declaring("int"), callerGraph(), HOT_ENOUGH, siteAnswering())).toEqual({
+      target: null,
+      targets: null,
+      reason: "cannot-inline",
+    });
+  });
+
+  it("leaves a callee with any other declared return to the ordinary policy", () => {
+    for (const returns of ["float", "string"]) {
+      expect(
+        decideAt(declaring(returns), callerGraph(), HOT_ENOUGH, siteAnswering("double")),
+      ).toMatchObject({ reason: "inlined" });
+    }
+  });
+});
+
+describe("the guard that keeps an inlined declared int return sound", () => {
+  const HOT_SITE = compilerOptions("speed").graphInlining.minCallFrequency + 1;
+
+  const inlinedInto = (returns: string | null, ...answers: string[]): IRGraph => {
+    const target = callee("scaled");
+    target.declaredSignature = returns === null ? null : { params: [], returns };
+
+    const host = new RegisterCompiledFunction("host", 0);
+    host.constants.push(0);
+    host.instructions.push(
+      new RegisterInstruction(ROP_LDA_CONST, 0),
+      new RegisterInstruction(ROP_STAR, 0),
+      new RegisterInstruction(ROP_CALL, 0, 1, 0, 0),
+      new RegisterInstruction(ROP_RETURN),
+    );
+    host.feedbackVector = new FeedbackVector(1);
+    host.feedbackVector.initSlot(0, FEEDBACK_CALL);
+    const slot = host.feedbackVector.getSlot(0)!;
+    for (let i = 0; i < HOT_SITE; i++) slot.recordCallTarget(target.name, target, 0);
+    for (const tag of answers) slot.recordReturnType(tag);
+
+    const graph = new IRGraph("host");
+    buildIR(graph, graph.addBlock(), host, host.feedbackVector, []);
+    return graph;
+  };
+
+  const nodesOfType = (graph: IRGraph, type: string) =>
+    graph.blocks.flatMap((block) => block.nodes.filter((node) => node.type === type));
+
+  const shapeOf = (graph: IRGraph) => ({
+    spliced: nodesOfType(graph, IR_CHECK_CALL_TARGET).length > 0,
+    guards: nodesOfType(graph, IR_CHECK_SMI).length,
+  });
+
+  it("guards the spliced return of a declared int callee", () => {
+    const graph = inlinedInto("int", "smi");
+    expect(shapeOf(graph)).toEqual({ spliced: true, guards: 1 });
+    expect(nodesOfType(graph, IR_CHECK_SMI)[0]!.frameState).not.toBeNull();
+  });
+
+  it("splices a callee that declares no int return without guarding it", () => {
+    expect(shapeOf(inlinedInto(null, "smi"))).toEqual({ spliced: true, guards: 0 });
+    expect(shapeOf(inlinedInto("float", "smi"))).toEqual({ spliced: true, guards: 0 });
+  });
+
+  it("splices no body at all where the site has answered more than small ints", () => {
+    expect(shapeOf(inlinedInto("int", "smi", "double"))).toEqual({
+      spliced: false,
+      guards: 0,
+    });
   });
 });
 

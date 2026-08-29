@@ -188,6 +188,15 @@ export function clearFrameStateIndex(graph: FrameStateGraph): void {
   graph._frameStateIndex = null;
 }
 
+export function frameStateReferences(
+  graph: FrameStateGraph,
+  value: FrameValue | null | undefined,
+): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (!graph._frameStateIndex) buildFrameStateIndex(graph);
+  return graph._frameStateIndex!.has(value);
+}
+
 export function markFrameStateValues<T extends ValueWithId>(
   frameState: FrameState,
   liveNodes: Set<number>,

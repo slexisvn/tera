@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { analysisHistory } from "../src/services/analysis-history";
-import { NO_REMARKS, type Stage } from "../src/types/stage";
+import type { Stage } from "../src/types/stage";
+import { stageFor } from "./stage";
 
 function pass(
   title: string,
@@ -9,25 +10,16 @@ function pass(
   invalidated: readonly string[],
   owner = "hot",
 ): Stage {
-  return {
+  return stageFor({
     id: `${owner}/${ordinal}`,
-    group: "middle-end",
-    kind: "ir",
     title,
     subtitle: owner,
     owner,
     ordinal,
-    changed: true,
-    failed: false,
-    text: "",
     passName: title,
-    metrics: null,
     requires,
     invalidated,
-    remarks: NO_REMARKS,
-    allocation: null,
-    positions: {},
-  };
+  });
 }
 
 describe("tracing where a pass's analyses came from", () => {

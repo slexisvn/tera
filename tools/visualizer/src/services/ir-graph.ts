@@ -128,13 +128,23 @@ export function layerBlocks(model: IrGraphModel): readonly (readonly IrBlock[])[
   return rows.filter((row) => row.length > 0);
 }
 
-export function nodeByKey(model: IrGraphModel, key: string): IrNode | null {
+export type NodeSite = {
+  readonly node: IrNode;
+  readonly block: string | null;
+};
+
+export function locateNode(model: IrGraphModel, key: string): NodeSite | null {
   for (const block of model.blocks) {
     for (const node of block.nodes) {
-      if (node.key === key) return node;
+      if (node.key === key) return { node, block: block.label };
     }
   }
-  return model.parameters.find((node) => node.key === key) ?? null;
+  const parameter = model.parameters.find((node) => node.key === key);
+  return parameter === undefined ? null : { node: parameter, block: null };
+}
+
+export function nodeByKey(model: IrGraphModel, key: string): IrNode | null {
+  return locateNode(model, key)?.node ?? null;
 }
 
 export function isBackEdge(model: IrGraphModel, from: string, to: string): boolean {

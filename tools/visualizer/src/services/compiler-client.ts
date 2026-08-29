@@ -1,5 +1,15 @@
 import { WorkerRpc } from "@tera/ui";
-import type { LabRequest, LabResult, RunRequest, RunResult, TargetInfo } from "../types/stage";
+import type {
+  BisectResult,
+  LabRequest,
+  LabResult,
+  LabSequence,
+  LabSequenceRequest,
+  RunRequest,
+  RunResult,
+  TargetInfo,
+  TierReport,
+} from "../types/stage";
 
 export class CompilerClient extends WorkerRpc {
   constructor() {
@@ -8,6 +18,14 @@ export class CompilerClient extends WorkerRpc {
 
   run(request: RunRequest): Promise<RunResult> {
     return this.call<RunResult>("run", request);
+  }
+
+  bisect(request: RunRequest): Promise<BisectResult> {
+    return this.call<BisectResult>("bisect", request);
+  }
+
+  tiers(request: RunRequest): Promise<TierReport> {
+    return this.call<TierReport>("tiers", request);
   }
 
   targets(): Promise<TargetInfo[]> {
@@ -20,5 +38,9 @@ export class CompilerClient extends WorkerRpc {
 
   runPass(request: LabRequest): Promise<LabResult> {
     return this.call<LabResult>("runPass", request);
+  }
+
+  runPasses(request: LabSequenceRequest): Promise<LabSequence> {
+    return this.call<LabSequence>("runPasses", request);
   }
 }

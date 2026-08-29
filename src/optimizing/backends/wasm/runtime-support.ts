@@ -101,8 +101,10 @@ import {
 } from "../../../objects/exotic/proxy-ops.js";
 import { builtinMethodImplementation } from "../../../runtime/intrinsics/builtin-methods.js";
 import {
+  builtinGlobalIntrinsicByName,
   builtinMethodIntrinsicByName,
   builtinNamespaceIntrinsicByName,
+  type BuiltinIntrinsic,
   type BuiltinMethodIntrinsic,
 } from "../../metadata/builtin-methods.js";
 import { createJSObject, createJSArray } from "../../../objects/heap/factory.js";
@@ -470,6 +472,27 @@ function callBuiltinMethod(
     member(),
     callArgs,
     receiver,
+    runtime,
+    compiledFn,
+    frameStateId,
+    frameStates,
+  );
+}
+
+function callBuiltinGlobal(
+  intrinsic: BuiltinIntrinsic,
+  args: TaggedValue[],
+  runtime: RuntimeLike,
+  compiledFn: RegisterCompiledFunction,
+  frameStateId: number,
+  frameStates: FrameState[],
+): TaggedValue {
+  const cell = runtime.interpreter.globalCells.get(intrinsic.name);
+  const callee = cell ? cell.read() : undefined;
+  return executeRuntimeCall(
+    callee !== undefined ? callee : mkUndefined(),
+    args,
+    mkUndefined(),
     runtime,
     compiledFn,
     frameStateId,
@@ -936,6 +959,21 @@ export function executeRuntimeStub(
         return runtimeTaggedResult(
           callBuiltinNamespace(
             namespaced,
+            builtinArgs,
+            runtime,
+            compiledFn,
+            frameStateId,
+            frameStates,
+          ),
+          runtime,
+          stub.outputRep,
+        );
+      }
+      const global = builtinGlobalIntrinsicByName(builtinName);
+      if (global !== null) {
+        return runtimeTaggedResult(
+          callBuiltinGlobal(
+            global,
             builtinArgs,
             runtime,
             compiledFn,

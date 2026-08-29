@@ -245,7 +245,7 @@ export function lowerIterators(graph: CFGFunction, types: TypeInference): number
     if (sequence.kind !== "range" || sequence.call.uses.length > 0) continue;
     const callee = sequence.call.inputs[0]!;
     editor.remove(sequence.call);
-    if (callee.uses.length === 0) editor.remove(callee);
+    editor.removeIfDead(callee);
   }
   if (count > 0) graph.rebuildUses();
   return count;

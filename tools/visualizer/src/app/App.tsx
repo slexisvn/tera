@@ -18,6 +18,7 @@ import {
   BUSY_DELAY_MS,
   COMPACT_QUERY,
   DOCUMENT_ID,
+  PIN_KEY,
   SOURCE_KEY,
   SPLIT_QUERY,
   THEME_KEY,
@@ -36,10 +37,20 @@ import {
 } from "../config/panes";
 import { SAMPLES, type Sample } from "../content/samples";
 import { CompilerClient } from "../services/compiler-client";
+import { pinOf, withoutTexts, type PinnedRun } from "../services/pinned-run";
+import { readShare, shareHash, type ShareOutcome } from "../services/share";
 import { targetForDeopt } from "../services/deopt-link";
-import { notableOnly } from "../services/stage-filter";
+import { notable, notableOnly } from "../services/stage-filter";
 import { errorLineOf, failuresOf, statusOf } from "../services/run-report";
-import type { DeoptOrigin, OptLevelId, RunResult, Stage, TargetInfo } from "../types/stage";
+import type {
+  BisectResult,
+  DeoptOrigin,
+  OptLevelId,
+  RunResult,
+  Stage,
+  TargetInfo,
+  TierReport,
+} from "../types/stage";
 
 const EMPTY: RunResult = {
   stages: [],
@@ -70,16 +81,53 @@ function landingStage(stages: readonly Stage[], keep: string | null): string | n
   );
 }
 
+const SHARED = readShare(window.location.hash);
+if (SHARED !== null) {
+  window.history.replaceState(null, "", window.location.pathname + window.location.search);
+}
+
 function initialSource(): string {
-  return localStorage.getItem(SOURCE_KEY) ?? SAMPLES[0]!.source;
+  return SHARED?.source ?? localStorage.getItem(SOURCE_KEY) ?? SAMPLES[0]!.source;
+}
+
+function keptPin(taken: PinnedRun): PinnedRun {
+  try {
+    localStorage.setItem(PIN_KEY, JSON.stringify(taken));
+    return taken;
+  } catch {
+    const lean = withoutTexts(taken);
+    try {
+      localStorage.setItem(PIN_KEY, JSON.stringify(lean));
+    } catch {
+      localStorage.removeItem(PIN_KEY);
+    }
+    return lean;
+  }
+}
+
+function initialPin(): PinnedRun | null {
+  const kept = localStorage.getItem(PIN_KEY);
+  if (kept === null) return null;
+  try {
+    return JSON.parse(kept) as PinnedRun;
+  } catch {
+    return null;
+  }
 }
 
 export default function App() {
   const [source, setSource] = useState(initialSource);
   const [theme, toggleTheme] = useTheme(THEME_KEY);
   const [targets, setTargets] = useState<readonly TargetInfo[]>([]);
-  const [targetId, setTargetId] = useState("wasm");
-  const [optLevel, setOptLevel] = useState<OptLevelId>("speed");
+  const [targetId, setTargetId] = useState(SHARED?.target ?? "wasm");
+  const [optLevel, setOptLevel] = useState<OptLevelId>(SHARED?.optLevel ?? "speed");
+  const [verify, setVerify] = useState(false);
+  const [bisect, setBisect] = useState<BisectResult | null>(null);
+  const [bisecting, setBisecting] = useState(false);
+  const [tiers, setTiers] = useState<TierReport | null>(null);
+  const [comparing, setComparing] = useState(false);
+  const [pin, setPin] = useState<PinnedRun | null>(initialPin);
+  const [opened, setOpened] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("pipeline");
   const [result, setResult] = useState<RunResult>(EMPTY);
   const [compiled, setCompiled] = useState<string | null>(null);
@@ -141,7 +189,7 @@ export default function App() {
   );
 
   const pipeline = pipelineOf(targetId);
-  const request = [mode, optLevel, targetId, source].join(SEPARATOR);
+  const request = [mode, optLevel, targetId, String(verify), source].join(SEPARATOR);
   const hasRun = compiled !== null;
 
   const tabs = useMemo(() => tabsFor(mode, density), [density, mode]);
@@ -200,6 +248,7 @@ export default function App() {
         pipeline: pipelineOf(targetId),
         optLevel,
         target: targetId,
+        verify,
       });
       setResult(next);
       setCompiled(signature);
@@ -216,13 +265,106 @@ export default function App() {
       running.current = false;
       setBusy(false);
     }
-  }, [land, optLevel, pipelineOf, request, source, targetId]);
+  }, [land, optLevel, pipelineOf, request, source, targetId, verify]);
+
+  const runBisect = useCallback(async () => {
+    const worker = clientRef.current;
+    if (worker === null || bisecting) return;
+    setBisecting(true);
+    try {
+      setBisect(
+        await worker.bisect({
+          source,
+          pipeline: pipelineOf(targetId),
+          optLevel,
+          target: targetId,
+          verify: false,
+        }),
+      );
+    } catch (error) {
+      setBisect({
+        verdict: "failed",
+        oracle: "",
+        total: 0,
+        limit: 0,
+        pass: null,
+        owner: null,
+        reference: [],
+        observed: [],
+        compiles: 0,
+        elapsedMs: 0,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setBisecting(false);
+    }
+  }, [bisecting, optLevel, pipelineOf, source, targetId]);
+
+  const compareTiers = useCallback(async () => {
+    const worker = clientRef.current;
+    if (worker === null || comparing) return;
+    setComparing(true);
+    try {
+      setTiers(
+        await worker.tiers({
+          source,
+          pipeline: pipelineOf(targetId),
+          optLevel,
+          target: targetId,
+          verify: false,
+        }),
+      );
+    } catch (error) {
+      setTiers({
+        rows: [],
+        verdict: "failed",
+        firstBad: null,
+        elapsedMs: 0,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setComparing(false);
+    }
+  }, [comparing, optLevel, pipelineOf, source, targetId]);
+
+  const keepPin = useCallback(() => {
+    setPin(keptPin(pinOf(result, request)));
+  }, [request, result]);
+
+  const dropPin = useCallback(() => {
+    setPin(null);
+    localStorage.removeItem(PIN_KEY);
+  }, []);
+
+  const goBisect = useCallback(() => {
+    setConsoleTab("bisect");
+    setPane("bisect");
+    void runBisect();
+  }, [runBisect]);
 
   const loadSample = useCallback((sample: Sample) => {
     setSource(sample.source);
     setPane("source");
     setSetupOpen(false);
   }, []);
+
+  const loadFile = useCallback((name: string, text: string) => {
+    setSource(text);
+    setOpened(name);
+    setPane("source");
+    setSetupOpen(false);
+  }, []);
+
+  const share = useCallback(async (): Promise<ShareOutcome> => {
+    const hash = shareHash({ source, target: targetId, optLevel });
+    const link = `${window.location.origin}${window.location.pathname}${hash}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      return { link, copied: true };
+    } catch {
+      return { link, copied: false };
+    }
+  }, [optLevel, source, targetId]);
 
   const visible = useMemo(
     () => (hideUnchanged ? notableOnly(result.stages) : result.stages),
@@ -280,11 +422,23 @@ export default function App() {
 
   const takeLabSeed = useCallback(() => setLabSeed(null), []);
 
-  const showStage = useCallback((id: string) => {
-    setSelectedId(id);
-    setFocus(null);
-    setPane("detail");
-  }, []);
+  const reveal = useCallback(
+    (id: string) => {
+      const stage = result.stages.find((entry) => entry.id === id);
+      if (stage !== undefined && !notable(stage)) setHideUnchanged(false);
+      setSelectedId(id);
+    },
+    [result.stages],
+  );
+
+  const showStage = useCallback(
+    (id: string) => {
+      reveal(id);
+      setFocus(null);
+      setPane("detail");
+    },
+    [reveal],
+  );
 
   const sendToLab = useCallback(() => {
     if (selected === null || selected.kind !== "ir") return;
@@ -303,14 +457,14 @@ export default function App() {
     (origin: DeoptOrigin) => {
       const target = targetForDeopt(result.stages, origin);
       if (target === null) return;
-      setSelectedId(target.stageId);
+      reveal(target.stageId);
       setSelectedNode(target.node);
       setHoveredNode(null);
       setFocus(target.node === null ? null : { node: target.node, at: performance.now() });
       setPane("detail");
       if (target.line !== null) goToLine(target.line);
     },
-    [goToLine, result.stages],
+    [goToLine, result.stages, reveal],
   );
 
   const pickNode = useCallback((key: string | null) => {
@@ -323,9 +477,20 @@ export default function App() {
   const failures = useMemo(() => failuresOf(result), [result]);
 
   const status = useMemo(
-    () => statusOf({ result, busy: slow, hasRun, stale }),
-    [hasRun, result, slow, stale],
+    () => statusOf({ result, busy: slow, hasRun, stale, verified: verify }),
+    [hasRun, result, slow, stale, verify],
   );
+
+  const bisectStage = useMemo(() => {
+    if (bisect === null || bisect.pass === null) return null;
+    const named = result.stages.filter((stage) => stage.passName === bisect.pass);
+    return named.find((stage) => stage.owner === bisect.owner) ?? named[0] ?? null;
+  }, [bisect, result.stages]);
+
+  const openBisect = useCallback(() => {
+    if (bisectStage === null) return;
+    showStage(bisectStage.id);
+  }, [bisectStage, showStage]);
 
   const badges = useMemo<Badges>(
     () => ({
@@ -335,8 +500,17 @@ export default function App() {
           : { count: result.output.length, tone: "info" },
       runtime: { count: result.events.length, tone: "info" },
       shapes: { count: result.shapes.length, tone: "info" },
+      bisect: bisect?.verdict === "found" ? { count: 1, tone: "bad" } : { count: 0, tone: "info" },
+      tiers: tiers?.verdict === "disagree" ? { count: 1, tone: "bad" } : { count: 0, tone: "info" },
     }),
-    [failures.length, result.events.length, result.output.length, result.shapes.length],
+    [
+      bisect,
+      tiers,
+      failures.length,
+      result.events.length,
+      result.output.length,
+      result.shapes.length,
+    ],
   );
 
   const workspaceStyle = useMemo(() => {
@@ -354,9 +528,13 @@ export default function App() {
       targetId={targetId}
       optLevel={optLevel}
       theme={theme}
+      verify={verify}
       onSample={loadSample}
       onTarget={setTargetId}
       onOptLevel={setOptLevel}
+      onVerify={setVerify}
+      onLoadFile={loadFile}
+      onShare={share}
       onToggleTheme={toggleTheme}
     />
   );
@@ -385,7 +563,9 @@ export default function App() {
       <header className="toolbar">
         <div className="brand">
           <h1 className="logo">Tera</h1>
-          <span className="sub">compiler visualizer</span>
+          <span className="sub" title={opened === null ? undefined : `Opened from ${opened}`}>
+            {opened ?? "compiler visualizer"}
+          </span>
         </div>
         <div className="mode-switch" role="group" aria-label="Mode">
           {MODES.map((entry) => (
@@ -469,6 +649,7 @@ export default function App() {
                       focus={focus}
                       onSelectNode={pickNode}
                       onHoverNode={setHoveredNode}
+                      onSelectStage={showStage}
                       onSendToLab={sendToLab}
                     />
                   ) : (
@@ -489,9 +670,23 @@ export default function App() {
                 ready={client !== null}
                 hasRun={hasRun}
                 docked={!compact}
+                stale={stale}
                 tab={consoleTab}
+                bisect={bisect}
+                bisecting={bisecting}
+                canOpenBisect={bisectStage !== null}
+                tiers={tiers}
+                comparing={comparing}
+                pin={pin}
+                pinMatches={pin !== null && pin.request === compiled}
                 onTab={setConsoleTab}
                 onRun={() => void run()}
+                onBisect={goBisect}
+                onCompareTiers={() => void compareTiers()}
+                onPin={keepPin}
+                onClearPin={dropPin}
+                onOpenBisect={openBisect}
+                onSelectStage={showStage}
                 onGoToLine={goToLine}
                 onOpenDeopt={openDeopt}
                 resolveDeopt={resolveDeopt}

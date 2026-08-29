@@ -25,6 +25,10 @@ export class IRNodeIdAllocator {
     return this.nextNodeId++;
   }
 
+  reserveAbove(id: number): void {
+    if (id >= this.nextNodeId) this.nextNodeId = id + 1;
+  }
+
   reset(): void {
     this.nextNodeId = 0;
   }

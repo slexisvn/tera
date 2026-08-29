@@ -35,6 +35,7 @@ import {
   constantString,
 } from "./feedback-utils.js";
 import { genericDeletePropNode } from "./property-nodes.js";
+import { declaredInt32Return } from "../../runtime/declared-int.js";
 
 
 type AnyNode = ir.CFGInstruction;
@@ -186,6 +187,7 @@ function canInlineTarget(
   compiledFn: AnyCompiledFunction,
   argCount: number,
   graph: AnyGraph,
+  slot: FeedbackSlot,
 ): boolean {
   if (!target) return false;
   if (target === compiledFn) return false;
@@ -195,6 +197,7 @@ function canInlineTarget(
   if (referencesUpvalues(target)) return false;
   if (referencesThis(target)) return false;
   if (!target.feedbackVector) return false;
+  if (declaredInt32Return(target) && !slot.hasOnlySmiReturns()) return false;
   const policy = graph.inlining;
   if (graph.inlineDepth >= policy.maxDepth) return false;
   const size = target.instructions.length;
@@ -214,13 +217,15 @@ export function selectInlineTarget(
   if (!callHint || !callHint.slot)
     return { target: null, targets: null, reason: "missing-feedback" };
 
+  const slot = callHint.slot;
+
   if (callHint.frequency < graph.inlining.minCallFrequency) {
     return { target: null, targets: null, reason: "cold-call-site" };
   }
 
   if (callHint.kind === FEEDBACK_HINT_MONOMORPHIC) {
     const target = callHint.targetRef;
-    if (!canInlineTarget(target, compiledFn, argCount, graph)) {
+    if (!canInlineTarget(target, compiledFn, argCount, graph, slot)) {
       return { target: null, targets: null, reason: "cannot-inline" };
     }
     return { target: target ?? null, targets: null, reason: "inlined" };
@@ -231,7 +236,7 @@ export function selectInlineTarget(
     if (!polyTargets)
       return { target: null, targets: null, reason: "no-poly-targets" };
     const viable = polyTargets.filter((t) =>
-      canInlineTarget(t.ref, compiledFn, argCount, graph),
+      canInlineTarget(t.ref, compiledFn, argCount, graph, slot),
     );
     if (viable.length >= 2) {
       return { target: null, targets: viable, reason: "polymorphic-inline" };
@@ -333,6 +338,7 @@ function inlineCallee(
   const feedback = new FeedbackNexus(targetFn.feedbackVector);
   const returnValues: AnyNode[] = [];
   const returnBlocks: AnyBlock[] = [];
+  const wrapsDeclaredInt = declaredInt32Return(targetFn);
 
   const blockAccs = new Map<number, AnyNode | null | undefined>();
   const blockRegsMap = new Map<number, NodeMap>();
@@ -362,6 +368,19 @@ function inlineCallee(
       frameStates,
       makeCallerFrame(),
     );
+
+  const answerDeclaredInt = (
+    returned: AnyNode,
+    into: AnyBlock,
+    regs: NodeMap,
+    bytecodeOffset: number,
+  ): AnyNode => {
+    if (!wrapsDeclaredInt) return returned;
+    const guard = ir.irCheckSmi(returned);
+    guard.frameState = captureInlineFrameState(bytecodeOffset, regs, [returned]);
+    into.addNode(guard);
+    return guard;
+  };
 
   const compileInlineInstruction = (
     instr: RegisterInstructionLike,
@@ -947,7 +966,9 @@ function inlineCallee(
       const instr = instructions[i];
 
       if (instr.opcode === bytecode.ROP_RETURN) {
-        returnValue = inlineAcc || ir.irConstant(undefined);
+        returnValue = inlineAcc === null
+          ? ir.irConstant(undefined)
+          : answerDeclaredInt(inlineAcc, currentBlock, currentRegs, i);
         break;
       }
 
@@ -1031,10 +1052,13 @@ function inlineCallee(
     if (currentBlock.isTerminated()) continue;
 
     if (instr.opcode === bytecode.ROP_RETURN) {
-      const retVal = inlineAcc || ir.irConstant(undefined);
-      if (retVal.type === undefined) {
-        currentBlock.addNode(retVal);
+      const returned = inlineAcc || ir.irConstant(undefined);
+      if (returned.type === undefined) {
+        currentBlock.addNode(returned);
       }
+      const retVal = inlineAcc === null
+        ? returned
+        : answerDeclaredInt(returned, currentBlock, currentRegs, i);
       returnValues.push(retVal);
       returnBlocks.push(currentBlock);
       continue;

@@ -11,7 +11,15 @@ export type RegionId =
   | "lab-in"
   | "lab-out";
 
-export type ConsoleTab = "output" | "runtime" | "shapes";
+export type ConsoleTab =
+  | "output"
+  | "runtime"
+  | "shapes"
+  | "cost"
+  | "find"
+  | "tiers"
+  | "bisect"
+  | "compare";
 
 export type TabId = Exclude<RegionId, "console" | "lab"> | ConsoleTab;
 
@@ -123,6 +131,46 @@ export const TABS: readonly PaneTab[] = [
     label: "Shapes",
     title: "The hidden class tree the objects in your program walked as they gained properties",
     consoleTab: "shapes",
+  },
+  {
+    id: "cost",
+    region: "console",
+    modes: ["pipeline"],
+    label: "Cost",
+    title: "Where the compile time went, pass by pass, and how much of it changed nothing",
+    consoleTab: "cost",
+  },
+  {
+    id: "find",
+    region: "console",
+    modes: ["pipeline"],
+    label: "Find",
+    title: "Search every stage of this compile for a line — the first hit is the pass that introduced it",
+    consoleTab: "find",
+  },
+  {
+    id: "tiers",
+    region: "console",
+    modes: ["pipeline"],
+    label: "Tiers",
+    title: "Run this program under every tier and compare what each one printed against the interpreter",
+    consoleTab: "tiers",
+  },
+  {
+    id: "bisect",
+    region: "console",
+    modes: ["pipeline"],
+    label: "Bisect",
+    title: "Recompile with a growing prefix of the optimization passes to name the first one that changes the result",
+    consoleTab: "bisect",
+  },
+  {
+    id: "compare",
+    region: "console",
+    modes: ["pipeline"],
+    label: "Compare",
+    title: "Pin a run and compare every later compile against it, stage by stage",
+    consoleTab: "compare",
   },
 ];
 

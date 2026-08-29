@@ -488,7 +488,7 @@ function applyDirectCall(
   editor.insertBefore(node, replacement);
   editor.replaceAllUses(node, replacement);
   editor.remove(node);
-  if (callee !== null && callee.uses.length === 0) editor.remove(callee);
+  editor.removeIfDead(callee);
 }
 
 function polymorphicShapeOf(call: MemberCall): ClassShape | null {
@@ -582,7 +582,7 @@ function applyDispatchLadder(
     replaceValueUses(graph, node, merged);
   }
   editor.remove(node);
-  if (callee !== null && callee.uses.length === 0) editor.remove(callee);
+  editor.removeIfDead(callee);
 
   const shapeId = shapeIdOfReceiver(receiver, shape, stamp);
   block.addNode(shapeId);

@@ -20,9 +20,7 @@ import {
   irRuntimeBase,
   irStoreField,
   irStoreText,
-  withIRNodeIdAllocator,
   CFGFunction,
-  IRNodeIdAllocator,
   IR_AWAIT,
   IR_CONSTANT,
   IR_GENERIC_GET_INDEX,
@@ -38,7 +36,7 @@ import {
   type CFGInstruction,
 } from "../ir/index.js";
 import { disconnect, link } from "../ir/cfg-edit.js";
-import { maxNodeId } from "../ir/graph-edit.js";
+import { reserveNodeIds } from "../ir/graph-edit.js";
 import { computeValueLiveness } from "../analyses/value-liveness.js";
 import { inferTypes } from "../analyses/type-inference.js";
 import {
@@ -297,7 +295,8 @@ function replaceUses(value: CFGInstruction, replacement: CFGInstruction): void {
 }
 
 export function withFreshNodeIds<T>(graph: CFGFunction, rewrite: () => T): T {
-  return withIRNodeIdAllocator(new IRNodeIdAllocator(maxNodeId(graph) + 1), rewrite);
+  reserveNodeIds(graph);
+  return rewrite();
 }
 
 export function returnsOf(graph: CFGFunction): readonly CFGInstruction[] {

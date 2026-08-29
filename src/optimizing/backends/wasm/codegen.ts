@@ -148,6 +148,7 @@ import {
   deserializeObject,
   type RuntimeInterpreterLike,
 } from "./runtime-support.js";
+import { asDeclaredInt32, declaredInt32Return } from "../../../runtime/declared-int.js";
 
 type ThreadLocalState = {
   currentObjPtrs: Map<number, ObjectPointerInfo> | null;
@@ -4793,6 +4794,8 @@ export class WasmCodegen {
       }
     };
 
+    const wrapsDeclaredInt = declaredInt32Return(compiledFn);
+
     const optimizedCode = function optimizedCode(
       args: TaggedValue[],
       thisValue: TaggedValue,
@@ -4801,7 +4804,8 @@ export class WasmCodegen {
     ) {
       const enclosingArenaTop = arenaTop;
       try {
-        return runActivation(args, thisValue, rawInterpreter, closureEnv);
+        const answered = runActivation(args, thisValue, rawInterpreter, closureEnv);
+        return wrapsDeclaredInt ? asDeclaredInt32(answered) : answered;
       } finally {
         arenaTop = enclosingArenaTop;
         if (analysis.hasInlineAlloc && memory) {

@@ -1,12 +1,18 @@
 import { CONSOLE_TABS, wordingOf, type ConsoleTab } from "../config/panes";
 import type { DeoptTarget } from "../services/deopt-link";
 import type { Failure, RunStatus } from "../services/run-report";
-import type { DeoptOrigin, PipelineId, RunResult } from "../types/stage";
+import type { PinnedRun } from "../services/pinned-run";
+import type { BisectResult, DeoptOrigin, PipelineId, RunResult, TierReport } from "../types/stage";
 import { Badge, type Badges } from "./Badge";
+import { BisectView } from "./BisectView";
+import { CompareView } from "./CompareView";
+import { CostView } from "./CostView";
 import { FailureBlock } from "./FailureBlock";
+import { FindView } from "./FindView";
 import { RunButton, RUN_SHORTCUT } from "./RunButton";
 import { RuntimeTimeline } from "./RuntimeTimeline";
 import { ShapeTree } from "./ShapeTree";
+import { TiersView } from "./TiersView";
 
 export type RunConsoleProps = {
   result: RunResult;
@@ -18,9 +24,23 @@ export type RunConsoleProps = {
   ready: boolean;
   hasRun: boolean;
   docked: boolean;
+  stale: boolean;
   tab: ConsoleTab;
+  bisect: BisectResult | null;
+  bisecting: boolean;
+  canOpenBisect: boolean;
+  tiers: TierReport | null;
+  comparing: boolean;
+  pin: PinnedRun | null;
+  pinMatches: boolean;
   onTab: (tab: ConsoleTab) => void;
   onRun: () => void;
+  onBisect: () => void;
+  onCompareTiers: () => void;
+  onPin: () => void;
+  onClearPin: () => void;
+  onOpenBisect: () => void;
+  onSelectStage: (id: string) => void;
   onGoToLine: (line: number) => void;
   onOpenDeopt: (origin: DeoptOrigin) => void;
   resolveDeopt: (origin: DeoptOrigin) => DeoptTarget | null;
@@ -36,9 +56,23 @@ export function RunConsole({
   ready,
   hasRun,
   docked,
+  stale,
   tab,
+  bisect,
+  bisecting,
+  canOpenBisect,
+  tiers,
+  comparing,
+  pin,
+  pinMatches,
   onTab,
   onRun,
+  onBisect,
+  onCompareTiers,
+  onPin,
+  onClearPin,
+  onOpenBisect,
+  onSelectStage,
   onGoToLine,
   onOpenDeopt,
   resolveDeopt,
@@ -119,6 +153,60 @@ export function RunConsole({
             pipeline={pipeline}
             onOpenDeopt={onOpenDeopt}
             resolveDeopt={resolveDeopt}
+          />
+        </div>
+      )}
+
+      {tab === "cost" && (
+        <div className="console-body">
+          <CostView stages={result.stages} hasRun={hasRun} onSelect={onSelectStage} />
+        </div>
+      )}
+
+      {tab === "find" && (
+        <div className="console-body">
+          <FindView stages={result.stages} hasRun={hasRun} onSelect={onSelectStage} />
+        </div>
+      )}
+
+      {tab === "tiers" && (
+        <div className="console-body">
+          <TiersView
+            report={tiers}
+            busy={comparing}
+            ready={ready}
+            stale={stale}
+            onRun={onCompareTiers}
+            onBisect={onBisect}
+          />
+        </div>
+      )}
+
+      {tab === "compare" && (
+        <div className="console-body">
+          <CompareView
+            pin={pin}
+            stages={result.stages}
+            hasRun={hasRun}
+            matches={pinMatches}
+            onPin={onPin}
+            onClear={onClearPin}
+            onSelect={onSelectStage}
+          />
+        </div>
+      )}
+
+      {tab === "bisect" && (
+        <div className="console-body">
+          <BisectView
+            result={bisect}
+            busy={bisecting}
+            ready={ready}
+            stale={stale}
+            pipeline={pipeline}
+            canOpen={canOpenBisect}
+            onRun={onBisect}
+            onOpen={onOpenBisect}
           />
         </div>
       )}

@@ -119,9 +119,7 @@ function foldInstanceof(
   if (answer.block === null) editor.insertBefore(node, answer);
   editor.replaceAllUses(node, answer);
   editor.remove(node);
-  if (constructorValue !== undefined && constructorValue.uses.length === 0) {
-    editor.remove(constructorValue);
-  }
+  editor.removeIfDead(constructorValue);
   return true;
 }
 

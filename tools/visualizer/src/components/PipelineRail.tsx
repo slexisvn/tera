@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { noteFor } from "../content/passes";
 import { notableOnly, quietCount } from "../services/stage-filter";
 import { GROUP_ORDER, GROUP_TITLES, type Stage, type StageGroup } from "../types/stage";
@@ -38,7 +38,12 @@ export function PipelineRail({
 }: PipelineRailProps) {
   const [filter, setFilter] = useState("");
   const filterId = useId();
+  const current = useRef<HTMLButtonElement>(null);
   const needle = filter.trim().toLowerCase();
+
+  useEffect(() => {
+    current.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedId]);
 
   const matched = useMemo(() => {
     if (needle !== "") {
@@ -101,6 +106,7 @@ export function PipelineRail({
                 <li key={stage.id}>
                 <button
                   type="button"
+                  ref={stage.id === selectedId ? current : undefined}
                   className={[
                     "rail-item",
                     stage.changed ? "" : "quiet",

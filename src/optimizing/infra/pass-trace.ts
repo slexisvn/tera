@@ -10,11 +10,14 @@ export interface PassTraceRecord<G> {
   readonly ordinal: number;
   readonly pass: string;
   readonly changed: boolean;
+  readonly skipped: boolean;
+  readonly elapsedMs: number;
   readonly nodesBefore: number;
   readonly nodesAfter: number;
   readonly requires: readonly AnalysisId<unknown>[];
   readonly invalidated: readonly AnalysisId<unknown>[];
   readonly remarks: readonly Remark[];
+  readonly verification: readonly string[];
   readonly graph: G;
 }
 
@@ -39,15 +42,21 @@ export function formatRemark(remark: Remark): string {
   return `remark ${remark.kind}${where}: ${remark.message}`;
 }
 
+function outcomeOf<G>(record: PassTraceRecord<G>): string {
+  if (record.skipped) return "skipped by bisect";
+  return record.changed ? "changed" : "unchanged";
+}
+
 export function formatPassTrace<G>(record: PassTraceRecord<G>, dump: string): string {
   const invalidated = record.invalidated.map(analysisName);
   const facts = [
-    record.changed ? "changed" : "unchanged",
+    outcomeOf(record),
     `nodes ${record.nodesBefore} -> ${record.nodesAfter} (${signedDelta(record.nodesBefore, record.nodesAfter)})`,
     `invalidated ${invalidated.length === 0 ? "nothing" : invalidated.join(" ")}`,
   ];
   const notes = record.remarks.map((remark) => `${formatRemark(remark)}\n`).join("");
-  return `*** IR after #${record.ordinal} ${record.pass} [${facts.join(", ")}] ***\n${notes}${dump}`;
+  const broken = record.verification.map((problem) => `broken invariant: ${problem}\n`).join("");
+  return `*** IR after #${record.ordinal} ${record.pass} [${facts.join(", ")}] ***\n${notes}${broken}${dump}`;
 }
 
 export function consolePassTracer<G>(probe: GraphProbe<G>): PassTracer<G> {

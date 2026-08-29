@@ -10,6 +10,15 @@ import {
 import { link, addPhi } from "../../../src/optimizing/ir/cfg-edit.js";
 import { GraphEditor } from "../../../src/optimizing/ir/editor.js";
 
+function frameStateNaming(value: CFGInstruction) {
+  return {
+    localValues: new Map([[0, value]]),
+    stackValues: [],
+    thisValue: null,
+    callerFrameState: null,
+  } as unknown as CFGInstruction["frameState"];
+}
+
 beforeEach(() => resetIRNodeIds());
 
 function usesById(graph: CFGFunction): Map<number, number[]> {
@@ -136,6 +145,99 @@ describe("GraphEditor structural edits", () => {
     expect(block.nodes).toEqual([before, anchor, after]);
     expect(before.block).toBe(block);
     expect(after.block).toBe(block);
+  });
+
+  it("removes an unused node that no frame state names", () => {
+    const graph = new CFGFunction("t");
+    const block = graph.addBlock();
+    const value = irConstant(1);
+    block.addNode(value);
+
+    expect(new GraphEditor(graph).removeIfDead(value)).toBe(true);
+    expect(block.nodes).not.toContain(value);
+  });
+
+  it("keeps an unused node a frame state still names", () => {
+    const graph = new CFGFunction("t");
+    const block = graph.addBlock();
+    const value = irConstant(1);
+    const ret = new CFGInstruction("Return");
+    ret.addInput(irConstant(0));
+    ret.frameState = frameStateNaming(value);
+    block.addNode(value);
+    block.addNode(ret);
+
+    expect(new GraphEditor(graph).removeIfDead(value)).toBe(false);
+    expect(block.nodes).toContain(value);
+    expect(value.block).toBe(block);
+  });
+
+  it("removes a chain of inputs stranded by the root", () => {
+    const graph = new CFGFunction("t");
+    const block = graph.addBlock();
+    const one = irConstant(1);
+    const two = irConstant(2);
+    const inner = irInt32Add(one, two);
+    const outer = irInt32Add(inner, inner);
+    for (const node of [one, two, inner, outer]) block.addNode(node);
+
+    expect(new GraphEditor(graph).removeDeadChain(outer)).toBe(4);
+    expect(block.nodes).toEqual([]);
+  });
+
+  it("stops the chain at an input another node still uses", () => {
+    const graph = new CFGFunction("t");
+    const block = graph.addBlock();
+    const one = irConstant(1);
+    const two = irConstant(2);
+    const inner = irInt32Add(one, two);
+    const kept = irInt32Add(two, two);
+    for (const node of [one, two, inner, kept]) block.addNode(node);
+
+    expect(new GraphEditor(graph).removeDeadChain(inner)).toBe(2);
+    expect(block.nodes).toEqual([two, kept]);
+  });
+
+  it("stops the chain at a node a live frame state names", () => {
+    const graph = new CFGFunction("t");
+    const block = graph.addBlock();
+    const one = irConstant(1);
+    const inner = irInt32Add(one, one);
+    const outer = irInt32Add(inner, inner);
+    const ret = new CFGInstruction("Return");
+    ret.addInput(irConstant(0));
+    ret.frameState = frameStateNaming(inner);
+    for (const node of [one, inner, outer, ret]) block.addNode(node);
+
+    expect(new GraphEditor(graph).removeDeadChain(outer)).toBe(1);
+    expect(block.nodes).toEqual([one, inner, ret]);
+  });
+
+  it("frees inputs named only by a frame state the chain itself removed", () => {
+    const graph = new CFGFunction("t");
+    const block = graph.addBlock();
+    const spare = irConstant(9);
+    const one = irConstant(1);
+    const root = irInt32Add(one, one);
+    root.frameState = frameStateNaming(one);
+    for (const node of [spare, one, root]) block.addNode(node);
+    const editor = new GraphEditor(graph);
+
+    expect(editor.removeIfDead(spare)).toBe(true);
+    expect(editor.removeDeadChain(root)).toBe(2);
+    expect(block.nodes).toEqual([]);
+  });
+
+  it("leaves unhomed inputs such as parameters in place", () => {
+    const graph = new CFGFunction("t");
+    const block = graph.addBlock();
+    const parameter = graph.addParameter(0);
+    const add = irInt32Add(parameter, parameter);
+    block.addNode(add);
+
+    expect(new GraphEditor(graph).removeDeadChain(add)).toBe(1);
+    expect(graph.parameters).toEqual([parameter]);
+    expect(parameter.block).toBeNull();
   });
 
   it("replaces a single input via setInput and maintains use-lists", () => {

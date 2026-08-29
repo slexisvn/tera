@@ -8,6 +8,7 @@ import {
   type TaggedValue,
 } from "../../core/value/index.js";
 import { BaselineRuntime, type BaselineInterpreter } from "./runtime.js";
+import { declaredInt32Return } from "../../runtime/declared-int.js";
 import type { Environment } from "../../runtime/intrinsics/environment.js";
 import { DEFAULT_TIERING_POLICY } from "../../runtime/tiering/policy.js";
 import { BACK_EDGES_PER_SAFEPOINT } from "../../runtime/tiering/defaults.js";
@@ -32,6 +33,13 @@ function functionName(compiledFn: BaselineCompiledFunction): string {
 const MAX_BASELINE_INSTRUCTIONS = 1000;
 const SCRATCH_LOCALS = ["t", "t2", "t3", "t4", "osr"] as const;
 const ROOTED_LOCALS = ["acc", ...SCRATCH_LOCALS] as const;
+
+function returnExpression(
+  compiledFn: BaselineCompiledFunction,
+  value: string,
+): string {
+  return declaredInt32Return(compiledFn) ? `return $.declInt(${value});` : `return ${value};`;
+}
 
 function safepointBefore(target: bytecode.RegisterOperand, from: number): string {
   if (typeof target !== "number" || target > from) return "";
@@ -273,19 +281,20 @@ export class BaselineCompiler {
         const fbSlot = o.length > 3 ? o[3] : 0;
         const isTailCall =
           nextInstr && nextInstr.opcode === bytecode.ROP_RETURN;
-        const prefix = isTailCall ? "return " : "acc=";
+        const answer = (call: string) =>
+          isTailCall ? returnExpression(compiledFn, call) : `acc=${call};`;
         if (argCount === 0)
-          return `${prefix}$.invokeCall0(r[${calleeReg}],${fbSlot});`;
+          return answer(`$.invokeCall0(r[${calleeReg}],${fbSlot})`);
         if (argCount === 1)
-          return `${prefix}$.invokeCall1(r[${calleeReg}],r[${arg0Reg}],${fbSlot});`;
+          return answer(`$.invokeCall1(r[${calleeReg}],r[${arg0Reg}],${fbSlot})`);
         if (argCount === 2)
-          return `${prefix}$.invokeCall2(r[${calleeReg}],r[${arg0Reg}],r[${arg0Reg + 1}],${fbSlot});`;
+          return answer(`$.invokeCall2(r[${calleeReg}],r[${arg0Reg}],r[${arg0Reg + 1}],${fbSlot})`);
         let argArr = "";
         for (let i = 0; i < argCount; i++) {
           if (i > 0) argArr += ",";
           argArr += `r[${arg0Reg + i}]`;
         }
-        return `${prefix}$.invokeCall(r[${calleeReg}],[${argArr}],$.u,${fbSlot},null);`;
+        return answer(`$.invokeCall(r[${calleeReg}],[${argArr}],$.u,${fbSlot},null)`);
       }
 
       case bytecode.ROP_CALL_METHOD: {
@@ -346,7 +355,7 @@ export class BaselineCompiler {
       }
 
       case bytecode.ROP_RETURN:
-        return `return acc;`;
+        return returnExpression(compiledFn, "acc");
 
       case bytecode.ROP_LDA_THIS:
         return `acc=tv;`;

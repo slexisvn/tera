@@ -12,6 +12,8 @@ export { cfgGraphProbe } from "./optimizing/ir/probe.js";
 export { afterPass, afterNamedPass, runNamedPass, analysesFor, middleEndPassNames, passByName, UnknownPassError } from "./optimizing/drivers/text-driver.js";
 export type { NamedPassOutcome } from "./optimizing/drivers/text-driver.js";
 export { consolePassTracer, formatPassTrace, formatRemark } from "./optimizing/infra/pass-trace.js";
+export { OptBisect } from "./optimizing/infra/opt-bisect.js";
+export { VerificationError } from "./optimizing/infra/pass-manager.js";
 export { REMARK_BUDGET } from "./optimizing/infra/pass-remarks.js";
 export type { Remark, RemarkKind } from "./optimizing/infra/pass-remarks.js";
 export { consoleMachineTracer, formatMachineTrace } from "./optimizing/machine/trace.js";

@@ -14,7 +14,7 @@ import {
 
   IR_LOAD_GLOBAL,
 } from "../ir/index.js";
-import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
+import { GraphEditor } from "../ir/editor.js";
 import { compiledFunctionConstant } from "../ir/compiled-function.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
 import { branchOnPendingThrow, takePendingThrow } from "../builder/throw-recovery.js";
@@ -101,24 +101,6 @@ function unitOf(graph: CFGFunction): CompilationUnit {
   return { name: graph.name, graph, frameStates: [], compiledFunction: null, osrOffset: null };
 }
 
-function removeNode(node: CFGInstruction): void {
-  const block = node.block;
-  if (block !== null) {
-    const at = block.nodes.indexOf(node);
-    if (at >= 0) block.nodes.splice(at, 1);
-  }
-  detachNode(node);
-  node.block = null;
-}
-
-function removeChain(node: CFGInstruction): void {
-  const inputs = [...node.inputs];
-  removeNode(node);
-  for (const input of inputs) {
-    if (input.uses.length === 0 && input.block !== null) removeChain(input);
-  }
-}
-
 class PromiseSurface {
   private readonly added: CompilationUnit[] = [];
   private readonly graphsByTarget = new Map<RegisterCompiledFunction, CFGFunction>();
@@ -135,10 +117,11 @@ class PromiseSurface {
 
   run(): readonly CompilationUnit[] {
     for (const unit of this.module.units) {
+      const editor = new GraphEditor(unit.graph);
       for (const block of [...unit.graph.blocks]) {
         for (const node of [...block.nodes]) {
           if (node.block !== block) continue;
-          this.lower(unit.graph, node);
+          this.lower(unit.graph, editor, node);
         }
       }
     }
@@ -185,23 +168,23 @@ class PromiseSurface {
     } as DeclaredSignature;
   }
 
-  private lower(owner: CFGFunction, node: CFGInstruction): void {
+  private lower(owner: CFGFunction, editor: GraphEditor, node: CFGInstruction): void {
     const call = methodCallOf(node);
     if (call === null) return;
     if (isPromiseGlobal(call.receiver) && call.member === RESOLVE) {
-      this.lowerResolve(owner, call);
+      this.lowerResolve(owner, editor, call);
       return;
     }
     if (isPromiseGlobal(call.receiver) && call.member === ALL) {
-      this.lowerAll(owner, call);
+      this.lowerAll(owner, editor, call);
       return;
     }
     if (call.member === THEN || call.member === CATCH) {
-      this.lowerContinuation(owner, call);
+      this.lowerContinuation(owner, editor, call);
     }
   }
 
-  private lowerResolve(owner: CFGFunction, call: MethodCall): void {
+  private lowerResolve(owner: CFGFunction, editor: GraphEditor, call: MethodCall): void {
     const value = call.args[0];
     if (value === undefined || call.args.length !== 1) return;
     const graph = this.mint(RESOLVE);
@@ -213,10 +196,10 @@ class PromiseSurface {
     graph.rebuildUses();
 
     const replacement = irCallKnownFunction(graph as never, [value]);
-    this.swap(owner, call.node, replacement);
+    this.swap(owner, editor, call.node, replacement);
   }
 
-  private lowerAll(owner: CFGFunction, call: MethodCall): void {
+  private lowerAll(owner: CFGFunction, editor: GraphEditor, call: MethodCall): void {
     const list = call.args[0];
     if (list === undefined || call.args.length !== 1) return;
     if (list.type !== IR_NEW_ARRAY || list.inputs.length === 0) return;
@@ -226,23 +209,20 @@ class PromiseSurface {
     const started = [...list.inputs];
     if (!started.every((element) => this.startsAPromise(element))) return;
 
-    const block = awaited.block!;
     const settled = started.map((element) => {
       const wait = irAwait(element);
-      wait.block = block;
-      block.nodes.splice(block.nodes.indexOf(awaited), 0, wait);
+      editor.insertBefore(awaited, wait);
       return wait;
     });
     const collected = irNewArray(settled);
-    collected.block = block;
-    block.nodes.splice(block.nodes.indexOf(awaited), 0, collected);
+    editor.insertBefore(awaited, collected);
 
-    replaceValueUses(owner, awaited, collected);
-    removeNode(awaited);
+    editor.replaceAllUses(awaited, collected);
+    editor.remove(awaited);
     const load = call.node.inputs[0]!;
-    removeNode(call.node);
-    if (load.uses.length === 0) removeChain(load);
-    if (list.uses.length === 0) removeNode(list);
+    editor.remove(call.node);
+    editor.removeDeadChain(load);
+    editor.removeIfDead(list);
     owner.rebuildUses();
   }
 
@@ -253,7 +233,7 @@ class PromiseSurface {
     return callee !== null && callee.isAsync;
   }
 
-  private lowerContinuation(owner: CFGFunction, call: MethodCall): void {
+  private lowerContinuation(owner: CFGFunction, editor: GraphEditor, call: MethodCall): void {
     const producer = call.receiver;
     if (producer === null || call.args.length !== 1) return;
     if (producer.type !== IR_CALL_KNOWN_FUNCTION && producer.type !== IR_GENERIC_CALL) return;
@@ -299,18 +279,21 @@ class PromiseSurface {
     graph.rebuildUses();
 
     const replacement = irCallKnownFunction(graph as never, forwarded);
-    this.swap(owner, call.node, replacement);
-    removeChain(producer);
+    this.swap(owner, editor, call.node, replacement);
+    editor.removeDeadChain(producer);
   }
 
-  private swap(owner: CFGFunction, node: CFGInstruction, replacement: CFGInstruction): void {
-    const block = node.block!;
-    block.nodes.splice(block.nodes.indexOf(node), 0, replacement);
-    replacement.block = block;
-    replaceValueUses(owner, node, replacement);
+  private swap(
+    owner: CFGFunction,
+    editor: GraphEditor,
+    node: CFGInstruction,
+    replacement: CFGInstruction,
+  ): void {
+    editor.insertBefore(node, replacement);
+    editor.replaceAllUses(node, replacement);
     const callee = node.inputs[0]!;
-    removeNode(node);
-    if (callee.uses.length === 0) removeChain(callee);
+    editor.remove(node);
+    editor.removeDeadChain(callee);
     owner.rebuildUses();
   }
 }

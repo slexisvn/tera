@@ -94,7 +94,7 @@ function replaceWithText(
   const text = selectBooleanText(graph, node, value, stamp);
   editor.replaceAllUses(node, text);
   editor.remove(node);
-  if (callee.uses.length === 0) editor.remove(callee);
+  editor.removeIfDead(callee);
 }
 
 function selectBooleanText(

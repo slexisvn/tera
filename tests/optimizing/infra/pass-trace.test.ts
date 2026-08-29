@@ -155,10 +155,14 @@ describe("pass tracing", () => {
         ordinal: 3,
         pass: "licm",
         changed: true,
+        skipped: false,
+        elapsedMs: 1.5,
         nodesBefore: 12,
         nodesAfter: 9,
+        requires: [],
         invalidated: [analysisId("points-to"), analysisId("mod-ref")],
         remarks: [],
+        verification: [],
         graph: { nodes: 9 },
       },
       "BODY",
@@ -175,13 +179,17 @@ describe("pass tracing", () => {
         ordinal: 1,
         pass: "checks",
         changed: false,
+        skipped: false,
+        elapsedMs: 0,
         nodesBefore: 5,
         nodesAfter: 5,
+        requires: [],
         invalidated: [],
         remarks: [
           { kind: "missed", pass: "checks", node: 7, message: "index range unknown" },
           { kind: "analysis", pass: "checks", node: null, message: "budget is zero" },
         ],
+        verification: [],
         graph: { nodes: 5 },
       },
       "BODY",
@@ -201,10 +209,14 @@ describe("pass tracing", () => {
         ordinal: 0,
         pass: "inline",
         changed: true,
+        skipped: false,
+        elapsedMs: 0,
         nodesBefore: 4,
         nodesAfter: 11,
+        requires: [],
         invalidated: [],
         remarks: [],
+        verification: [],
         graph: { nodes: 11 },
       },
       "BODY",
@@ -212,6 +224,55 @@ describe("pass tracing", () => {
 
     expect(rendered.split("\n")[0]).toBe(
       "*** IR after #0 inline [changed, nodes 4 -> 11 (+7), invalidated nothing] ***",
+    );
+  });
+  it("names bisect as the reason a pass did nothing", () => {
+    const rendered = formatPassTrace(
+      {
+        ordinal: 7,
+        pass: "gvn",
+        changed: false,
+        skipped: true,
+        elapsedMs: 0,
+        nodesBefore: 5,
+        nodesAfter: 5,
+        requires: [],
+        invalidated: [],
+        remarks: [],
+        verification: [],
+        graph: { nodes: 5 },
+      },
+      "BODY",
+    );
+
+    expect(rendered.split("\n")[0]).toBe(
+      "*** IR after #7 gvn [skipped by bisect, nodes 5 -> 5 (+0), invalidated nothing] ***",
+    );
+  });
+
+  it("prints every invariant the pass broke under the header", () => {
+    const rendered = formatPassTrace(
+      {
+        ordinal: 2,
+        pass: "licm",
+        changed: true,
+        skipped: false,
+        elapsedMs: 0.25,
+        nodesBefore: 6,
+        nodesAfter: 6,
+        requires: [],
+        invalidated: [],
+        remarks: [],
+        verification: ["fib after licm: v3 is used before its definition"],
+        graph: { nodes: 6 },
+      },
+      "BODY",
+    );
+
+    expect(rendered).toBe(
+      "*** IR after #2 licm [changed, nodes 6 -> 6 (+0), invalidated nothing] ***\n" +
+        "broken invariant: fib after licm: v3 is used before its definition\n" +
+        "BODY",
     );
   });
 });

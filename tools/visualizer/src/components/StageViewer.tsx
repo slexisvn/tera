@@ -1,19 +1,22 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { noteFor } from "../content/passes";
+import { fixtureFor } from "../services/fixture";
 import type { Stage } from "../types/stage";
 import { AllocationView } from "./AllocationView";
 import { AnalysesView } from "./AnalysesView";
 import { DiffView } from "./DiffView";
 import { GraphView, type GraphFocus } from "./GraphView";
+import { HistoryView } from "./HistoryView";
 import { IrLine } from "./IrLine";
 import { RemarkList } from "./RemarkList";
 
-type Tab = "diff" | "graph" | "why" | "analyses" | "registers" | "raw" | "explain";
+type Tab = "diff" | "graph" | "why" | "history" | "analyses" | "registers" | "raw" | "explain";
 
 const TABS: readonly { id: Tab; label: string }[] = [
   { id: "diff", label: "Diff" },
   { id: "graph", label: "Graph" },
   { id: "why", label: "Why" },
+  { id: "history", label: "History" },
   { id: "analyses", label: "Analyses" },
   { id: "registers", label: "Registers" },
   { id: "raw", label: "Raw" },
@@ -24,6 +27,7 @@ const WHY_DISABLED: Readonly<Record<Tab, string>> = {
   diff: "There is no earlier version of this stage to compare against",
   graph: "Only SSA stages draw as a graph",
   why: "This pass recorded nothing about the decisions it made",
+  history: "Only SSA stages can follow one value from pass to pass",
   analyses: "Only SSA stages carry the analyses a pass reads",
   registers: "Only the register allocator reports where each value ended up",
   raw: "",
@@ -79,6 +83,7 @@ type StageViewerProps = {
   focus: GraphFocus | null;
   onSelectNode: (key: string | null) => void;
   onHoverNode: (key: string | null) => void;
+  onSelectStage: (id: string) => void;
   onSendToLab: () => void;
 };
 
@@ -90,10 +95,29 @@ export function StageViewer({
   focus,
   onSelectNode,
   onHoverNode,
+  onSelectStage,
   onSendToLab,
 }: StageViewerProps) {
   const [tab, setTab] = useState<Tab>("diff");
   const [wrap, setWrap] = useState(false);
+  const [copied, setCopied] = useState<"idle" | "done" | "manual">("idle");
+
+  const fixture = useMemo(
+    () => (stage === null ? null : fixtureFor(stage, previous)),
+    [previous, stage],
+  );
+
+  const copyFixture = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied("done");
+    } catch {
+      setCopied("manual");
+    }
+  }, []);
+
+  const stageId = stage?.id ?? null;
+  useEffect(() => setCopied("idle"), [stageId]);
 
   const focusAt = focus?.at ?? null;
   useEffect(() => {
@@ -112,6 +136,7 @@ export function StageViewer({
     diff: (stage.kind === "ir" || stage.kind === "machine") && previous !== null,
     graph: stage.kind === "ir",
     why: stage.remarks.length > 0,
+    history: stage.kind === "ir",
     analyses: stage.kind === "ir",
     registers: stage.allocation !== null,
     raw: true,
@@ -134,9 +159,22 @@ export function StageViewer({
               nodes {stage.metrics.nodesBefore} → {stage.metrics.nodesAfter}
             </span>
           )}
-          <span className={`fact ${stage.failed ? "failed" : stage.changed ? "yes" : "no"}`}>
-            {stage.failed ? "failed" : stage.changed ? "changed" : "unchanged"}
+          <span
+            className={`fact ${stage.failed ? "failed" : stage.skipped ? "skipped" : stage.changed ? "yes" : "no"}`}
+          >
+            {stage.failed
+              ? "broke an invariant"
+              : stage.skipped
+                ? "skipped by bisect"
+                : stage.changed
+                  ? "changed"
+                  : "unchanged"}
           </span>
+          {stage.elapsedMs > 0 && (
+            <span className="fact" title="How long this pass itself took">
+              {stage.elapsedMs >= 10 ? stage.elapsedMs.toFixed(0) : stage.elapsedMs.toFixed(2)}ms
+            </span>
+          )}
           {stage.invalidated.length > 0 && (
             <span
               className="fact"
@@ -173,6 +211,16 @@ export function StageViewer({
               )}
             </button>
           ))}
+          {fixture !== null && (
+            <button
+              type="button"
+              className="viewer-fixture"
+              onClick={() => void copyFixture(fixture)}
+              title="Copy this pass and the graph it ran on as a test you can paste into tests/optimizing/passes"
+            >
+              {copied === "done" ? "copied" : "Copy as test"}
+            </button>
+          )}
           {stage.kind === "ir" && (
             <button
               type="button"
@@ -185,6 +233,22 @@ export function StageViewer({
           )}
         </div>
       </header>
+      {copied === "manual" && fixture !== null && (
+        <div className="fixture">
+          <p>The clipboard is not available here — copy this by hand.</p>
+          <pre className="code">{fixture}</pre>
+        </div>
+      )}
+      {stage.verification.length > 0 && (
+        <div className="verification">
+          <h3>The graph broke {stage.verification.length === 1 ? "an invariant" : "invariants"} after this pass</h3>
+          <ul>
+            {stage.verification.map((problem, at) => (
+              <li key={at}>{problem}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {active === "diff" && (
         <>
           {!stage.changed && stage.remarks.length > 0 && (
@@ -200,6 +264,14 @@ export function StageViewer({
       {active === "analyses" && <AnalysesView stage={stage} stages={stages} />}
       {active === "registers" && stage.allocation !== null && (
         <AllocationView report={stage.allocation} />
+      )}
+      {active === "history" && (
+        <HistoryView
+          stages={stages}
+          owner={stage.owner}
+          node={selectedNode}
+          onSelect={onSelectStage}
+        />
       )}
       {active === "why" && (
         <RemarkList

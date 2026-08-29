@@ -16,14 +16,24 @@ export type Preservation =
 export interface TransformPass<G> {
   readonly name: string;
   readonly preserves: Preservation;
+  readonly optional?: boolean;
   readonly requires?: ReadonlyArray<AnalysisId<unknown>>;
   run(graph: G, analyses: AnalysisManager<G>, options: CompilerOptions): TransformOutcome;
 }
 
 const NOTHING_INVALIDATED: readonly AnalysisId<unknown>[] = [];
+const NO_REMARKS: readonly Remark[] = [];
+const NOTHING_BROKEN: readonly string[] = [];
 
 export type GraphMaintenance<G> = (graph: G) => void;
-export type GraphVerification<G> = (graph: G, pass: string) => void;
+export type GraphVerification<G> = (graph: G, pass: string) => readonly string[];
+
+export class VerificationError extends Error {
+  constructor(readonly problems: readonly string[]) {
+    super(problems.join("\n"));
+    this.name = "VerificationError";
+  }
+}
 
 export interface PassManagerHooks<G> {
   readonly tracing?: PassTracing<G> | null;
@@ -48,39 +58,72 @@ export class PassManager<G> {
   }
 
   run(graph: G, pipeline: Iterable<TransformPass<G>>): boolean {
-    const tracing = this.tracing;
     let anyChanged = false;
     for (const pass of pipeline) {
-      for (const id of pass.requires ?? []) this.analyses.get(id);
-      const nodesBefore = tracing === null ? 0 : tracing.probe.nodeCount(graph);
-      let outcome: TransformOutcome;
-      let noted: readonly Remark[];
-      if (tracing !== null) remarks.open(pass.name);
-      try {
-        outcome = pass.run(graph, this.analyses, this.options);
-      } finally {
-        noted = remarks.close();
-      }
-      if (outcome.changed && this.maintain !== null) this.maintain(graph);
-      if (outcome.changed && this.verify !== null) this.verify(graph, pass.name);
-      const invalidated = outcome.changed
-        ? this.applyInvalidation(pass.preserves)
-        : NOTHING_INVALIDATED;
-      if (outcome.changed) anyChanged = true;
-      if (tracing === null) continue;
-      tracing.trace({
-        ordinal: this.ordinal++,
-        pass: pass.name,
-        changed: outcome.changed,
-        nodesBefore,
-        nodesAfter: tracing.probe.nodeCount(graph),
-        requires: pass.requires ?? NOTHING_INVALIDATED,
-        invalidated,
-        remarks: noted,
-        graph,
-      });
+      if (this.step(graph, pass)) anyChanged = true;
     }
     return anyChanged;
+  }
+
+  private step(graph: G, pass: TransformPass<G>): boolean {
+    const tracing = this.tracing;
+    const ordinal = this.ordinal++;
+    const nodesBefore = tracing === null ? 0 : tracing.probe.nodeCount(graph);
+
+    if (pass.optional === true && this.options.optBisect !== null && !this.options.optBisect.allow()) {
+      if (tracing !== null) tracing.trace({
+        ordinal,
+        pass: pass.name,
+        changed: false,
+        skipped: true,
+        elapsedMs: 0,
+        nodesBefore,
+        nodesAfter: nodesBefore,
+        requires: pass.requires ?? NOTHING_INVALIDATED,
+        invalidated: NOTHING_INVALIDATED,
+        remarks: NO_REMARKS,
+        verification: NOTHING_BROKEN,
+        graph,
+      });
+      return false;
+    }
+
+    for (const id of pass.requires ?? []) this.analyses.get(id);
+    let outcome: TransformOutcome;
+    let noted: readonly Remark[];
+    if (tracing !== null) remarks.open(pass.name);
+    const started = tracing === null ? 0 : performance.now();
+    try {
+      outcome = pass.run(graph, this.analyses, this.options);
+    } finally {
+      noted = remarks.close();
+    }
+    const elapsedMs = tracing === null ? 0 : performance.now() - started;
+
+    if (outcome.changed && this.maintain !== null) this.maintain(graph);
+    const verification =
+      outcome.changed && this.verify !== null ? this.verify(graph, pass.name) : NOTHING_BROKEN;
+    const invalidated = outcome.changed
+      ? this.applyInvalidation(pass.preserves)
+      : NOTHING_INVALIDATED;
+
+    if (tracing !== null) tracing.trace({
+      ordinal,
+      pass: pass.name,
+      changed: outcome.changed,
+      skipped: false,
+      elapsedMs,
+      nodesBefore,
+      nodesAfter: tracing.probe.nodeCount(graph),
+      requires: pass.requires ?? NOTHING_INVALIDATED,
+      invalidated,
+      remarks: noted,
+      verification,
+      graph,
+    });
+
+    if (verification.length > 0) throw new VerificationError(verification);
+    return outcome.changed;
   }
 
   private applyInvalidation(preservation: Preservation): readonly AnalysisId<unknown>[] {

@@ -90,10 +90,16 @@ export function maxNodeId(graph: ir.CFGFunction): number {
   return max;
 }
 
+export function reserveNodeIds(graph: ir.CFGFunction): ir.IRNodeIdAllocator {
+  const allocator = ir.getCurrentIRNodeIdAllocator();
+  allocator.reserveAbove(maxNodeId(graph));
+  return allocator;
+}
+
 export function nodeIdStamper(graph: ir.CFGFunction): Stamp {
-  let nextId = maxNodeId(graph) + 1;
+  const allocator = reserveNodeIds(graph);
   return (node) => {
-    node.id = nextId++;
+    node.id = allocator.next();
     return node;
   };
 }

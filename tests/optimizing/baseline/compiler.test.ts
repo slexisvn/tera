@@ -32,8 +32,9 @@ import {
   ROP_MOV,
   ROP_EQ,
   ROP_NEQ,
+  ROP_CALL,
 } from "../../../src/bytecode/register/ops/bytecode.js";
-import { mkSmi, mkUndefined } from "../../../src/core/value/index.js";
+import { getPayload, mkSmi, mkUndefined } from "../../../src/core/value/index.js";
 import { Environment, UpvalueCell } from "../../../src/runtime/intrinsics/environment.js";
 
 function makeSimpleFn(name, instrs, opts = {}) {
@@ -196,6 +197,48 @@ describe("BaselineCompiler", () => {
       const fn = makeSimpleFn("ret", [new RegisterInstruction(ROP_RETURN)]);
       const body = compiler.generateBody(fn);
       expect(body).toContain("return acc;");
+    });
+  });
+
+  describe("a declared int return, wrapped by the code the compiler emits", () => {
+    const answering = (value, returns, instrs) => {
+      const fn = makeSimpleFn("answer", instrs, { constants: [value] });
+      fn.declaredSignature = { params: [], returns };
+      const code = compiler.compile(fn, makeMockInterpreter());
+      expect(code).not.toBeNull();
+      return getPayload(code([], mkUndefined(), makeMockInterpreter(), null));
+    };
+
+    const returning = (value, returns) =>
+      answering(value, returns, [
+        new RegisterInstruction(ROP_LDA_CONST, 0),
+        new RegisterInstruction(ROP_RETURN),
+      ]);
+
+    it("wraps an overflowing integer the interpreter would have wrapped", () => {
+      expect(returning(6553600000, "int")).toBe(-2036334592);
+    });
+
+    it("leaves the same answer alone without the declaration", () => {
+      expect(returning(6553600000, null)).toBe(6553600000);
+      expect(returning(6553600000, "float")).toBe(6553600000);
+    });
+
+    it("leaves a value the declaration does not describe alone", () => {
+      expect(returning(2.5, "int")).toBe(2.5);
+    });
+
+    it("wraps the answer of a call in tail position, which never reaches ROP_RETURN", () => {
+      const fn = makeSimpleFn("tail", [
+        new RegisterInstruction(ROP_LDA_CONST, 0),
+        new RegisterInstruction(ROP_STAR, 0),
+        new RegisterInstruction(ROP_CALL, 0, 1, 0, 0),
+        new RegisterInstruction(ROP_RETURN),
+      ], { constants: [0] });
+      fn.declaredSignature = { params: [], returns: "int" };
+      const body = compiler.generateBody(fn);
+      expect(body).toContain("return $.declInt($.invokeCall0(");
+      expect(body).not.toContain("acc=$.invokeCall0(");
     });
   });
 

@@ -1,27 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { notable, notableOnly, quietCount } from "../src/services/stage-filter";
 import { NO_REMARKS, type Stage, type StageRemark } from "../src/types/stage";
+import { stageFor } from "./stage";
 
 function stage(id: string, changed: boolean, remarks: readonly StageRemark[] = NO_REMARKS): Stage {
-  return {
-    id,
-    group: "middle-end",
-    kind: "ir",
-    title: id,
-    subtitle: "fn hot",
-    owner: "hot",
-    ordinal: 0,
-    changed,
-    failed: false,
-    text: "",
-    passName: id,
-    metrics: null,
-    requires: [],
-    invalidated: [],
-    remarks,
-    allocation: null,
-    positions: {},
-  };
+  return stageFor({ id, changed, remarks });
 }
 
 const EXPLAINED: readonly StageRemark[] = [
@@ -53,5 +36,18 @@ describe("deciding which stages are worth showing", () => {
       "bounds-check-elimination",
     ]);
     expect(quietCount(stages)).toBe(1);
+  });
+
+  it("keeps a pass that broke an invariant even though it changed nothing", () => {
+    const broke = stageFor({
+      id: "gvn",
+      changed: false,
+      failed: true,
+      verification: ["v3 is used before it is defined"],
+    });
+
+    expect(notable(broke)).toBe(true);
+    expect(notableOnly([broke])).toEqual([broke]);
+    expect(quietCount([broke])).toBe(0);
   });
 });

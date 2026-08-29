@@ -25,17 +25,26 @@ import {
   type Remark,
   type Token,
 } from "tera";
+import { bisect } from "./bisect";
+import { compareTiers } from "./tiers";
+import { HOT_TIERING, TRACED_CATEGORIES, messageOf } from "./engine-options";
 import {
   NO_ANALYSES,
   NO_POSITIONS,
   NO_REMARKS,
+  NOTHING_BROKEN,
   type DeoptOrigin,
   type ShapeEdge,
   type LabRequest,
   type LabResult,
+  type LabSequence,
+  type LabSequenceRequest,
+  type LabStep,
   type RunRequest,
   type RunResult,
   type RuntimeEvent,
+  type BisectResult,
+  type TierReport,
   type Stage,
   type StageRemark,
   type VisualizerPassName,
@@ -50,9 +59,6 @@ type WorkerRequest = {
   readonly type: string;
   readonly payload: Record<string, unknown>;
 };
-
-const HOT_TIERING = { jitThreshold: 2, baselineThreshold: 1, loopOsrThreshold: 2 };
-const TRACED_CATEGORIES = ["jit", "deopt", "ic", "feedback", "hidden_class", "gc", "wasm"];
 
 const EVENT_BUDGET: Readonly<Record<string, number>> = {
   jit: 200,
@@ -99,6 +105,9 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     else if (type === "targets") result = targets();
     else if (type === "passNames") result = [...middleEndPassNames()];
     else if (type === "runPass") result = runPass(payload as unknown as LabRequest);
+    else if (type === "runPasses") result = runPasses(payload as unknown as LabSequenceRequest);
+    else if (type === "bisect") result = bisect(payload as unknown as RunRequest) satisfies BisectResult;
+    else if (type === "tiers") result = compareTiers(payload as unknown as RunRequest) satisfies TierReport;
     else throw new Error(`Unknown request '${type}'`);
     self.postMessage({ id, ok: true, result });
   } catch (error) {
@@ -126,16 +135,43 @@ function runPass(request: LabRequest): LabResult {
   }
 }
 
+function runPasses(request: LabSequenceRequest): LabSequence {
+  const options = compilerOptions(request.optLevel);
+  const steps: LabStep[] = [];
+  let current = request.text;
+  for (const pass of middleEndPassNames(options)) {
+    try {
+      const outcome = runNamedPass(current, pass, options);
+      steps.push({
+        pass,
+        before: current,
+        after: outcome.text,
+        changed: outcome.changed,
+        remarks: outcome.remarks.map(stageRemark),
+        error: null,
+      });
+      current = outcome.text;
+    } catch (error) {
+      steps.push({
+        pass,
+        before: current,
+        after: current,
+        changed: false,
+        remarks: NO_REMARKS,
+        error: messageOf(error),
+      });
+      break;
+    }
+  }
+  return { steps };
+}
+
 function stageRemark(remark: Remark): StageRemark {
   return {
     kind: remark.kind,
     node: remark.node === null ? null : `v${remark.node}`,
     message: remark.message,
   };
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function analysisName(id: { description?: string | undefined }): string {
@@ -232,7 +268,16 @@ class StageCollector {
   plain(
     stage: Omit<
       Stage,
-      "ordinal" | "positions" | "owner" | "failed" | "remarks" | "requires" | "allocation"
+      | "ordinal"
+      | "positions"
+      | "owner"
+      | "failed"
+      | "skipped"
+      | "elapsedMs"
+      | "verification"
+      | "remarks"
+      | "requires"
+      | "allocation"
     > & {
       owner?: string;
       failed?: boolean;
@@ -241,6 +286,9 @@ class StageCollector {
     this.stages.push({
       ...stage,
       failed: stage.failed ?? false,
+      skipped: false,
+      elapsedMs: 0,
+      verification: NOTHING_BROKEN,
       owner: stage.owner ?? stage.title,
       requires: NO_ANALYSES,
       remarks: NO_REMARKS,
@@ -294,6 +342,9 @@ class StageCollector {
         ordinal: this.ordinal++,
         changed: true,
         failed: false,
+        skipped: false,
+        elapsedMs: 0,
+        verification: NOTHING_BROKEN,
         text: held.text,
         passName: EXECUTED_PASS,
         metrics: null,
@@ -323,7 +374,10 @@ class StageCollector {
       owner,
       ordinal: this.ordinal++,
       changed: record.changed,
-      failed: false,
+      failed: record.verification.length > 0,
+      skipped: record.skipped,
+      elapsedMs: record.elapsedMs,
+      verification: record.verification,
       text: record.changed || previous === null ? printIR(record.graph) : previous,
       passName: record.pass,
       metrics: { nodesBefore: record.nodesBefore, nodesAfter: record.nodesAfter },
@@ -347,6 +401,9 @@ class StageCollector {
       ordinal: this.ordinal++,
       changed: text !== this.lastTextOf("machine", record.symbol),
       failed: false,
+      skipped: false,
+      elapsedMs: 0,
+      verification: NOTHING_BROKEN,
       text,
       passName: record.after,
       metrics: null,
@@ -370,6 +427,9 @@ class StageCollector {
       ordinal: this.ordinal++,
       changed: text !== this.lastTextOf("ir", MODULE_OWNER),
       failed: false,
+      skipped: false,
+      elapsedMs: 0,
+      verification: NOTHING_BROKEN,
       text,
       passName: record.stage,
       metrics: null,
@@ -521,6 +581,7 @@ function run(request: RunRequest): RunResult {
 
   const traced: CompilerOptions = {
     ...options,
+    verifyEachPass: request.verify,
     passTracer: (record) => collect.tracer(record as PassTraceRecord<CFGFunction>),
   };
 
@@ -619,14 +680,15 @@ function runJit(engine: Engine, collect: StageCollector, request: RunRequest): O
     const name = compiled.name ?? "<anonymous>";
     engine.optimizeFunction(compiled);
     if (collect.produced(name)) continue;
+    const reason = compiled.lastCompileFailureReason;
     collect.plain({
       id: `declined/${name}`,
       group: "bytecode",
       kind: "diagnostics",
       title: name,
-      subtitle: "no graph",
+      subtitle: reason ?? "no graph, no reason",
       changed: true,
-      text: `${name} collected feedback and was handed to the optimizer, which returned no graph for it. The interpreter keeps running this function; nothing below this line applies to it.`,
+      text: declineText(name, reason),
       passName: "declined" satisfies VisualizerPassName,
       metrics: null,
       invalidated: [],
@@ -634,6 +696,14 @@ function runJit(engine: Engine, collect: StageCollector, request: RunRequest): O
     });
   }
   return { error: null, runError };
+}
+
+function declineText(name: string, reason: string | null): string {
+  const why =
+    reason === null
+      ? "returned no graph and recorded no reason"
+      : `turned it down: ${reason}`;
+  return `${name} collected feedback and was handed to the optimizer, which ${why}. The interpreter keeps running this function; nothing below this line applies to it.`;
 }
 
 function isCompiled(value: unknown): value is CompiledFn {

@@ -1,7 +1,7 @@
 import type { Stage } from "../types/stage";
 
 export function notable(stage: Stage): boolean {
-  return stage.changed || stage.remarks.length > 0;
+  return stage.changed || stage.failed || stage.remarks.length > 0;
 }
 
 export function notableOnly(stages: readonly Stage[]): readonly Stage[] {

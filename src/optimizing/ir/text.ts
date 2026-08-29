@@ -3,6 +3,7 @@ import {
   CFGBlock,
   CFGFunction,
   CFGInstruction,
+  getCurrentIRNodeIdAllocator,
   IR_PARAMETER,
   IR_PHI,
   isOpcode,
@@ -359,6 +360,7 @@ export function parseIR(text: string): CFGFunction {
     if (!isOpcode(opcode)) throw new IRTextError(`unknown opcode ${opcode}`);
     const node = new CFGInstruction(opcode, {});
     node.id = id;
+    getCurrentIRNodeIdAllocator().reserveAbove(id);
     if (frameState) node.frameState = new FrameState(null, 0);
     if (nodes.has(id)) throw new IRTextError(`duplicate value v${id}`);
     nodes.set(id, node);

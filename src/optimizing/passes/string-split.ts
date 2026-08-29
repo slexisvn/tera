@@ -144,7 +144,7 @@ function lowerCharacters(site: Site): void {
 
   editor.replaceAllUses(node, parts);
   editor.remove(node);
-  if (site.callee.uses.length === 0) editor.remove(site.callee);
+  editor.removeIfDead(site.callee);
 }
 
 function lowerSite(site: Site): void {
@@ -209,7 +209,7 @@ function lowerSite(site: Site): void {
 
   editor.replaceAllUses(node, parts);
   editor.remove(node);
-  if (site.callee.uses.length === 0) editor.remove(site.callee);
+  editor.removeIfDead(site.callee);
 }
 
 export function lowerStringSplit(graph: CFGFunction, types: TypeInference): number {

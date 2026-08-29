@@ -24,6 +24,26 @@ function hot(expression: string, a: number, b: number): string {
   );
 }
 
+const EVERY_TIER = { tiers: ["baseline", "jit", "osr", "production"] as const };
+
+function repeatedly(body: string[], call: string): string[] {
+  return [
+    ...body,
+    "fn run(rounds):",
+    "  last = 0",
+    "  i = 0",
+    "  while i < rounds:",
+    `    last = ${call}`,
+    "    i = i + 1",
+    "  return last",
+    "run(120)",
+  ];
+}
+
+function fromCompiledCaller(...body: string[]): string {
+  return src(...repeatedly(body, "drive(20)"));
+}
+
 function native(expression: string, a: number, b: number): number {
   const program = nodeEngine().compileAot(`${declared(expression)}\n`, {
     functionNames: ["f"],
@@ -75,5 +95,165 @@ describe("declared int semantics across tiers", () => {
   it("leaves a value the declaration does not describe alone", () => {
     const engine = nodeEngine();
     expect(engine.runNative(src("fn f(a: int) -> int:", "  return a / 2", "f(5)"))).toBe(2.5);
+  });
+
+  it("wraps for a caller that is itself compiled", () => {
+    expect(
+      differential(
+        fromCompiledCaller(
+          "fn scale(n: int) -> int:",
+          "  return n * 65536",
+          "fn drive(n):",
+          "  last = 0",
+          "  i = 0",
+          "  while i < n:",
+          "    last = scale(100000)",
+          "    i = i + 1",
+          "  return last",
+        ),
+        EVERY_TIER,
+      ),
+    ).toBe(-2036334592);
+  });
+
+  it("wraps a declared int answered by a tail call", () => {
+    expect(
+      differential(
+        fromCompiledCaller(
+          "fn inner(n: int) -> int:",
+          "  return n * 65536",
+          "fn outer(n: int) -> int:",
+          "  return inner(n)",
+          "fn drive(n):",
+          "  last = 0",
+          "  i = 0",
+          "  while i < n:",
+          "    last = outer(100000)",
+          "    i = i + 1",
+          "  return last",
+        ),
+        EVERY_TIER,
+      ),
+    ).toBe(-2036334592);
+  });
+
+  it("wraps every call the optimizer may fold into its caller", () => {
+    expect(
+      differential(
+        fromCompiledCaller(
+          "fn scale(n: int) -> int:",
+          "  return n * 65536",
+          "fn drive(n):",
+          "  negatives = 0",
+          "  i = 0",
+          "  while i < n:",
+          "    if scale(i * 1000) < 0:",
+          "      negatives = negatives + 1",
+          "    i = i + 1",
+          "  return negatives",
+        ).replace("drive(20)", "drive(50)"),
+        EVERY_TIER,
+      ),
+    ).toBe(17);
+  });
+
+  it("wraps a folded call before the caller divides its answer", () => {
+    expect(
+      differential(
+        fromCompiledCaller(
+          "fn scale(n: int) -> int:",
+          "  return n * 65536",
+          "fn drive(n):",
+          "  total = 0",
+          "  i = 0",
+          "  while i < n:",
+          "    total = total + scale(i * 1000) / 2",
+          "    i = i + 1",
+          "  return total",
+        ).replace("drive(20)", "drive(50)"),
+        EVERY_TIER,
+      ),
+    ).toBe(3633577984);
+  });
+
+  it("wraps a call site that answered only small ints while it was profiled", () => {
+    expect(
+      differential(
+        src(
+          "fn scale(n: int) -> int:",
+          "  return n * 65536",
+          "fn drive(n, base):",
+          "  last = 0",
+          "  i = 0",
+          "  while i < n:",
+          "    last = scale(base + i)",
+          "    i = i + 1",
+          "  return last",
+          "fn run(rounds):",
+          "  last = 0",
+          "  i = 0",
+          "  while i < rounds:",
+          "    last = drive(20, 0)",
+          "    i = i + 1",
+          "  return drive(20, 100000)",
+          "run(120)",
+        ),
+        EVERY_TIER,
+      ),
+    ).toBe(-2035089408);
+  });
+
+  it("leaves an undeclared and a float return unwrapped in every tier", () => {
+    expect(
+      differential(
+        fromCompiledCaller(
+          "fn scale(n):",
+          "  return n * 65536",
+          "fn drive(n):",
+          "  last = 0",
+          "  i = 0",
+          "  while i < n:",
+          "    last = scale(100000)",
+          "    i = i + 1",
+          "  return last",
+        ),
+        EVERY_TIER,
+      ),
+    ).toBe(6553600000);
+    expect(
+      differential(
+        fromCompiledCaller(
+          "fn scale(n: int) -> float:",
+          "  return n * 65536",
+          "fn drive(n):",
+          "  last = 0",
+          "  i = 0",
+          "  while i < n:",
+          "    last = scale(100000)",
+          "    i = i + 1",
+          "  return last",
+        ),
+        EVERY_TIER,
+      ),
+    ).toBe(6553600000);
+  });
+
+  it("leaves a value the declaration does not describe alone in every tier", () => {
+    expect(
+      differential(
+        fromCompiledCaller(
+          "fn half(n: int) -> int:",
+          "  return n / 2",
+          "fn drive(n):",
+          "  last = 0",
+          "  i = 0",
+          "  while i < n:",
+          "    last = half(5)",
+          "    i = i + 1",
+          "  return last",
+        ),
+        EVERY_TIER,
+      ),
+    ).toBe(2.5);
   });
 });

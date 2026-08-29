@@ -5,7 +5,12 @@ import {
   analysisId,
   type AnalysisPass,
 } from "../../../src/optimizing/infra/analysis-manager.js";
-import { PassManager, type TransformPass } from "../../../src/optimizing/infra/pass-manager.js";
+import {
+  PassManager,
+  VerificationError,
+  type TransformPass,
+} from "../../../src/optimizing/infra/pass-manager.js";
+import { OptBisect } from "../../../src/optimizing/infra/opt-bisect.js";
 import { remarks } from "../../../src/optimizing/infra/pass-remarks.js";
 import type { PassTraceRecord } from "../../../src/optimizing/infra/pass-trace.js";
 import { compilerOptions } from "../../../src/optimizing/options.js";
@@ -16,6 +21,7 @@ function noting(name: string, record: () => void): TransformPass<Graph> {
   return {
     name,
     preserves: { kind: "all" },
+    optional: true,
     run: () => {
       record();
       return { changed: false };
@@ -283,5 +289,162 @@ describe("PassManager", () => {
     ]);
 
     expect(listened).toBe(false);
+  });
+  it("runs no pass past the bisect limit", () => {
+    const order: string[] = [];
+    const graph = { value: 1 };
+    const manager = new AnalysisManager<Graph>(graph, new AnalysisRegistry<Graph>());
+    const bisect = new OptBisect(2);
+    const passes = new PassManager<Graph>(manager, compilerOptions("speed", { optBisect: bisect }));
+
+    passes.run(graph, [
+      noting("first", () => order.push("first")),
+      noting("second", () => order.push("second")),
+      noting("third", () => order.push("third")),
+    ]);
+
+    expect(order).toEqual(["first", "second"]);
+    expect(bisect.attempts).toBe(3);
+  });
+
+  it("spends one bisect budget across every pipeline it is handed to", () => {
+    const order: string[] = [];
+    const bisect = new OptBisect(1);
+    const options = compilerOptions("speed", { optBisect: bisect });
+    const first = { value: 1 };
+    const second = { value: 2 };
+    const run = (graph: Graph, name: string) =>
+      new PassManager<Graph>(
+        new AnalysisManager<Graph>(graph, new AnalysisRegistry<Graph>()),
+        options,
+      ).run(graph, [noting(name, () => order.push(name))]);
+
+    run(first, "on-first-graph");
+    run(second, "on-second-graph");
+
+    expect(order).toEqual(["on-first-graph"]);
+    expect(bisect.attempts).toBe(2);
+  });
+
+  it("gives a pass the same ordinal whatever the bisect limit is", () => {
+    const traceWith = (limit: number): PassTraceRecord<Graph>[] => {
+      const graph = { value: 1 };
+      const records: PassTraceRecord<Graph>[] = [];
+      const passes = new PassManager<Graph>(
+        new AnalysisManager<Graph>(graph, new AnalysisRegistry<Graph>()),
+        compilerOptions("speed", { optBisect: new OptBisect(limit) }),
+        {
+          tracing: {
+            probe: { nodeCount: (g) => g.value, dump: (g) => String(g.value) },
+            trace: (record) => void records.push(record),
+          },
+        },
+      );
+      passes.run(graph, [noting("a", () => {}), noting("b", () => {}), noting("c", () => {})]);
+      return records;
+    };
+
+    const whole = traceWith(Number.POSITIVE_INFINITY);
+    const cut = traceWith(1);
+
+    expect(cut.map((record) => [record.ordinal, record.pass])).toEqual(
+      whole.map((record) => [record.ordinal, record.pass]),
+    );
+    expect(cut.map((record) => record.skipped)).toEqual([false, true, true]);
+  });
+
+  it("verifies a graph only after a pass that changed it", () => {
+    const verified: string[] = [];
+    const graph = { value: 1 };
+    const manager = new AnalysisManager<Graph>(graph, new AnalysisRegistry<Graph>());
+    const passes = new PassManager<Graph>(manager, compilerOptions(), {
+      verify: (_graph, pass) => {
+        verified.push(pass);
+        return [];
+      },
+    });
+
+    passes.run(graph, [
+      { name: "noop", preserves: { kind: "all" }, run: () => ({ changed: false }) },
+      { name: "mutate", preserves: { kind: "all" }, run: () => ({ changed: true }) },
+    ]);
+
+    expect(verified).toEqual(["mutate"]);
+  });
+
+  it("traces the graph that broke an invariant before it throws", () => {
+    const graph = { value: 1 };
+    const records: PassTraceRecord<Graph>[] = [];
+    const broken = new PassManager<Graph>(
+      new AnalysisManager<Graph>(graph, new AnalysisRegistry<Graph>()),
+      compilerOptions(),
+      {
+        tracing: {
+          probe: { nodeCount: (g) => g.value, dump: (g) => String(g.value) },
+          trace: (record) => void records.push(record),
+        },
+        verify: () => ["v3 is used before its definition"],
+      },
+    );
+
+    expect(() =>
+      broken.run(graph, [
+        {
+          name: "breaks-ssa",
+          preserves: { kind: "all" },
+          run: (g) => {
+            g.value = 99;
+            return { changed: true };
+          },
+        },
+        { name: "never-reached", preserves: { kind: "all" }, run: () => ({ changed: true }) },
+      ]),
+    ).toThrow(VerificationError);
+
+    expect(records).toHaveLength(1);
+    expect(records[0]!.pass).toBe("breaks-ssa");
+    expect(records[0]!.verification).toEqual(["v3 is used before its definition"]);
+    expect(records[0]!.graph.value).toBe(99);
+  });
+
+  it("times each pass it traces", () => {
+    const { graph, records, traced } = tracedManager();
+    const spin = (ms: number): TransformPass<Graph> => ({
+      name: `spins-${ms}ms`,
+      preserves: { kind: "all" },
+      run: () => {
+        const until = performance.now() + ms;
+        while (performance.now() < until) {}
+        return { changed: false };
+      },
+    });
+
+    traced.run(graph, [spin(8)]);
+
+    expect(records[0]!.elapsedMs).toBeGreaterThanOrEqual(3);
+  });
+  it("never skips a pass the pipeline needs, whatever the bisect limit", () => {
+    const order: string[] = [];
+    const graph = { value: 1 };
+    const bisect = new OptBisect(0);
+    const passes = new PassManager<Graph>(
+      new AnalysisManager<Graph>(graph, new AnalysisRegistry<Graph>()),
+      compilerOptions("speed", { optBisect: bisect }),
+    );
+
+    passes.run(graph, [
+      {
+        name: "lowering",
+        preserves: { kind: "all" },
+        run: () => {
+          order.push("lowering");
+          return { changed: false };
+        },
+      },
+      noting("optimization", () => order.push("optimization")),
+    ]);
+
+    expect(order).toEqual(["lowering"]);
+    expect(bisect.attempts).toBe(1);
   });
 });

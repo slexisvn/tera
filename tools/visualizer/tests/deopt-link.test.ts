@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { guardOf, opcodesOf, targetForDeopt } from "../src/services/deopt-link";
-import { NO_REMARKS, type DeoptOrigin, type Stage } from "../src/types/stage";
+import type { DeoptOrigin, Stage } from "../src/types/stage";
+import { stageFor } from "./stage";
 
 function graphStage(
   id: string,
@@ -8,25 +9,7 @@ function graphStage(
   text: string,
   positions: Record<string, number> = {},
 ): Stage {
-  return {
-    id,
-    group: "middle-end",
-    kind: "ir",
-    title: id,
-    subtitle: owner,
-    owner,
-    ordinal: 0,
-    changed: true,
-    failed: false,
-    text,
-    passName: id,
-    metrics: null,
-    requires: [],
-    invalidated: [],
-    remarks: NO_REMARKS,
-    allocation: null,
-    positions,
-  };
+  return stageFor({ id, subtitle: owner, owner, text, positions });
 }
 
 function origin(over: Partial<DeoptOrigin> = {}): DeoptOrigin {

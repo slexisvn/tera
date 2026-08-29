@@ -154,7 +154,7 @@ function spellLater(
   editor.insertBefore(node, spelled);
   editor.replaceAllUses(node, spelled);
   editor.remove(node);
-  if (callee.uses.length === 0) editor.remove(callee);
+  editor.removeIfDead(callee);
 }
 
 type Lowering = {
@@ -193,7 +193,7 @@ function applyLowering(editor: GraphEditor, lowering: Lowering, stamp: Stamp): v
   editor.insertBefore(node, replacement);
   editor.replaceAllUses(node, replacement);
   editor.remove(node);
-  if (callee.uses.length === 0) editor.remove(callee);
+  editor.removeIfDead(callee);
 }
 
 export function lowerGlobalBuiltins(graph: CFGFunction, types: TypeInference): number {
@@ -210,7 +210,7 @@ export function lowerGlobalBuiltins(graph: CFGFunction, types: TypeInference): n
           const callee = node.inputs[0]!;
           editor.replaceAllUses(node, kept);
           editor.remove(node);
-          if (callee.uses.length === 0) editor.remove(callee);
+          editor.removeIfDead(callee);
           count++;
           continue;
         }

@@ -14,6 +14,7 @@ export type RunState = {
   readonly busy: boolean;
   readonly hasRun: boolean;
   readonly stale: boolean;
+  readonly verified: boolean;
 };
 
 export type Failure = {
@@ -28,14 +29,24 @@ export function errorLineOf(message: string | null): number | null {
   return found === null ? null : Number(found[1]);
 }
 
-export function statusOf({ result, busy, hasRun, stale }: RunState): RunStatus {
+export function brokeInvariant(result: RunResult): number {
+  return result.stages.filter((stage) => stage.verification.length > 0).length;
+}
+
+export function statusOf({ result, busy, hasRun, stale, verified }: RunState): RunStatus {
   if (busy) return { tone: "busy", text: "Compiling…" };
   if (!hasRun) return { tone: "idle", text: "not compiled yet" };
   if (result.error !== null || result.runError !== null) {
     return { tone: "failed", text: result.error !== null ? "compile failed" : "threw while running" };
   }
+  const broke = brokeInvariant(result);
   const ran = `${result.stages.length} stages · ${result.elapsedMs.toFixed(0)}ms`;
-  return stale ? { tone: "stale", text: `${ran} · out of date` } : { tone: "ok", text: ran };
+  const checked = verified
+    ? `${ran} · ${broke > 0 ? `${broke} broke an invariant` : "invariants held"}`
+    : ran;
+  const text = stale ? `${checked} · out of date` : checked;
+  if (broke > 0) return { tone: "failed", text };
+  return stale ? { tone: "stale", text } : { tone: "ok", text };
 }
 
 export function failuresOf(result: RunResult): readonly Failure[] {

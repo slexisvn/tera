@@ -152,15 +152,22 @@ function validateOpcodes(graph: ValidationGraph, errors: string[]): void {
 
 function validateNodeIdentity(graph: ValidationGraph, errors: string[]): void {
   const owners = new Map<number, ValidationNode>();
+  const claim = (node: ValidationNode): void => {
+    const held = owners.get(node.id);
+    if (held === undefined) {
+      owners.set(node.id, node);
+      return;
+    }
+    if (held === node) return;
+    errors.push(`v${node.id} names both ${held.type} and ${node.type}`);
+  };
+  for (const parameter of graph.parameters) claim(parameter);
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      const held = owners.get(node.id);
-      if (held === undefined) {
-        owners.set(node.id, node);
-        continue;
+      claim(node);
+      for (const input of node.inputs) {
+        if (input !== null && input.block === null) claim(input);
       }
-      if (held === node) continue;
-      errors.push(`v${node.id} names both ${held.type} and ${node.type}`);
     }
   }
 }

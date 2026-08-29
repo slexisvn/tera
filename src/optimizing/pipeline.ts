@@ -2,6 +2,7 @@ import type { CFGFunction } from "./ir/index.js";
 import { AnalysisManager, type AnalysisId } from "./infra/analysis-manager.js";
 import {
   PassManager,
+  VerificationError,
   type GraphVerification,
   type Preservation,
   type TransformPass,
@@ -11,7 +12,7 @@ import { cfgGraphProbe } from "./ir/probe.js";
 import { compilerOptions, type CompilerOptions } from "./options.js";
 import { GraphValidationError, validateGraphInvariants } from "./validation/graph-validator.js";
 import { buildFrameStateIndex } from "./ir/frame-state-values.js";
-import { homeFloatingValues } from "./ir/graph-edit.js";
+import { homeFloatingValues, reserveNodeIds } from "./ir/graph-edit.js";
 import { hoistLoopInvariants, peelLoopChecks } from "./passes/loop-opts.js";
 import { loopUnswitching } from "./passes/unswitching.js";
 import {
@@ -86,6 +87,7 @@ function step(
   return {
     name,
     preserves,
+    optional: true,
     requires,
     run: (graph, analyses) => ({ changed: changed(apply(graph, analyses)) }),
   };
@@ -286,11 +288,10 @@ const BUILT = "it was built";
 const verifyAfterPass: GraphVerification<CFGFunction> = (graph, pass) => {
   try {
     validateGraphInvariants(graph);
+    return [];
   } catch (error) {
     if (!(error instanceof GraphValidationError)) throw error;
-    throw new GraphValidationError(
-      error.errors.map((message) => `${graph.name} after ${pass}: ${message}`),
-    );
+    return error.errors.map((message) => `${graph.name} after ${pass}: ${message}`);
   }
 };
 
@@ -311,19 +312,26 @@ export function runMiddleEnd(
   graph: CFGFunction,
   options: CompilerOptions = compilerOptions(),
 ): AnalysisManager<CFGFunction> {
+  reserveNodeIds(graph);
   const analyses = new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
-  if (options.verifyEachPass) verifyAfterPass(graph, BUILT);
+  if (options.verifyEachPass) {
+    const broken = verifyAfterPass(graph, BUILT);
+    if (broken.length > 0) throw new VerificationError(broken);
+  }
   if (options.passTracer !== null) {
     const nodes = cfgGraphProbe.nodeCount(graph);
     options.passTracer({
       ordinal: -1,
       pass: IR_BUILDER_STAGE,
       changed: true,
+      skipped: false,
+      elapsedMs: 0,
       nodesBefore: nodes,
       nodesAfter: nodes,
       requires: [],
       invalidated: [],
       remarks: [],
+      verification: [],
       graph,
     });
   }

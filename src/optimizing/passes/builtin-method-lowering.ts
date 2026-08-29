@@ -234,7 +234,7 @@ function applyLowering(
   const replacement = calledAt(editor, node, intrinsic, arguments_, stamp);
   editor.replaceAllUses(node, replacement);
   editor.remove(node);
-  if (callee !== null && callee.uses.length === 0) editor.remove(callee);
+  editor.removeIfDead(callee);
 }
 
 function blocksInDominanceOrder(graph: CFGFunction, reaching: DominatorTree): CFGBlock[] {

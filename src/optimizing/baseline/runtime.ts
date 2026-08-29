@@ -64,6 +64,7 @@ import {
 import { functionMemberValue, setFunctionMember } from "../../objects/exotic/function-members.js";
 import { memberLookupValue, type BuiltinPrototypeSet } from "../../runtime/member-lookup.js";
 import { assertObjectMemberAccess } from "../../runtime/class-access.js";
+import { asDeclaredInt32 } from "../../runtime/declared-int.js";
 
 export type BaselineInterpreter = {
   globalCells: {
@@ -406,6 +407,10 @@ export class BaselineRuntime {
 
   leave(): void {
     this.interp.baselineFrames?.pop();
+  }
+
+  declInt(value: TaggedValue): TaggedValue {
+    return asDeclaredInt32(value);
   }
 
   backEdge(
