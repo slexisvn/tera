@@ -145,6 +145,18 @@ describe("registerLiveness", () => {
     expect(registerLiveness(fn)).toBeNull();
   });
 
+  it("settles on a loop whose live register sits in the top bit of a word", () => {
+    const liveness = livenessOf(32, (fn) => {
+      fn.emit(ops.ROP_LDA_REG, 31);
+      fn.emit(ops.ROP_STAR, 30);
+      fn.emit(ops.ROP_JUMP, 0);
+    });
+
+    expect(liveness.isLive(0, 31)).toBe(true);
+    expect(liveness.isLive(2, 31)).toBe(true);
+    expect(liveness.isLive(0, 30)).toBe(false);
+  });
+
   it("reports a register live at an offset outside the bytecode", () => {
     const liveness = livenessOf(1, (fn) => {
       fn.emit(ops.ROP_LDA_CONST, fn.addConstant(1));

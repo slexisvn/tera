@@ -123,13 +123,8 @@ function observesMembers(value: CFGInstruction, use: CFGInstruction): boolean {
   return forwardedValue(use) === value;
 }
 
-function rejectsThroughPromises(module: ModuleIR): boolean {
-  return module.units.some((unit) => unit.graph.isAsync);
-}
-
 function surveyed(module: ModuleIR, classes: ClassTable | null): Survey | null {
   if (classes === null || classes.shapeOf(ERROR_GLOBAL) === null) return null;
-  if (rejectsThroughPromises(module)) return null;
   const { reports, carriers } = raisedIn(module);
   const merges = new Set<CFGInstruction>();
   const shapes: ClassShape[] = [];
@@ -166,6 +161,7 @@ function spellDisplay(site: ReportSite, stamp: Stamp): void {
 export function lowerErrorSurface(module: ModuleIR, classes: ClassTable | null): number {
   const survey = surveyed(module, classes);
   if (survey === null) return 0;
+  classes!.declareThrownType(survey.held.name);
 
   for (const unit of module.units) {
     for (const block of unit.graph.blocks) {

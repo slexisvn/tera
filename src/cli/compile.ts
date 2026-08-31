@@ -35,13 +35,14 @@ import { searchPathsForEntry } from "../frontend/packages.js";
 import { hostEngineOptions } from "./host.js";
 
 function aotCompilerOptions(
-  config: Pick<CompileConfig, "verify" | "printAfterAll">,
+  config: Pick<CompileConfig, "verify" | "printAfterAll" | "textBytes">,
 ): { compilerOptions?: CompilerOptions } {
-  if (!config.verify && !config.printAfterAll) return {};
+  if (!config.verify && !config.printAfterAll && config.textBytes === null) return {};
   return {
     compilerOptions: compilerOptions("speed", {
       verifyEachPass: config.verify,
       passTracer: config.printAfterAll ? consolePassTracer(cfgGraphProbe) : null,
+      ...(config.textBytes === null ? {} : { textBufferBytes: config.textBytes }),
     }),
   };
 }

@@ -3,6 +3,9 @@ import { tracer } from "../../core/tracing/index.js";
 import { detachNode, nodeIdStamper, replaceValueUses } from "../ir/graph-edit.js";
 import type { DominatorTree } from "../analyses/dominance.js";
 import type { TypeInference } from "../analyses/type-inference.js";
+import { DECLARED_INT } from "../types/declared.js";
+import { RANGE_BUILTIN } from "../metadata/builtin-methods.js";
+import { genericCalleeName } from "../metadata/call-signatures.js";
 import {
   excludeType,
   narrowType,
@@ -22,6 +25,33 @@ const GENERIC_TO_INT32 = new Map<string, ir.Opcode>([
   [ir.IR_GENERIC_MOD, ir.IR_INT32_MOD],
   [ir.IR_GENERIC_COMPARE, ir.IR_INT32_COMPARE],
 ]);
+
+const INT32_TO_FLOAT64 = new Map<string, ir.Opcode>([
+  [ir.IR_INT32_ADD, ir.IR_FLOAT64_ADD],
+  [ir.IR_INT32_SUB, ir.IR_FLOAT64_SUB],
+  [ir.IR_INT32_MUL, ir.IR_FLOAT64_MUL],
+]);
+
+const TRUNCATES_ITS_INPUTS = new Set<string>([
+  ir.IR_INT32_AND,
+  ir.IR_INT32_OR,
+  ir.IR_INT32_XOR,
+  ir.IR_INT32_NOT,
+  ir.IR_INT32_SHL,
+  ir.IR_INT32_SHR,
+  ir.IR_INT32_USHR,
+]);
+
+const CARRIES_ITS_INPUTS = new Set<string>([ir.IR_PHI, ir.IR_SELECT]);
+
+const COUNTS_IN_INT32: ReadonlySet<string> = new Set<string>([RANGE_BUILTIN]);
+
+function countsInInt32(use: ir.CFGInstruction): boolean {
+  if (use.type !== ir.IR_GENERIC_CALL) return false;
+  const callee = genericCalleeName(use);
+  return callee !== null && COUNTS_IN_INT32.has(callee);
+}
+
 
 const GENERIC_TO_FLOAT64 = new Map<string, ir.Opcode>([
   [ir.IR_GENERIC_ADD, ir.IR_FLOAT64_ADD],
@@ -92,6 +122,8 @@ function typeofComparison(
 class Narrower {
   private readonly refinements: Refinements = new Map();
   private readonly stamp: (node: ir.CFGInstruction) => ir.CFGInstruction;
+  private readonly widened: ir.CFGInstruction[] = [];
+  private readonly answersDeclaredInt: boolean;
   private count = 0;
 
   constructor(
@@ -100,11 +132,13 @@ class Narrower {
     private readonly types: TypeInference,
   ) {
     this.stamp = nodeIdStamper(graph);
+    this.answersDeclaredInt = graph.declaredSignature?.returns === DECLARED_INT;
   }
 
   run(): number {
     const entry = this.graph.blocks[0];
     if (entry !== undefined) this.walk(entry);
+    this.settleInt32Arithmetic();
     return this.count;
   }
 
@@ -166,25 +200,48 @@ class Narrower {
           : undefined;
     if (specialized === undefined) return;
 
-    const generic = node.type;
     node.type = specialized;
-    if (this.isSpeculative(node)) {
-      const frameState = node.frameState ?? frameStateFromInputs(node);
-      if (frameState === null && ir.irRequiresFrameState(node)) {
-        node.type = generic;
-        return;
-      }
-      node.frameState = frameState;
-    } else {
-      node.props.noOverflow = true;
-    }
+    if (INT32_TO_FLOAT64.has(specialized)) this.widened.push(node);
+    else node.props.noOverflow = true;
     this.count++;
   }
 
-  private isSpeculative(node: ir.CFGInstruction): boolean {
-    return node.inputs.some(
-      (input) => this.types.isSpeculative(input) || this.refinements.has(input.id),
-    );
+  private carriers(): ir.CFGInstruction[] {
+    const carried: ir.CFGInstruction[] = [];
+    for (const block of this.graph.blocks) {
+      for (const phi of block.phis) carried.push(phi);
+      for (const node of block.nodes) if (CARRIES_ITS_INPUTS.has(node.type)) carried.push(node);
+    }
+    return carried;
+  }
+
+  private settleInt32Arithmetic(): void {
+    if (this.widened.length === 0) return;
+    const wrapping = new Set([...this.widened, ...this.carriers()]);
+    const pending = [...wrapping];
+    while (pending.length > 0) {
+      const node = pending.pop()!;
+      if (!wrapping.has(node)) continue;
+      if (node.uses.every((use) => this.truncates(use, wrapping))) continue;
+      wrapping.delete(node);
+      for (const input of node.inputs) if (wrapping.has(input)) pending.push(input);
+    }
+
+    for (const node of this.widened) {
+      if (wrapping.has(node)) {
+        node.props.noOverflow = true;
+        continue;
+      }
+      delete node.props.noOverflow;
+      node.frameState = node.frameState ?? frameStateFromInputs(node);
+    }
+  }
+
+  private truncates(use: ir.CFGInstruction, wrapping: ReadonlySet<ir.CFGInstruction>): boolean {
+    if (TRUNCATES_ITS_INPUTS.has(use.type)) return true;
+    if (wrapping.has(use)) return true;
+    if (countsInInt32(use)) return true;
+    return use.type === ir.IR_RETURN && this.answersDeclaredInt;
   }
 
   private definedComparison(node: ir.CFGInstruction): boolean | null {
@@ -237,6 +294,26 @@ function frameStateFromInputs(node: ir.CFGInstruction): ir.CFGInstruction["frame
     if (input.frameState) return input.frameState;
   }
   return null;
+}
+
+export function widenUnprovenInt32Arithmetic(graph: ir.CFGFunction): number {
+  let widened = 0;
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      const float64 = INT32_TO_FLOAT64.get(node.type);
+      if (float64 === undefined || node.props.noOverflow === true) continue;
+      if (node.frameState !== null) continue;
+      node.type = float64;
+      widened++;
+    }
+  }
+  if (widened > 0) {
+    tracer.jitCompile(
+      "",
+      `Int32Widening: ${widened} operations that could leave int32 now answer a double`,
+    );
+  }
+  return widened;
 }
 
 export function typeNarrowing(

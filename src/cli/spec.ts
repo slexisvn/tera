@@ -1,4 +1,5 @@
 import { TERA_HEAP_MINIMUM_BYTES } from "../optimizing/target/runtime-layout.js";
+import { TEXT_BUFFER_MINIMUM_BYTES } from "../optimizing/types/scalar.js";
 import {
   engineDefaults,
   sourceDefaults,
@@ -70,13 +71,13 @@ const BYTE_SUFFIXES = new Map<string, number>([
   ["g", 1 << 30],
 ]);
 
-function parseBytes(name: string, value: string): number {
+function parseBytes(name: string, value: string, minimum: number): number {
   const match = /^(\d+)([kmg]?)b?$/i.exec(value.trim());
   const scale = match === null ? undefined : BYTE_SUFFIXES.get(match[2]!.toLowerCase()) ?? 1;
   const parsed = match === null ? Number.NaN : Number(match[1]) * scale!;
-  if (!Number.isSafeInteger(parsed) || parsed < TERA_HEAP_MINIMUM_BYTES) {
+  if (!Number.isSafeInteger(parsed) || parsed < minimum) {
     throw new CliUsageError(
-      `--${name} expects a size of at least ${TERA_HEAP_MINIMUM_BYTES} bytes (for example 64m), got '${value}'`,
+      `--${name} expects a size of at least ${minimum} bytes, got '${value}'`,
     );
   }
   return parsed;
@@ -379,7 +380,14 @@ export const COMPILE_COMMAND: CommandSpec<CompileConfig> = {
       value: "bytes",
       group: "Output",
       summary: "address space to reserve for the heap (default: 1g)",
-      apply: (config, value) => (config.heapBytes = parseBytes("heap-size", value)),
+      apply: (config, value) => (config.heapBytes = parseBytes("heap-size", value, TERA_HEAP_MINIMUM_BYTES)),
+    },
+    {
+      name: "text-size",
+      value: "bytes",
+      group: "Output",
+      summary: "space each produced string may take (default: 16k)",
+      apply: (config, value) => (config.textBytes = parseBytes("text-size", value, TEXT_BUFFER_MINIMUM_BYTES)),
     },
     {
       name: "cc",
@@ -426,6 +434,7 @@ export const COMPILE_COMMAND: CommandSpec<CompileConfig> = {
     result: null,
     cc: null,
     heapBytes: null,
+    textBytes: null,
     keepTemps: false,
     verify: false,
     printAfterAll: false,

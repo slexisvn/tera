@@ -118,6 +118,26 @@ describe("AOT array element layout", () => {
     agrees(INTO_DECLARED_FIELD);
   });
 
+  itRunsPe("lays a string array out from the field the program pushes into it", () => {
+    agrees(
+      src(
+        "class Item:",
+        "  public constructor(name: string, count: int):",
+        "    this.name = name",
+        "    this.count = count",
+        "items: Item[] = []",
+        'items.push(Item("bolt", 12))',
+        'items.push(Item("nut", 3))',
+        "names: string[] = []",
+        "for item of items:",
+        "  if item.count < 10:",
+        "    names.push(item.name)",
+        "print(names.length)",
+        "print(names[0])",
+      ),
+    );
+  });
+
   it("stops on an int[] handed to a float[] parameter it cannot lay out again", () => {
     expect(declineFor(ACROSS_A_CALL_IT_CANNOT_RESHAPE)).toContain(
       "passes an array of int where float[] is declared",

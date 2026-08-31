@@ -171,7 +171,7 @@ describe("x64 assembly", () => {
 
     expect(assembly).toContain("\t.cfi_startproc");
     expect(assembly).toMatch(/subq [$](\d+), %rsp\n\t[.]cfi_def_cfa_offset /);
-    expect(assembly).toMatch(/movq %rbx, 0[(]%rsp[)]\n\t[.]cfi_offset 3, -\d+/);
+    expect(assembly).toMatch(/movq %rbx, \d+[(]%rsp[)]\n\t[.]cfi_offset 3, -\d+/);
     expect(assembly.split("\t.cfi_startproc").length).toBe(
       assembly.split("\t.cfi_endproc").length,
     );

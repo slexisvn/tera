@@ -3,7 +3,7 @@ import type { AnalysisId, AnalysisManager } from "../infra/analysis-manager.js";
 import type { TransformPass } from "../infra/pass-manager.js";
 import { dominanceAnalysisId } from "../analyses/dominance.js";
 import { loopForestAnalysisId } from "../analyses/loops.js";
-import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
+import { typeInferenceAnalysisId, type TypeInference } from "../analyses/type-inference.js";
 import {
   lowerArrayAccess,
   shapeArrayAllocations,
@@ -56,20 +56,33 @@ const preservesControlFlow = {
   ],
 } as const;
 
-function lowerHeapIteration(
+type TypedLowering = (graph: CFGFunction, types: TypeInference) => number;
+
+function untilStable(
   graph: CFGFunction,
   analyses: AnalysisManager<CFGFunction>,
+  lowerings: readonly TypedLowering[],
 ): boolean {
   let changed = false;
   for (;;) {
-    const stamped = stampElementTypes(graph, analyses.get(typeInferenceAnalysisId));
-    if (stamped > 0) analyses.invalidate(typeInferenceAnalysisId);
-    const lowered = lowerIterators(graph, analyses.get(typeInferenceAnalysisId));
-    if (lowered > 0) analyses.invalidate(typeInferenceAnalysisId);
-    if (stamped + lowered === 0) return changed;
+    let moved = 0;
+    for (const lowering of lowerings) {
+      const count = lowering(graph, analyses.get(typeInferenceAnalysisId));
+      if (count > 0) analyses.invalidate(typeInferenceAnalysisId);
+      moved += count;
+    }
+    if (moved === 0) return changed;
     changed = true;
   }
 }
+
+const SPLIT_LOWERINGS: readonly TypedLowering[] = [lowerStringSplit];
+
+const HEAP_ITERATION_LOWERINGS: readonly TypedLowering[] = [
+  stampElementTypes,
+  lowerStringSplit,
+  lowerIterators,
+];
 
 const representationSelectionPass: TransformPass<CFGFunction> = {
   name: "representation-selection",
@@ -150,6 +163,12 @@ export function targetLegalizationPipeline(
       }),
     },
     {
+      name: "string-split-lowering",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({ changed: untilStable(graph, analyses, SPLIT_LOWERINGS) }),
+    },
+    {
       name: "collection-surface",
       preserves: preservesControlFlow,
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
@@ -201,6 +220,22 @@ export function targetLegalizationPipeline(
       run: (graph) => ({ changed: lowerGeneratorIteration(graph) > 0 }),
     },
     {
+      name: "type-narrowing-after-generators",
+      preserves: preservesControlFlow,
+      requires: [
+        dominanceAnalysisId as AnalysisId<unknown>,
+        typeInferenceAnalysisId as AnalysisId<unknown>,
+      ],
+      run: (graph, analyses) => ({
+        changed:
+          typeNarrowing(
+            graph,
+            analyses.get(dominanceAnalysisId),
+            analyses.get(typeInferenceAnalysisId),
+          ) > 0,
+      }),
+    },
+    {
       name: "callee-signatures",
       preserves: preservesControlFlow,
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
@@ -238,18 +273,10 @@ export function targetLegalizationPipeline(
       }),
     },
     {
-      name: "string-split-lowering",
-      preserves: { kind: "none" },
-      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
-      run: (graph, analyses) => ({
-        changed: lowerStringSplit(graph, analyses.get(typeInferenceAnalysisId)) > 0,
-      }),
-    },
-    {
       name: "heap-iteration",
       preserves: { kind: "none" },
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
-      run: (graph, analyses) => ({ changed: lowerHeapIteration(graph, analyses) }),
+      run: (graph, analyses) => ({ changed: untilStable(graph, analyses, HEAP_ITERATION_LOWERINGS) }),
     },
     {
       name: "element-member-lowering",

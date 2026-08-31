@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   ArrowFunctionExpression,
+  ClassDeclaration,
   Identifier,
   adoptContextualSignature,
+  astChildren,
   declaredParamInfo,
   functionParameters,
   isRestParameter,
@@ -145,5 +147,45 @@ describe("adoptContextualSignature", () => {
     const node = arrow([{ pattern: "a" }]);
     adoptContextualSignature(node, ["int"], null);
     expect(declaredParamInfo(node)).toBeNull();
+  });
+});
+
+describe("astChildren", () => {
+  it("reads a node held directly on a property", () => {
+    const held = Identifier("n");
+
+    expect(astChildren({ type: "Holder", held } as unknown as ASTNode)).toEqual([held]);
+  });
+
+  it("reads every node held in an array property", () => {
+    const first = Identifier("a");
+    const second = Identifier("b");
+
+    expect(astChildren({ type: "Holder", held: [first, second] } as unknown as ASTNode)).toEqual([
+      first,
+      second,
+    ]);
+  });
+
+  it("reads a node a class member holds inside a plain object", () => {
+    const method = arrow([]);
+    const node = ClassDeclaration("C", null, null, [{ name: "run", kind: "method", func: method }]);
+
+    expect(astChildren(node)).toContain(method);
+  });
+
+  it("reads a body a class member holds inside a plain object", () => {
+    const statement = Identifier("n");
+    const node = ClassDeclaration("C", null, null, [
+      { name: "run", kind: "method", body: [statement] },
+    ]);
+
+    expect(astChildren(node)).toContain(statement);
+  });
+
+  it("holds nothing for a property that carries no node", () => {
+    const node = { type: "Holder", name: "n", count: 2, missing: null };
+
+    expect(astChildren(node as unknown as ASTNode)).toEqual([]);
   });
 });

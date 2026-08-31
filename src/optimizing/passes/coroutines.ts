@@ -44,6 +44,7 @@ import {
   recordPendingThrow,
   takePendingThrow,
 } from "../builder/throw-recovery.js";
+import { ERROR_DISPLAY_PREFIX, ERROR_MESSAGE_FIELD } from "../prelude/errors.js";
 import { TERA_CONTEXT, type TeraContextField } from "../target/runtime-layout.js";
 import {
   TERA_NEVER_SETTLED,
@@ -74,6 +75,7 @@ import {
   coroutineSlotName,
   CORO_ENTRY_STATE,
   CORO_ERROR_FIELD,
+  CORO_ERROR_VALUE_FIELD,
   CORO_FRAME_BASE,
   CORO_NEXT_FIELD,
   CORO_NEXT_REJECTED_FIELD,
@@ -109,7 +111,7 @@ import {
   VALUE_SCALAR_PROP,
 } from "../types/scalar.js";
 import { CODE_TARGET_PROP } from "../analyses/aot-legality.js";
-import { nominalLatticeType } from "../types/declared.js";
+import { DECLARED_INT, nominalLatticeType } from "../types/declared.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 
 export const CORO_DRAIN = "tera_drain";
@@ -118,14 +120,13 @@ export const CORO_REPORT = "tera_report_rejections";
 
 const RESUME_PENDING = 1;
 const RESUME_DONE = 0;
-const INT = "int";
 const FLOAT = "float";
 
 const ARRAY_WRITES = new Set<string>([IR_STORE_ELEMENT, IR_GENERIC_SET_INDEX]);
 const ARRAY_READS = new Set<string>([IR_LOAD_ELEMENT, IR_GENERIC_GET_INDEX]);
 
 const SLOT_TYPES = new Map<string, string>([
-  [TypeKind.Smi, INT],
+  [TypeKind.Smi, DECLARED_INT],
   [TypeKind.Boolean, "bool"],
   [TypeKind.Double, "float"],
   [TypeKind.Number, "float"],
@@ -381,6 +382,37 @@ function stateIs(
   return out.add(irInt32Compare("==", settled, out.constant(state)));
 }
 
+function thrownShapeOf(classes: ClassTable): ClassShape | null {
+  const thrown = classes.thrownType();
+  return thrown === null ? null : classes.shapeOf(thrown);
+}
+
+function storeThrown(
+  out: Emitter,
+  classes: ClassTable,
+  held: CFGInstruction,
+  promise: ClassShape,
+  settled: CFGInstruction,
+): void {
+  const thrown = thrownShapeOf(classes);
+  if (thrown === null) {
+    out.store(held, promise, CORO_ERROR_FIELD, settled);
+    return;
+  }
+  out.store(held, promise, CORO_ERROR_VALUE_FIELD, settled);
+  out.store(
+    held,
+    promise,
+    CORO_ERROR_FIELD,
+    out.add(
+      irGenericAdd(
+        out.add(irConstant(ERROR_DISPLAY_PREFIX)),
+        out.load(settled, thrown, ERROR_MESSAGE_FIELD),
+      ),
+    ),
+  );
+}
+
 function raiseWhenRejected(
   graph: CFGFunction,
   classes: ClassTable,
@@ -396,7 +428,14 @@ function raiseWhenRejected(
 
   const raised = new Emitter(classes, raise);
   raised.store(awaited, promise, CORO_UNREPORTED_FIELD, raised.constant(CORO_REPORTED));
-  recordPendingThrow(raise, raised.load(awaited, promise, CORO_ERROR_FIELD));
+  recordPendingThrow(
+    raise,
+    raised.load(
+      awaited,
+      promise,
+      thrownShapeOf(classes) === null ? CORO_ERROR_FIELD : CORO_ERROR_VALUE_FIELD,
+    ),
+  );
   raise.addNode(irJump(resumed));
   link(raise, resumed);
   return resumed;
@@ -635,7 +674,7 @@ function enqueue(
 ): CFGBlock {
   const opening = new Emitter(classes, from);
   opening.store(frame, base, CORO_NEXT_FIELD, frame);
-  const count = opening.loadContext(opening.context(), "queueCount", INT);
+  const count = opening.loadContext(opening.context(), "queueCount", DECLARED_INT);
   const empty = opening.add(irInt32Compare("==", count, opening.constant(0)));
 
   const first = resume.addBlock();
@@ -659,8 +698,8 @@ function enqueue(
   const settle = new Emitter(classes, join);
   const context = settle.context();
   settle.storeContext(context, "queueTail", CORO_FRAME_BASE, frame);
-  const held = settle.loadContext(context, "queueCount", INT);
-  settle.storeContext(context, "queueCount", INT, settle.add(irInt32Add(held, settle.constant(1))));
+  const held = settle.loadContext(context, "queueCount", DECLARED_INT);
+  settle.storeContext(context, "queueCount", DECLARED_INT, settle.add(irInt32Add(held, settle.constant(1))));
   return join;
 }
 
@@ -734,12 +773,12 @@ const REJECTS: Settlement = {
       CORO_NEXT_REJECTED_FIELD,
       out.loadContext(context, "rejectedHead", CORO_PROMISE_BASE),
     );
-    const outstanding = out.loadContext(context, "rejectedCount", INT);
+    const outstanding = out.loadContext(context, "rejectedCount", DECLARED_INT);
     out.storeContext(context, "rejectedHead", CORO_PROMISE_BASE, held);
     out.storeContext(
       context,
       "rejectedCount",
-      INT,
+      DECLARED_INT,
       out.add(irInt32Add(outstanding, out.constant(1))),
     );
   },
@@ -747,6 +786,22 @@ const REJECTS: Settlement = {
 
 function settlementOf(exit: CFGInstruction): Settlement {
   return isPendingThrowReturn(exit) ? REJECTS : RESOLVES;
+}
+
+function recordSettlement(
+  out: Emitter,
+  classes: ClassTable,
+  held: CFGInstruction,
+  promise: ClassShape,
+  settlement: Settlement,
+  settled: CFGInstruction | null,
+): void {
+  if (settled !== null && promise.fields.has(settlement.field)) {
+    if (settlement.field === CORO_ERROR_FIELD) storeThrown(out, classes, held, promise, settled);
+    else out.store(held, promise, settlement.field, settled);
+  }
+  out.store(held, promise, CORO_STATE_FIELD, out.constant(settlement.state));
+  settlement.track(out, held, promise);
 }
 
 function settleAt(
@@ -764,11 +819,7 @@ function settleAt(
   const settled = settlement.settled(block, returned);
   const out = new Emitter(classes, block);
   const held = out.load(self, frame, CORO_RESULT_FIELD);
-  if (settled !== null && promise.fields.has(settlement.field)) {
-      out.store(held, promise, settlement.field, settled);
-    }
-  out.store(held, promise, CORO_STATE_FIELD, out.constant(settlement.state));
-  settlement.track(out, held, promise);
+  recordSettlement(out, classes, held, promise, settlement, settled);
 
   const waiting = out.load(held, promise, CORO_WAITING_FIELD);
   const wakes = out.add(irInt32Compare("==", waiting, out.constant(CORO_SOMEONE_WAITING)));
@@ -832,11 +883,7 @@ function settleInPlace(
     unlink(exit);
     const settled = settlement.settled(block, returned);
     const out = new Emitter(classes, block);
-    if (settled !== null && promise.fields.has(settlement.field)) {
-      out.store(held, promise, settlement.field, settled);
-    }
-    out.store(held, promise, CORO_STATE_FIELD, out.constant(settlement.state));
-    settlement.track(out, held, promise);
+    recordSettlement(out, classes, held, promise, settlement, settled);
     block.addNode(irReturn(held));
   }
   graph.declaredSignature = {
@@ -864,17 +911,6 @@ function splitInPlace(
 ): CoroutineSplit {
   const points = suspendPointsOf(graph, classes, promiseOf);
   if (points.length === 0) return settleInPlace(graph, classes, promise);
-  const awaited = new Set(
-    points.flatMap((point) => (point.promise === null ? [] : [point.promise.name])),
-  );
-  if (graph.recoversThrows && awaited.size > 1) {
-    throw new CoroutineSplitError(
-      `${graph.name} can catch a throw from awaits on ${awaited.size} different functions, ` +
-        `and the compiler cannot yet tell those rejections apart; await one of them at a ` +
-        `time, or keep this part interpreted`,
-    );
-  }
-
   localizeRuntimeBases(graph);
   localizeConstantArrays(graph);
   const spills = new FrameSpills(graph, classes, points);
@@ -886,7 +922,7 @@ function splitInPlace(
   resume.classes = classes;
   resume.internal = true;
   resume.resumable = true;
-  resume.declaredSignature = { params: [frame.name], returns: INT };
+  resume.declaredSignature = { params: [frame.name], returns: DECLARED_INT };
   const self = resume.addParameter(0);
   resume.takeBlocks([...graph.blocks], body);
 
@@ -946,7 +982,7 @@ export function buildReportRejections(classes: ClassTable): CFGFunction {
   const graph = new CFGFunction(CORO_REPORT);
   graph.classes = classes;
   graph.internal = true;
-  graph.declaredSignature = { params: [], returns: INT };
+  graph.declaredSignature = { params: [], returns: DECLARED_INT };
   graph.parameterCount = 0;
   const base = classes.shapeOf(CORO_PROMISE_BASE)!;
 
@@ -964,7 +1000,7 @@ export function buildReportRejections(classes: ClassTable): CFGFunction {
   link(entry, test);
 
   const guard = new Emitter(classes, test);
-  const outstanding = guard.loadContext(guard.context(), "rejectedCount", INT);
+  const outstanding = guard.loadContext(guard.context(), "rejectedCount", DECLARED_INT);
   const remaining = guard.add(irInt32Compare(">", outstanding, guard.constant(0)));
   test.addNode(irBranch(remaining, body, finish));
   link(test, body);
@@ -979,7 +1015,7 @@ export function buildReportRejections(classes: ClassTable): CFGFunction {
     CORO_PROMISE_BASE,
     step.load(head, base, CORO_NEXT_REJECTED_FIELD),
   );
-  step.storeContext(context, "rejectedCount", INT, step.add(irInt32Sub(outstanding, step.constant(1))));
+  step.storeContext(context, "rejectedCount", DECLARED_INT, step.add(irInt32Sub(outstanding, step.constant(1))));
   const unreported = step.load(head, base, CORO_UNREPORTED_FIELD);
   const escaped = step.add(irInt32Compare("==", unreported, step.constant(CORO_UNREPORTED)));
   body.addNode(irBranch(escaped, collect, test));
@@ -987,7 +1023,7 @@ export function buildReportRejections(classes: ClassTable): CFGFunction {
   link(body, test);
 
   const gather = new Emitter(classes, collect);
-  const reported = gather.loadContext(gather.context(), "reportedCount", INT);
+  const reported = gather.loadContext(gather.context(), "reportedCount", DECLARED_INT);
   const already = gather.add(irInt32Compare(">", reported, gather.constant(0)));
   collect.addNode(irBranch(already, append, first));
   link(collect, append);
@@ -995,7 +1031,7 @@ export function buildReportRejections(classes: ClassTable): CFGFunction {
 
   const opening = new Emitter(classes, first);
   const started = opening.context();
-  opening.storeContext(started, "reportedCount", INT, opening.constant(1));
+  opening.storeContext(started, "reportedCount", DECLARED_INT, opening.constant(1));
   opening.storeContext(started, "rejectedText", CORO_PROMISE_BASE, head);
   first.addNode(irJump(test));
   link(first, test);
@@ -1019,7 +1055,7 @@ export function buildReportRejections(classes: ClassTable): CFGFunction {
   link(append, test);
 
   const ending = new Emitter(classes, finish);
-  const total = ending.loadContext(ending.context(), "reportedCount", INT);
+  const total = ending.loadContext(ending.context(), "reportedCount", DECLARED_INT);
   const escapes = ending.add(irInt32Compare(">", total, ending.constant(0)));
   finish.addNode(irBranch(escapes, report, done));
   link(finish, report);
@@ -1068,7 +1104,7 @@ function appendWaiting(
 ): CFGBlock {
   const opening = new Emitter(classes, from);
   opening.store(timer, shape, CORO_TIMER_FIELD, timer);
-  const count = opening.loadContext(opening.context(), "waitCount", INT);
+  const count = opening.loadContext(opening.context(), "waitCount", DECLARED_INT);
   const empty = opening.add(irInt32Compare("==", count, opening.constant(0)));
 
   const first = graph.addBlock();
@@ -1103,8 +1139,8 @@ function appendWaiting(
   const settle = new Emitter(classes, join);
   const context = settle.context();
   settle.storeContext(context, "waitTail", CORO_TIMER_SHAPE, timer);
-  const held = settle.loadContext(context, "waitCount", INT);
-  settle.storeContext(context, "waitCount", INT, settle.add(irInt32Add(held, settle.constant(1))));
+  const held = settle.loadContext(context, "waitCount", DECLARED_INT);
+  settle.storeContext(context, "waitCount", DECLARED_INT, settle.add(irInt32Add(held, settle.constant(1))));
   return join;
 }
 
@@ -1139,7 +1175,7 @@ export function buildWake(classes: ClassTable): CFGFunction {
   const graph = new CFGFunction(CORO_WAKE);
   graph.classes = classes;
   graph.internal = true;
-  graph.declaredSignature = { params: [], returns: INT };
+  graph.declaredSignature = { params: [], returns: DECLARED_INT };
   graph.parameterCount = 0;
   const shape = coroutineTimerShape(classes);
   const frames = classes.shapeOf(CORO_FRAME_BASE)!;
@@ -1167,15 +1203,15 @@ export function buildWake(classes: ClassTable): CFGFunction {
   opening.storeContext(
     started,
     "sweepCount",
-    INT,
-    opening.loadContext(started, "waitCount", INT),
+    DECLARED_INT,
+    opening.loadContext(started, "waitCount", DECLARED_INT),
   );
-  opening.storeContext(started, "waitCount", INT, opening.constant(0));
+  opening.storeContext(started, "waitCount", DECLARED_INT, opening.constant(0));
   entry.addNode(irJump(test));
   link(entry, test);
 
   const guard = new Emitter(classes, test);
-  const left = guard.loadContext(guard.context(), "sweepCount", INT);
+  const left = guard.loadContext(guard.context(), "sweepCount", DECLARED_INT);
   const more = guard.add(irInt32Compare(">", left, guard.constant(0)));
   test.addNode(irBranch(more, body, done));
   link(test, body);
@@ -1190,7 +1226,7 @@ export function buildWake(classes: ClassTable): CFGFunction {
     CORO_TIMER_SHAPE,
     step.load(head, shape, CORO_TIMER_FIELD),
   );
-  step.storeContext(context, "sweepCount", INT, step.add(irInt32Sub(left, step.constant(1))));
+  step.storeContext(context, "sweepCount", DECLARED_INT, step.add(irInt32Sub(left, step.constant(1))));
   const reached = step.add(
     irFloat64Compare("<=", step.load(head, shape, CORO_DUE_FIELD), nowMillis(step)),
   );
@@ -1227,7 +1263,7 @@ export function buildDrain(classes: ClassTable, timers: boolean): CFGFunction {
   const graph = new CFGFunction(CORO_DRAIN);
   graph.classes = classes;
   graph.internal = true;
-  graph.declaredSignature = { params: [], returns: INT };
+  graph.declaredSignature = { params: [], returns: DECLARED_INT };
   graph.parameterCount = 0;
   const base = classes.shapeOf(CORO_FRAME_BASE)!;
 
@@ -1241,7 +1277,7 @@ export function buildDrain(classes: ClassTable, timers: boolean): CFGFunction {
 
   const guard = new Emitter(classes, test);
   const context = guard.context();
-  const count = guard.loadContext(context, "queueCount", INT);
+  const count = guard.loadContext(context, "queueCount", DECLARED_INT);
   const pending = guard.add(irInt32Compare(">", count, guard.constant(0)));
   const empty = timers ? graph.addBlock() : done;
   test.addNode(irBranch(pending, body, empty));
@@ -1251,7 +1287,7 @@ export function buildDrain(classes: ClassTable, timers: boolean): CFGFunction {
   if (timers) {
     const blocking = graph.addBlock();
     const stalled = new Emitter(classes, empty);
-    const waiting = stalled.loadContext(stalled.context(), "waitCount", INT);
+    const waiting = stalled.loadContext(stalled.context(), "waitCount", DECLARED_INT);
     const parked = stalled.add(irInt32Compare(">", waiting, stalled.constant(0)));
     empty.addNode(irBranch(parked, blocking, done));
     link(empty, blocking);
@@ -1268,11 +1304,11 @@ export function buildDrain(classes: ClassTable, timers: boolean): CFGFunction {
   const head = step.loadContext(inner, "queueHead", CORO_FRAME_BASE);
   const next = step.load(head, base, CORO_NEXT_FIELD);
   step.storeContext(inner, "queueHead", CORO_FRAME_BASE, next);
-  const remaining = step.loadContext(inner, "queueCount", INT);
+  const remaining = step.loadContext(inner, "queueCount", DECLARED_INT);
   step.storeContext(
     inner,
     "queueCount",
-    INT,
+    DECLARED_INT,
     step.add(irInt32Sub(remaining, step.constant(1))),
   );
   const routine = step.load(head, base, CORO_ROUTINE_FIELD);

@@ -74,8 +74,15 @@ describe("describeSteps", () => {
     expect(describeSteps([allocate(8), save("rbx", 16)], x64CfiTarget)).toBeNull();
   });
 
+  it("names a vector register the prologue saved", () => {
+    expect(describeSteps([allocate(16), save("xmm6", 0)], x64CfiTarget)).toEqual([
+      { kind: "cfa", offset: 24 },
+      { kind: "saved", register: 23, slots: 3 },
+    ]);
+  });
+
   it("refuses a register it cannot name", () => {
-    expect(describeSteps([allocate(16), save("xmm3", 0)], x64CfiTarget)).toBeNull();
+    expect(describeSteps([allocate(16), save("k1", 0)], x64CfiTarget)).toBeNull();
   });
 });
 
@@ -88,6 +95,6 @@ describe("cfiDirectives", () => {
   });
 
   it("answers nothing when a step cannot be described", () => {
-    expect(cfiDirectives([allocate(16), save("xmm3", 0)], x64CfiTarget)).toBeNull();
+    expect(cfiDirectives([allocate(16), save("k1", 0)], x64CfiTarget)).toBeNull();
   });
 });

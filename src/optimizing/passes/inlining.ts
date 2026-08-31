@@ -1,4 +1,6 @@
 import {
+  irConstant,
+  irInt32Or,
   irJump,
   irRequiresFrameState,
   isTerminator,
@@ -14,6 +16,7 @@ import {
   IR_INT32_DIV,
   IR_INT32_MOD,
   IR_JUMP,
+  IR_PARAMETER,
   IR_LOAD_CONTEXT_SLOT,
   IR_LOAD_TEXT,
   IR_PHI,
@@ -21,6 +24,8 @@ import {
   IR_STORE_CONTEXT_SLOT,
   IR_STORE_TEXT,
   IR_YIELD,
+  RESULT_INT32,
+  resultClassOf,
   type CFGBlock,
   type CFGFunction,
   type CFGInstruction,
@@ -31,9 +36,11 @@ import { addPhi, link, splitBlockBefore } from "../ir/cfg-edit.js";
 import { detachInputs, nodeIdStamper, type Stamp } from "../ir/graph-edit.js";
 import { remarks } from "../infra/pass-remarks.js";
 import { calleeSymbolName, NAMED_ARGUMENTS_PROP } from "../metadata/call-signatures.js";
-import { declaredAcceptsNull } from "../types/declared.js";
+import { declaredAcceptsNull, DECLARED_INT } from "../types/declared.js";
 import { declaredAotScalar } from "../metadata/class-table.js";
+import { declaredInt32Return } from "../../runtime/declared-int.js";
 import { isNumericScalar } from "../types/scalar.js";
+import { withinInt32 } from "../target/integer.js";
 import type { ModuleFunctions } from "../metadata/module-functions.js";
 import type { CompilerOptions } from "../options.js";
 
@@ -170,6 +177,37 @@ function mergesANumber(callee: CFGFunction): boolean {
   return scalar !== null && isNumericScalar(scalar);
 }
 
+function answersInt32(callee: CFGFunction, value: CFGInstruction | undefined): boolean {
+  if (value === undefined) return false;
+  if (resultClassOf(value.type) === RESULT_INT32) return true;
+  if (value.type === IR_PARAMETER) {
+    return callee.declaredSignature?.params[Number(value.props.index)] === DECLARED_INT;
+  }
+  if (value.type !== IR_CONSTANT) return false;
+  const constant = value.props.value;
+  return (
+    typeof constant === "number" && Number.isInteger(constant) && withinInt32(constant, constant)
+  );
+}
+
+function needsDeclaredIntWrap(callee: CFGFunction, body: CalleeBody): boolean {
+  if (!declaredInt32Return(callee)) return false;
+  return !body.returns.every((returned) => answersInt32(callee, returned.inputs[0]));
+}
+
+function wrapInInt32(
+  answered: CFGInstruction,
+  call: CFGInstruction,
+  editor: GraphEditor,
+  stamp: Stamp,
+): CFGInstruction {
+  const zero = stamp(irConstant(0));
+  const wrapped = stamp(irInt32Or(answered, zero));
+  editor.insertBefore(call, zero);
+  editor.insertBefore(call, wrapped);
+  return wrapped;
+}
+
 function substituteParameters(
   spliced: Iterable<CFGInstruction>,
   parameters: readonly CFGInstruction[],
@@ -198,6 +236,7 @@ function spliceStraightLine(
   site: CallSite,
   editor: GraphEditor,
   stamp: Stamp,
+  wraps: boolean,
 ): boolean {
   const copy = cloneGraph(site.callee, `${caller.name}$inline`);
   const block = copy.graph.blocks[0];
@@ -212,7 +251,9 @@ function spliceStraightLine(
     editor.insertBefore(call, node);
   }
   const answered = terminator.inputs[0] ?? null;
-  if (answered !== null) editor.replaceAllUses(call, answered);
+  if (answered !== null) {
+    editor.replaceAllUses(call, wraps ? wrapInInt32(answered, call, editor, stamp) : answered);
+  }
   editor.remove(call);
   return true;
 }
@@ -224,6 +265,7 @@ function spliceRegion(
   body: CalleeBody,
   editor: GraphEditor,
   stamp: Stamp,
+  wraps: boolean,
 ): boolean {
   const entered = call.block;
   if (entered === null) return false;
@@ -251,7 +293,7 @@ function spliceRegion(
   if (call.uses.length > 0) {
     const merged =
       answers.length === 1 ? answers[0]! : stamp(addPhi(continuation, answers));
-    editor.replaceAllUses(call, merged);
+    editor.replaceAllUses(call, wraps ? wrapInInt32(merged, call, editor, stamp) : merged);
   }
   editor.remove(call);
   return true;
@@ -309,10 +351,11 @@ export function inlineKnownCalls(
         );
         continue;
       }
+      const wraps = needsDeclaredIntWrap(site.callee, body);
       const spliced =
         site.callee.blocks.length === 1
-          ? spliceStraightLine(graph, node, site, editor, stamp)
-          : spliceRegion(graph, node, site, body, editor, stamp);
+          ? spliceStraightLine(graph, node, site, editor, stamp, wraps)
+          : spliceRegion(graph, node, site, body, editor, stamp, wraps);
       if (!spliced) {
         remarks.missed(node, `splicing ${site.callee.name} into this call failed late, so the call stands`);
         continue;

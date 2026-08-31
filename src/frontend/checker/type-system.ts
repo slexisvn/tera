@@ -28,13 +28,17 @@ export type Binding = {
   optional: boolean;
   declared?: boolean;
   widens?: TypeName;
+  open?: boolean;
   visibility?: ClassVisibility;
   owner?: string;
   abstract?: boolean;
   member?: ClassShapeMemberKind;
 };
 
+export const OPEN_FIELD_TYPE: TypeName = "any";
+
 export function assignableType(binding: Binding): TypeName {
+  if (binding.open === true) return OPEN_FIELD_TYPE;
   return binding.widens ?? binding.type;
 }
 

@@ -128,7 +128,8 @@ function analyze(compiledFn: RegisterCompiledFunction): RegisterLiveness | null 
     const base = index * width;
     let changed = false;
     for (let word = 0; word < width; word++) {
-      const next = (outgoing[word]! & ~written[base + word]!) | read[base + word]!;
+      const next =
+        ((outgoing[word]! & ~written[base + word]!) | read[base + word]!) >>> 0;
       if (next === live[base + word]) continue;
       live[base + word] = next;
       changed = true;

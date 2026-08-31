@@ -3,7 +3,7 @@ import { nodeEngine } from "../../../helpers/engine.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
 import { cSource, itNative } from "../../../helpers/c-executor.js";
 import { cCalls, cText } from "../../../helpers/aot-agreement.js";
-import { TEXT_STORAGE_BYTES } from "../../../../src/optimizing/types/scalar.js";
+import { TERA_TEXT_OVERFLOW } from "../../../../src/optimizing/target/faults.js";
 import { compilerOptions } from "../../../../src/optimizing/options.js";
 
 const KEEPS_CALLS = compilerOptions("speed", { inlineBudget: 0 });
@@ -234,11 +234,66 @@ describe("string methods as compiled builtins", () => {
     itNative(`keeps the C backend in lockstep on ${body}`, returns.text(body, "f", [], expected));
   }
 
-  itRunsPe("truncates at the buffer capacity instead of overrunning it", () => {
+  itRunsPe("says so instead of truncating a string past the buffer capacity", () => {
     const run = runPe(image(src('print("ab".repeat(100000).length)')));
 
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(TERA_TEXT_OVERFLOW);
+    expect(run.stdout).toBe("");
+  });
+
+  for (const body of [
+    'print("7".pad_start(3, "0"))',
+    'print("ab".pad_end(5, "-"))',
+    'print("hello".pad_start(3, "0"))',
+    'print("x".pad_start(4))',
+    'print("5".pad_start(8, "ab"))',
+    'print("5".pad_end(8, "ab"))',
+    'print("abc".pad_start(5, ""))',
+    'print("".pad_start(3, "xy"))',
+  ]) {
+    itRunsPe(`pads the way the interpreter pads on ${body}`, () => agrees(body));
+  }
+
+  itRunsPe("splits what a split answered", () =>
+    agrees(
+      src(
+        'raw = "a,b\\nc,d"',
+        'for line of raw.split("\\n"):',
+        '  fields = line.split(",")',
+        "  print(fields[0])",
+        "  print(fields.length)",
+      ),
+    ),
+  );
+
+  itRunsPe("keeps the strings a module array collects", () =>
+    agrees(
+      src(
+        "lines: string[] = []",
+        "",
+        "fn keep(amount: float) -> float:",
+        '  lines.push("in " + amount.to_string())',
+        "  return amount",
+        "",
+        "fn risky(n: int) -> int:",
+        "  if n < 0:",
+        '    throw Error("nope")',
+        "  return n",
+        "",
+        "print(risky(1))",
+        "print(keep(2.0))",
+        "for line of lines:",
+        "  print(line)",
+      ),
+    ),
+  );
+
+  itRunsPe("builds a string the default buffer holds", () => {
+    const run = runPe(image(src('print("ab".repeat(4000).length)')));
+
     expect(run.status).toBe(0);
-    expect(Number(run.stdout.trim())).toBe(TEXT_STORAGE_BYTES - 1);
+    expect(Number(run.stdout.trim())).toBe(8000);
   });
 
   it("compiles a split whose separator reaches the call site as a literal", () => {

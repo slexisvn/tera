@@ -258,14 +258,16 @@ describe("lowerErrorSurface", () => {
     expect(declaredOn(cellNodesOf(module))).toEqual([`string/${SCALAR_STRING}`]);
   });
 
-  it("leaves the cell alone for a module whose rejections travel as promise text", () => {
+  it("carries the error itself for a module whose rejections travel through promises", () => {
     const classes = table();
     const raiser = raises(classes, (block) => [allocated(block, classes, "HttpError")]);
     raiser.isAsync = true;
     const module = moduleFromGraphs([raiser]);
 
-    expect(lowerErrorSurface(module, classes)).toBe(0);
-    expect(declaredOn(cellNodesOf(module))).toEqual([`string/${SCALAR_STRING}`]);
+    lowerErrorSurface(module, classes);
+
+    expect(declaredOn(cellNodesOf(module))).toEqual([`HttpError/${SCALAR_POINTER}`]);
+    expect(classes.thrownType()).toBe("HttpError");
   });
 
   it("leaves the cell alone when the program declares no error class at all", () => {

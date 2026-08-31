@@ -54,6 +54,22 @@ export const BUILTIN_METHOD_DECLARATIONS: readonly BuiltinMethodDeclaration[] = 
   { owner: "string", name: "repeat", pure: true, params: ["int"], returns: "string" },
   {
     owner: "string",
+    name: "pad_start",
+    pure: true,
+    params: ["int", "string"],
+    returns: "string",
+    defaults: [0, " "],
+  },
+  {
+    owner: "string",
+    name: "pad_end",
+    pure: true,
+    params: ["int", "string"],
+    returns: "string",
+    defaults: [0, " "],
+  },
+  {
+    owner: "string",
     name: "replace",
     pure: true,
     params: ["string", "string"],

@@ -4,6 +4,7 @@ import { lookup, lookupSignature, type BoundProgram, type Scope } from "./binder
 import { binaryOperatorSemantics, isTensorType } from "./operator-types.js";
 import {
   arrayElementType,
+  assignableType,
   awaitedType,
   builtinMethod,
   callSignatureForType,
@@ -613,7 +614,10 @@ function comprehensionProjection(body: ASTNode, accumulator: string): ASTNode | 
 function memberType(type: TypeName, property: string, env: TypeEnv): TypeName | null {
   const shape = instantiateShapeForType(type, env);
   const field = shape?.fields.get(property);
-  if (field) return field.optional ? unionType([field.type, "undefined"]) : field.type;
+  if (field) {
+    const carried = assignableType(field);
+    return field.optional ? unionType([carried, "undefined"]) : carried;
+  }
   const method = builtinMethod(type, property, env);
   if (!method) return null;
   return method.getter ? method.returns : signatureType(method.signature);

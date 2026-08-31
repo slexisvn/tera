@@ -295,3 +295,46 @@ describe("rangeAnalysisAndBoundsCheckElimination", () => {
     expect(b0.getTerminator().props.targetBlock).toBe(b1.id);
   });
 });
+
+describe("rangeAnalysisAndBoundsCheckElimination parameter ranges", () => {
+  const comparedToInt32Ceiling = (declared: string | null): CFGFunction => {
+    const graph = new CFGFunction("bounded");
+    if (declared !== null) graph.declaredSignature = { params: [declared], returns: "int" };
+    const b0 = graph.addBlock();
+    const b1 = graph.addBlock();
+    const b2 = graph.addBlock();
+    const n = graph.addParameter(0);
+    const ceiling = b0.addNode(irConstant(0x7fffffff));
+    const within = b0.addNode(irInt32Compare("<=", n, ceiling));
+    b0.addNode(irBranch(within, b1, b2));
+    link(b0, b1);
+    link(b0, b2);
+    b1.addNode(irReturn(irConstant(1)));
+    b2.addNode(irReturn(irConstant(0)));
+    graph.rebuildUses();
+    return graph;
+  };
+
+  it("bounds a parameter declared int by the int32 range", () => {
+    const graph = comparedToInt32Ceiling("int");
+
+    expect(eliminateBoundsChecks(graph)).toBeGreaterThan(0);
+    const terminator = graph.blocks[0]!.getTerminator();
+    expect(terminator.type).toBe(IR_JUMP);
+    expect(terminator.props.targetBlock).toBe(graph.blocks[1]!.id);
+  });
+
+  it("leaves a parameter with no declared type unbounded", () => {
+    const graph = comparedToInt32Ceiling(null);
+
+    expect(eliminateBoundsChecks(graph)).toBe(0);
+    expect(graph.blocks[0]!.getTerminator().type).not.toBe(IR_JUMP);
+  });
+
+  it("leaves a parameter declared float unbounded", () => {
+    const graph = comparedToInt32Ceiling("float");
+
+    expect(eliminateBoundsChecks(graph)).toBe(0);
+    expect(graph.blocks[0]!.getTerminator().type).not.toBe(IR_JUMP);
+  });
+});

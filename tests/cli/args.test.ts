@@ -119,6 +119,30 @@ describe("compile defaults", () => {
     });
   });
 
+  it("leaves the string size to the compiler unless it is asked for one", () => {
+    expect(compileConfig(["compile", "a.tera"]).textBytes).toBeNull();
+  });
+
+  it("reads the space a produced string may take", () => {
+    expect(compileConfig(["compile", "a.tera", "--text-size=4k"]).textBytes).toBe(4096);
+    expect(compileConfig(["compile", "a.tera", "--text-size", "2048"]).textBytes).toBe(2048);
+  });
+
+  it("refuses a string size that is not a size", () => {
+    expect(() => parseArgs(["compile", "a.tera", "--text-size=wide"])).toThrow(/text-size/);
+  });
+
+  it("bounds the string size by its own floor, not the heap's", () => {
+    expect(compileConfig(["compile", "a.tera", "--text-size=256"]).textBytes).toBe(256);
+    expect(() => parseArgs(["compile", "a.tera", "--text-size=8"])).toThrow(/at least 256 bytes/);
+  });
+
+  it("still holds the heap to its own floor", () => {
+    expect(() => parseArgs(["compile", "a.tera", "--heap-size=256"])).toThrow(
+      /at least 65536 bytes/,
+    );
+  });
+
   it("checks SSA form after every pass only when asked to", () => {
     expect(compileConfig(["compile", "a.tera"]).verify).toBe(false);
     expect(compileConfig(["compile", "a.tera", "--verify"]).verify).toBe(true);

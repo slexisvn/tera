@@ -526,6 +526,23 @@ function widenedThroughSlot(
   return aliases;
 }
 
+function calledCollection(
+  node: CFGInstruction,
+  unit: CollectionUnit,
+  byName: ReadonlyMap<string, CFGFunction>,
+): string | null {
+  if (node.type !== IR_GENERIC_CALL && node.type !== IR_CALL_KNOWN_FUNCTION) return null;
+  const graphs = calledGraphsOf(node, unit, byName);
+  if (graphs === null || graphs.length === 0) return null;
+  let carried: string | null = null;
+  for (const graph of graphs) {
+    const named = collectionTypeNameOf(graph.declaredSignature?.returns);
+    if (named === null || (carried !== null && carried !== named)) return null;
+    carried = named;
+  }
+  return carried;
+}
+
 function seedsOf(
   unit: CollectionUnit,
   byName: ReadonlyMap<string, CFGFunction>,
@@ -537,9 +554,15 @@ function seedsOf(
   for (const block of unit.graph.blocks) {
     for (const node of block.nodes) {
       const kind = namedConstruction(node, unit.graph);
-      if (kind === null) continue;
+      if (kind !== null) {
+        held.push(node);
+        kinds.push(kind);
+        continue;
+      }
+      const answered = calledCollection(node, unit, byName);
+      if (answered === null) continue;
       held.push(node);
-      kinds.push(kind);
+      kinds.push(answered);
     }
   }
   const declared = unit.graph.declaredSignature;

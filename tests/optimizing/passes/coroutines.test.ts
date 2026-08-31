@@ -4,9 +4,11 @@ import {
   irAwait,
   irConstant,
   irInt32Add,
+  irNewObject,
   irReturn,
   resetIRNodeIds,
   IR_BRANCH,
+  IR_GENERIC_ADD,
   IR_CALL_BUILTIN,
   IR_CALL_KNOWN_FUNCTION,
   IR_NEW_OBJECT,
@@ -14,6 +16,7 @@ import {
   IR_STORE_TEXT,
   textCapacityOf,
   type CFGBlock,
+  type CFGInstruction,
 } from "../../../src/optimizing/ir/index.js";
 import {
   lowerAwaitedPromises,
@@ -24,6 +27,7 @@ import {
   coroutineBaseShapes,
   coroutinePromiseShape,
   CORO_ERROR_FIELD,
+  CORO_ERROR_VALUE_FIELD,
   CORO_NEXT_FIELD,
   CORO_STATE_FIELD,
   CORO_STATE_PENDING,
@@ -41,6 +45,10 @@ import {
 } from "../../../src/optimizing/metadata/class-table.js";
 import { TEXT_STORAGE_BYTES } from "../../../src/optimizing/types/scalar.js";
 import { CLASS_DATA_MEMBER } from "../../../src/core/class-member.js";
+import {
+  ERROR_DISPLAY_PREFIX,
+  ERROR_MESSAGE_FIELD,
+} from "../../../src/optimizing/prelude/errors.js";
 import type { ClassSurface } from "../../../src/frontend/modules/interface.js";
 
 const BOX: ClassSurface = {
@@ -53,6 +61,25 @@ const BOX: ClassSurface = {
       declaredType: "int",
       member: CLASS_DATA_MEMBER,
       owner: "Box",
+      abstract: false,
+      visibility: "public",
+      static: false,
+    },
+  ],
+  constructorParams: [],
+  constructorParamNames: [],
+};
+
+const FAULT: ClassSurface = {
+  name: "Fault",
+  parent: null,
+  abstract: false,
+  members: [
+    {
+      name: "message",
+      declaredType: "string",
+      member: CLASS_DATA_MEMBER,
+      owner: "Fault",
       abstract: false,
       visibility: "public",
       static: false,
@@ -221,6 +248,55 @@ describe("splitCoroutine", () => {
     expect(
       stores(IR_STORE_FIELD, state.offset).map((node) => Number(node.inputs[1]!.props.value)),
     ).toContain(CORO_STATE_REJECTED);
+  });
+
+  const rejectsWith = (declaredThrown: string | null) => {
+    const classes = buildClassTable([BOX, FAULT]);
+    if (declaredThrown !== null) classes.declareThrownType(declaredThrown);
+    coroutineBaseShapes(classes);
+    const graph = new CFGFunction("f");
+    graph.classes = classes;
+    graph.recoversThrows = true;
+    graph.declaredSignature = { params: [], returns: "int" };
+    const block = graph.addBlock();
+    block.addNode(irAwait(block.addNode(irConstant(1))));
+    recordPendingThrow(block, block.addNode(irNewObject(classes.shapeOf("Fault")!.id)));
+    returnPendingThrow(block);
+
+    const promise = coroutinePromiseShape(classes, "f", "int");
+    const { resume } = splitCoroutine(graph, classes, promise, () => null);
+    return {
+      promise,
+      nodes: resume!.blocks.flatMap((candidate) => candidate.nodes),
+    };
+  };
+
+  const storesAt = (nodes: CFGInstruction[], type: string, offset: number) =>
+    nodes.filter((node) => node.type === type && Number(node.props.offset) === offset);
+
+  it("carries the raised error itself when the module declares what it throws", () => {
+    const { promise, nodes } = rejectsWith("Fault");
+    const errorValue = promise.fields.get(CORO_ERROR_VALUE_FIELD)!;
+
+    expect(storesAt(nodes, IR_STORE_FIELD, errorValue.offset)).toHaveLength(1);
+  });
+
+  it("carries no error value when the module declares nothing it throws", () => {
+    const { promise, nodes } = rejectsWith(null);
+    const errorValue = promise.fields.get(CORO_ERROR_VALUE_FIELD)!;
+
+    expect(storesAt(nodes, IR_STORE_FIELD, errorValue.offset)).toEqual([]);
+  });
+
+  it("reports a rejection by the text the raised error names itself with", () => {
+    const { promise, nodes } = rejectsWith("Fault");
+    const error = promise.fields.get(CORO_ERROR_FIELD)!;
+
+    const reported = storesAt(nodes, IR_STORE_TEXT, error.offset)[0]!;
+    const spelled = reported.inputs[1]!;
+    expect(spelled.type).toBe(IR_GENERIC_ADD);
+    expect(spelled.inputs[0]!.props.value).toBe(ERROR_DISPLAY_PREFIX);
+    expect(spelled.inputs[1]!.props.propName).toBe(ERROR_MESSAGE_FIELD);
   });
 
   it("resumes at one label per suspend and keeps the entry state", () => {

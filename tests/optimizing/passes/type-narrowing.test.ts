@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { typeNarrowing } from "../../../src/optimizing/passes/type-narrowing.js";
+import {
+  typeNarrowing,
+  widenUnprovenInt32Arithmetic,
+} from "../../../src/optimizing/passes/type-narrowing.js";
 import { DominatorTree } from "../../../src/optimizing/analyses/dominance.js";
 import { AnalysisManager } from "../../../src/optimizing/infra/analysis-manager.js";
 import {
@@ -16,8 +19,10 @@ import {
   irCheckMap,
   irGenericAdd,
   irGenericSub,
+  irGenericCall,
   irGenericCompare,
   irInt32Compare,
+  irLoadGlobal,
   irReturn,
   irBranch,
   irJump,
@@ -31,6 +36,7 @@ import {
 } from "../../../src/optimizing/ir/index.js";
 import { link } from "../../../src/optimizing/ir/cfg-edit.js";
 import { FrameState } from "../../../src/deopt/frame-state.js";
+import { RANGE_BUILTIN } from "../../../src/optimizing/metadata/builtin-methods.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -324,6 +330,73 @@ describe("typeNarrowing", () => {
       narrowTypes(graph);
 
       expect(add.type).toBe(IR_GENERIC_ADD);
+    });
+  });
+
+  describe("arithmetic that can leave int32", () => {
+    function summing(returns: string): { graph: CFGFunction; add: CFGInstruction } {
+      const graph = new CFGFunction("sum");
+      graph.declaredSignature = { params: ["int", "int"], names: ["a", "b"], returns };
+      const block = graph.addBlock();
+      const p0 = graph.addParameter(0);
+      const p1 = graph.addParameter(1);
+      const add = irGenericAdd(p0, p1);
+      block.addNode(add);
+      block.addNode(irReturn(add));
+      return { graph, add };
+    }
+
+    it("wraps in int32 when every reader of the sum truncates it", () => {
+      const { graph, add } = summing("int");
+
+      narrowTypes(graph);
+
+      expect(add.type).toBe(IR_INT32_ADD);
+      expect(add.props.noOverflow).toBe(true);
+    });
+
+    it("settles a sum a range counts with, whatever the function answers", () => {
+      const graph = new CFGFunction("total");
+      graph.declaredSignature = { params: ["int"], names: ["n"], returns: "float" };
+      const block = graph.addBlock();
+      const n = graph.addParameter(0);
+      const one = block.addNode(irConstant(1));
+      const add = block.addNode(irGenericAdd(n, one));
+      const callee = block.addNode(irLoadGlobal(RANGE_BUILTIN));
+      const counted = block.addNode(irGenericCall(callee, [one, add]));
+      block.addNode(irReturn(counted));
+
+      narrowTypes(graph);
+
+      expect(add.type).toBe(IR_INT32_ADD);
+      expect(add.props.noOverflow).toBe(true);
+      expect(widenUnprovenInt32Arithmetic(graph)).toBe(0);
+    });
+
+    it("leaves the sum unproven when its reader keeps the whole number", () => {
+      const { graph, add } = summing("float");
+
+      narrowTypes(graph);
+
+      expect(add.type).toBe(IR_INT32_ADD);
+      expect(add.props.noOverflow).toBeUndefined();
+    });
+
+    it("answers a double for an unproven sum nothing can deoptimize", () => {
+      const { graph, add } = summing("float");
+      narrowTypes(graph);
+
+      expect(widenUnprovenInt32Arithmetic(graph)).toBe(1);
+      expect(add.type).toBe(IR_FLOAT64_ADD);
+    });
+
+    it("keeps a sum a bounds proof settled", () => {
+      const { graph, add } = summing("float");
+      narrowTypes(graph);
+      add.props.noOverflow = true;
+
+      expect(widenUnprovenInt32Arithmetic(graph)).toBe(0);
+      expect(add.type).toBe(IR_INT32_ADD);
     });
   });
 });

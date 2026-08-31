@@ -7,6 +7,7 @@ import type { LoopForest } from "../analyses/loops.js";
 import { replaceGraphFrameStateValue } from "../ir/frame-state-values.js";
 import { detachInputs } from "../ir/graph-edit.js";
 import { rewriteBranchAsJump } from "../ir/cfg-edit.js";
+import { DECLARED_INT } from "../types/declared.js";
 import { withinInt32 } from "../target/integer.js";
 
 type IRNodeLike = ir.CFGInstruction;
@@ -126,12 +127,14 @@ export function eliminateRedundantChecks(
   return elimCount;
 }
 
-const RANGE_MAX = 0x7fffffff;
-const RANGE_MIN = -0x80000000;
+const UNBOUNDED_MAX = Infinity;
+const UNBOUNDED_MIN = -Infinity;
+const INT32_MAX = 0x7fffffff;
+const INT32_MIN = -0x80000000;
 
 function rangeText(range: Range): string {
-  const low = range.min <= RANGE_MIN ? "-inf" : String(range.min);
-  const high = range.max >= RANGE_MAX ? "+inf" : String(range.max);
+  const low = range.min <= UNBOUNDED_MIN ? "-inf" : String(range.min);
+  const high = range.max >= UNBOUNDED_MAX ? "+inf" : String(range.max);
   return `[${low},${high}]`;
 }
 
@@ -142,14 +145,21 @@ export function rangeAnalysisAndBoundsCheckElimination(
   const blockById = new Map<number, IRBlockLike>();
   for (const block of graph.blocks) blockById.set(block.id, block);
   const ranges = new Map<number, Range>();
-  const INF = RANGE_MAX;
-  const NEG_INF = RANGE_MIN;
+  const INF = UNBOUNDED_MAX;
+  const NEG_INF = UNBOUNDED_MIN;
 
   const setRange = (id: number, min: number, max: number): void => {
-    ranges.set(id, { min, max });
+    const known = !Number.isNaN(min) && !Number.isNaN(max) && min <= max;
+    ranges.set(id, known ? { min, max } : { min: NEG_INF, max: INF });
   };
   const getRange = (id: number): Range =>
     ranges.get(id) || { min: NEG_INF, max: INF };
+
+  for (const parameter of graph.parameters) {
+    const declared = graph.declaredSignature?.params[Number(parameter.props.index)];
+    if (declared === DECLARED_INT) setRange(parameter.id, INT32_MIN, INT32_MAX);
+    else setRange(parameter.id, NEG_INF, INF);
+  }
 
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
@@ -161,9 +171,6 @@ export function rangeAnalysisAndBoundsCheckElimination(
           }
           break;
         }
-        case ir.IR_PARAMETER:
-          setRange(node.id, NEG_INF, INF);
-          break;
 
         case ir.IR_CHECK_SMI:
         case ir.IR_CHECK_NUMBER: {

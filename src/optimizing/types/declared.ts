@@ -31,8 +31,10 @@ export interface NominalTypes {
 
 const NO_NOMINAL_TYPES: NominalTypes = { shapeIdOf: () => null };
 
+export const DECLARED_INT = "int";
+
 const PRIMITIVE_TYPES = new Map<string, LatticeType>([
-  ["int", smiType()],
+  [DECLARED_INT, smiType()],
   ["float", doubleType()],
   ["bool", booleanType()],
   ["boolean", booleanType()],
@@ -142,7 +144,7 @@ export type { DeclaredSignature };
 
 const CHECKER_NAME_BY_KIND = new Map<string, string>([
   [TypeKind.String, "string"],
-  [TypeKind.Smi, "int"],
+  [TypeKind.Smi, DECLARED_INT],
   [TypeKind.Double, "float"],
   [TypeKind.Number, "float"],
   [TypeKind.Boolean, "bool"],

@@ -203,6 +203,29 @@ describe("AOT exceptions", () => {
     ).toThrow(/keeps the value it caught across a call to label/);
   });
 
+  itRunsPe("throws an Error a class method built", () => {
+    expect(
+      ran(
+        src(
+          "class Account:",
+          "  public constructor(balance: float):",
+          "    this.balance = balance",
+          "  public withdraw(amount: float) -> float:",
+          "    if amount > this.balance:",
+          '      throw Error("insufficient funds")',
+          "    this.balance = this.balance - amount",
+          "    return this.balance",
+          "a = Account(100.0)",
+          "print(a.withdraw(30.0))",
+          "try:",
+          "  a.withdraw(1000.0)",
+          "catch e:",
+          "  print(e.message)",
+        ),
+      ).stdout,
+    ).toBe("70\ninsufficient funds\n");
+  });
+
   itRunsPe("reports a throw no handler is left to take", () => {
     const run = ran(src("try:", '  throw "first"', "catch e:", "  print(e)", 'throw "second"'));
 

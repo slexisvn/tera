@@ -20,6 +20,10 @@ export type AotScalar =
 
 export const TEXT_STORAGE_BYTES = 1024;
 
+export const DEFAULT_TEXT_BUFFER_BYTES = 1 << 14;
+
+export const TEXT_BUFFER_MINIMUM_BYTES = 1 << 8;
+
 export const VALUE_SCALAR_PROP = "valueScalar";
 
 const SCALAR_BY_KIND = new Map<string, AotScalar>([

@@ -3,6 +3,7 @@ import { imm, mem, type MachineOperand } from "../../machine/ir.js";
 import type { MachineRoutineBuilder } from "../../machine/routine.js";
 import { x64IntegerArgumentNames } from "./abi.js";
 import { X64_RUNTIME_SYMBOLS } from "./runtime-symbols.js";
+import { reportTextOverflow } from "./text-overflow.js";
 
 const RETURN_ADDRESS_BYTES = 8;
 
@@ -278,7 +279,7 @@ function stringRepeat(abi: RuntimeAbi): Emit {
       .emit("cmpb", mem(1, { base: builder.read("rdx", 8) }), imm(0))
       .to("je", "next")
       .emit("testl", builder.read(CAPACITY, 4), builder.read(CAPACITY, 4))
-      .to("jle", "terminate")
+      .to("jle", "overflow")
       .emit("movzbl", builder.write("rcx", 4), mem(1, { base: builder.read("rdx", 8) }))
       .emit("movb", mem(1, { base: builder.read("r9", 8) }), builder.read("rcx", 1))
       .emit("incq", builder.write("r9", 8))
@@ -288,9 +289,82 @@ function stringRepeat(abi: RuntimeAbi): Emit {
       .at("next")
       .emit("decl", builder.write("r8", 4))
       .to("jmp", "round")
+      .at("overflow");
+    reportTextOverflow(builder, abi);
+    builder
       .at("terminate")
       .emit("movb", mem(1, { base: builder.read("r9", 8) }), imm(0))
       .at("done");
+    returnDestination(builder);
+  };
+}
+
+function stringPad(abi: RuntimeAbi, leading: boolean): Emit {
+  return (builder) => {
+    loadArguments(abi, builder, [
+      [DESTINATION, 8],
+      [CAPACITY, 4],
+      [SOURCE, 8],
+      ["r9", 4],
+      ["rcx", 8],
+    ]);
+    builder
+      .emit("testl", builder.read(CAPACITY, 4), builder.read(CAPACITY, 4))
+      .to("jle", "done");
+    measure(builder, SOURCE, "rdx", "pad_text");
+    builder
+      .emit("subl", builder.write("r9", 4), builder.read("rdx", 4))
+      .emit("testl", builder.read("r9", 4), builder.read("r9", 4))
+      .to("jg", "sized")
+      .emit("xorl", builder.write("r9", 4), builder.read("r9", 4))
+      .at("sized");
+    measure(builder, "rcx", "r8", "pad_filler");
+    builder
+      .emit("testl", builder.read("r8", 4), builder.read("r8", 4))
+      .to("jne", "fills")
+      .emit("xorl", builder.write("r9", 4), builder.read("r9", 4))
+      .at("fills")
+      .emit("movl", builder.write("r8", 4), builder.read("r9", 4))
+      .emit("addl", builder.write("r8", 4), builder.read("rdx", 4))
+      .emit("cmpl", builder.read(CAPACITY, 4), builder.read("r8", 4))
+      .to("jg", "fits");
+    reportTextOverflow(builder, abi);
+    builder.at("fits").emit("movq", builder.write("r8", 8), builder.read(DESTINATION, 8));
+    if (leading) builder.emit("addq", builder.write("r8", 8), builder.read("r9", 8));
+    builder
+      .at("pad_copy")
+      .emit("movzbl", builder.write("rdx", 4), mem(1, { base: builder.read(SOURCE, 8) }))
+      .emit("testb", builder.read("rdx", 1), builder.read("rdx", 1))
+      .to("je", "pad_copied")
+      .emit("movb", mem(1, { base: builder.read("r8", 8) }), builder.read("rdx", 1))
+      .emit("incq", builder.write("r8", 8))
+      .emit("incq", builder.write(SOURCE, 8))
+      .to("jmp", "pad_copy")
+      .at("pad_copied");
+    if (leading) {
+      builder
+        .emit("movb", mem(1, { base: builder.read("r8", 8) }), imm(0))
+        .emit("movq", builder.write("r8", 8), builder.read(DESTINATION, 8));
+    }
+    builder
+      .emit("movq", builder.write("rdx", 8), builder.read("rcx", 8))
+      .at("pad_fill")
+      .emit("testl", builder.read("r9", 4), builder.read("r9", 4))
+      .to("jle", "pad_filled")
+      .emit("movzbl", builder.write(SOURCE, 4), mem(1, { base: builder.read("rdx", 8) }))
+      .emit("testb", builder.read(SOURCE, 1), builder.read(SOURCE, 1))
+      .to("jne", "pad_put")
+      .emit("movq", builder.write("rdx", 8), builder.read("rcx", 8))
+      .emit("movzbl", builder.write(SOURCE, 4), mem(1, { base: builder.read("rdx", 8) }))
+      .at("pad_put")
+      .emit("movb", mem(1, { base: builder.read("r8", 8) }), builder.read(SOURCE, 1))
+      .emit("incq", builder.write("r8", 8))
+      .emit("incq", builder.write("rdx", 8))
+      .emit("decl", builder.write("r9", 4))
+      .to("jmp", "pad_fill")
+      .at("pad_filled");
+    if (!leading) builder.emit("movb", mem(1, { base: builder.read("r8", 8) }), imm(0));
+    builder.at("done");
     returnDestination(builder);
   };
 }
@@ -657,6 +731,8 @@ export function x64TextMethodRoutines(
     [X64_RUNTIME_SYMBOLS.stringTrimEnd, stringTrim(abi, false, true)],
     [X64_RUNTIME_SYMBOLS.stringSlice, stringSlice(abi)],
     [X64_RUNTIME_SYMBOLS.stringRepeat, stringRepeat(abi)],
+    [X64_RUNTIME_SYMBOLS.stringPadStart, stringPad(abi, true)],
+    [X64_RUNTIME_SYMBOLS.stringPadEnd, stringPad(abi, false)],
     [X64_RUNTIME_SYMBOLS.stringReplace, stringReplace(abi, false)],
     [X64_RUNTIME_SYMBOLS.stringReplaceAll, stringReplace(abi, true)],
     [X64_RUNTIME_SYMBOLS.stringIndexOf, stringFind(abi, "index")],

@@ -15,6 +15,7 @@ export const CORO_STATE_FIELD = "state";
 export const CORO_RESULT_FIELD = "result";
 export const CORO_VALUE_FIELD = "value";
 export const CORO_ERROR_FIELD = "error";
+export const CORO_ERROR_VALUE_FIELD = "errorValue";
 export const CORO_WAITER_FIELD = "waiter";
 export const CORO_WAITING_FIELD = "waiting";
 export const CORO_UNREPORTED_FIELD = "unreported";
@@ -94,6 +95,7 @@ export function coroutineBaseShapes(classes: ClassTable): void {
       [CORO_UNREPORTED_FIELD, "int"],
       [CORO_NEXT_REJECTED_FIELD, CORO_PROMISE_BASE],
       [CORO_ERROR_FIELD, PENDING_THROW_TYPE],
+      [CORO_ERROR_VALUE_FIELD, classes.thrownType() ?? PENDING_THROW_TYPE],
     ]),
   );
   classes.defineSynthetic(

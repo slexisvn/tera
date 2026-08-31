@@ -408,6 +408,51 @@ describe("nullable narrowing", () => {
     expect(diagnose(source)).toEqual([]);
   });
 
+  it("narrows a binding to what the assignment just gave it", () => {
+    expect(
+      diagnose(
+        src(
+          "class Box:",
+          "  public constructor(v: int):",
+          "    this.v = v",
+          "fn read() -> int:",
+          "  b = null",
+          "  b = Box(3)",
+          "  return b.v",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("joins what the branches leave behind", () => {
+    expect(
+      diagnose(
+        src(
+          "class Box:",
+          "  public constructor(v: int):",
+          "    this.v = v",
+          "held = null",
+          "fn read() -> int:",
+          "  if held == null:",
+          "    held = Box(3)",
+          "  return held.v",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("reads a member after a branch that assigns and one that returns", () => {
+    expect(
+      diagnose(reads("  if n == null:", "    return 0", "  else:", "    n = n.next", "  return n.value")),
+    ).toEqual([]);
+  });
+
+  it("still refuses a member the branches leave nullable", () => {
+    expect(
+      diagnose(reads("  if n == null:", "    return 0", "  else:", "    n = n.next", "  return n.next.value")),
+    ).toEqual(["Cannot access member 'value' on nullable type 'Node | null'"]);
+  });
+
   it("still reports a member read when the guard does not exit", () => {
     expect(diagnose(reads("  if n == null:", '    print("empty")', "  return n.value"))).toEqual([
       "Cannot access member 'value' on nullable type 'Node | null'",
@@ -430,6 +475,269 @@ describe("nullable narrowing", () => {
     );
     expect(diagnose(source)).toEqual([
       "Cannot access member 'value' on nullable type 'Node | null'",
+    ]);
+  });
+});
+
+describe("names that a built-in already has", () => {
+  it("refuses a top-level name the program still calls as a built-in", () => {
+    expect(diagnose(src("sum = 5", "print(sum([1, 2]))"))).toEqual([
+      "Cannot redeclare built-in 'sum'",
+    ]);
+  });
+
+  it("refuses a name a class field still calls as a built-in", () => {
+    expect(
+      diagnose(src("sum = 5", "class Totals:", "  held = sum([1, 2])", "print(Totals())")),
+    ).toContain("Cannot redeclare built-in 'sum'");
+  });
+
+  it("refuses a name a class member still calls as a built-in", () => {
+    expect(
+      diagnose(
+        src(
+          "sum = 5",
+          "class Totals:",
+          "  public constructor():",
+          "    this.held = sum([1, 2])",
+          "print(Totals())",
+        ),
+      ),
+    ).toContain("Cannot redeclare built-in 'sum'");
+  });
+
+  it("lets a top-level name shadow a built-in nothing calls", () => {
+    expect(diagnose(src("stack = 5", "print(stack)"))).toEqual([]);
+  });
+
+  it("lets a function keep a local of the same name", () => {
+    expect(
+      diagnose(src("fn total() -> float:", "  sum: float = 1.5", "  return sum", "print(total())")),
+    ).toEqual([]);
+  });
+
+  it("lets a method keep a local of the same name", () => {
+    expect(
+      diagnose(
+        src(
+          "class Cart:",
+          "  public total() -> float:",
+          "    sum: float = 2.5",
+          "    return sum",
+          "print(Cart().total())",
+        ),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("a field that starts out null", () => {
+  it("takes what a later assignment gives it", () => {
+    expect(
+      diagnose(
+        src(
+          "class Task:",
+          "  public constructor(title: string):",
+          "    this.title = title",
+          "    this.tag = null",
+          "  public label(tag: string) -> void:",
+          "    this.tag = tag",
+          't = Task("write")',
+          't.tag = "work"',
+          "print(t.tag)",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("reads through a field another object assigns", () => {
+    expect(
+      diagnose(
+        src(
+          "class Node:",
+          "  public constructor(value: int):",
+          "    this.value = value",
+          "    this.next = null",
+          "head = Node(1)",
+          "head.next = Node(2)",
+          "print(head.next.value)",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps a declared field type as declared", () => {
+    expect(
+      diagnose(
+        src(
+          "class Holder:",
+          "  public slot: int = 0",
+          "  public constructor():",
+          '    this.slot = "text"',
+          "print(Holder().slot)",
+        ),
+      ),
+    ).toEqual(["Type 'string' is not assignable to 'int'"]);
+  });
+});
+
+describe("an index that is not a whole number", () => {
+  it("names the remedy for a division used as an index", () => {
+    expect(
+      diagnose(src("xs = [1, 2, 3, 4]", "mid = (0 + 3) / 2", "print(xs[mid])")),
+    ).toEqual([
+      "Type 'float' is not assignable to index type 'int' (a division answers a float: wrap it in Math.floor)",
+    ]);
+  });
+});
+
+describe("an array field with nothing in it yet", () => {
+  it("takes its element type from what the class pushes", () => {
+    expect(
+      diagnose(
+        src(
+          "class Log:",
+          "  public constructor():",
+          "    this.lines = []",
+          "  public add(line: string) -> void:",
+          "    this.lines.push(line)",
+          "l = Log()",
+          'l.add("hi")',
+          "n: int = l.lines",
+        ),
+      ),
+    ).toEqual(["Type 'string[]' is not assignable to 'int'"]);
+  });
+
+  it("joins what several pushes give it", () => {
+    expect(
+      diagnose(
+        src(
+          "class Mixed:",
+          "  public constructor():",
+          "    this.values = []",
+          "  public keep(n: int, x: float) -> void:",
+          "    this.values.push(n)",
+          "    this.values.push(x)",
+          "m = Mixed()",
+          "s: string = m.values",
+        ),
+      ),
+    ).toEqual(["Type 'float[]' is not assignable to 'string'"]);
+  });
+
+  it("leaves a declared element type alone", () => {
+    expect(
+      diagnose(
+        src(
+          "class Fixed:",
+          "  public names: string[] = []",
+          "  public keep(name: string) -> void:",
+          "    this.names.push(name)",
+          "n: int = Fixed().names",
+        ),
+      ),
+    ).toEqual(["Type 'string[]' is not assignable to 'int'"]);
+  });
+});
+
+describe("a field the class only ever sets to null", () => {
+  it("stays open for what the rest of the program puts in it", () => {
+    expect(
+      diagnose(
+        src(
+          "class Node:",
+          "  public constructor(value: int):",
+          "    this.value = value",
+          "    this.next = null",
+          "head = Node(1)",
+          "head.next = Node(2)",
+          "print(head.next.value)",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps a declared nullable field as declared", () => {
+    expect(
+      diagnose(
+        src(
+          "class Holder:",
+          "  public slot: int | null = null",
+          "  public constructor():",
+          "    this.slot = null",
+          'h = Holder()',
+          'h.slot = "text"',
+        ),
+      ),
+    ).toEqual(["Type 'string' is not assignable to 'int | null'"]);
+  });
+});
+
+describe("an element type only the method bodies reveal", () => {
+  it("takes the class a method pushes into the field", () => {
+    expect(
+      diagnose(
+        src(
+          "class Task:",
+          "  public constructor(id: int):",
+          "    this.id = id",
+          "class Board:",
+          "  public constructor():",
+          "    this.tasks = []",
+          "  public add(id: int) -> Task:",
+          "    task = Task(id)",
+          "    this.tasks.push(task)",
+          "    return task",
+          "b = Board()",
+          "b.add(1)",
+          "n: int = b.tasks",
+        ),
+      ),
+    ).toEqual(["Type 'Task[]' is not assignable to 'int'"]);
+  });
+
+  it("fills a null field in from what the program stores there", () => {
+    expect(
+      diagnose(
+        src(
+          "class Task:",
+          "  public constructor(id: int):",
+          "    this.id = id",
+          "    this.tag = null",
+          "t = Task(1)",
+          't.tag = "work"',
+          "n: int = t.tag",
+        ),
+      ),
+    ).toEqual(["Type 'string' is not assignable to 'int'"]);
+  });
+});
+
+describe("a return the checker cannot type", () => {
+  it("leaves a value it could not tell the type of alone", () => {
+    expect(
+      diagnose(
+        src(
+          "class Registry:",
+          "  public constructor():",
+          "    this.byName = Map()",
+          "  public register(name: string, factory: (int) -> int) -> void:",
+          "    this.byName.set(name, factory)",
+          "  public build(name: string, seed: int) -> int:",
+          "    factory = this.byName.get(name)",
+          "    return factory(seed)",
+          "r = Registry()",
+          'r.register("double", n => n * 2)',
+          'print(r.build("double", 21))',
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("still reports a return whose type it can tell", () => {
+    expect(diagnose(src("fn one() -> int:", '  return "text"', "print(one())"))).toEqual([
+      "Type 'string' is not assignable to return type 'int'",
     ]);
   });
 });

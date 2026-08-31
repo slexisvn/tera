@@ -88,6 +88,38 @@ describe("AOT module-level variables", () => {
     );
   });
 
+  itRunsPe("builds the value a module variable holds the first time it is asked for", () => {
+    agrees(
+      src(
+        "class Registry:",
+        "  public constructor():",
+        "    this.names = []",
+        "    this.rates = []",
+        "  public register(name: string, rate: float) -> int:",
+        "    this.names.push(name)",
+        "    this.rates.push(rate)",
+        "    return this.names.length",
+        "  public rate_for(name: string) -> float:",
+        "    at = 0",
+        "    for held of this.names:",
+        "      if held == name:",
+        "        return this.rates[at]",
+        "      at = at + 1",
+        "    return 0.0",
+        "registry = null",
+        "fn shared() -> Registry:",
+        "  if registry == null:",
+        "    registry = Registry()",
+        '    registry.register("standard", 1.0)',
+        '    registry.register("express", 2.5)',
+        "  return registry",
+        'print(shared().rate_for("standard"))',
+        'print(shared().rate_for("express"))',
+        'print(shared().rate_for("unknown"))',
+      ),
+    );
+  });
+
   itRunsPe("writes a module variable from a function and reads it from another", () => {
     agrees(
       src(

@@ -204,8 +204,8 @@ describe("AOT error values", () => {
     );
   });
 
-  it("declines an error object where a promise rejection carries the same cell", () => {
-    declines(
+  itRunsPe("reads the message off an error a promise rejected with", () => {
+    agrees(
       src(
         "async fn risky(n: int) -> int:",
         "  if n < 0:",
@@ -220,6 +220,29 @@ describe("AOT error values", () => {
         "go()",
       ),
     );
+  });
+
+  itRunsPe("reports an error nobody awaited the way the interpreter spells it", () => {
+    const run = runPe(
+      image(
+        src(
+          "async fn risky(n: int) -> int:",
+          '  throw Error("no " + n.to_string())',
+          "async fn go() -> int:",
+          "  risky(1)",
+          "  risky(2)",
+          '  print("started")',
+          "  return 0",
+          "go()",
+        ),
+      ),
+    );
+
+    expect([run.status, run.stdout, run.stderr]).toEqual([
+      1,
+      "started\n",
+      "Uncaught (in promise) Error: no 1\nUncaught (in promise) Error: no 2\n",
+    ]);
   });
 
   it("declines a program that throws both plain text and errors", () => {

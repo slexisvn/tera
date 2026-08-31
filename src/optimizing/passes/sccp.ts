@@ -29,6 +29,17 @@ const ARITHMETIC: Record<string, (a: number, b: number) => number> = {
   [ir.IR_FLOAT64_DIV]: (a, b) => a / b,
 };
 
+const WRAPS_IN_INT32: ReadonlySet<string> = new Set<string>([
+  ir.IR_INT32_ADD,
+  ir.IR_INT32_SUB,
+  ir.IR_INT32_MUL,
+]);
+
+function foldedArithmetic(node: ir.CFGInstruction, answer: number): Cell {
+  const wraps = WRAPS_IN_INT32.has(node.type) && node.props.noOverflow === true;
+  return constant(wraps ? answer | 0 : answer);
+}
+
 const COMPARISONS: Record<string, (a: number, b: number) => boolean> = {
   "==": (a, b) => a === b,
   "!=": (a, b) => a !== b,
@@ -191,7 +202,7 @@ class SccpSolver {
       const right = numberOf(this.cellOf(node.inputs[1]!));
       if (this.anyBottom(node)) return cells.bottom;
       if (left === null || right === null) return TOP;
-      return constant(arithmetic(left, right));
+      return foldedArithmetic(node, arithmetic(left, right));
     }
 
     if (node.type === ir.IR_INT32_COMPARE || node.type === ir.IR_FLOAT64_COMPARE) {

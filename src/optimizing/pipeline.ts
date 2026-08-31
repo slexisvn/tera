@@ -35,7 +35,7 @@ import {
 import { loadElimination } from "./passes/load-elimination.js";
 import { deadStoreElimination } from "./passes/dead-stores.js";
 import { commonSubexpressionIntrinsicReads } from "./passes/intrinsic-cse.js";
-import { typeNarrowing } from "./passes/type-narrowing.js";
+import { typeNarrowing, widenUnprovenInt32Arithmetic } from "./passes/type-narrowing.js";
 import { specializeAllocationShapes } from "./passes/allocation-shape.js";
 import { insertDeclaredParameterGuards } from "./passes/parameter-guards.js";
 import { dominanceAnalysisId } from "./analyses/dominance.js";
@@ -215,6 +215,9 @@ export function middleEndPhases(
         [loopId],
       ),
       step("strength-reduction", preservesControlFlow, (g) => strengthReduction(g)),
+      step("int32-overflow-widening", invalidatesAnalyses, (g) =>
+        widenUnprovenInt32Arithmetic(g),
+      ),
       step(
         "loop-check-peeling",
         preservesControlFlow,

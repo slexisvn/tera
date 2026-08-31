@@ -37,6 +37,7 @@ import {
 import {
   TERA_EXIT_HEAP_EXHAUSTED,
   TERA_EXIT_UNCAUGHT_THROW,
+  TERA_TEXT_OVERFLOW,
   TERA_UNCAUGHT_PREFIX,
 } from "../../target/faults.js";
 
@@ -139,6 +140,15 @@ function charCodeAt(builder: MachineRoutineBuilder): void {
     .ret();
 }
 
+const TEXT_OVERFLOW_KEY = "text-overflow";
+
+function reportTextOverflow(builder: MachineRoutineBuilder): void {
+  const text = builder.data(TEXT_OVERFLOW_KEY, 1, [asciiData(TERA_TEXT_OVERFLOW)]);
+  builder
+    .emit("lla", builder.write("a0", WORD), sym(text.label))
+    .callSymbol(RISCV_RUNTIME_SYMBOLS.throwError);
+}
+
 function copy(append: boolean) {
   return (builder: MachineRoutineBuilder): void => {
     const r = (name: string) => builder.read(name, WORD);
@@ -150,7 +160,7 @@ function copy(append: boolean) {
     if (append) {
       builder
         .at("seek")
-        .to("blez", "terminate", r("t1"))
+        .to("blez", "overflow", r("t1"))
         .emit("lbu", w("t2"), mem(1, { base: r("t0") }))
         .to("beqz", "copy", r("t2"))
         .emit("addi", w("t0"), r("t0"), imm(1))
@@ -159,7 +169,7 @@ function copy(append: boolean) {
     }
     builder
       .at("copy")
-      .to("blez", "terminate", r("t1"))
+      .to("blez", "overflow", r("t1"))
       .emit("lbu", w("t2"), mem(1, { base: r("a2") }))
       .to("beqz", "terminate", r("t2"))
       .emit("sb", r("t2"), mem(1, { base: r("t0") }))
@@ -167,6 +177,11 @@ function copy(append: boolean) {
       .emit("addi", w("a2"), r("a2"), imm(1))
       .emit("addiw", w("t1"), r("t1"), imm(-1))
       .to("j", "copy")
+      .at("overflow")
+      .emit("lbu", w("t2"), mem(1, { base: r("a2") }))
+      .to("beqz", "terminate", r("t2"));
+    reportTextOverflow(builder);
+    builder
       .at("terminate")
       .emit("sb", r("zero"), mem(1, { base: r("t0") }))
       .at("done")

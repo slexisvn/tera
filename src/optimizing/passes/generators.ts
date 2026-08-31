@@ -38,8 +38,8 @@ import {
   GEN_VALUE_FIELD,
 } from "../metadata/generators.js";
 import type { ClassShape, ClassTable } from "../metadata/class-table.js";
+import { DECLARED_INT } from "../types/declared.js";
 
-const INT = "int";
 const DEFAULT_YIELD = "int";
 
 const YIELD_TYPES: ReadonlyMap<string, string> = new Map<string, string>([
@@ -126,14 +126,15 @@ export function generatorYieldType(graph: CFGFunction): YieldType {
           `it yields, or keep this part interpreted`,
       };
     }
-    if (carried !== null && carried !== named) {
+    const joined: string | null = carried === null ? named : joinedNames(carried, named);
+    if (joined === null) {
       return {
         reason:
           `${graph.name} yields both ${carried} and ${named}, and a compiled generator yields ` +
           `one type; yield one type, or keep this part interpreted`,
       };
     }
-    carried = named;
+    carried = joined;
   }
   return { yields: carried! };
 }
@@ -209,7 +210,7 @@ function splitInPlace(
   resume.classes = classes;
   resume.internal = true;
   resume.resumable = true;
-  resume.declaredSignature = { params: [frame.name], returns: INT };
+  resume.declaredSignature = { params: [frame.name], returns: DECLARED_INT };
   const self = resume.addParameter(0);
   resume.takeBlocks([...graph.blocks], body);
 

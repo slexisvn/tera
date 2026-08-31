@@ -6,8 +6,7 @@ import {
   type TaggedValue,
 } from "../core/value/index.js";
 import type { DeclaredSignature } from "../optimizing/types/signature.js";
-
-const DECLARED_INT_TYPE = "int";
+import { DECLARED_INT } from "../optimizing/types/declared.js";
 
 export interface DeclaredIntCarrier {
   declaredSignature: DeclaredSignature | null;
@@ -17,7 +16,7 @@ export interface DeclaredIntCarrier {
 export function declaredInt32Return(carrier: DeclaredIntCarrier): boolean {
   const known = carrier.declaredInt32Return;
   if (known !== undefined) return known;
-  const declared = carrier.declaredSignature?.returns === DECLARED_INT_TYPE;
+  const declared = carrier.declaredSignature?.returns === DECLARED_INT;
   carrier.declaredInt32Return = declared;
   return declared;
 }

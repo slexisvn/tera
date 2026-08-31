@@ -340,6 +340,8 @@ const STRING_BUFFER_BUILTINS = new Map<string, string>([
   [qualifiedMethodName("string", "trim_end"), X64_RUNTIME_SYMBOLS.stringTrimEnd],
   [qualifiedMethodName("string", "slice"), X64_RUNTIME_SYMBOLS.stringSlice],
   [qualifiedMethodName("string", "repeat"), X64_RUNTIME_SYMBOLS.stringRepeat],
+  [qualifiedMethodName("string", "pad_start"), X64_RUNTIME_SYMBOLS.stringPadStart],
+  [qualifiedMethodName("string", "pad_end"), X64_RUNTIME_SYMBOLS.stringPadEnd],
   [qualifiedMethodName("string", "replace"), X64_RUNTIME_SYMBOLS.stringReplace],
   [qualifiedMethodName("string", "replace_all"), X64_RUNTIME_SYMBOLS.stringReplaceAll],
 ]);

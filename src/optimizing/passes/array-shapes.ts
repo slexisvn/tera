@@ -48,7 +48,7 @@ import {
 } from "../metadata/class-table.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { declaredTypeAt, memberDeclaredType } from "../metadata/call-signatures.js";
-import { nominalLatticeType } from "../types/declared.js";
+import { DECLARED_INT, nominalLatticeType } from "../types/declared.js";
 import { isUnwritten } from "../types/signature.js";
 import { arrayElementType } from "../../frontend/checker/type-system.js";
 import { latticeFromElementsKind } from "../types/elements.js";
@@ -74,8 +74,8 @@ import {
   type AotScalar,
 } from "../types/scalar.js";
 
-const COUNT_TYPE = "int";
 const METHOD_MEMBER = "method";
+const GETTER_MEMBER = "getter";
 const LENGTH_MEMBER = "length";
 const PUSH_MEMBER = "push";
 const ONE_ELEMENT = 1;
@@ -145,6 +145,23 @@ function classOfValue(
   return classes.shapeById(type.map);
 }
 
+function readMemberType(
+  value: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  const owner = value.inputs[0];
+  const member = value.props.propName;
+  if (owner === undefined || typeof member !== "string") return null;
+  const shape = receiverShape(owner, graph, classes, types);
+  if (shape === null) return null;
+  const held = shape.fields.get(member)?.declaredType ?? null;
+  if (held !== null) return held;
+  const answered = callableOf(shape.callables, GETTER_MEMBER, member)?.signature.returns;
+  return isUnwritten(answered) ? null : answered!;
+}
+
 function producedType(
   value: CFGInstruction,
   graph: CFGFunction,
@@ -154,6 +171,10 @@ function producedType(
   if (READS_ELEMENT.has(value.type)) {
     const model = arrayModelOf(value.inputs[0], graph, classes, types);
     return model === null ? null : nominalLatticeType(model.declaredType, classes);
+  }
+  if (value.type === IR_GENERIC_GET_PROP) {
+    const declared = readMemberType(value, graph, classes, types);
+    if (declared !== null) return nominalLatticeType(declared, classes);
   }
   const answered = answeredTypeName(value, graph, classes, types);
   return answered === null ? null : nominalLatticeType(answered, classes);
@@ -292,7 +313,21 @@ function modelOf(shape: ClassShape | null, classes: ClassTable): ArrayModel | nu
   if (shape === null) return null;
   const layout = classes.arrayLayoutOf(shape);
   if (layout === null) return null;
-  return { shape, ...layout, elementShape: classes.shapeOf(layout.declaredType) };
+  const named = classes.shapeOf(layout.declaredType);
+  const elementShape = named ?? nestedArrayShape(layout.declaredType, classes);
+  return { shape, ...layout, elementShape };
+}
+
+function nestedElementNameOf(declared: string | null): string | null {
+  const element = declared === null ? null : arrayElementType(declared);
+  if (element === null) return null;
+  return arrayElementType(element) === null ? null : element;
+}
+
+function nestedArrayShape(declared: string, classes: ClassTable): ClassShape | null {
+  const element = arrayElementType(declared);
+  if (element === null) return null;
+  return classes.defineArray(nominalLatticeType(element, classes), element);
 }
 
 function shapedArray(array: CFGInstruction, classes: ClassTable): ArrayModel | null {
@@ -309,6 +344,61 @@ export function fieldDeclaredType(
   return memberDeclaredType(array.inputs[0], array.props.propName, classes, types);
 }
 
+function enclosingArrayOf(
+  use: CFGInstruction,
+  value: CFGInstruction,
+): CFGInstruction | null {
+  if (use.type === IR_NEW_ARRAY) return use.inputs.includes(value) ? use : null;
+  if (WRITES_ELEMENT.has(use.type) && use.inputs[2] === value) return use.inputs[0] ?? null;
+  if (pushedValue(use, use.inputs[1]!) === value) return use.inputs[1] ?? null;
+  return null;
+}
+
+function heldElementType(
+  use: CFGInstruction,
+  value: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+  seen: Set<CFGInstruction>,
+): string | null {
+  const enclosing = enclosingArrayOf(use, value);
+  if (enclosing === null) return null;
+  const declared = declaredArrayTypeOf(enclosing, graph, classes, types, seen);
+  return declared === null ? null : arrayElementType(declared);
+}
+
+function declaredArrayTypeOf(
+  array: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+  seen: Set<CFGInstruction> = new Set<CFGInstruction>(),
+): string | null {
+  const own = declaredArrayOf(array, graph, classes, types);
+  if (own !== null) return own;
+  if (seen.has(array)) return null;
+  seen.add(array);
+  const source = iteratedArrayOf(array);
+  if (source !== null) {
+    const holder = declaredArrayTypeOf(source, graph, classes, types, seen);
+    const element = holder === null ? null : arrayElementType(holder);
+    if (element !== null) return element;
+  }
+  for (const alias of aliasesOf(array)) {
+    for (const use of alias.uses) {
+      for (const [at, input] of use.inputs.entries()) {
+        if (input !== alias) continue;
+        const declared =
+          declaredTypeAt(use, at, graph, classes, types) ??
+          heldElementType(use, alias, graph, classes, types, seen);
+        if (declared !== null) return declared;
+      }
+    }
+  }
+  return null;
+}
+
 function demandedElementOf(
   allocation: CFGInstruction,
   graph: CFGFunction,
@@ -320,7 +410,9 @@ function demandedElementOf(
     for (const use of array.uses) {
       for (const [at, input] of use.inputs.entries()) {
         if (input !== array) continue;
-        const declared = declaredTypeAt(use, at, graph, classes, types);
+        const declared =
+          declaredTypeAt(use, at, graph, classes, types) ??
+          heldElementType(use, array, graph, classes, types, new Set<CFGInstruction>());
         const element = declared === null ? null : arrayElementType(declared);
         if (element === null) continue;
         const asked = nominalLatticeType(element, classes);
@@ -362,7 +454,7 @@ function receivedElement(
     const carried = latticeFromElementsKind(type.elementsKind);
     if (declaredTypeOf(carried, classes) !== null) return carried;
   }
-  const declared = declaredArrayOf(array, graph, classes, types);
+  const declared = declaredArrayTypeOf(array, graph, classes, types);
   const element = declared === null ? null : arrayElementType(declared);
   return element === null ? null : nominalLatticeType(element, classes);
 }
@@ -374,7 +466,9 @@ function receivedArray(
   types: TypeInference,
 ): ArrayModel | null {
   const carried = receivedElement(array, graph, classes, types);
-  return carried === null ? null : modelOf(classes.defineArray(carried), classes);
+  if (carried === null) return null;
+  const named = nestedElementNameOf(declaredArrayTypeOf(array, graph, classes, types));
+  return modelOf(classes.defineArray(carried, named ?? undefined), classes);
 }
 
 export function arrayModelOf(
@@ -393,9 +487,9 @@ export function arrayModelForDeclaredType(
 ): ArrayModel | null {
   if (typeof declared !== "string") return null;
   const element = arrayElementType(declared);
-  return element === null
-    ? null
-    : modelOf(classes.defineArray(nominalLatticeType(element, classes)), classes);
+  if (element === null) return null;
+  const named = arrayElementType(element) === null ? undefined : element;
+  return modelOf(classes.defineArray(nominalLatticeType(element, classes), named), classes);
 }
 
 export function arrayElementNameOf(
@@ -450,7 +544,7 @@ export function storeCount(
   const store = stamp(irStoreField(array, offset, value));
   store.props[CLASS_ID_PROP] = model.shape.id;
   store.props[FIELD_SCALAR_PROP] = SCALAR_INT32;
-  store.props[FIELD_TYPE_PROP] = COUNT_TYPE;
+  store.props[FIELD_TYPE_PROP] = DECLARED_INT;
   store.frameState = before.frameState;
   editor.insertBefore(before, store);
   return store;
@@ -467,7 +561,7 @@ export function loadCount(
   const load = stamp(irLoadField(array, offset));
   load.props[CLASS_ID_PROP] = model.shape.id;
   load.props[FIELD_SCALAR_PROP] = SCALAR_INT32;
-  load.props[FIELD_TYPE_PROP] = COUNT_TYPE;
+  load.props[FIELD_TYPE_PROP] = DECLARED_INT;
   load.frameState = before.frameState;
   editor.insertBefore(before, load);
   return load;
@@ -500,7 +594,8 @@ function allocate(
 ): boolean {
   const carried = elementTypeOf(node, graph, classes, types);
   if (carried === null) return false;
-  const model = modelOf(classes.defineArray(carried), classes);
+  const named = nestedElementNameOf(declaredArrayTypeOf(node, graph, classes, types));
+  const model = modelOf(classes.defineArray(carried, named ?? undefined), classes);
   if (model === null) return false;
   for (const value of node.inputs) {
     const stored = aotScalarOf(valueTypeOf(value, graph, classes, types));
@@ -695,6 +790,37 @@ function readsLength(node: CFGInstruction): boolean {
   return node.type === IR_GENERIC_GET_PROP && String(node.props.propName) === LENGTH_MEMBER;
 }
 
+function allocationOrder(graph: CFGFunction): CFGInstruction[] {
+  const pending = new Set<CFGInstruction>();
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      if (node.type === IR_NEW_ARRAY && node.block === block) pending.add(node);
+    }
+  }
+  const ordered: CFGInstruction[] = [];
+  const opened = new Set<CFGInstruction>();
+  const placed = new Set<CFGInstruction>();
+  for (const start of pending) {
+    if (opened.has(start)) continue;
+    const stack: CFGInstruction[] = [start];
+    while (stack.length > 0) {
+      const node = stack[stack.length - 1]!;
+      if (!opened.has(node)) {
+        opened.add(node);
+        for (const value of storedValues(node)) {
+          if (pending.has(value) && !opened.has(value)) stack.push(value);
+        }
+        continue;
+      }
+      stack.pop();
+      if (placed.has(node)) continue;
+      placed.add(node);
+      ordered.push(node);
+    }
+  }
+  return ordered;
+}
+
 export function shapeArrayAllocations(graph: CFGFunction, types: TypeInference): number {
   const classes = graph.classes;
   if (classes === null) return 0;
@@ -702,11 +828,8 @@ export function shapeArrayAllocations(graph: CFGFunction, types: TypeInference):
   const stamp = nodeIdStamper(graph);
   let changed = 0;
 
-  for (const block of graph.blocks) {
-    for (const node of [...block.nodes]) {
-      if (node.type !== IR_NEW_ARRAY || node.block !== block) continue;
-      if (allocate(editor, node, graph, classes, types, stamp)) changed++;
-    }
+  for (const node of allocationOrder(graph)) {
+    if (allocate(editor, node, graph, classes, types, stamp)) changed++;
   }
   if (changed > 0) graph.rebuildUses();
   return changed;

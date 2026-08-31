@@ -295,11 +295,55 @@ describe("emitNumericFunction builtin methods", () => {
     expect(result.prototype).toContain("int32_t code_at(const char *p0, int32_t p1)");
   });
 
+  function padGraph(name: string, builtinName: string): CFGFunction {
+    const graph = new CFGFunction(name);
+    graph.declaredSignature = { params: ["string", "int", "string"], returns: "string" };
+    const receiver = graph.addParameter(0);
+    const width = graph.addParameter(1);
+    const pad = graph.addParameter(2);
+    const block = graph.addBlock();
+    const method = builtinMethodIntrinsicByName(builtinName)!;
+    const call = irCallBuiltin(
+      builtinName,
+      [receiver, width, pad],
+      builtinMethodCallMetadata(method),
+    );
+    block.addNode(call);
+    block.addNode(irReturn(call));
+    return graph;
+  }
+
+  it("calls the padding helper the backend defines for pad_start", () => {
+    const result = compile(padGraph("pad_left", qualifiedMethodName("string", "pad_start")));
+
+    expect(result.source).toContain("tera_string_pad_start(");
+    expect(result.translationUnitPreamble).toContain(
+      "static inline char *tera_string_pad_start(char *dst, int32_t cap, const char *src, int32_t width, const char *pad)",
+    );
+  });
+
+  it("calls the padding helper the backend defines for pad_end", () => {
+    const result = compile(padGraph("pad_right", qualifiedMethodName("string", "pad_end")));
+
+    expect(result.source).toContain("tera_string_pad_end(");
+    expect(result.translationUnitPreamble).toContain(
+      "static inline char *tera_string_pad_end(char *dst, int32_t cap, const char *src, int32_t width, const char *pad)",
+    );
+  });
+
+  it("pads from the same side helper with opposite leading flags", () => {
+    const left = compile(padGraph("pad_left", qualifiedMethodName("string", "pad_start")));
+    const right = compile(padGraph("pad_right", qualifiedMethodName("string", "pad_end")));
+
+    expect(left.translationUnitPreamble).toContain("tera_text_pad(dst, cap, src, width, pad, 1)");
+    expect(right.translationUnitPreamble).toContain("tera_text_pad(dst, cap, src, width, pad, 0)");
+  });
+
   it("bails on a builtin the backend has no helper for", () => {
-    const result = emitNumericFunction(codeAtGraph("unknown", "string.pad_start"));
+    const result = emitNumericFunction(codeAtGraph("unknown", "string.last_index_of"));
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("unsupported builtin string.pad_start");
+    if (!result.ok) expect(result.reason).toContain("unsupported builtin string.last_index_of");
   });
 
   it("bails on a builtin whose receiver is not a string", () => {
@@ -318,7 +362,7 @@ describe("emitNumericFunction builtin methods", () => {
 
     const result = emitNumericFunction(graph);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("unsupported argument type");
+    if (!result.ok) expect(result.reason).toContain("is given a int32 where it takes string");
   });
 
   it("emits a getter as a one-argument helper call", () => {

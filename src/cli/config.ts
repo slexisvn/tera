@@ -59,6 +59,7 @@ export interface CompileConfig {
   result: ResultMode | null;
   cc: string | null;
   heapBytes: number | null;
+  textBytes: number | null;
   keepTemps: boolean;
   verify: boolean;
   printAfterAll: boolean;

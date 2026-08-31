@@ -108,6 +108,7 @@ import {
 import {
   TERA_EXIT_HEAP_EXHAUSTED,
   TERA_EXIT_UNCAUGHT_THROW,
+  TERA_TEXT_OVERFLOW,
   TERA_UNCAUGHT_PREFIX,
 } from "../../target/faults.js";
 import { AnalysisManager } from "../../infra/analysis-manager.js";
@@ -337,10 +338,16 @@ static inline int32_t tera_to_i32(double value) {
   return (int32_t)wrapped;
 }
 
+static void tera_text_overflow(void) {
+  fprintf(stderr, "%s%s\\n", ${cStringLiteral(TERA_UNCAUGHT_PREFIX)}, ${cStringLiteral(TERA_TEXT_OVERFLOW)});
+  exit(${TERA_EXIT_UNCAUGHT_THROW});
+}
+
 static inline char *tera_str_copy(char *dst, int32_t cap, const char *src, size_t at) {
   if (cap <= 0) return dst;
   size_t limit = (size_t)cap - 1u;
   while (at < limit && *src != '\\0') dst[at++] = *src++;
+  if (*src != '\\0') tera_text_overflow();
   dst[at] = '\\0';
   return dst;
 }
@@ -658,8 +665,33 @@ static inline double tera_text_number(const char *text, int32_t integral) {
 }
 
 static inline int32_t tera_text_put(char *dst, int32_t cap, int32_t at, const char *text) {
-  for (int32_t k = 0; text[k] != '\\0' && at + 1 < cap; k++) dst[at++] = text[k];
+  for (int32_t k = 0; text[k] != '\\0'; k++) {
+    if (at + 1 >= cap) tera_text_overflow();
+    dst[at++] = text[k];
+  }
   return at;
+}
+
+static inline int32_t tera_text_fill(char *dst, int32_t cap, int32_t at, const char *pad, int32_t count) {
+  int32_t width = tera_text_size(pad);
+  if (width == 0) return at;
+  for (int32_t k = 0; k < count; k++) {
+    if (at + 1 >= cap) tera_text_overflow();
+    dst[at++] = pad[k % width];
+  }
+  return at;
+}
+
+static inline char *tera_text_pad(char *dst, int32_t cap, const char *src, int32_t width, const char *pad, int32_t leading) {
+  int32_t size = tera_text_size(src);
+  int32_t missing = width > size ? width - size : 0;
+  int32_t at = 0;
+  if (cap <= 0) return dst;
+  if (leading) at = tera_text_fill(dst, cap, at, pad, missing);
+  at = tera_text_put(dst, cap, at, src);
+  if (!leading) at = tera_text_fill(dst, cap, at, pad, missing);
+  dst[at] = '\\0';
+  return dst;
 }
 
 static inline char *tera_string_replace_gaps(char *dst, int32_t cap, const char *src, const char *fresh, int32_t all) {
@@ -667,7 +699,8 @@ static inline char *tera_string_replace_gaps(char *dst, int32_t cap, const char 
   int32_t at = all ? 0 : tera_text_put(dst, cap, 0, fresh);
   for (int32_t index = 0; index < size; index++) {
     if (all && index > 0) at = tera_text_put(dst, cap, at, fresh);
-    if (at + 1 < cap) dst[at++] = src[index];
+    if (at + 1 >= cap) tera_text_overflow();
+    dst[at++] = src[index];
   }
   dst[at] = '\\0';
   return dst;
@@ -688,7 +721,8 @@ static inline char *tera_string_replace_range(char *dst, int32_t cap, const char
       if (!all) done = 1;
       continue;
     }
-    if (at + 1 < cap) dst[at++] = src[index];
+    if (at + 1 >= cap) tera_text_overflow();
+    dst[at++] = src[index];
     index++;
   }
   dst[at] = '\\0';
@@ -870,6 +904,24 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     },
   ],
   [
+    qualifiedMethodName("string", "pad_start"),
+    {
+      helper: "tera_string_pad_start",
+      definition: `static inline char *tera_string_pad_start(char *dst, int32_t cap, const char *src, int32_t width, const char *pad) {
+  return tera_text_pad(dst, cap, src, width, pad, 1);
+}`,
+    },
+  ],
+  [
+    qualifiedMethodName("string", "pad_end"),
+    {
+      helper: "tera_string_pad_end",
+      definition: `static inline char *tera_string_pad_end(char *dst, int32_t cap, const char *src, int32_t width, const char *pad) {
+  return tera_text_pad(dst, cap, src, width, pad, 0);
+}`,
+    },
+  ],
+  [
     qualifiedMethodName("string", "repeat"),
     {
       helper: "tera_string_repeat",
@@ -878,7 +930,10 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
   int32_t size = tera_text_size(src);
   if (cap <= 0) return dst;
   for (int32_t round = 0; round < times; round++) {
-    for (int32_t index = 0; index < size && at + 1 < cap; index++) dst[at++] = src[index];
+    for (int32_t index = 0; index < size; index++) {
+      if (at + 1 >= cap) tera_text_overflow();
+      dst[at++] = src[index];
+    }
   }
   dst[at] = '\\0';
   return dst;
@@ -2030,7 +2085,7 @@ class CFunctionEmitter {
       if (expected === SCALAR_STRING) return this.nameOf(input);
       return this.asDouble(input);
     });
-    if (this.legality.stringBufferOf(ctx.node)?.producer === ctx.node) {
+    if (this.legality.stringBufferOf(ctx.node)?.producers.has(ctx.node) === true) {
       operands.unshift(this.bufferNameOf(ctx.node), String(this.bufferCapacityOf(ctx.node)));
     }
     const call = `${method.helper}(${operands.join(", ")})`;
@@ -2246,7 +2301,14 @@ class CFunctionEmitter {
       ctx.emit(`return (${cTypeOf(this.legality.returnScalar)})0;`);
       return;
     }
-    ctx.emit(`return ${this.nameOf(ctx.node.inputs[0]!)};`);
+    ctx.emit(`return ${this.returnedValue(ctx.node.inputs[0]!)};`);
+  }
+
+  private returnedValue(value: CFGInstruction): string {
+    const scalar = this.legality.returnScalar;
+    if (scalar === SCALAR_INT32) return this.asInt32(value);
+    if (scalar === SCALAR_FLOAT64) return this.asDouble(value);
+    return this.nameOf(value);
   }
 
   private emitJump(ctx: EmitContext): void {

@@ -187,17 +187,17 @@ describe("AOT legality values", () => {
     const graph = new CFGFunction("long");
     graph.declaredSignature = { params: [], returns: "string" };
     const block = graph.addBlock();
-    const value = irConstant("x".repeat(TEXT_STORAGE_BYTES));
+    const value = irConstant("x".repeat(graph.textBufferBytes));
     block.addNode(value);
     block.addNode(irReturn(value));
-    expect(reasonOf(graph)).toContain(`longer than the ${TEXT_STORAGE_BYTES - 1} characters`);
+    expect(reasonOf(graph)).toContain(`longer than the ${graph.textBufferBytes - 1} characters`);
   });
 
   it("accepts a string constant that fills the storage exactly", () => {
     const graph = new CFGFunction("full");
     graph.declaredSignature = { params: [], returns: "string" };
     const block = graph.addBlock();
-    const value = irConstant("x".repeat(TEXT_STORAGE_BYTES - 1));
+    const value = irConstant("x".repeat(graph.textBufferBytes - 1));
     block.addNode(value);
     block.addNode(irReturn(value));
     expect(analyze(graph).ok).toBe(true);
@@ -301,14 +301,14 @@ describe("AOT legality builtins", () => {
   });
 
   it("names a builtin outside the shared subset", () => {
-    expect(reasonOf(builtinCall("string.pad_start", ["string", "int"]))).toContain(
-      "unsupported builtin string.pad_start",
+    expect(reasonOf(builtinCall("string.last_index_of", ["string", "string"]))).toContain(
+      "unsupported builtin string.last_index_of",
     );
   });
 
   it("rejects a builtin whose receiver has the wrong type", () => {
     expect(reasonOf(builtinCall(charCodeAt.qualifiedName, ["int", "int"]))).toContain(
-      "unsupported argument type",
+      "is given a int32 where it takes string",
     );
   });
 });
@@ -568,5 +568,40 @@ describe("AOT legality signatures", () => {
     block.addNode(irReturn(sum));
 
     expect(admitted(graph).constants).toEqual([one, two]);
+  });
+});
+
+describe("AOT legality text stores", () => {
+  const FIELD_OFFSET = 24;
+  const FIELD_CAPACITY = 32;
+
+  function storing(text: string) {
+    const graph = new CFGFunction("label");
+    graph.declaredSignature = { params: ["string"], returns: "int" };
+    const owner = graph.addParameter(0);
+    const block = graph.addBlock();
+    const value = block.addNode(irConstant(text));
+    block.addNode(irStoreText(owner, FIELD_OFFSET, value, FIELD_CAPACITY, "name"));
+    const zero = block.addNode(irConstant(0));
+    block.addNode(irReturn(zero));
+    return graph;
+  }
+
+  it("admits a constant that fits the storage the field holds", () => {
+    expect(analyze(storing("x".repeat(FIELD_CAPACITY - 1))).ok).toBe(true);
+  });
+
+  it("rejects a constant one character past what the field holds", () => {
+    expect(reasonOf(storing("x".repeat(FIELD_CAPACITY)))).toContain(
+      `stores a string of ${FIELD_CAPACITY} characters in name, which holds ${FIELD_CAPACITY - 1}`,
+    );
+  });
+
+  it("names the field a too-long constant would not fit", () => {
+    expect(reasonOf(storing("x".repeat(FIELD_CAPACITY + 10)))).toContain("in name");
+  });
+
+  it("says nothing about --text-size for a store the field bounds", () => {
+    expect(reasonOf(storing("x".repeat(FIELD_CAPACITY)))).not.toContain("--text-size");
   });
 });

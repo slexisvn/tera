@@ -5,6 +5,7 @@ import {
   IR_GENERIC_SET_PROP,
   IR_LOAD_GLOBAL,
   IR_RETURN,
+  IR_STORE_GLOBAL,
   IR_STORE_FIELD,
   type CFGFunction,
   type CFGInstruction,
@@ -128,6 +129,11 @@ export function declaredTypeAt(
   if (use.type === IR_CALL_KNOWN_FUNCTION || use.type === IR_GENERIC_CALL) {
     const parameter = parameterIndexOf(use, at);
     return parameter < 0 ? null : signatureOf(use)?.params[parameter] ?? null;
+  }
+  if (use.type === IR_STORE_GLOBAL) {
+    const name = use.props.name;
+    if (typeof name !== "string") return null;
+    return classes.globalOf(name)?.declaredType ?? null;
   }
   if (!STORES_MEMBER.has(use.type) || at !== STORED_INPUT) return null;
   const carried = use.props[FIELD_TYPE_PROP];

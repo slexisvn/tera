@@ -17,6 +17,7 @@ import {
   builtinTypeEnv,
   declaredAcceptsNull,
   declaredNameOf,
+  DECLARED_INT,
   latticeFromDeclaredType,
   presentTypeName,
   type NominalTypes,
@@ -107,7 +108,6 @@ export function declaredTypeOf(type: LatticeType, classes: ClassTable): string |
   return declaredNameOf(type);
 }
 
-const COUNT_TYPE = "int";
 
 function syntheticShape(id: number, name: string, fields: Map<string, ClassField>): ClassShape {
   let cursor = CLASS_HEADER_BYTES;
@@ -135,7 +135,7 @@ function syntheticShape(id: number, name: string, fields: Map<string, ClassField
 function arrayShape(id: number, name: string, buffer: string): ClassShape {
   const count = (field: string, offset: number): [string, ClassField] => [
     field,
-    { name: field, declaredType: COUNT_TYPE, offset, scalar: SCALAR_INT32, owner: name },
+    { name: field, declaredType: DECLARED_INT, offset, scalar: SCALAR_INT32, owner: name },
   ];
   return syntheticShape(
     id,
@@ -263,6 +263,8 @@ export interface ClassShape {
 
 export interface ClassTable extends NominalTypes {
   defineSynthetic(surface: ClassSurface): ClassShape;
+  declareThrownType(declaredType: string): void;
+  thrownType(): string | null;
   declareGlobal(name: string, declaredType: string): GlobalVariable | null;
   declareStaticField(owner: string, name: string, declaredType: string): boolean;
   globalOf(name: string): GlobalVariable | null;
@@ -272,7 +274,7 @@ export interface ClassTable extends NominalTypes {
   shapeOf(name: string): ClassShape | null;
   shapeById(id: number): ClassShape | null;
   shapes(): readonly ClassShape[];
-  defineArray(element: LatticeType): ClassShape | null;
+  defineArray(element: LatticeType, elementName?: string): ClassShape | null;
   arrayLayoutOf(shape: ClassShape): ArrayLayout | null;
   dispatchConeOf(name: string): readonly ClassShape[];
   standInsFor(shape: ClassShape): readonly ClassShape[];
@@ -478,6 +480,7 @@ class Table implements ClassTable {
   private readonly staticOffsets = new Map<string, number>();
   private readonly arrays = new Map<string, ArrayLayout>();
   private readonly globalVariables = new Map<string, GlobalVariable>();
+  private thrown: string | null = null;
   private readonly generatorShapes = new Map<string, GeneratorShape>();
   private readonly structural = new Map<string, ClassShape | null>();
   private staticsSize = 0;
@@ -509,8 +512,8 @@ class Table implements ClassTable {
     return this.byName.get(surface.name)!;
   }
 
-  defineArray(element: LatticeType): ClassShape | null {
-    const declared = declaredTypeOf(element, this);
+  defineArray(element: LatticeType, elementName?: string): ClassShape | null {
+    const declared = elementName ?? declaredTypeOf(element, this);
     const stored = isStorableScalar(aotScalarOf(element));
     if (declared === null || stored === null) return null;
     const scalar = stored === SCALAR_STRING ? SCALAR_TEXT : stored;
@@ -607,6 +610,14 @@ class Table implements ClassTable {
       targets.push(target);
     }
     return targets;
+  }
+
+  declareThrownType(declaredType: string): void {
+    this.thrown = declaredType;
+  }
+
+  thrownType(): string | null {
+    return this.thrown;
   }
 
   declareGlobal(name: string, declaredType: string): GlobalVariable | null {

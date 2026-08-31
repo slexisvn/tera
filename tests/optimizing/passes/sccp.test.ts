@@ -87,6 +87,21 @@ describe("sparseConditionalConstantPropagation", () => {
       expect(ret.inputs[0].props.value).not.toBe(Math.imul(0x7FFFFFFF, 2));
     });
 
+    it("folds a multiply that was settled as wrapping the way int32 wraps", () => {
+      const { graph, block } = makeGraph();
+      const a = irConstant(0x7fffffff);
+      const b = irConstant(2);
+      block.addNode(a);
+      block.addNode(b);
+      const mul = irInt32Mul(a, b);
+      mul.props.noOverflow = true;
+      block.addNode(mul);
+      const ret = irReturn(mul);
+      block.addNode(ret);
+      sparseConditionalConstantPropagation(graph);
+      expect(ret.inputs[0].props.value).toBe(Math.imul(0x7fffffff, 2));
+    });
+
     it("folds Int32Mul of opposite signs to negative zero", () => {
       const { graph, block } = makeGraph();
       const a = irConstant(0);

@@ -44,6 +44,8 @@ export const X64_RUNTIME_SYMBOLS = {
   stringTrimEnd: "tera_x64_str_trim_end",
   stringSlice: "tera_x64_str_slice",
   stringRepeat: "tera_x64_str_repeat",
+  stringPadStart: "tera_x64_str_pad_start",
+  stringPadEnd: "tera_x64_str_pad_end",
   stringReplace: "tera_x64_str_replace",
   stringReplaceAll: "tera_x64_str_replace_all",
   stringIndexOf: "tera_x64_str_index_of",

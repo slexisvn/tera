@@ -29,6 +29,7 @@ import { x64TextMethodRoutines } from "./text-methods.js";
 import { x64HeapRoutines } from "./heap.js";
 import { x64IoRoutines } from "./io.js";
 import { X64_PROGRAM_ENTRY, X64_RUNTIME_SYMBOLS } from "./runtime-symbols.js";
+import { reportTextOverflow } from "./text-overflow.js";
 import { TERA_EXIT_HEAP_EXHAUSTED } from "../../target/faults.js";
 import { INT32_MIN } from "../../target/integer.js";
 import {
@@ -247,7 +248,7 @@ function copy(abi: RuntimeAbi, append: boolean) {
       builder
         .at("seek")
         .emit("testl", builder.read("r11", 4), builder.read("r11", 4))
-        .to("jle", "terminate")
+        .to("jle", "overflow")
         .emit("cmpb", mem(1, { base: builder.read("r9", 8) }), imm(0))
         .to("je", "copy")
         .emit("incq", builder.write("r9", 8))
@@ -257,7 +258,7 @@ function copy(abi: RuntimeAbi, append: boolean) {
     builder
       .at("copy")
       .emit("testl", builder.read("r11", 4), builder.read("r11", 4))
-      .to("jle", "terminate")
+      .to("jle", "overflow")
       .emit("movzbl", builder.write("rcx", 4), mem(1, { base: builder.read("rax", 8) }))
       .emit("testb", builder.read("rcx", 1), builder.read("rcx", 1))
       .to("je", "terminate")
@@ -266,6 +267,12 @@ function copy(abi: RuntimeAbi, append: boolean) {
       .emit("incq", builder.write("rax", 8))
       .emit("decl", builder.write("r11", 4))
       .to("jmp", "copy")
+      .at("overflow")
+      .emit("movzbl", builder.write("rcx", 4), mem(1, { base: builder.read("rax", 8) }))
+      .emit("testb", builder.read("rcx", 1), builder.read("rcx", 1))
+      .to("je", "terminate");
+    reportTextOverflow(builder, abi);
+    builder
       .at("terminate")
       .emit("movb", mem(1, { base: builder.read("r9", 8) }), imm(0))
       .at("done")

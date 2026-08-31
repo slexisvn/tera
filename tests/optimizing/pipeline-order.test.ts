@@ -244,3 +244,34 @@ describe("pipeline ordering invariants", () => {
     ).toEqual([]);
   });
 });
+
+describe("legalization phase order", () => {
+  const at = (name: string): number => passNamesFor(cTarget).indexOf(name);
+
+  it("splits strings before it shapes the collections a split fills", () => {
+    expect(at("string-split-lowering")).toBeGreaterThanOrEqual(0);
+    expect(at("string-split-lowering")).toBeLessThan(at("collection-surface"));
+  });
+
+  it("settles types again after it learns what a generator yields", () => {
+    expect(at("type-narrowing-after-generators")).toBeGreaterThan(at("generator-iteration"));
+  });
+
+  it("runs the split lowering to a fixpoint rather than once", () => {
+    const graph = graphBranchingOnATaggedGlobal();
+    const options = compilerOptions();
+    runMiddleEnd(graph, options);
+    const manager = new PassManager(
+      new AnalysisManager(graph, createAnalysisRegistry()),
+      options,
+    );
+    const split = targetLegalizationPipeline(cTarget).find(
+      (pass) => pass.name === "string-split-lowering",
+    )!;
+
+    manager.run(graph, [split]);
+    const settled = cfgGraphProbe.nodeCount(graph);
+    manager.run(graph, [split]);
+    expect(cfgGraphProbe.nodeCount(graph)).toBe(settled);
+  });
+});

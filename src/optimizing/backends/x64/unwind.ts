@@ -19,6 +19,9 @@ const UNWIND_VERSION = 1;
 const UWOP_ALLOC_LARGE = 1;
 const UWOP_ALLOC_SMALL = 2;
 const UWOP_SAVE_NONVOL = 4;
+const UWOP_SAVE_XMM128_FAR = 9;
+const XMM_COUNT = 16;
+const DWARF_FIRST_XMM = 17;
 const SMALL_ALLOC_LIMIT = 128;
 const SLOT_BYTES = 8;
 const RUNTIME_FUNCTION_BYTES = 12;
@@ -42,6 +45,10 @@ const WIN64_REGISTER_NUMBERS: ReadonlyMap<string, number> = new Map([
   ["r15", 15],
 ]);
 
+const XMM_REGISTER_NUMBERS: ReadonlyMap<string, number> = new Map(
+  Array.from({ length: XMM_COUNT }, (_, index) => [`xmm${index}`, index] as const),
+);
+
 const DWARF_REGISTER_NUMBERS: ReadonlyMap<string, number> = new Map([
   ["rax", 0],
   ["rdx", 1],
@@ -59,6 +66,10 @@ const DWARF_REGISTER_NUMBERS: ReadonlyMap<string, number> = new Map([
   ["r13", 13],
   ["r14", 14],
   ["r15", 15],
+  ...Array.from(
+    XMM_REGISTER_NUMBERS,
+    ([name, index]) => [name, DWARF_FIRST_XMM + index] as const,
+  ),
 ]);
 
 const DWARF_RETURN_ADDRESS = 16;
@@ -97,12 +108,12 @@ function allocationEffect(node: MachineInstruction): PrologueEffect | null {
 }
 
 function saveEffect(node: MachineInstruction): PrologueEffect | null {
-  if (node.opcode !== "movq") return null;
+  if (node.opcode !== "movq" && node.opcode !== "movups") return null;
   const [location, source] = node.operands;
   const displacement = stackDisplacementOf(location);
   const saved = registerNameOf(source);
   if (displacement === null || saved === null || displacement % SLOT_BYTES !== 0) return null;
-  if (!WIN64_REGISTER_NUMBERS.has(saved)) return null;
+  if (!WIN64_REGISTER_NUMBERS.has(saved) && !XMM_REGISTER_NUMBERS.has(saved)) return null;
   return { kind: "save", register: saved, offset: displacement };
 }
 
@@ -138,6 +149,16 @@ function windowsCode(step: PrologueStep): WindowsCode | null {
         ? { op: UWOP_ALLOC_SMALL, info: slots - 1, extra: [] as number[] }
         : { op: UWOP_ALLOC_LARGE, info: 0, extra: [slots] };
     return { ...described, offset: 0, fragment: step.fragment };
+  }
+  const vector = XMM_REGISTER_NUMBERS.get(step.effect.register);
+  if (vector !== undefined) {
+    return {
+      op: UWOP_SAVE_XMM128_FAR,
+      info: vector,
+      extra: [step.effect.offset & 0xffff, step.effect.offset >>> 16],
+      offset: 0,
+      fragment: step.fragment,
+    };
   }
   const number = WIN64_REGISTER_NUMBERS.get(step.effect.register);
   if (number === undefined) return null;

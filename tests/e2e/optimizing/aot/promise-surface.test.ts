@@ -174,18 +174,19 @@ describe("AOT promise surface", () => {
     ).not.toBe("");
   });
 
-  it("declines catching rejections from two different functions at once", () => {
-    expect(
-      declined(
-        src(
-          BOOM,
-          "async fn m() -> void:",
-          "  a: int = await boom(1).catch(e => -1)",
-          "  b: int = await boom(2).catch(e => -2)",
-          '  print("v", a, b)',
-          "m()",
-        ),
-      ),
-    ).toContain("different functions");
+  itRunsPe("catches rejections from two different functions at once", () => {
+    const source = src(
+      BOOM,
+      "async fn m() -> void:",
+      "  a: int = await boom(1).catch(e => -1)",
+      "  b: int = await boom(2).catch(e => -2)",
+      '  print("v", a, b)',
+      "m()",
+    );
+    const program = compiled(source);
+    expect(program.skipped).toEqual([]);
+
+    const run = runPe(program.files[0]!.contents as Uint8Array);
+    expect([run.status, run.stdout]).toEqual([0, `${printedBy(source).join("\n")}\n`]);
   });
 });

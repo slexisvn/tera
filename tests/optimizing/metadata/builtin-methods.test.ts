@@ -62,7 +62,7 @@ describe("builtinMethodIntrinsicByName", () => {
   });
 
   it("returns null for a method that is not declared as an intrinsic", () => {
-    expect(builtinMethodIntrinsicByName(qualifiedMethodName("string", "pad_start"))).toBeNull();
+    expect(builtinMethodIntrinsicByName(qualifiedMethodName("string", "last_index_of"))).toBeNull();
     expect(builtinMethodIntrinsicByName(qualifiedMethodName("Array", "char_code_at"))).toBeNull();
     expect(builtinMethodIntrinsicByName("char_code_at")).toBeNull();
   });

@@ -49,6 +49,7 @@ import {
   IR_RUNTIME_BASE,
   IR_STORE_FIELD,
   IR_STORE_TEXT,
+  textCapacityOf,
   IR_LOAD_GLOBAL,
   heapElementScalarOf,
 } from "../ir/index.js";
@@ -77,6 +78,7 @@ export function int32ConstantOf(
   return held === (held | 0) ? held : null;
 }
 import { analysisId, type AnalysisPass } from "../infra/analysis-manager.js";
+import { UnionFind } from "../infra/union-find.js";
 import { computeValueLiveness } from "./value-liveness.js";
 import type { CallReachability } from "../metadata/call-graph.js";
 import {
@@ -99,7 +101,6 @@ import {
   SCALAR_STRING,
   SCALAR_TEXT,
   SCALAR_VOID,
-  TEXT_STORAGE_BYTES,
   VALUE_SCALAR_PROP,
   type AotScalar,
 } from "../types/scalar.js";
@@ -376,10 +377,10 @@ const EQUALITY_OPERATORS: ReadonlySet<string> = new Set<string>([
 ]);
 
 const ASCII_LIMIT = 0x7f;
-const TEXT_CHARACTERS = TEXT_STORAGE_BYTES - 1;
 
 export interface AotStringBuffer {
   readonly producer: CFGInstruction;
+  readonly producers: ReadonlySet<CFGInstruction>;
   readonly capacity: number;
 }
 
@@ -395,6 +396,41 @@ export interface StringEscapeModel {
   storesText(callee: string): boolean;
   producesText(callee: string): boolean;
   readonly throwsBuffer: boolean;
+}
+
+function mergedProducers(
+  owned: readonly CFGInstruction[],
+  walk: (producer: CFGInstruction) => StringBufferWalk,
+): CFGInstruction[][] {
+  const walked = new Map<CFGInstruction, StringBufferWalk>();
+  for (const producer of owned) walked.set(producer, walk(producer));
+
+  const groups: CFGInstruction[][] = [];
+  const shared = new UnionFind<CFGInstruction>();
+  const ownerOfAlias = new Map<CFGInstruction, CFGInstruction>();
+  for (const producer of owned) {
+    if (walked.get(producer)!.phis > 1) continue;
+    groups.push([producer]);
+  }
+  for (const [producer, reached] of walked) {
+    if (reached.phis <= 1) continue;
+    shared.makeSet(producer);
+    for (const alias of reached.aliases) {
+      const met = ownerOfAlias.get(alias);
+      if (met === undefined) ownerOfAlias.set(alias, producer);
+      else shared.union(producer, met);
+    }
+  }
+
+  const byRoot = new Map<CFGInstruction, CFGInstruction[]>();
+  for (const [producer, reached] of walked) {
+    if (reached.phis <= 1) continue;
+    const root = shared.find(producer);
+    const group = byRoot.get(root);
+    if (group === undefined) byRoot.set(root, [producer]);
+    else group.push(producer);
+  }
+  return [...groups, ...byRoot.values()];
 }
 
 export interface StringBufferWalk {
@@ -792,8 +828,12 @@ class LegalityAnalyzer implements AotLegality {
     }
     if (owned.length === 0 && borrowed.length === 0) return;
 
-    for (const producer of owned) {
-      const model: AotStringBuffer = { producer, capacity: TEXT_STORAGE_BYTES };
+    for (const group of mergedProducers(owned, (producer) => this.rules.walk(producer))) {
+      const model: AotStringBuffer = {
+        producer: group[0]!,
+        producers: new Set(group),
+        capacity: this.graph.textBufferBytes,
+      };
       if (!this.bindStringBufferAliases(model)) return;
       this.stringBuffers.push(model);
     }
@@ -839,7 +879,7 @@ class LegalityAnalyzer implements AotLegality {
   }
 
   private buildsHere(node: CFGInstruction): boolean {
-    return this.bufferByValue.get(node)?.producer === node;
+    return this.bufferByValue.get(node)?.producers.has(node) === true;
   }
 
   private exposedAt(
@@ -853,7 +893,28 @@ class LegalityAnalyzer implements AotLegality {
     return this.borrowedFrom.get(value) ?? this.bufferByValue.get(value)?.producer ?? null;
   }
 
+  private overwritesSameBuffer(
+    node: CFGInstruction,
+    liveAfter: ReadonlySet<CFGInstruction>,
+  ): boolean {
+    const model = this.bufferByValue.get(node);
+    if (model === undefined || !model.producers.has(node)) return false;
+    for (const value of liveAfter) {
+      if (value === node || node.inputs.includes(value)) continue;
+      if (this.bufferByValue.get(value) === model) return true;
+    }
+    return false;
+  }
+
   private checkInvalidation(node: CFGInstruction, liveAfter: ReadonlySet<CFGInstruction>): void {
+    if (this.overwritesSameBuffer(node, liveAfter)) {
+      this.fail(
+        `${this.graph.name} builds two strings into the same storage while both are still ` +
+          `in use; a string lives only until the storage behind it is written again, so use ` +
+          `each where it is built, copy it into an object field, or keep this part interpreted`,
+      );
+      return;
+    }
     if (
       !this.buildsHere(node) &&
       node.type !== IR_CALL_KNOWN_FUNCTION &&
@@ -994,18 +1055,37 @@ class LegalityAnalyzer implements AotLegality {
     return `keeps the string ${calleeSymbolName(origin) ?? "a call"} returned`;
   }
 
+  private namesOneBuffer(model: AotStringBuffer, aliases: ReadonlySet<CFGInstruction>): boolean {
+    const carried: CFGInstruction[] = [];
+    for (const value of aliases) if (value.type === IR_PHI) carried.push(value);
+    if (model.producers.size === 1 && carried.length <= 1) return true;
+    for (const value of carried) {
+      for (const input of value.inputs) {
+        if (aliases.has(input) || isConstantText(input)) continue;
+        return false;
+      }
+    }
+    return true;
+  }
+
   private bindStringBufferAliases(model: AotStringBuffer): boolean {
-    const walk = this.rules.walk(model.producer);
-    if (walk.phis > 1) {
+    const aliases = new Set<CFGInstruction>();
+    for (const producer of model.producers) {
+      const walk = this.rules.walk(producer);
+      if (walk.escape !== null) {
+        this.fail(this.escapeReason(producer, walk.escape));
+        return false;
+      }
+      for (const value of walk.aliases) aliases.add(value);
+    }
+    if (!this.namesOneBuffer(model, aliases)) {
       this.fail("string buffer has more than one loop-carried alias");
       return false;
     }
-    if (walk.escape !== null) {
-      this.fail(this.escapeReason(model.producer, walk.escape));
-      return false;
-    }
 
-    for (const value of walk.aliases) this.bufferByValue.set(value, model);
+    for (const value of aliases) {
+      if (!this.bufferByValue.has(value)) this.bufferByValue.set(value, model);
+    }
     return true;
   }
 
@@ -1131,15 +1211,30 @@ class LegalityAnalyzer implements AotLegality {
     return true;
   }
 
+  private checkTextStore(node: CFGInstruction): boolean {
+    const stored = node.inputs[1];
+    if (!isConstantText(stored)) return false;
+    const text = String(stored!.props.value);
+    const capacity = textCapacityOf(node);
+    if (text.length < capacity) return false;
+    const field = node.props.propName;
+    const where = typeof field === "string" ? field : "a field";
+    this.fail(
+      `${this.graph.name} stores a string of ${text.length} characters in ${where}, which ` +
+        `holds ${capacity - 1}; shorten it, or keep this part interpreted`,
+    );
+    return true;
+  }
+
   private checkConstant(node: CFGInstruction): void {
     const value = node.props.value;
     if (typeof value === "string") {
       if (!isAsciiRepresentable(value)) {
         this.fail("string constant is not representable as ASCII");
-      } else if (value.length > TEXT_CHARACTERS) {
+      } else if (value.length >= this.graph.textBufferBytes) {
         this.fail(
-          `string constant is longer than the ${TEXT_CHARACTERS} characters a compiled ` +
-            `string holds; shorten it, or keep this part interpreted`,
+          `string constant is longer than the ${this.graph.textBufferBytes - 1} characters a ` +
+            `compiled string holds; raise it with --text-size, or keep this part interpreted`,
         );
       } else {
         this.scalars.set(node, SCALAR_STRING);
@@ -1198,7 +1293,7 @@ class LegalityAnalyzer implements AotLegality {
       return;
     }
     const emitted = this.graph.emits ?? AOT_OPCODES;
-    if (!emitted.has(node.type) && this.bufferByValue.get(node)?.producer !== node) {
+    if (!emitted.has(node.type) && !this.buildsHere(node)) {
       this.fail(`unsupported opcode ${node.type}`);
       return;
     }
@@ -1214,6 +1309,7 @@ class LegalityAnalyzer implements AotLegality {
       this.scalars.set(node, SCALAR_POINTER);
       return;
     }
+    if (node.type === IR_STORE_TEXT && this.checkTextStore(node)) return;
     if (!this.arraysMatchDeclarations(node)) return;
     if (node.type === IR_CALL_KNOWN_FUNCTION) {
       const name = calleeSymbolName(node);
@@ -1381,7 +1477,10 @@ class LegalityAnalyzer implements AotLegality {
       const stringMismatch =
         (expected === SCALAR_STRING || actual === SCALAR_STRING) && expected !== actual;
       if (expected === null || stringMismatch) {
-        this.fail(`${name} has an unsupported argument type`);
+        this.fail(
+          `${name} is given a ${actual} where it takes ${expected ?? declared}, which the ` +
+            `compiler cannot pass; keep this part interpreted`,
+        );
         return;
       }
     }

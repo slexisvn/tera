@@ -6,10 +6,12 @@ import {
   irConstant,
   irInt32Add,
   irInt32Compare,
+  irFloat64Mul,
   irInt32Mul,
   irReturn,
   resetIRNodeIds,
   IR_CALL_KNOWN_FUNCTION,
+  IR_INT32_OR,
   type CFGInstruction,
 } from "../../../src/optimizing/ir/index.js";
 import { link } from "../../../src/optimizing/ir/cfg-edit.js";
@@ -72,6 +74,22 @@ function inline(caller: CFGFunction, callee: CFGFunction): number {
 
 const callsIn = (graph: CFGFunction): CFGInstruction[] =>
   graph.blocks.flatMap((block) => block.nodes).filter((node) => node.type === IR_CALL_KNOWN_FUNCTION);
+
+function scalesInFloat(name: string, returns = "int"): CFGFunction {
+  const graph = new CFGFunction(name);
+  graph.declaredSignature = { params: ["int"], names: ["n"], returns };
+  const n = graph.addParameter(0);
+  const block = graph.addBlock();
+  const half = block.addNode(irConstant(0.5));
+  const scaled = block.addNode(irFloat64Mul(n, half));
+  block.addNode(irReturn(scaled));
+  graph.rebuildUses();
+  return graph;
+}
+
+function answerOf(graph: CFGFunction): CFGInstruction {
+  return graph.blocks[0]!.getTerminator()!.inputs[0]!.inputs[0]!;
+}
 
 describe("inlineKnownCalls", () => {
   it("splices a straight-line callee into its caller", () => {
@@ -164,5 +182,30 @@ describe("inlineKnownCalls", () => {
     graph.rebuildUses();
 
     expect(inline(graph, graph)).toBe(0);
+  });
+
+  it("wraps an inlined callee whose declared int return is not proven int32", () => {
+    const { graph } = callerOf("scales");
+
+    expect(inline(graph, scalesInFloat("scales"))).toBe(1);
+    const answered = answerOf(graph);
+    expect(answered.type).toBe(IR_INT32_OR);
+    expect(answered.inputs[0]!.type).toBe("Float64Mul");
+    expect(answered.inputs[1]!.props.value).toBe(0);
+    expect(validateGraphInvariants(graph)).toBe(true);
+  });
+
+  it("leaves an inlined callee alone when every return already answers int32", () => {
+    const { graph } = callerOf("doubles");
+
+    expect(inline(graph, doubles("doubles"))).toBe(1);
+    expect(answerOf(graph).type).toBe("Int32Mul");
+  });
+
+  it("leaves an inlined callee alone when it does not declare an int return", () => {
+    const { graph } = callerOf("scales");
+
+    expect(inline(graph, scalesInFloat("scales", "float"))).toBe(1);
+    expect(answerOf(graph).type).toBe("Float64Mul");
   });
 });

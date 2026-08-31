@@ -4,6 +4,7 @@ import type { MachineTracer } from "./machine/trace.js";
 import type { AllocationTracer } from "./machine/allocation-report.js";
 import type { ModuleTracer } from "./drivers/module-trace.js";
 import type { OptBisect } from "./infra/opt-bisect.js";
+import { DEFAULT_TEXT_BUFFER_BYTES } from "./types/scalar.js";
 
 export type OptLevel = "none" | "baseline" | "speed" | "max";
 
@@ -33,6 +34,7 @@ export interface CompilerOptions {
   readonly moduleTracer: ModuleTracer | null;
   readonly verifyEachPass: boolean;
   readonly optBisect: OptBisect | null;
+  readonly textBufferBytes: number;
 }
 
 type OptLevelPreset = Omit<
@@ -48,6 +50,7 @@ type OptLevelPreset = Omit<
   | "moduleTracer"
   | "verifyEachPass"
   | "optBisect"
+  | "textBufferBytes"
 >;
 
 const presets: Record<OptLevel, OptLevelPreset> = {
@@ -125,6 +128,7 @@ export function compilerOptions(
     moduleTracer: null,
     verifyEachPass: false,
     optBisect: null,
+    textBufferBytes: DEFAULT_TEXT_BUFFER_BYTES,
     ...presets[optLevel],
     ...overrides,
   };

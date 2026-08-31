@@ -20,7 +20,10 @@ import {
   resetIRNodeIds,
   type CFGInstruction,
 } from "../../../src/optimizing/ir/index.js";
-import { buildClassTable } from "../../../src/optimizing/metadata/class-table.js";
+import {
+  buildClassTable,
+  VALUE_CLASS_PROP,
+} from "../../../src/optimizing/metadata/class-table.js";
 import {
   mapClassName,
   setClassName,
@@ -194,5 +197,53 @@ describe("direct set iteration", () => {
     shape(built);
 
     expect(constructedName(built)).toBe(mapClassName("string", "int"));
+  });
+});
+
+describe("collections a call answers", () => {
+  function calling(returns: string): { callee: CFGFunction; rewrote: readonly CFGFunction[] } {
+    const classes = buildClassTable([]);
+    const callee = new CFGFunction("makeSet");
+    callee.classes = classes;
+    callee.declaredSignature = { params: [], returns };
+    const madeIn = callee.addBlock();
+    const global = madeIn.addNode(irLoadGlobal("Set"));
+    madeIn.addNode(irReturn(madeIn.addNode(irGenericCall(global, []))));
+    callee.rebuildUses();
+
+    const caller = new CFGFunction("f");
+    caller.classes = classes;
+    const block = caller.addBlock();
+    const call = block.addNode(irGenericCall(block.addNode(irLoadGlobal("makeSet")), []));
+    const member = block.addNode(irGenericGetProp(call, "add"));
+    const adding = irGenericCall(member, [call, block.addNode(irConstant(1))]);
+    adding.props.isMethod = true;
+    block.addNode(adding);
+    block.addNode(irReturn(call));
+    caller.rebuildUses();
+
+    const units = [caller, callee].map((graph) => ({
+      graph,
+      types: new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
+    }));
+    return { callee, rewrote: shapeModuleCollections(units) };
+  }
+
+  it("seeds the caller from a call whose declared return names a collection", () => {
+    const { rewrote } = calling("Set<int>");
+
+    expect(rewrote.map((graph) => graph.name)).toContain("f");
+  });
+
+  it("leaves the caller alone when the declared return names no collection", () => {
+    const { rewrote } = calling("int");
+
+    expect(rewrote.map((graph) => graph.name)).not.toContain("f");
+  });
+
+  it("still shapes the callee that constructs the collection either way", () => {
+    const { callee } = calling("Set<int>");
+
+    expect(globalLoads(callee)).toContain(setClassName("int"));
   });
 });

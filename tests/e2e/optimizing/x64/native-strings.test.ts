@@ -1,6 +1,6 @@
 import { describe, expect } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
-import { TEXT_STORAGE_BYTES } from "../../../../src/optimizing/types/scalar.js";
+import { DEFAULT_TEXT_BUFFER_BYTES } from "../../../../src/optimizing/types/scalar.js";
 import type { AotProgram } from "../../../../src/optimizing/drivers/aot.js";
 import {
   itAssembles,
@@ -125,14 +125,21 @@ describe("native string building matches the interpreter", () => {
     }
   });
 
-  itAssembles("truncates at the buffer capacity instead of overrunning it", () => {
-    const limit = TEXT_STORAGE_BYTES - 1;
+  itAssembles("builds a long string in full rather than truncating it", () => {
     const [under, over] = runNativeStringBatch(compile(HOST_TARGET), [
       { symbol: "overflow", args: [102] },
       { symbol: "overflow", args: [200] },
     ]);
 
     expect(under).toHaveLength(1020);
-    expect(over).toHaveLength(limit);
+    expect(over).toHaveLength(2000);
+  });
+
+  itAssembles("says so instead of overrunning the buffer it builds a string in", () => {
+    const rounds = Math.ceil(DEFAULT_TEXT_BUFFER_BYTES / 10) + 1;
+
+    expect(() =>
+      runNativeStringBatch(compile(HOST_TARGET), [{ symbol: "overflow", args: [rounds] }]),
+    ).toThrow(/outgrew the space/);
   });
 });

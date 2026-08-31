@@ -1,4 +1,12 @@
-import { IR_STORE_GLOBAL, type CFGFunction, type CFGInstruction } from "../ir/index.js";
+import {
+  IR_GENERIC_CALL,
+  IR_GENERIC_GET_PROP,
+  IR_GENERIC_SET_INDEX,
+  IR_LOAD_GLOBAL,
+  IR_STORE_GLOBAL,
+  type CFGFunction,
+  type CFGInstruction,
+} from "../ir/index.js";
 import { detachUsesOfAll, retainNodes } from "../ir/graph-edit.js";
 import { AnalysisManager } from "../infra/analysis-manager.js";
 import { createAnalysisRegistry } from "../analyses/index.js";
@@ -108,11 +116,63 @@ function analysesOf(unit: CompilationUnit): AnalysisManager<CFGFunction> {
   return unit.analyses ?? new AnalysisManager<CFGFunction>(unit.graph, createAnalysisRegistry());
 }
 
+const PUSH_MEMBER = "push";
+
+function pushedInto(use: CFGInstruction, load: CFGInstruction): CFGInstruction | null {
+  if (use.type !== IR_GENERIC_CALL || use.props.isMethod !== true) return null;
+  const callee = use.inputs[0];
+  if (callee?.type !== IR_GENERIC_GET_PROP || String(callee.props.propName) !== PUSH_MEMBER) {
+    return null;
+  }
+  return use.inputs[1] === load ? use.inputs[2] ?? null : null;
+}
+
+function storedIntoElement(use: CFGInstruction, load: CFGInstruction): CFGInstruction | null {
+  if (use.type !== IR_GENERIC_SET_INDEX || use.inputs[0] !== load) return null;
+  return use.inputs[2] ?? null;
+}
+
+function typesByUnit(module: ModuleIR): Map<CompilationUnit, TypeInference> {
+  const inferred = new Map<CompilationUnit, TypeInference>();
+  for (const unit of module.units) {
+    inferred.set(unit, analysesOf(unit).get(typeInferenceAnalysisId));
+  }
+  return inferred;
+}
+
+function demandedElements(
+  module: ModuleIR,
+  classes: ClassTable,
+  inferred: ReadonlyMap<CompilationUnit, TypeInference>,
+): Map<string, string | null> {
+  const demanded = new Map<string, string | null>();
+  for (const unit of module.units) {
+    const types = inferred.get(unit)!;
+    for (const block of unit.graph.blocks) {
+      for (const node of block.nodes) {
+        if (node.type !== IR_LOAD_GLOBAL) continue;
+        const name = globalNameOf(node);
+        if (name === null) continue;
+        for (const use of node.uses) {
+          const held = pushedInto(use, node) ?? storedIntoElement(use, node);
+          if (held === null) continue;
+          const named = declaredTypeOf(types.typeOf(held), classes);
+          const carried = demanded.get(name);
+          demanded.set(name, carried === undefined || carried === named ? named : null);
+        }
+      }
+    }
+  }
+  return demanded;
+}
+
 export function declareGlobalVariables(module: ModuleIR, classes: ClassTable): number {
   const stored = new Map<string, Set<string>>();
   const rejected = new Set<string>();
+  const inferred = typesByUnit(module);
+  const demandedByName = demandedElements(module, classes, inferred);
   for (const unit of module.units) {
-    const types = analysesOf(unit).get(typeInferenceAnalysisId);
+    const types = inferred.get(unit)!;
     for (const block of unit.graph.blocks) {
       for (const node of block.nodes) {
         if (node.type !== IR_STORE_GLOBAL) continue;
@@ -123,7 +183,12 @@ export function declareGlobalVariables(module: ModuleIR, classes: ClassTable): n
           rejected.add(name);
           continue;
         }
-        const declared = storedTypeName(value, unit.graph, classes, types);
+        const held = storedTypeName(value, unit.graph, classes, types);
+        const demanded =
+          held !== null && types.typeOf(value).kind === TypeKind.Array
+            ? demandedByName.get(name) ?? null
+            : null;
+        const declared = demanded === null ? held : arrayOfType(demanded);
         if (declared === null) continue;
         let observed = stored.get(name);
         if (observed === undefined) {

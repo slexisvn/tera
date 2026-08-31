@@ -1,7 +1,7 @@
 import { imm, mem, type RegisterOperand } from "../../machine/ir.js";
 import type { MachineRoutineBuilder } from "../../machine/routine.js";
 import { alignUp } from "../../mc/buffer.js";
-import type { RuntimeAbi } from "../../target/abi.js";
+import { calleeFrameBytes, type RuntimeAbi } from "../../target/abi.js";
 import {
   ARRAY_CAPACITY_OFFSET,
   ARRAY_ELEMENTS_OFFSET,
@@ -592,7 +592,7 @@ function sweepYoung(builder: MachineRoutineBuilder): void {
 }
 
 function minor(abi: RuntimeAbi) {
-  const frame = calleeFrame(abi, 3);
+  const frame = calleeFrameBytes(abi, 3);
   const [first, second] = x64IntegerArgumentNames(abi);
   return (builder: MachineRoutineBuilder): void => {
     const r = reader(builder);
@@ -938,13 +938,8 @@ const RESERVE_SIZE_REGISTER = "rbx";
 const RESERVE_BASE_REGISTER = "r12";
 const COMMIT_ADDRESS_REGISTER = "r10";
 
-function calleeFrame(abi: RuntimeAbi, saved: number): number {
-  const pushed = (1 + saved) * POINTER_BYTES;
-  return alignUp(abi.callingConvention.shadowSpaceBytes + pushed, 16) - pushed;
-}
-
 function reserve(abi: RuntimeAbi, io: PlatformIo) {
-  const frame = calleeFrame(abi, 2);
+  const frame = calleeFrameBytes(abi, 2);
   return (builder: MachineRoutineBuilder): void => {
     const r = reader(builder);
     const w = writer(builder);
@@ -996,7 +991,7 @@ function reserve(abi: RuntimeAbi, io: PlatformIo) {
 function grow(abi: RuntimeAbi, io: PlatformIo) {
   const [size] = x64IntegerArgumentNames(abi);
   const wanted = RESERVE_SIZE_REGISTER;
-  const frame = calleeFrame(abi, 1);
+  const frame = calleeFrameBytes(abi, 1);
   return (builder: MachineRoutineBuilder): void => {
     const r = reader(builder);
     const w = writer(builder);

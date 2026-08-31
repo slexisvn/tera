@@ -4,6 +4,7 @@ import type { Representation } from "../types/representation.js";
 import type { ClassTable } from "../metadata/class-table.js";
 import type { StringEscapeModel } from "../analyses/aot-legality.js";
 import type { AotScalar } from "../types/scalar.js";
+import { DEFAULT_TEXT_BUFFER_BYTES } from "../types/scalar.js";
 import { DEFAULT_COMPILER_OPTIONS, type GraphInliningPolicy } from "../options.js";
 import * as ops from "./operations.js";
 import { canDeoptimize, isTerminator } from "./operations.js";
@@ -262,6 +263,7 @@ export class CFGFunction {
   calleeSignatures: ReadonlyMap<string, DeclaredSignature> | null;
   emits: ReadonlySet<string> | null;
   stringEscapes: StringEscapeModel | null;
+  textBufferBytes: number;
   receiver: boolean;
   internal: boolean;
   reentrant: boolean;
@@ -294,6 +296,7 @@ export class CFGFunction {
     this.calleeSignatures = null;
     this.emits = null;
     this.stringEscapes = null;
+    this.textBufferBytes = DEFAULT_TEXT_BUFFER_BYTES;
     this.reentrant = false;
     this.receiver = false;
     this.internal = false;

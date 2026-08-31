@@ -757,6 +757,7 @@ export function compileModule(
     try {
       graph.calleeSignatures = signatures;
       graph.emits = backend.emits;
+      graph.textBufferBytes = opts.textBufferBytes;
       cfgPassManager(analyses, opts).run(graph, backend.loweringPipeline(opts));
       if (stampCalleeSignatures(graph, signatures) > 0) {
         analyses.invalidate(typeInferenceAnalysisId);

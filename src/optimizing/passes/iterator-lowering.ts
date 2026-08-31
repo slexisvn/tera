@@ -28,6 +28,7 @@ import {
 import type { TypeInference } from "../analyses/type-inference.js";
 import { arrayModelOf } from "./array-shapes.js";
 import { RANGE_BUILTIN } from "../metadata/builtin-methods.js";
+import { genericCalleeName } from "../metadata/call-signatures.js";
 
 const BEFORE_FIRST = -1;
 const STEP = 1;
@@ -92,14 +93,25 @@ function constantNumber(node: CFGInstruction | undefined): number | null {
   return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
-function countsInInt32(value: CFGInstruction, types: TypeInference): boolean {
-  return aotScalarOf(types.typeOf(value)) === SCALAR_INT32;
+function countsInInt32(
+  value: CFGInstruction,
+  graph: CFGFunction,
+  types: TypeInference,
+): boolean {
+  if (aotScalarOf(types.typeOf(value)) === SCALAR_INT32) return true;
+  if (value.type !== IR_LOAD_GLOBAL) return false;
+  const name = value.props.name;
+  if (typeof name !== "string") return false;
+  return graph.classes?.globalOf(name)?.scalar === SCALAR_INT32;
 }
 
-function rangeBehind(call: CFGInstruction, types: TypeInference): Sequence | null {
-  const callee = call.inputs[0];
+function rangeBehind(
+  call: CFGInstruction,
+  graph: CFGFunction,
+  types: TypeInference,
+): Sequence | null {
   if (call.type !== IR_GENERIC_CALL || call.props.isMethod === true) return null;
-  if (callee?.type !== IR_LOAD_GLOBAL || String(callee.props.name) !== RANGE_BUILTIN) return null;
+  if (genericCalleeName(call) !== RANGE_BUILTIN) return null;
 
   const args = call.inputs.slice(1);
   if (args.length === 0 || args.length > 3) return null;
@@ -107,8 +119,8 @@ function rangeBehind(call: CFGInstruction, types: TypeInference): Sequence | nul
   if (step === null || step === 0) return null;
   const start = args.length === 1 ? null : args[0]!;
   const stop = args.length === 1 ? args[0]! : args[1]!;
-  if (!countsInInt32(stop, types)) return null;
-  if (start !== null && !countsInInt32(start, types)) return null;
+  if (!countsInInt32(stop, graph, types)) return null;
+  if (start !== null && !countsInInt32(start, graph, types)) return null;
   return { kind: "range", call, start, stop, step };
 }
 
@@ -130,7 +142,10 @@ function sequenceBehind(
     THROUGH_ALIASES,
     (candidate) => candidate.type === IR_GENERIC_CALL,
   );
-  if (call !== null) return rangeBehind(call, types);
+  if (call !== null) {
+    const counted = rangeBehind(call, graph, types);
+    if (counted !== null) return counted;
+  }
   const classes = graph.classes;
   if (classes !== null && arrayModelOf(iterable, graph, classes, types) !== null) {
     return { kind: "elements", array: iterable };
@@ -213,6 +228,35 @@ function replacementFor(
     : rangeReplacement(editor, node, sequence, stamp);
 }
 
+function settled(
+  value: CFGInstruction,
+  replacements: ReadonlyMap<CFGInstruction, CFGInstruction>,
+): CFGInstruction {
+  let carried = value;
+  const seen = new Set<CFGInstruction>();
+  for (;;) {
+    const next = replacements.get(carried);
+    if (next === undefined || seen.has(carried)) return carried;
+    seen.add(carried);
+    carried = next;
+  }
+}
+
+function asSettled(
+  sequence: Sequence,
+  replacements: ReadonlyMap<CFGInstruction, CFGInstruction>,
+): Sequence {
+  if (replacements.size === 0) return sequence;
+  if (sequence.kind === "elements") {
+    return { kind: "elements", array: settled(sequence.array, replacements) };
+  }
+  return {
+    ...sequence,
+    start: sequence.start === null ? null : settled(sequence.start, replacements),
+    stop: settled(sequence.stop, replacements),
+  };
+}
+
 export function lowerIterators(graph: CFGFunction, types: TypeInference): number {
   const sequences = new Map<CFGInstruction, Sequence>();
   for (const block of graph.blocks) {
@@ -226,18 +270,20 @@ export function lowerIterators(graph: CFGFunction, types: TypeInference): number
 
   const editor = new GraphEditor(graph);
   const stamp = nodeIdStamper(graph);
+  const replacements = new Map<CFGInstruction, CFGInstruction>();
   let count = 0;
   for (const block of graph.blocks) {
     for (const node of [...block.nodes]) {
       const sequence = sequences.get(node);
       if (sequence === undefined || node.block !== block) continue;
-      const replacement = replacementFor(editor, node, sequence, stamp);
+      const replacement = replacementFor(editor, node, asSettled(sequence, replacements), stamp);
       if (replacement.block === null) {
         replacement.frameState = node.frameState;
         editor.insertBefore(node, replacement);
       }
       editor.replaceAllUses(node, replacement);
       editor.remove(node);
+      replacements.set(node, replacement);
       count++;
     }
   }

@@ -529,3 +529,34 @@ describe("AOT maps and sets", () => {
     expect([run.status, run.stdout]).toEqual([0, interpreted(source.trimEnd())]);
   });
 });
+
+describe("a loop over what a call answered", () => {
+  itRunsPe("keeps every word a split answered in a set", () =>
+    agrees(
+      src(
+        'text = "a b a c"',
+        "u = Set()",
+        'for w of text.split(" "):',
+        "  u.add(w)",
+        "print(u.size)",
+        'print(u.has("b"))',
+      ),
+    ),
+  );
+
+  itRunsPe("counts the words a split answered", () =>
+    agrees(
+      src(
+        'text = "the cat the"',
+        "m = Map()",
+        'for w of text.split(" "):',
+        "  if m.has(w):",
+        "    m.set(w, m.get(w) + 1)",
+        "  else:",
+        "    m.set(w, 1)",
+        'print(m.get("the"))',
+        'print(m.has("cat"))',
+      ),
+    ),
+  );
+});

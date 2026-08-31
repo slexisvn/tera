@@ -130,6 +130,36 @@ describe("AOT generators", () => {
     );
   });
 
+  itRunsPe("counts with what a generator yielded", () =>
+    agrees(
+      src(
+        "fn* naturals(limit: int):",
+        "  i = 1",
+        "  while i <= limit:",
+        "    yield i",
+        "    i = i + 1",
+        "evens: int[] = []",
+        "for v of naturals(10):",
+        "  if v % 2 == 0:",
+        "    evens.push(v)",
+        'print(evens.join(","))',
+      ),
+    ),
+  );
+
+  itRunsPe("yields a whole number beside one that can leave int32", () => {
+    agrees(
+      src(
+        "fn* counts(n: int):",
+        "  yield n",
+        "  yield n + 1",
+        "  yield n * 2",
+        "for v of counts(3):",
+        "  print(v)",
+      ),
+    );
+  });
+
   itRunsPe("returns early without yielding", () => {
     agrees(
       src(

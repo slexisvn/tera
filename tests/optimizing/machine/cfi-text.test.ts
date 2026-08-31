@@ -90,3 +90,44 @@ describe("annotateCfi", () => {
     expect(annotation.describes).toBe(false);
   });
 });
+
+describe("prologueEffectOf", () => {
+  const saved = (opcode: string, name: string, offset: number) =>
+    instruction(opcode, [
+      mem(8, { base: use(physical("rsp"), 8), displacement: offset }),
+      use(physical(name), 8),
+    ]);
+
+  it("reads a callee-saved integer register out of a movq", () => {
+    expect(prologueEffectOf(saved("movq", "rbx", 8))).toEqual({
+      kind: "save",
+      register: "rbx",
+      offset: 8,
+    });
+  });
+
+  it("reads a vector register out of the movups that spills it", () => {
+    expect(prologueEffectOf(saved("movups", "xmm6", 16))).toEqual({
+      kind: "save",
+      register: "xmm6",
+      offset: 16,
+    });
+  });
+
+  it("names no effect for a vector spill that is not made through the stack pointer", () => {
+    const throughFrame = instruction("movups", [
+      mem(8, { base: use(physical("rbp"), 8), displacement: 16 }),
+      use(physical("xmm6"), 8),
+    ]);
+
+    expect(prologueEffectOf(throughFrame)).toBeNull();
+  });
+
+  it("names no effect for a store the prologue does not make", () => {
+    expect(prologueEffectOf(saved("movaps", "xmm6", 16))).toBeNull();
+  });
+
+  it("names no effect for a spill that is not slot aligned", () => {
+    expect(prologueEffectOf(saved("movups", "xmm6", 4))).toBeNull();
+  });
+});

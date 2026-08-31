@@ -1,3 +1,4 @@
+import { alignUp } from "../mc/buffer.js";
 import type { PhysicalRegister, RegisterClassId } from "./registers.js";
 
 export interface CallingConvention {
@@ -20,6 +21,12 @@ export interface RuntimeAbi {
   readonly stackPointer: PhysicalRegister;
   readonly savedOnCall: readonly PhysicalRegister[];
   readonly callingConvention: CallingConvention;
+}
+
+export function calleeFrameBytes(abi: RuntimeAbi, savedRegisters: number): number {
+  const pushed = (1 + savedRegisters) * abi.pointerWidthBytes;
+  const shadow = abi.callingConvention.shadowSpaceBytes;
+  return alignUp(shadow + pushed, abi.stackAlignmentBytes) - pushed;
 }
 
 export type ArgumentLocation =
