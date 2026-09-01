@@ -22,7 +22,7 @@ import {
   presentTypeName,
   type NominalTypes,
 } from "../types/declared.js";
-import { TypeKind, type LatticeType } from "../types/lattice.js";
+import { joinTypes, TypeKind, type LatticeType } from "../types/lattice.js";
 import {
   aotScalarOf,
   isReferenceScalar,
@@ -37,6 +37,7 @@ import {
   SCALAR_TEXT,
   type AotScalar,
 } from "../types/scalar.js";
+import { COLLECTION_GLOBALS } from "../prelude/collections.js";
 import { functionSignatureOf, type DeclaredSignature } from "../types/signature.js";
 import {
   classMemberSymbol,
@@ -267,6 +268,7 @@ export interface ClassTable extends NominalTypes {
   thrownType(): string | null;
   declareGlobal(name: string, declaredType: string): GlobalVariable | null;
   declareStaticField(owner: string, name: string, declaredType: string): boolean;
+  retypeField(owner: string, name: string, declaredType: string): boolean;
   globalOf(name: string): GlobalVariable | null;
   globals(): readonly GlobalVariable[];
   declareGenerator(producer: string, generator: GeneratorShape): void;
@@ -352,6 +354,45 @@ export function commonShapeOf(
   return commonAncestorOf(classes, shapes) ?? commonStandInOf(classes, shapes);
 }
 
+function literalFieldNamesOf(shape: ClassShape): readonly string[] | null {
+  return isLiteralShapeName(shape.name) ? [...shape.fields.keys()] : null;
+}
+
+function joinedFieldType(classes: ClassTable, held: readonly string[]): string | null {
+  const first = held[0];
+  if (first === undefined) return null;
+  if (held.every((entry) => entry === first)) return first;
+  let joined: LatticeType | null = null;
+  for (const entry of held) {
+    joined = joinTypes(joined, latticeFromDeclaredType(entry, builtinTypeEnv(), classes));
+  }
+  return joined === null ? null : declaredTypeOf(joined, classes);
+}
+
+export function joinedLiteralShape(
+  classes: ClassTable,
+  shapes: readonly ClassShape[],
+): ClassShape | null {
+  const names = shapes[0] === undefined ? null : literalFieldNamesOf(shapes[0]);
+  if (names === null) return null;
+  const held = new Map<string, string[]>(names.map((name) => [name, []]));
+  for (const shape of shapes) {
+    const carried = literalFieldNamesOf(shape);
+    if (carried === null || carried.length !== names.length) return null;
+    for (const [at, name] of carried.entries()) {
+      if (names[at] !== name) return null;
+      held.get(name)!.push(shape.fields.get(name)!.declaredType);
+    }
+  }
+  const fields: LiteralField[] = [];
+  for (const name of names) {
+    const declaredType = joinedFieldType(classes, held.get(name)!);
+    if (declaredType === null) return null;
+    fields.push({ name, declaredType });
+  }
+  return classes.defineSynthetic(literalShapeSurface(fields));
+}
+
 export function callableOf(
   callables: ClassCallables,
   kind: ClassCallableKind,
@@ -393,6 +434,7 @@ export function declaredAotScalar(
 
 function fieldScalarOf(declaredType: string, nominal: NominalTypes): AotScalar | null {
   if (functionSignatureOf(declaredType) !== null) return SCALAR_CODE;
+  if (COLLECTION_GLOBALS.has(declaredType)) return SCALAR_POINTER;
   const type = latticeFromDeclaredType(declaredType, builtinTypeEnv(), nominal);
   if (declaredAcceptsNull(declaredType) || type.kind === TypeKind.Nullish) {
     return nullableScalarOf(declaredType, nominal);
@@ -632,6 +674,24 @@ class Table implements ClassTable {
     const variable: GlobalVariable = { name, declaredType, offset, scalar };
     this.globalVariables.set(name, variable);
     return variable;
+  }
+
+  retypeField(owner: string, name: string, declaredType: string): boolean {
+    const shape = this.lookup(owner);
+    if (shape === undefined) return false;
+    const instance = shape.fields.get(name);
+    const held = instance ?? shape.staticFields.get(name);
+    if (held === undefined || held.declaredType === declaredType) return false;
+    if (fieldScalarOf(declaredType, this) !== held.scalar) return false;
+    if (instance === undefined) {
+      (shape.staticFields as Map<string, ClassStaticField>).set(name, {
+        ...(held as ClassStaticField),
+        declaredType,
+      });
+    } else {
+      (shape.fields as Map<string, ClassField>).set(name, { ...instance, declaredType });
+    }
+    return true;
   }
 
   declareStaticField(owner: string, name: string, declaredType: string): boolean {

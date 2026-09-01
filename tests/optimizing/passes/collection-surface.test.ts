@@ -14,6 +14,7 @@ import {
   irConstant,
   irGenericCall,
   irGenericGetProp,
+  irGenericSetProp,
   irIteratorInit,
   irLoadGlobal,
   irReturn,
@@ -245,5 +246,116 @@ describe("collections a call answers", () => {
     const { callee } = calling("Set<int>");
 
     expect(globalLoads(callee)).toContain(setClassName("int"));
+  });
+});
+
+const HELD_FIELD = "seen";
+const HOLDER = "Seen";
+
+function holderClasses() {
+  return buildClassTable([
+    {
+      name: mapClassName("string", "int"),
+      parent: null,
+      abstract: false,
+      members: [],
+      constructorParams: [],
+      constructorParamNames: [],
+    },
+    {
+      name: HOLDER,
+      parent: null,
+      abstract: false,
+      members: [
+        {
+          name: HELD_FIELD,
+          declaredType: "Map",
+          member: "field",
+          owner: HOLDER,
+          abstract: false,
+          visibility: "public",
+          static: false,
+        },
+      ],
+      constructorParams: [],
+      constructorParamNames: [],
+    },
+  ]);
+}
+
+function memberGraph(name: string, classes: ReturnType<typeof holderClasses>): CFGFunction {
+  const graph = new CFGFunction(name);
+  graph.classes = classes;
+  graph.classOwner = HOLDER;
+  graph.receiver = true;
+  return graph;
+}
+
+interface Holder {
+  readonly units: { graph: CFGFunction; types: ReturnType<AnalysisManager<CFGFunction>["get"]> }[];
+  readonly construction: CFGInstruction;
+  readonly classes: ReturnType<typeof holderClasses>;
+}
+
+function heldInField(): Holder {
+  const classes = holderClasses();
+
+  const made = memberGraph("Seen$constructor", classes);
+  const self = made.addParameter(0);
+  const opening = made.addBlock();
+  const global = opening.addNode(irLoadGlobal("Map"));
+  const construction = opening.addNode(irGenericCall(global, []));
+  opening.addNode(irGenericSetProp(self, HELD_FIELD, construction));
+  opening.addNode(irReturn(construction));
+  made.rebuildUses();
+
+  const uses = memberGraph("Seen$add", classes);
+  const receiver = uses.addParameter(0);
+  const body = uses.addBlock();
+  const held = body.addNode(irGenericGetProp(receiver, HELD_FIELD));
+  const member = body.addNode(irGenericGetProp(held, "set"));
+  const call = body.addNode(
+    irGenericCall(member, [held, body.addNode(irConstant("a")), body.addNode(irConstant(1))]),
+  );
+  call.props.isMethod = true;
+  body.addNode(irReturn(held));
+  uses.rebuildUses();
+
+  const units = [made, uses].map((graph) => ({
+    graph,
+    types: new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
+  }));
+  return { units, construction, classes };
+}
+
+describe("collections an instance holds in a field", () => {
+  it("names the construction by the key and value the methods use", () => {
+    const holder = heldInField();
+    shapeModuleCollections(holder.units);
+
+    expect(String(holder.construction.inputs[0]!.props.name)).toBe(
+      mapClassName("string", "int"),
+    );
+  });
+
+  it("retypes the field the constructor stores into", () => {
+    const holder = heldInField();
+    shapeModuleCollections(holder.units);
+
+    expect(holder.classes.shapeOf(HOLDER)?.fields.get(HELD_FIELD)?.declaredType).toBe(
+      mapClassName("string", "int"),
+    );
+  });
+
+  it("lays the field out as a reference rather than leaving it unsupported", () => {
+    const classes = holderClasses();
+
+    expect(classes.shapeOf(HOLDER)?.unsupported).toEqual([]);
+  });
+
+  it("leaves the field alone when the module holds no collection", () => {
+    const classes = holderClasses();
+
+    expect(classes.shapeOf(HOLDER)?.fields.get(HELD_FIELD)?.declaredType).toBe("Map");
   });
 });

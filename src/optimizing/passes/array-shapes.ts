@@ -7,6 +7,7 @@ import {
   IR_LOAD_ARRAY_LENGTH,
   IR_LOAD_ELEMENT,
   IR_NEW_ARRAY,
+  IR_NEW_OBJECT,
   IR_PARAMETER,
   IR_PHI,
   IR_STORE_ELEMENT,
@@ -33,6 +34,8 @@ import {
   callableOf,
   commonShapeOf,
   declaredTypeOf,
+  isLiteralShapeName,
+  joinedLiteralShape,
   ARRAY_CAPACITY_OFFSET,
   ARRAY_ELEMENT_SCALAR_PROP,
   ARRAY_ELEMENTS_OFFSET,
@@ -48,7 +51,12 @@ import {
 } from "../metadata/class-table.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { declaredTypeAt, memberDeclaredType } from "../metadata/call-signatures.js";
-import { DECLARED_INT, nominalLatticeType } from "../types/declared.js";
+import {
+  builtinOwnerMember,
+  declaredNameOf,
+  DECLARED_INT,
+  nominalLatticeType,
+} from "../types/declared.js";
 import { isUnwritten } from "../types/signature.js";
 import { arrayElementType } from "../../frontend/checker/type-system.js";
 import { latticeFromElementsKind } from "../types/elements.js";
@@ -91,6 +99,16 @@ const READS_ELEMENT: ReadonlySet<string> = new Set<string>([
 const WRITES_ELEMENT: ReadonlySet<string> = new Set<string>([
   IR_STORE_ELEMENT,
   IR_GENERIC_SET_INDEX,
+]);
+
+const FLATTENS_ONE_LEVEL = "flat";
+
+const HOLDS_ELEMENT_TYPE: ReadonlySet<string> = new Set<string>([
+  "concat",
+  "slice",
+  "filter",
+  "reverse",
+  "sort",
 ]);
 
 const SUBSCRIPTS: ReadonlySet<string> = new Set<string>([
@@ -155,11 +173,26 @@ function readMemberType(
   const member = value.props.propName;
   if (owner === undefined || typeof member !== "string") return null;
   const shape = receiverShape(owner, graph, classes, types);
-  if (shape === null) return null;
+  if (shape === null) return builtinAnswerOf(owner, member, graph, classes, types);
   const held = shape.fields.get(member)?.declaredType ?? null;
   if (held !== null) return held;
   const answered = callableOf(shape.callables, GETTER_MEMBER, member)?.signature.returns;
   return isUnwritten(answered) ? null : answered!;
+}
+
+export function producedTypeName(
+  value: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  const source = iteratedArrayOf(value);
+  if (source !== null) return arrayElementNameOf(source, graph, classes, types);
+  if (value.type === IR_GENERIC_GET_PROP) {
+    const declared = readMemberType(value, graph, classes, types);
+    if (declared !== null) return declared;
+  }
+  return answeredTypeName(value, graph, classes, types);
 }
 
 function producedType(
@@ -168,15 +201,7 @@ function producedType(
   classes: ClassTable,
   types: TypeInference,
 ): LatticeType | null {
-  if (READS_ELEMENT.has(value.type)) {
-    const model = arrayModelOf(value.inputs[0], graph, classes, types);
-    return model === null ? null : nominalLatticeType(model.declaredType, classes);
-  }
-  if (value.type === IR_GENERIC_GET_PROP) {
-    const declared = readMemberType(value, graph, classes, types);
-    if (declared !== null) return nominalLatticeType(declared, classes);
-  }
-  const answered = answeredTypeName(value, graph, classes, types);
+  const answered = producedTypeName(value, graph, classes, types);
   return answered === null ? null : nominalLatticeType(answered, classes);
 }
 
@@ -201,6 +226,20 @@ function receiverShape(
   return element === null ? null : classes.shapeOf(element);
 }
 
+function builtinAnswerOf(
+  receiver: CFGInstruction,
+  member: string,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  const owner =
+    declaredNameOf(types.typeOf(receiver)) ??
+    producedTypeName(receiver, graph, classes, types);
+  if (owner === null) return null;
+  return builtinOwnerMember(owner, member)?.signature.returns ?? null;
+}
+
 function answeredTypeName(
   value: CFGInstruction,
   graph: CFGFunction,
@@ -214,8 +253,10 @@ function answeredTypeName(
   const member = callee.props.propName;
   if (typeof member !== "string") return null;
   const shape = receiverShape(receiver, graph, classes, types);
-  if (shape === null) return null;
-  const answered = callableOf(shape.callables, METHOD_MEMBER, member)?.signature.returns;
+  const answered =
+    shape === null
+      ? builtinAnswerOf(receiver, member, graph, classes, types)
+      : callableOf(shape.callables, METHOD_MEMBER, member)?.signature.returns;
   return isUnwritten(answered) ? null : answered!;
 }
 
@@ -241,8 +282,26 @@ function sharedClass(
     if (shape === null) return null;
     shapes.push(shape);
   }
-  const common = commonShapeOf(classes, shapes);
+  const common = commonShapeOf(classes, shapes) ?? joinedLiteralShape(classes, shapes);
   return common === null ? null : objectType(common.id);
+}
+
+function adoptElementShape(
+  values: readonly CFGInstruction[],
+  element: ClassShape | null,
+  classes: ClassTable,
+): void {
+  if (element === null || !isLiteralShapeName(element.name)) return;
+  for (const value of values) {
+    if (value.type !== IR_NEW_OBJECT) continue;
+    const carried = value.props[VALUE_CLASS_PROP];
+    if (typeof carried !== "number" || carried === element.id) continue;
+    const held = classes.shapeById(carried);
+    if (held === null || !isLiteralShapeName(held.name)) continue;
+    value.props[CLASS_ID_PROP] = element.id;
+    value.props[INSTANCE_SIZE_PROP] = element.size;
+    value.props[VALUE_CLASS_PROP] = element.id;
+  }
 }
 
 function inferredElementOf(
@@ -471,6 +530,23 @@ function receivedArray(
   return modelOf(classes.defineArray(carried, named ?? undefined), classes);
 }
 
+function answeredArray(
+  array: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): ArrayModel | null {
+  if (array.type !== IR_GENERIC_CALL || array.props.isMethod !== true) return null;
+  const callee = array.inputs[0];
+  if (callee?.type !== IR_GENERIC_GET_PROP) return null;
+  const member = callee.props.propName;
+  if (typeof member !== "string") return null;
+  const held = arrayModelOf(array.inputs[1], graph, classes, types);
+  if (held === null) return null;
+  if (HOLDS_ELEMENT_TYPE.has(member)) return held;
+  return member === FLATTENS_ONE_LEVEL ? modelOf(held.elementShape, classes) : null;
+}
+
 export function arrayModelOf(
   array: CFGInstruction | undefined,
   graph: CFGFunction,
@@ -478,7 +554,11 @@ export function arrayModelOf(
   types: TypeInference,
 ): ArrayModel | null {
   if (array === undefined) return null;
-  return shapedArray(array, classes) ?? receivedArray(array, graph, classes, types);
+  return (
+    shapedArray(array, classes) ??
+    receivedArray(array, graph, classes, types) ??
+    answeredArray(array, graph, classes, types)
+  );
 }
 
 export function arrayModelForDeclaredType(
@@ -503,7 +583,8 @@ export function arrayElementNameOf(
   if (model !== null) return model.declaredType;
   if (array.type !== IR_NEW_ARRAY) return null;
   const element = elementTypeOf(array, graph, classes, types);
-  return element === null ? null : declaredTypeOf(element, classes);
+  if (element === null || element.kind === TypeKind.Array) return null;
+  return declaredTypeOf(element, classes);
 }
 
 export function arrayElementShapeOf(
@@ -597,6 +678,7 @@ function allocate(
   const named = nestedElementNameOf(declaredArrayTypeOf(node, graph, classes, types));
   const model = modelOf(classes.defineArray(carried, named ?? undefined), classes);
   if (model === null) return false;
+  adoptElementShape(storedValues(node), model.elementShape, classes);
   for (const value of node.inputs) {
     const stored = aotScalarOf(valueTypeOf(value, graph, classes, types));
     if (stored === null || !fits(stored, model.element)) return false;
@@ -841,14 +923,21 @@ export function stampElementTypes(graph: CFGFunction, types: TypeInference): num
   let stamped = 0;
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      if (!READS_ELEMENT.has(node.type) || node.props[FIELD_TYPE_PROP] !== undefined) continue;
-      const element = arrayElementNameOf(node.inputs[0], graph, classes, types);
+      if (!READS_ELEMENT.has(node.type)) continue;
+      const named = node.props[FIELD_TYPE_PROP];
+      const element =
+        typeof named === "string"
+          ? named
+          : arrayElementNameOf(node.inputs[0], graph, classes, types);
       if (element === null) continue;
-      node.props[FIELD_TYPE_PROP] = element;
-      const shape = classes.shapeOf(element);
-      if (shape !== null && classes.arrayLayoutOf(shape) !== null) {
-        node.props[VALUE_CLASS_PROP] = shape.id;
+      if (named === undefined) {
+        node.props[FIELD_TYPE_PROP] = element;
+        stamped++;
       }
+      if (node.props[VALUE_CLASS_PROP] !== undefined) continue;
+      const shape = classes.shapeOf(element);
+      if (shape === null || classes.arrayLayoutOf(shape) === null) continue;
+      node.props[VALUE_CLASS_PROP] = shape.id;
       stamped++;
     }
   }

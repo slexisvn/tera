@@ -92,6 +92,15 @@ describe("builtins", () => {
       expect(toNumber(builtins.Math.pow.call([mkSmi(3), mkSmi(0)]))).toBe(1);
     });
 
+    it("exp/sin/cos compute correctly", () => {
+      expect(toNumber(builtins.Math.exp.call([mkSmi(0)]))).toBe(1);
+      expect(toNumber(builtins.Math.exp.call([mkSmi(1)]))).toBeCloseTo(Math.E);
+      expect(toNumber(builtins.Math.sin.call([mkSmi(0)]))).toBe(0);
+      expect(toNumber(builtins.Math.sin.call([mkDouble(Math.PI / 2)]))).toBeCloseTo(1);
+      expect(toNumber(builtins.Math.cos.call([mkSmi(0)]))).toBe(1);
+      expect(toNumber(builtins.Math.cos.call([mkDouble(Math.PI)]))).toBeCloseTo(-1);
+    });
+
     it("min/max with multiple args, no args, and NaN propagation", () => {
       expect(toNumber(builtins.Math.min.call([mkSmi(3), mkSmi(1), mkSmi(2)]))).toBe(1);
       expect(toNumber(builtins.Math.max.call([mkSmi(3), mkSmi(1), mkSmi(2)]))).toBe(3);

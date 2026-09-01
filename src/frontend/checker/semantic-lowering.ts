@@ -305,6 +305,7 @@ function functionNode(node: FunctionAst, fallbackName?: string): FunctionNode {
     body: semanticBody(node.body),
     abstract: !!node.abstract,
     async: !!node.async,
+    generator: !!node.generator,
     span: spanOf(node),
     nameSpan: nameSpanOf(node),
   };

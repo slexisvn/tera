@@ -41,7 +41,10 @@ import { representationSelection } from "../passes/repr-selection.js";
 import { speculationLowering } from "../passes/speculation-lowering.js";
 import { typeNarrowing } from "../passes/type-narrowing.js";
 import { foldStaticReflection } from "../passes/static-reflection.js";
-import { coerceStringOperands } from "../passes/string-coercion.js";
+import {
+  coerceStringOperands,
+  joinTextConcatenations,
+} from "../passes/string-coercion.js";
 import { faultOnZeroDivisor } from "../passes/zero-divisor.js";
 import { faultOutsideBuiltinDomains } from "../passes/builtin-domains.js";
 import { validateRepresentations } from "../validation/graph-validator.js";
@@ -190,6 +193,14 @@ export function targetLegalizationPipeline(
       }),
     },
     {
+      name: "element-types",
+      preserves: preservesControlFlow,
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: stampElementTypes(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
       name: "speculation-lowering",
       preserves: { kind: "none" },
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
@@ -335,6 +346,14 @@ export function targetLegalizationPipeline(
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
       run: (graph, analyses) => ({
         changed: lowerBooleanText(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "text-concatenation",
+      preserves: preservesControlFlow,
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: joinTextConcatenations(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
     {

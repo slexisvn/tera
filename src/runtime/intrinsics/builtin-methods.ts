@@ -3,6 +3,7 @@ import { NUMBER_METHODS } from "./number-methods.js";
 import { snakeToCamel } from "../../utils/naming.js";
 import { isNumber, isSmi, isString } from "../../core/value/index.js";
 import type { RuntimeFunctionPayload, TaggedValue } from "../../core/value/index.js";
+import { methodsWithMetadata } from "./method-metadata.js";
 
 type BuiltinMethodOwner = {
   readonly methods: Readonly<Record<string, RuntimeFunctionPayload>>;
@@ -10,9 +11,9 @@ type BuiltinMethodOwner = {
 };
 
 const OWNERS = new Map<string, BuiltinMethodOwner>([
-  ["string", { methods: STRING_METHODS, accepts: isString }],
-  ["int", { methods: NUMBER_METHODS, accepts: isSmi }],
-  ["float", { methods: NUMBER_METHODS, accepts: isNumber }],
+  ["string", { methods: methodsWithMetadata("String", STRING_METHODS), accepts: isString }],
+  ["int", { methods: methodsWithMetadata("Number", NUMBER_METHODS), accepts: isSmi }],
+  ["float", { methods: methodsWithMetadata("Number", NUMBER_METHODS), accepts: isNumber }],
 ]);
 
 export function builtinMethodImplementation(

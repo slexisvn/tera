@@ -574,6 +574,21 @@ export const builtins = {
       pure: true,
       call: (args: BuiltinArg[]) => mkNumber(Math.log(extractArgNumber(args, 0, NaN))),
     },
+    exp: {
+      name: "Math.exp",
+      pure: true,
+      call: (args: BuiltinArg[]) => mkNumber(Math.exp(extractArgNumber(args, 0, NaN))),
+    },
+    sin: {
+      name: "Math.sin",
+      pure: true,
+      call: (args: BuiltinArg[]) => mkNumber(Math.sin(extractArgNumber(args, 0, NaN))),
+    },
+    cos: {
+      name: "Math.cos",
+      pure: true,
+      call: (args: BuiltinArg[]) => mkNumber(Math.cos(extractArgNumber(args, 0, NaN))),
+    },
     pow: {
       name: "Math.pow",
       pure: true,

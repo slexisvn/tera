@@ -20,7 +20,12 @@ function charCodeAt(receiver = HELLO) {
 
 describe("builtinMethodImplementation", () => {
   it("maps a snake_case Tera name onto the camelCase runtime method", () => {
-    expect(charCodeAt()).toBe(STRING_METHODS.charCodeAt);
+    expect(charCodeAt()!.call).toBe(STRING_METHODS.charCodeAt.call);
+    expect(charCodeAt()!.name).toBe(STRING_METHODS.charCodeAt.name);
+  });
+
+  it("carries the parameter names the language spec declares for the method", () => {
+    expect(charCodeAt()!.metadata?.params?.map((param) => param.name)).toEqual(["index"]);
   });
 
   it("resolves an implementation that computes the code unit", () => {

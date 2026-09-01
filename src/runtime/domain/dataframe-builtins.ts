@@ -1,7 +1,9 @@
 import * as mlfw from "@slexisvn/mlfw";
 import {
   createEngine,
+  Col,
   DataFrame,
+  GroupedData,
   InMemoryRelation,
   col,
   lit,
@@ -14,7 +16,7 @@ import {
   countStar,
 } from "@slexisvn/query-engine";
 import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
-import { optionsArg } from "./host.js";
+import { optionsArg, registerHostType } from "./host.js";
 import { register, splitOptions, type BuiltinMap, type NativeFn } from "./common.js";
 
 const queryEngine = createEngine();
@@ -155,6 +157,9 @@ function installFrameMethods(): void {
 
 export function installDataFrameBuiltins(map: BuiltinMap, metadata: Record<string, RuntimeFunctionMetadata>): void {
   installFrameMethods();
+  registerHostType(DataFrame, "DataFrame");
+  registerHostType(GroupedData, "GroupedData");
+  registerHostType(Col, "Column");
   register(map, "DataFrame", (...args) => dataframeFromColumns(optionsArg(args[0]) as Record<string, unknown[]>), metadata.DataFrame);
   register(map, "col", (name) => col(String(name)), metadata.col);
   register(map, "lit", (value) => lit(value as never), metadata.lit);

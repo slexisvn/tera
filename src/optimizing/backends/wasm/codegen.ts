@@ -105,6 +105,8 @@ import {
 import {
   RUNTIME_STUB_NODES,
   HEAP_MEMORY_STORE_NODES,
+  HEAP_REENTRANT_STUB_NODES,
+  HEAP_MEMORY_ACCESS_NODES,
   VALUE_PRODUCING,
   INT32_ARITH,
   FLOAT64_ARITH,
@@ -390,6 +392,7 @@ export class WasmCodegen {
   _typeofConstants: Map<string, SyntheticConstantNode> | null = null;
   _nonPrimitiveConstants: SyntheticConstantNode[] | null = null;
   _globalCandidates: Map<string, GlobalCandidateEntry> | null = null;
+  _staleHeapAccess: Set<number> | null = null;
   _globalCellNames: string[] | null = null;
   _selfRecursiveCandidates: AnyNode[] | null = null;
 
@@ -534,6 +537,9 @@ export class WasmCodegen {
     const entryGuards: AnyNode[] = [];
     const phiNodes: AnyNode[] = [];
 
+    const isNumericStoreRep = (rep: WasmValueRep): boolean =>
+      rep === REP_INT32 || rep === REP_FLOAT64 || rep === REP_TAGGED_NUMBER;
+
     const mathCallIntrinsics = new Map<number, MathIntrinsicInfo>();
     const mathCallDead = new Set<number>();
     for (const block of graph.blocks) {
@@ -542,6 +548,7 @@ export class WasmCodegen {
         const intrinsic = MATH_INTRINSICS.get(String(node.props.name));
         if (!intrinsic) continue;
         if (node.inputs.length !== intrinsic.arity) continue;
+        if (!node.inputs.every((input) => isNumericStoreRep(repForNode(input)))) continue;
         mathCallIntrinsics.set(node.id, { intrinsic, argInputs: [...node.inputs] });
       }
     }
@@ -556,8 +563,6 @@ export class WasmCodegen {
       }
       return cur;
     };
-    const isNumericStoreRep = (rep: WasmValueRep): boolean =>
-      rep === REP_INT32 || rep === REP_FLOAT64 || rep === REP_TAGGED_NUMBER;
     const slotKeyFor = (recv: AnyNode | undefined, off: number): string | null => {
       let cur = recv;
       let guardedMapId: number | null = null;
@@ -625,6 +630,19 @@ export class WasmCodegen {
       }
     }
 
+    const heapAccessNodes: AnyNode[] = [];
+    let reentersInterpreter = false;
+    for (const block of graph.blocks) {
+      for (const node of block.nodes) {
+        if (HEAP_MEMORY_ACCESS_NODES.has(node.type)) heapAccessNodes.push(node);
+        else if (HEAP_REENTRANT_STUB_NODES.has(node.type)) reentersInterpreter = true;
+      }
+    }
+    const staleHeapAccess = new Set<number>(
+      reentersInterpreter ? heapAccessNodes.map((node) => node.id) : [],
+    );
+    this._staleHeapAccess = staleHeapAccess;
+
     for (const block of graph.blocks) {
       for (const node of block.nodes) {
         if (VALUE_PRODUCING.has(node.type)) {
@@ -649,7 +667,7 @@ export class WasmCodegen {
           registerRuntimeStubNode(node);
           continue;
         }
-        if (this.needsFieldRuntimeStub(node)) {
+        if (this.needsHeapRuntimeStub(node)) {
           registerRuntimeStubNode(node);
           continue;
         }
@@ -1344,7 +1362,7 @@ export class WasmCodegen {
     let mutatesHeapObjects = false;
     for (const block of graph.blocks) {
       for (const node of block.nodes) {
-        if (HEAP_MEMORY_STORE_NODES.has(node.type)) {
+        if (HEAP_MEMORY_STORE_NODES.has(node.type) && !staleHeapAccess.has(node.id)) {
           mutatesHeapObjects = true;
           break;
         }
@@ -1404,9 +1422,8 @@ export class WasmCodegen {
     }
 
     let resultType: WasmType | null = null;
-    const resultValueRep: WasmValueRep = abiRepresentationOf(
-      graph.returnRepresentation ?? REP_HANDLE,
-    );
+    let returnedRep: WasmValueRep | null = null;
+    let uniformReturnRep = true;
     for (const block of graph.blocks) {
       for (const node of block.nodes) {
         if (node.type !== ir.IR_RETURN || !node.inputs[0]) continue;
@@ -1417,9 +1434,16 @@ export class WasmCodegen {
               ? wasmFormat.TYPE_F64
               : rt;
         }
+        const rep = valueRepOf(node.inputs[0]);
+        if (returnedRep === null) returnedRep = rep;
+        else if (returnedRep !== rep) uniformReturnRep = false;
       }
     }
     if (resultType === null) resultType = wasmFormat.TYPE_I32;
+    const resultValueRep: WasmValueRep =
+      returnedRep !== null && uniformReturnRep
+        ? returnedRep
+        : abiRepresentationOf(graph.returnRepresentation ?? REP_HANDLE);
 
     if (hasSelfRecursion) {
       for (const node of selfRecursiveDirectNodeList) {
@@ -2827,7 +2851,7 @@ export class WasmCodegen {
       return;
     }
 
-    if (this.needsFieldRuntimeStub(node)) {
+    if (this.needsHeapRuntimeStub(node)) {
       this.emitRuntimeStubCall(node, analysis, bytes, runtimeStubImportIdx, deoptImportIdx);
       return;
     }
@@ -3888,7 +3912,14 @@ export class WasmCodegen {
     }
   }
 
-  needsFieldRuntimeStub(node: AnyNode): boolean {
+  needsHeapRuntimeStub(node: AnyNode): boolean {
+    if (
+      HEAP_MEMORY_ACCESS_NODES.has(node.type) &&
+      this._staleHeapAccess !== null &&
+      this._staleHeapAccess.has(node.id)
+    ) {
+      return true;
+    }
     if (
       node.type === ir.IR_LOAD_FIELD ||
       node.type === ir.IR_POLYMORPHIC_LOAD
@@ -4590,6 +4621,25 @@ export class WasmCodegen {
         for (const info of objPtrs.values()) commitTrackedObject(info);
       };
 
+      const loadGlobalCells = () => {
+        if (!analysis.globalCellOffsets || !memory) return;
+        ensureMemory(analysis.memoryLayout.globalCells.end);
+        const dv = new DataView(memory.buffer);
+        for (const [name, offset] of analysis.globalCellOffsets) {
+          const cell = interpreter.globalCells.get(name);
+          const val = cell ? cell.read() : mkUndefined();
+          dv.setFloat64(offset, isNumber(val) ? toNumber(val) : 0, true);
+        }
+      };
+
+      const storeGlobalCells = () => {
+        if (!analysis.globalCellOffsets || !memory) return;
+        const dv = new DataView(memory.buffer);
+        for (const [name, offset] of analysis.globalCellOffsets) {
+          interpreter.globalCells.write(name, mkNumber(dv.getFloat64(offset, true)));
+        }
+      };
+
       let rawResult = 0;
       const prevObjPtrs = threadLocal.currentObjPtrs;
       const prevRuntime = threadLocal.currentRuntime;
@@ -4667,16 +4717,7 @@ export class WasmCodegen {
         throw new RangeError("Maximum call stack size exceeded");
       }
 
-      if (analysis.globalCellOffsets && memory) {
-        ensureMemory(analysis.memoryLayout.globalCells.end);
-        const dv = new DataView(memory.buffer);
-        for (const [name, offset] of analysis.globalCellOffsets) {
-          const cell = interpreter.globalCells.get(name);
-          const val = cell ? cell.read() : mkUndefined();
-          const raw = isNumber(val) ? toNumber(val) : 0;
-          dv.setFloat64(offset, raw, true);
-        }
-      }
+      loadGlobalCells();
 
       try {
         rawResult = wasmFn(...rawArgs);
@@ -4687,13 +4728,7 @@ export class WasmCodegen {
         if (e instanceof DeoptSignal) {
           commitTrackedObjects();
 
-          if (analysis.globalCellOffsets && memory) {
-            const dv = new DataView(memory.buffer);
-            for (const [name, offset] of analysis.globalCellOffsets) {
-              const raw = dv.getFloat64(offset, true);
-              interpreter.globalCells.write(name, mkNumber(raw));
-            }
-          }
+          storeGlobalCells();
 
           recordWasmDeopt(e.reason, e.bytecodeOffset, null, e.frameStateId);
 
@@ -4741,13 +4776,7 @@ export class WasmCodegen {
       threadLocal.currentObjPtrs = prevObjPtrs;
       threadLocal.currentRuntime = prevRuntime;
 
-      if (analysis.globalCellOffsets && memory) {
-        const dv = new DataView(memory.buffer);
-        for (const [name, offset] of analysis.globalCellOffsets) {
-          const raw = dv.getFloat64(offset, true);
-          interpreter.globalCells.write(name, mkNumber(raw));
-        }
-      }
+      storeGlobalCells();
 
       takeObjPtr();
 

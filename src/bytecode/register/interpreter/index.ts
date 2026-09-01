@@ -55,7 +55,7 @@ import {
   type RuntimeFunctionPayload,
 } from "../../../core/value/index.js";
 import { markReachableHeapIds } from "../../../gc/roots.js";
-import { markNamedArguments } from "../../../runtime/named-arguments.js";
+import { acceptsNamedOptions, bindNamedSlots, markNamedArguments, type NamedArgument } from "../../../runtime/named-arguments.js";
 
 import {
   allocateInstance,
@@ -226,10 +226,7 @@ type RegexConstant = {
   pattern: string;
   flags: string;
 };
-type NamedRuntimeArg = {
-  name: string;
-  value: TaggedValue;
-};
+type NamedRuntimeArg = NamedArgument<TaggedValue>;
 
 
 export function updateCallMode(compiled: CompiledFunctionLike): void {
@@ -1211,7 +1208,12 @@ export class RegisterInterpreter {
     }
     const fn = getPayload(callee);
     if (fn.compiled) return this.callFunctionValue(callee, bindNamedArgs(fn.compiled, args, named), thisValue);
-    const nextArgs = named.length > 0 ? [...args, namedOptionsObject(named)] : args;
+    const params = fn.metadata?.params;
+    const { values, rest } = bindNamedSlots(params, args, named, mkUndefined());
+    if (rest.length > 0 && !acceptsNamedOptions(params)) {
+      throw new VMTypeError(`Unknown named argument '${rest[0]!.name}'`);
+    }
+    const nextArgs = rest.length > 0 ? [...values, namedOptionsObject(rest)] : values;
     if (fn.call) return fn.call(nextArgs, thisValue, this);
     if (fn.construct) return fn.construct(nextArgs, this);
     throw new Error(`Cannot call function: ${fn.name || "unknown"}`);

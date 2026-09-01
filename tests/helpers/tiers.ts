@@ -12,6 +12,7 @@ const TIERS = {
   baseline: { osr: false, tieringPolicy: { jitThreshold: 1e12, baselineThreshold: 3 } },
   jit: { osr: false, tieringPolicy: { jitThreshold: 30, baselineThreshold: 3 } },
   osr: { tieringPolicy: { jitThreshold: 30, baselineThreshold: 3 } },
+  eager: { tieringPolicy: { jitThreshold: 3, baselineThreshold: 2, loopOsrThreshold: 3 } },
   baselineOsr: { tieringPolicy: { jitThreshold: 1e12, baselineThreshold: 3 } },
   production: {},
 } as const;
@@ -25,6 +26,7 @@ export const oracle = (gc?: object) => engineFor("oracle", gc);
 export const baseline = (gc?: object) => engineFor("baseline", gc);
 export const jit = (gc?: object) => engineFor("jit", gc);
 export const osrEngine = (gc?: object) => engineFor("osr", gc);
+export const eagerEngine = (gc?: object) => engineFor("eager", gc);
 export const baselineOsrEngine = (gc?: object) => engineFor("baselineOsr", gc);
 export const production = (gc?: object) => engineFor("production", gc);
 

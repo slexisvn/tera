@@ -19,6 +19,7 @@ import {
   parseFunctionType,
   parseGenericType,
   promiseType,
+  yieldedType,
   removeNullish,
   resolveType,
   shapeType,
@@ -377,13 +378,34 @@ function unifyTypeParams(paramType: TypeName, actualType: TypeName, typeParams: 
   }
 }
 
+const MATH_NAMESPACE = "Math";
+const CHOOSES_AN_ARGUMENT: ReadonlySet<string> = new Set(["min", "max"]);
+const WHOLE_NUMBER = "int";
+
+function chosenArgumentType(
+  node: ASTNode,
+  bound: BoundProgram,
+  scope: Scope,
+): TypeName | null {
+  const callee = node.callee as ASTNode;
+  if (callee.type !== NodeType.MemberExpression) return null;
+  if (!CHOOSES_AN_ARGUMENT.has(memberName(callee))) return null;
+  if (inferExpression(callee.object as ASTNode, bound, scope) !== MATH_NAMESPACE) return null;
+  const args = node.args as ASTNode[];
+  if (args.length === 0) return null;
+  const held = args.map((arg) => resolveType(inferExpression(arg, bound, scope), bound.env));
+  return held.every((type) => type === WHOLE_NUMBER) ? WHOLE_NUMBER : null;
+}
+
 function inferCall(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
   const comprehension = arrayComprehensionType(node, bound, scope);
   if (comprehension) return comprehension;
   const sig = callSignatureForCallee(node.callee as ASTNode, bound, scope);
   if (!sig) return "unknown";
   const instantiated = instantiateForCall(sig, node.args as ASTNode[], bound, scope, typeArgsOf(node.callee as ASTNode));
-  return instantiated.async ? promiseType(instantiated.returns, bound.env) : instantiated.returns;
+  if (instantiated.async) return promiseType(instantiated.returns, bound.env);
+  if (instantiated.generator) return yieldedType(instantiated.returns);
+  return chosenArgumentType(node, bound, scope) ?? instantiated.returns;
 }
 
 function inferNew(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
@@ -662,6 +684,12 @@ function arrayMethodSignature(type: TypeName, property: string, env: TypeEnv): S
   if (property === "forEach") return signature(`${owner}.forEach`, [["fn", `(${visitor}) -> void`]], "void");
   if (property === "some" || property === "every") return signature(`${owner}.${property}`, [["fn", `(${visitor}) -> bool`]], "bool");
   if (property === "sort") return signature(`${owner}.sort`, [["fn", `(${element}, ${element}) -> float`, true]], `${element}[]`);
+  if (property === "flat") {
+    const inner = arrayElementType(resolveType(element, env));
+    return signature(`${owner}.flat`, [], `${inner ?? element}[]`);
+  }
+  if (property === "reverse") return signature(`${owner}.reverse`, [], `${element}[]`);
+  if (property === "join") return signature(`${owner}.join`, [["separator", "string", true]], "string");
   if (property === "reduce" || property === "reduceRight") {
     return withTypeParams(signature(`${owner}.${property}`, [["fn", `(U, ${element}, int) -> U`], ["initial", "U", true]], "U"), ["U"]);
   }

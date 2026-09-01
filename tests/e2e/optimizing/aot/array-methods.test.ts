@@ -380,11 +380,41 @@ describe("array search methods", () => {
   it("still declines a member no backend lowers", () => {
     expect(() =>
       nodeEngine({ typecheck: "off" }).compileAot(
-        src("xs: int[] = [1]", "ys: int[] = [2]", "print(xs.concat(ys))", ""),
+        src("xs: int[] = [1]", "print(xs.flat_map(x => [x]))", ""),
         { backend: "x64-windows", format: "executable" },
       ),
-    ).toThrow(/concat/);
+    ).toThrow(/flat_map/);
   });
+
+  itRunsPe("joins two arrays end to end", () =>
+    peAgrees(
+      src("xs: int[] = [1, 2]", "ys: int[] = [3]", "for x of xs.concat(ys):", "  print(x)"),
+    ),
+  );
+
+  itRunsPe("leaves both sources alone after joining them", () =>
+    peAgrees(
+      src(
+        "xs: int[] = [1]",
+        "ys: int[] = [2]",
+        "joined = xs.concat(ys)",
+        "xs.push(9)",
+        "print(joined.length)",
+        "print(xs.length)",
+      ),
+    ),
+  );
+
+  itRunsPe("joins two arrays of text", () =>
+    peAgrees(
+      src(
+        'xs: string[] = ["a"]',
+        'ys: string[] = ["b", "c"]',
+        "for s of xs.concat(ys):",
+        "  print(s)",
+      ),
+    ),
+  );
 });
 
 describe("array slicing", () => {
@@ -405,4 +435,48 @@ describe("AOT array flattening", () => {
       ),
     );
   });
+});
+
+describe("iterating what an array method answers", () => {
+  const WALKED: readonly (readonly [string, string])[] = [
+    ["a slice", src("xs: int[] = [1, 2, 3, 4]", "for x of xs.slice(1, 3):", "  print(x)")],
+    ["a filter", src("xs: int[] = [1, 2, 3]", "for x of xs.filter(v => v > 1):", "  print(x)")],
+    ["a reversal", src("xs: int[] = [1, 2, 3]", "for x of xs.reverse():", "  print(x)")],
+    ["a sort", src("xs: int[] = [3, 1, 2]", "for x of xs.sort((p, q) => p - q):", "  print(x)")],
+    [
+      "a join of two arrays",
+      src("xs: int[] = [1]", "ys: int[] = [2]", "for x of xs.concat(ys):", "  print(x)"),
+    ],
+    [
+      "a chain of two methods",
+      src(
+        "xs: int[] = [1, 2]",
+        "ys: int[] = [3, 4]",
+        "for x of xs.concat(ys).slice(1, 3):",
+        "  print(x)",
+      ),
+    ],
+    [
+      "a slice held in a variable first",
+      src("xs: int[] = [1, 2, 3]", "held = xs.slice(1)", "for x of held:", "  print(x)"),
+    ],
+    [
+      "a flattening",
+      src("rows: int[][] = [[1, 2], [3]]", "for x of rows.flat():", "  print(x)"),
+    ],
+    [
+      "a join of two record arrays",
+      src(
+        "type R = { n: string }",
+        'xs: R[] = [{ n: "x" }]',
+        'ys: R[] = [{ n: "y" }]',
+        "for r of xs.concat(ys):",
+        "  print(r.n)",
+      ),
+    ],
+  ];
+
+  for (const [what, source] of WALKED) {
+    itRunsPe(`walks ${what}`, () => peAgrees(source));
+  }
 });

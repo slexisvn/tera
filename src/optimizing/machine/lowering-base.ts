@@ -33,6 +33,7 @@ import {
   builtinIntrinsicByName,
   builtinParameterAt,
 } from "../metadata/builtin-methods.js";
+import { BackendLoweringError } from "../target/errors.js";
 import type { MachineTargetModel } from "../target/model.js";
 import type { PhysicalRegister } from "../target/registers.js";
 import { SCALAR_INT32, SCALAR_STRING, SCALAR_VOID, type AotScalar } from "../types/scalar.js";
@@ -293,8 +294,21 @@ export abstract class MachineLoweringBase<TTarget extends MachineTargetModel>
     this.produce(ctx, address, SCALAR_STRING);
   }
 
+  protected requireStringBuffer(ctx: SelectionContext): AotStringBuffer {
+    const buffer = ctx.legality.stringBufferOf(ctx.node);
+    if (buffer !== null) return buffer;
+    const producer =
+      ctx.node.type === IR_CALL_BUILTIN
+        ? `'${String(ctx.node.props.name)}'`
+        : "string concatenation";
+    throw new BackendLoweringError(
+      `the string ${producer} produces has no buffer to live in, because the ` +
+        "compiler could not see where it is built; keep this part interpreted",
+    );
+  }
+
   protected selectStringBuffered(ctx: SelectionContext, symbol: string): void {
-    const buffer = ctx.legality.stringBufferOf(ctx.node)!;
+    const buffer = this.requireStringBuffer(ctx);
     const intrinsic = builtinIntrinsicByName(String(ctx.node.props.name))!;
     const operands = ctx.node.inputs.map((input, index) =>
       this.coerce(

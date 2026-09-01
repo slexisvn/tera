@@ -4797,6 +4797,9 @@ export const TERA_PSEUDO_TYPES = {
       { "name": "sign", "params": [param("x", "float")], "returns": "int" },
       { "name": "sqrt", "params": [param("x", "float")], "returns": "float" },
       { "name": "log", "params": [param("x", "float")], "returns": "float" },
+      { "name": "exp", "params": [param("x", "float")], "returns": "float" },
+      { "name": "sin", "params": [param("x", "float")], "returns": "float" },
+      { "name": "cos", "params": [param("x", "float")], "returns": "float" },
       { "name": "pow", "params": [param("base", "float"), param("exponent", "float")], "returns": "float" },
       { "name": "min", "params": [param("values", "float", { rest: true })], "returns": "float" },
       { "name": "max", "params": [param("values", "float", { rest: true })], "returns": "float" },
@@ -6914,6 +6917,21 @@ export const TERA_PSEUDO_TYPES = {
   },
   "String": {
     "methods": [
+      {
+        "name": "concat",
+        "params": [
+          {
+            "name": "pieces",
+            "type": "string",
+            "optional": true,
+            "rest": true,
+            "defaultValue": null
+          }
+        ],
+        "returns": "string",
+        "isGetter": false,
+        "description": "Return this string with `pieces` appended to it."
+      },
       {
         "name": "to_upper_case",
         "params": [],

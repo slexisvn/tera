@@ -29,7 +29,9 @@ import {
   IR_GENERIC_SHR,
   IR_GENERIC_SUB,
   IR_GENERIC_USHR,
+  IR_LOAD_ARRAY_LENGTH,
   IR_LOAD_CONTEXT_SLOT,
+  IR_LOAD_ELEMENT,
   IR_LOAD_FIELD,
   IR_LOAD_GLOBAL,
   IR_MAKE_CLOSURE,
@@ -43,6 +45,7 @@ import {
   IR_POLYMORPHIC_LOAD,
   IR_POLYMORPHIC_STORE,
   IR_STORE_CONTEXT_SLOT,
+  IR_STORE_ELEMENT,
   IR_STORE_FIELD,
   IR_STORE_GLOBAL,
   IR_TYPEOF,
@@ -759,6 +762,27 @@ export function executeRuntimeStub(
         stub.outputRep === REP_TAGGED_NUMBER
       )
         return taggedToNumber(val);
+      return runtimeReturn(val, runtime, stub.outputRep);
+    }
+    case IR_LOAD_ARRAY_LENGTH: {
+      const arr = args[0];
+      const length = isArray(arr) ? (getPayload(arr) as JSArray).elements.length : 0;
+      return runtimeNumericResult(length, runtime, stub.outputRep);
+    }
+    case IR_LOAD_ELEMENT: {
+      const val = getRuntimeIndex(args[0], args[1], runtime.interpreter);
+      if (stub.outputRep === REP_INT32) return taggedToNumber(val) | 0;
+      if (
+        stub.outputRep === REP_FLOAT64 ||
+        stub.outputRep === REP_TAGGED_NUMBER
+      ) {
+        return taggedToNumber(val);
+      }
+      return runtimeReturn(val, runtime, stub.outputRep);
+    }
+    case IR_STORE_ELEMENT: {
+      const val = setRuntimeIndex(args[0], args[1], args[2], runtime.interpreter);
+      runtime.syncTagged?.(rawArgs[0]);
       return runtimeReturn(val, runtime, stub.outputRep);
     }
     case IR_LOAD_FIELD: {

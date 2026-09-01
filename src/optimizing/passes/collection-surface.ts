@@ -12,6 +12,7 @@ import {
   IR_GENERIC_SUB,
   IR_ITERATOR_INIT,
   IR_LOAD_GLOBAL,
+  IR_PARAMETER,
   IR_STORE_GLOBAL,
   IR_PHI,
   IR_RETURN,
@@ -50,6 +51,8 @@ const RECEIVER = 1;
 const KEY_ARGUMENT = 2;
 const VALUE_ARGUMENT = 3;
 const COUNTED_VALUE: ValueKind = "int";
+const RECEIVER_SLOT = 0;
+const MEMBER_SLOT_PREFIX = "member:";
 
 const KEY_BY_KIND: ReadonlyMap<string, KeyKind> = new Map<string, KeyKind>([
   [TypeKind.String, "string"],
@@ -390,15 +393,23 @@ function ownersOf(units: readonly CollectionUnit[]): UnitLookup {
   return (node) => owner.get(node) ?? units[0]!;
 }
 
-function slotKeyOf(node: CFGInstruction): string | null {
+function heldFieldKeyOf(node: CFGInstruction, graph: CFGFunction): string | null {
+  const owner = node.inputs[0];
+  if (owner === undefined) return null;
+  const member = String(node.props.propName);
+  if (owner.type === IR_LOAD_GLOBAL) return `field:${String(owner.props.name)}.${member}`;
+  if (graph.classOwner === null || graph.receiver !== true) return null;
+  if (owner.type !== IR_PARAMETER || Number(owner.props.index) !== RECEIVER_SLOT) return null;
+  return `${MEMBER_SLOT_PREFIX}${graph.classOwner}.${member}`;
+}
+
+function slotKeyOf(node: CFGInstruction, graph: CFGFunction): string | null {
   if (node.type === IR_STORE_GLOBAL || node.type === IR_LOAD_GLOBAL) {
     const name = node.props.name;
     return typeof name === "string" ? `global:${name}` : null;
   }
   if (node.type === IR_GENERIC_SET_PROP || node.type === IR_GENERIC_GET_PROP) {
-    const owner = node.inputs[0];
-    if (owner?.type !== IR_LOAD_GLOBAL) return null;
-    return `field:${String(owner.props.name)}.${String(node.props.propName)}`;
+    return heldFieldKeyOf(node, graph);
   }
   return null;
 }
@@ -414,7 +425,7 @@ function slotReads(units: readonly CollectionUnit[]): ReadonlyMap<string, CFGIns
     for (const block of unit.graph.blocks) {
       for (const node of block.nodes) {
         if (node.type !== IR_LOAD_GLOBAL && node.type !== IR_GENERIC_GET_PROP) continue;
-        const key = slotKeyOf(node);
+        const key = slotKeyOf(node, unit.graph);
         if (key === null) continue;
         const bucket = reads.get(key);
         if (bucket === undefined) reads.set(key, [node]);
@@ -425,12 +436,15 @@ function slotReads(units: readonly CollectionUnit[]): ReadonlyMap<string, CFGIns
   return reads;
 }
 
-function slotBehind(aliases: ReadonlySet<CFGInstruction>): string | null {
+function slotBehind(
+  aliases: ReadonlySet<CFGInstruction>,
+  unitOf: UnitLookup,
+): string | null {
   let key: string | null = null;
   for (const alias of aliases) {
     for (const use of alias.uses) {
       if (!storesHeld(use, alias)) continue;
-      const found = slotKeyOf(use);
+      const found = slotKeyOf(use, unitOf(use).graph);
       if (found === null || (key !== null && key !== found)) return null;
       key = found;
     }
@@ -443,6 +457,7 @@ function sharedAcross(
   kind: string,
   unit: CollectionUnit,
   byName: ReadonlyMap<string, CFGFunction>,
+  unitOf: UnitLookup,
 ): boolean {
   for (const alias of aliases) {
     for (const use of alias.uses) {
@@ -455,7 +470,7 @@ function sharedAcross(
         continue;
       }
       if (use.type === IR_RETURN) continue;
-      if (storesHeld(use, alias) && slotKeyOf(use) !== null) continue;
+      if (storesHeld(use, alias) && slotKeyOf(use, unitOf(use).graph) !== null) continue;
       if (passedAlong(use, alias, kind, unit, byName)) continue;
       if (use.type !== IR_GENERIC_GET_PROP || use.inputs[0] !== alias) return false;
       if (!supported(String(use.props.propName))) return false;
@@ -507,11 +522,12 @@ function widenedThroughSlot(
   held: ReadonlySet<CFGInstruction>,
   owner: CollectionUnit,
   index: SlotIndex,
+  unitOf: UnitLookup,
 ): ReadonlySet<CFGInstruction> {
   let aliases = held;
   for (let round = 0; round < 2; round++) {
     const widened = new Set(aliases);
-    const key = slotBehind(aliases) ?? staticSlotOf(owner.graph);
+    const key = slotBehind(aliases, unitOf) ?? staticSlotOf(owner.graph);
     for (const read of key === null ? [] : index.reads.get(key) ?? []) {
       for (const alias of aliasesOf(read)) widened.add(alias);
     }
@@ -547,6 +563,7 @@ function seedsOf(
   unit: CollectionUnit,
   byName: ReadonlyMap<string, CFGFunction>,
   index: SlotIndex,
+  unitOf: UnitLookup,
 ): readonly CollectionSeed[] | null {
   const seeds: CollectionSeed[] = [];
   const held: CFGInstruction[] = [];
@@ -573,9 +590,9 @@ function seedsOf(
     kinds.push(named);
   }
   for (const [at, value] of held.entries()) {
-    const aliases = widenedThroughSlot(aliasesOf(value), unit, index);
+    const aliases = widenedThroughSlot(aliasesOf(value), unit, index, unitOf);
     const kind = kinds[at]!;
-    if (!sharedAcross(aliases, kind, unit, byName)) return null;
+    if (!sharedAcross(aliases, kind, unit, byName, unitOf)) return null;
     seeds.push({
       unit,
       kind,
@@ -637,6 +654,21 @@ function renameCollectionTypes(graph: CFGFunction, named: ReadonlyMap<string, st
   return true;
 }
 
+function retypeHeldFields(
+  units: readonly CollectionUnit[],
+  named: ReadonlyMap<string, string>,
+): void {
+  const classes = units[0]?.graph.classes ?? null;
+  if (classes === null) return;
+  for (const shape of classes.shapes()) {
+    for (const field of [...shape.fields.values(), ...shape.staticFields.values()]) {
+      const held = named.get(field.declaredType);
+      if (held === undefined) continue;
+      classes.retypeField(shape.name, field.name, held);
+    }
+  }
+}
+
 export function shapeModuleCollections(
   units: readonly CollectionUnit[],
 ): readonly CFGFunction[] {
@@ -645,7 +677,7 @@ export function shapeModuleCollections(
   const unitOf = ownersOf(units);
   const seeds: CollectionSeed[] = [];
   for (const unit of units) {
-    const held = seedsOf(unit, byName, index);
+    const held = seedsOf(unit, byName, index, unitOf);
     if (held === null) return [];
     seeds.push(...held);
   }
@@ -671,6 +703,8 @@ export function shapeModuleCollections(
         : mapClassName(flavour.key, flavour.value ?? COUNTED_VALUE),
     );
   }
+
+  retypeHeldFields(units, named);
 
   for (const seed of seeds) {
     if (seed.staticSlot === null) continue;

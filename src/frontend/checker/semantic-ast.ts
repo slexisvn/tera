@@ -59,6 +59,7 @@ export type FunctionNode = {
   body: SemanticNode[];
   abstract: boolean;
   async: boolean;
+  generator: boolean;
   span: SourceSpan;
   nameSpan: SourceSpan;
 };

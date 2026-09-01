@@ -1,6 +1,6 @@
 import * as mlfw from "@slexisvn/mlfw";
 import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
-import { camelOptions, register, splitOptions, type BuiltinMap, type NativeCtor, type NativeFn } from "./common.js";
+import { camelOptions, register, registerHostKinds, splitOptions, type BuiltinMap, type NativeCtor, type NativeFn } from "./common.js";
 
 const ml = mlfw.ml;
 const linalg = mlfw.linalg;
@@ -45,6 +45,7 @@ function gridSearchCV(...args: unknown[]): unknown {
 }
 
 export function installMlBuiltins(map: BuiltinMap, metadata: Record<string, RuntimeFunctionMetadata>): void {
+  registerHostKinds(ml as unknown as Record<string, unknown>, [...ML_MODELS, ...ML_TRANSFORMS, ...ML_CLUSTERS, ...ML_SPLITTERS], metadata);
   for (const name of [...ML_MODELS, ...ML_TRANSFORMS, ...ML_CLUSTERS, ...ML_SPLITTERS]) {
     const ctor = ml[name] as NativeCtor | undefined;
     if (typeof ctor === "function") register(map, name, makeEstimator(ctor), metadata[name]);

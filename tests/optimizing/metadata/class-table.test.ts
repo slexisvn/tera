@@ -6,10 +6,14 @@ import type {
 import {
   buildClassTable,
   callableOf,
+  type ClassShape,
   type ClassTable,
   CLASS_HEADER_BYTES,
   constructorFieldDisagreement,
   descendsFrom,
+  joinedLiteralShape,
+  literalShapeSurface,
+  type LiteralField,
 } from "../../../src/optimizing/metadata/class-table.js";
 import {
   createTypeEnv,
@@ -429,5 +433,105 @@ describe("structural shapes of declared object types", () => {
       "lo",
       "hi",
     ]);
+  });
+});
+
+describe("joinedLiteralShape", () => {
+  const literal = (classes: ClassTable, fields: readonly LiteralField[]): ClassShape =>
+    classes.defineSynthetic(literalShapeSurface(fields));
+
+  const held = (classes: ClassTable, fields: readonly (readonly LiteralField[])[]) =>
+    joinedLiteralShape(
+      classes,
+      fields.map((entry) => literal(classes, entry)),
+    );
+
+  it("widens a field one literal holds as an int and another as a float", () => {
+    const classes = buildClassTable([]);
+
+    const joined = held(classes, [
+      [{ name: "h", declaredType: "int" }],
+      [{ name: "h", declaredType: "float" }],
+    ]);
+
+    expect(joined?.fields.get("h")?.declaredType).toBe("float");
+  });
+
+  it("stores the widened field as a float64 so either literal reads back", () => {
+    const classes = buildClassTable([]);
+
+    const joined = held(classes, [
+      [{ name: "h", declaredType: "int" }],
+      [{ name: "h", declaredType: "float" }],
+    ]);
+
+    expect(joined?.fields.get("h")?.scalar).toBe(SCALAR_FLOAT64);
+  });
+
+  it("leaves a field both literals declare the same way untouched", () => {
+    const classes = buildClassTable([]);
+
+    const joined = held(classes, [
+      [{ name: "n", declaredType: "string" }, { name: "h", declaredType: "int" }],
+      [{ name: "n", declaredType: "string" }, { name: "h", declaredType: "int" }],
+    ]);
+
+    expect([...joined!.fields.values()].map((entry) => entry.declaredType)).toEqual([
+      "string",
+      "int",
+    ]);
+  });
+
+  it("widens only the numeric field of a record that also carries a string", () => {
+    const classes = buildClassTable([]);
+
+    const joined = held(classes, [
+      [{ name: "n", declaredType: "string" }, { name: "h", declaredType: "float" }],
+      [{ name: "n", declaredType: "string" }, { name: "h", declaredType: "int" }],
+    ]);
+
+    expect([...joined!.fields.values()].map((entry) => entry.declaredType)).toEqual([
+      "string",
+      "float",
+    ]);
+  });
+
+  it("refuses a field one literal holds as a string and another as a number", () => {
+    const classes = buildClassTable([]);
+
+    expect(
+      held(classes, [
+        [{ name: "h", declaredType: "string" }],
+        [{ name: "h", declaredType: "float" }],
+      ]),
+    ).toBeNull();
+  });
+
+  it("refuses literals that do not carry the same fields", () => {
+    const classes = buildClassTable([]);
+
+    expect(
+      held(classes, [
+        [{ name: "h", declaredType: "int" }],
+        [{ name: "n", declaredType: "int" }],
+      ]),
+    ).toBeNull();
+  });
+
+  it("refuses literals that carry their shared fields in a different order", () => {
+    const classes = buildClassTable([]);
+
+    expect(
+      held(classes, [
+        [{ name: "n", declaredType: "float" }, { name: "h", declaredType: "float" }],
+        [{ name: "h", declaredType: "float" }, { name: "n", declaredType: "float" }],
+      ]),
+    ).toBeNull();
+  });
+
+  it("refuses a named class, which is nominal rather than structural", () => {
+    const classes = buildClassTable([classSurface("Row", [field("h", "float", "Row")])]);
+
+    expect(joinedLiteralShape(classes, [classes.shapeOf("Row")!])).toBeNull();
   });
 });

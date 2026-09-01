@@ -15,7 +15,7 @@ import { runtimeGetProperty } from "../../objects/exotic/proxy-ops.js";
 import { snakeToCamel } from "../../utils/naming.js";
 import { camelOptions, resolveDevice, splitOptions, type NativeFn } from "./common.js";
 import { MODEL_MARKER } from "../../frontend/parser/index.js";
-import { bindModelBridge, nativeToTagged, optionsArg, taggedToNative } from "./host.js";
+import { bindModelBridge, captureHostReentry, nativeToTagged, optionsArg, taggedToNative } from "./host.js";
 import { TERA_BUILTINS, TERA_COMPILE_TARGETS } from "../../../data/tera-language-spec.js";
 import { runtimeBuiltinMetadataFromSpec } from "../../utils/language-spec-runtime.js";
 
@@ -64,6 +64,7 @@ function saveCheckpoint(model: { stateDict?: () => unknown }, path: unknown): vo
 }
 
 function createBridge(model: TaggedValue, interpreter: InterpreterLike): unknown {
+  const reenter = captureHostReentry();
   const forward = teraFunction(model, "forward", interpreter);
   const steps: Array<[string, TaggedValue]> = [];
   for (const [teraName, nativeName] of Object.entries(STEP_METHODS)) {
@@ -79,7 +80,9 @@ function createBridge(model: TaggedValue, interpreter: InterpreterLike): unknown
   class TeraModel extends Base {
     forward(...inputs: unknown[]): unknown {
       if (!forward) throw new Error(`${name} has no forward method`);
-      return taggedToNative(interpreter.callFunctionValue(forward, inputs.map(nativeToTagged), model));
+      return reenter(() =>
+        taggedToNative(interpreter.callFunctionValue(forward, inputs.map(nativeToTagged), model)),
+      );
     }
 
     save(path: unknown): void {
@@ -100,7 +103,9 @@ function createBridge(model: TaggedValue, interpreter: InterpreterLike): unknown
     (bridge as Record<string, unknown>)[nativeName] = (...args: unknown[]) => {
       activeBridges.push(bridge);
       try {
-        return taggedToNative(interpreter.callFunctionValue(fn, args.map(nativeToTagged), model));
+        return reenter(() =>
+          taggedToNative(interpreter.callFunctionValue(fn, args.map(nativeToTagged), model)),
+        );
       } finally {
         activeBridges.pop();
       }

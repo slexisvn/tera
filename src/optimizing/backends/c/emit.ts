@@ -1885,15 +1885,25 @@ class CFunctionEmitter {
     }
   }
 
-  private bufferNameOf(node: CFGInstruction): string {
+  private bufferOf(node: CFGInstruction): AotStringBuffer {
     const buffer = this.legality.stringBufferOf(node);
-    const name = buffer === null ? undefined : this.bufferNames.get(buffer);
+    if (buffer === null) {
+      throw new Error(
+        `the string v${node.id} produces has no buffer to live in, because the compiler ` +
+          "could not see where it is built; keep this part interpreted",
+      );
+    }
+    return buffer;
+  }
+
+  private bufferNameOf(node: CFGInstruction): string {
+    const name = this.bufferNames.get(this.bufferOf(node));
     if (name === undefined) throw new Error(`no string buffer for v${node.id}`);
     return name;
   }
 
   private bufferCapacityOf(node: CFGInstruction): number {
-    return this.legality.stringBufferOf(node)!.capacity;
+    return this.bufferOf(node).capacity;
   }
 
   private emitStringConcat(ctx: EmitContext): void {

@@ -75,6 +75,7 @@ export type Signature = {
   owner?: string;
   abstract?: boolean;
   async?: boolean;
+  generator?: boolean;
 };
 
 export type TypeEnv = {
@@ -607,6 +608,8 @@ export function iterableBindingType(type: TypeName, mode: "in" | "of", env: Type
   const element = arrayElementType(resolved);
   if (element) return element;
   if (isTupleType(resolved)) return unionType(tupleTypes(resolved));
+  const yielded = parseGenericType(resolved);
+  if (yielded?.name === ITERATOR_TYPE && yielded.args.length === 1) return yielded.args[0]!;
   if (UNTYPED_ELEMENT_ITERABLES.has(baseTypeName(resolved))) return "any";
   return iteratorElementType(resolved, env) ?? "unknown";
 }
@@ -628,7 +631,11 @@ export function baseTypeName(type: TypeName): string {
 }
 
 const PROMISE_TYPE = "Promise";
-const ITERATOR_TYPE = "iterator";
+export const ITERATOR_TYPE = "iterator";
+
+export function yieldedType(element: TypeName): TypeName {
+  return `${ITERATOR_TYPE}<${element}>`;
+}
 const UNTYPED_ELEMENT_ITERABLES: ReadonlySet<TypeName> = new Set([
   "Array",
   "Map",

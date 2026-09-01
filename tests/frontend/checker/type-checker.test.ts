@@ -741,3 +741,55 @@ describe("a return the checker cannot type", () => {
     ]);
   });
 });
+
+describe("types the checker used to widen away", () => {
+  it("keeps the element type when a nested array is flattened", () => {
+    expect(diagnose(src("xs: int[][] = [[1], [2]]", "f: int[] = xs.flat()", "print(f.length)"))).toEqual([]);
+  });
+
+  it("flattens an array of text arrays to text", () => {
+    expect(diagnose(src('xs: string[][] = [["a"]]', "f: string[] = xs.flat()", "print(f.length)"))).toEqual([]);
+  });
+
+  it("answers an array of the same element when one is reversed", () => {
+    expect(diagnose(src("xs: int[] = [1]", "r: int[] = xs.reverse()", "print(r.length)"))).toEqual([]);
+  });
+
+  it("answers text when an array is joined", () => {
+    expect(diagnose(src("xs: int[] = [1]", 's: string = xs.join("-")', "print(s)"))).toEqual([]);
+  });
+
+  it("keeps whole numbers whole through Math.min", () => {
+    expect(diagnose(src("a: int = 3", "m: int = Math.min(a, 4)", "print(m)"))).toEqual([]);
+  });
+
+  it("keeps whole numbers whole through Math.max", () => {
+    expect(diagnose(src("m: int = Math.max(3, 4, 5)", "print(m)"))).toEqual([]);
+  });
+
+  it("still widens Math.min when one argument is fractional", () => {
+    expect(diagnose(src("m: int = Math.min(3, 4.5)", "print(m)"))).toEqual([
+      "Type 'float' is not assignable to 'int'",
+    ]);
+  });
+
+  it("walks what a generator yields", () => {
+    expect(diagnose(src("fn* g() -> int:", "  yield 1", "for x of g():", "  print(x)"))).toEqual([]);
+  });
+
+  it("binds the loop variable to what the generator yields", () => {
+    expect(
+      diagnose(src("fn* g() -> string:", '  yield "a"', "for s of g():", "  t: string = s", "  print(t)")),
+    ).toEqual([]);
+  });
+
+  it("still refuses a loop variable the generator does not yield", () => {
+    expect(
+      diagnose(src("fn* g() -> int:", "  yield 1", "for x of g():", "  s: string = x", "  print(s)")),
+    ).toEqual(["Type 'int' is not assignable to 'string'"]);
+  });
+
+  it("accepts appending to text through concat", () => {
+    expect(diagnose(src('a: string = "ab"', 'b: string = a.concat("cd")', "print(b)"))).toEqual([]);
+  });
+});

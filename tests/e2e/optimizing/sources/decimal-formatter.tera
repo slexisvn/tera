@@ -1,0 +1,198 @@
+_fixed_cells: int[] = []
+_fixed_count: int = 0
+
+class _FixedText:
+  public constructor():
+    this.text = ""
+  public add(piece: string) -> void:
+    this.text = this.text + piece
+
+fn _fixed_div(value: int, by: int) -> int:
+  return Math.floor(value / by)
+
+fn _fixed_mod(value: int, by: int) -> int:
+  return value % by
+
+fn _fixed_put(index: int, value: int) -> void:
+  while _fixed_cells.length <= index:
+    _fixed_cells.push(0)
+  _fixed_cells[index] = value
+
+fn _fixed_scale(factor: int) -> void:
+  carry: int = 0
+  i: int = 0
+  while i < _fixed_count:
+    product: int = _fixed_cells[i] * factor + carry
+    _fixed_put(i, _fixed_mod(product, 10000))
+    carry = _fixed_div(product, 10000)
+    i += 1
+  while carry > 0:
+    _fixed_put(_fixed_count, _fixed_mod(carry, 10000))
+    _fixed_count += 1
+    carry = _fixed_div(carry, 10000)
+
+fn _fixed_bump(value: int) -> void:
+  carry: int = value
+  i: int = 0
+  while carry > 0:
+    if i >= _fixed_count:
+      _fixed_put(_fixed_count, 0)
+      _fixed_count += 1
+    total: int = _fixed_cells[i] + carry
+    _fixed_put(i, _fixed_mod(total, 10000))
+    carry = _fixed_div(total, 10000)
+    i += 1
+
+fn _fixed_trim() -> void:
+  while _fixed_count > 0 and _fixed_cells[_fixed_count - 1] == 0:
+    _fixed_count -= 1
+
+fn _fixed_digit(index: int) -> int:
+  limb: int = _fixed_div(index, 4)
+  if limb >= _fixed_count:
+    return 0
+  value: int = _fixed_cells[limb]
+  step: int = _fixed_mod(index, 4)
+  i: int = 0
+  while i < step:
+    value = _fixed_div(value, 10)
+    i += 1
+  return _fixed_mod(value, 10)
+
+fn _fixed_length() -> int:
+  if _fixed_count <= 0:
+    return 1
+  top: int = _fixed_cells[_fixed_count - 1]
+  extra: int = 1
+  if top >= 1000:
+    extra = 4
+  else if top >= 100:
+    extra = 3
+  else if top >= 10:
+    extra = 2
+  return (_fixed_count - 1) * 4 + extra
+
+fn _fixed_load(mantissa: float) -> void:
+  chunks: int[] = [0, 0, 0, 0]
+  rest: float = mantissa
+  i: int = 0
+  while i < 4:
+    whole: float = Math.floor(rest / 65536.0)
+    chunks[i] = Math.floor(rest - whole * 65536.0)
+    rest = whole
+    i += 1
+  _fixed_count = 0
+  i = 3
+  while i >= 0:
+    _fixed_scale(65536)
+    _fixed_bump(chunks[i])
+    i -= 1
+
+fn _fixed_shrink(drop: int) -> void:
+  whole: int = _fixed_div(drop, 4)
+  if whole >= _fixed_count:
+    _fixed_count = 0
+    return
+  i: int = 0
+  while i + whole < _fixed_count:
+    _fixed_put(i, _fixed_cells[i + whole])
+    i += 1
+  _fixed_count -= whole
+  scale: int = 1
+  i = 0
+  while i < _fixed_mod(drop, 4):
+    scale = scale * 10
+    i += 1
+  if scale == 1:
+    _fixed_trim()
+    return
+  carry: int = 0
+  i = _fixed_count - 1
+  while i >= 0:
+    current: int = carry * 10000 + _fixed_cells[i]
+    _fixed_put(i, _fixed_div(current, scale))
+    carry = _fixed_mod(current, scale)
+    i -= 1
+  _fixed_trim()
+
+fn _fixed_render(sign: string, digits: int) -> string:
+  out = _FixedText()
+  out.add(sign)
+  total: int = _fixed_length()
+  place: int = total - 1
+  if place < digits:
+    place = digits
+  while place >= 0:
+    out.add(_fixed_digit(place).to_string())
+    if place == digits and digits > 0:
+      out.add(".")
+    place -= 1
+  return out.text
+
+fn _fixed_text(value: float, digits: int) -> string:
+  if digits < 0 or digits > 100:
+    throw "toFixed() digits argument must be between 0 and 100"
+  if value != value:
+    return "NaN"
+  if value > 1.7976931348623157e308:
+    return "Infinity"
+  if value < -1.7976931348623157e308:
+    return "-Infinity"
+  sign: string = ""
+  x: float = value
+  if x < 0.0:
+    sign = "-"
+    x = 0.0 - x
+  if x >= 1e21:
+    return sign + x.to_string()
+  mantissa: float = x
+  exponent: int = 0
+  while mantissa != Math.floor(mantissa):
+    mantissa = mantissa * 2.0
+    exponent -= 1
+  while mantissa >= 9007199254740992.0:
+    mantissa = mantissa / 2.0
+    exponent += 1
+  _fixed_load(mantissa)
+  point: int = 0
+  i: int = 0
+  if exponent > 0:
+    while i < exponent:
+      _fixed_scale(2)
+      i += 1
+  else:
+    point = 0 - exponent
+    while i + 6 <= point:
+      _fixed_scale(15625)
+      i += 6
+    while i < point:
+      _fixed_scale(5)
+      i += 1
+  _fixed_trim()
+  drop: int = point - digits
+  if drop <= 0:
+    i = 0
+    while i < 0 - drop:
+      _fixed_scale(10)
+      i += 1
+  else:
+    carried: int = _fixed_digit(drop - 1)
+    _fixed_shrink(drop)
+    if carried >= 5:
+      _fixed_bump(1)
+  _fixed_trim()
+  return _fixed_render(sign, digits)
+
+fn report() -> string:
+  out: string = ""
+  values: float[] = [0.0, 1.0, 2.5, 3.14159, 1.005, 0.3, 1234.5678]
+  v: int = 0
+  while v < values.length:
+    d: int = 0
+    while d <= 20:
+      out = out + _fixed_text(values[v], d) + ";"
+      d += 4
+    v += 1
+  return out
+
+report()

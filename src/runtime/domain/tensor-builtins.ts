@@ -1,7 +1,8 @@
 import * as mlfw from "@slexisvn/mlfw";
 import type { RuntimeFunctionMetadata } from "../../core/value/index.js";
 import { snakeToCamel } from "../../utils/naming.js";
-import { callWithOptions, camelOptions, constructWithOptions, register, splitOptions, type BuiltinMap, type NativeCtor, type NativeFn } from "./common.js";
+import { callWithOptions, camelOptions, constructWithOptions, register, registerHostKinds, splitOptions, type BuiltinMap, type NativeCtor, type NativeFn } from "./common.js";
+import { registerHostType } from "./host.js";
 
 export const TENSOR_FACTORIES = [
   "tensor", "zeros", "ones", "empty", "full", "randn", "arange", "eye", "linspace", "randperm",
@@ -80,6 +81,8 @@ function loadJson(path: unknown): unknown {
 }
 
 export function installTensorBuiltins(map: BuiltinMap, metadata: Record<string, RuntimeFunctionMetadata>): void {
+  registerHostType(mlfw.Tensor, "Tensor");
+  registerHostKinds(mlfw as unknown as Record<string, unknown>, TENSOR_MODULES, metadata);
   for (const name of [...TENSOR_FACTORIES, ...FREE_TENSOR_FUNCTIONS]) {
     register(map, name, callWithOptions((mlfw as any)[snakeToCamel(name)] as NativeFn, metadata[name]), metadata[name]);
   }

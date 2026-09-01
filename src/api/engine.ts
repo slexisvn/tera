@@ -36,6 +36,7 @@ import { collectionRequestsAcross, collectionRequestsIn } from "../optimizing/pr
 import { jsonPrelude, type JsonShapeSurface } from "../optimizing/prelude/json.js";
 import { jsonShapesAcross, rewriteJsonParses } from "../optimizing/prelude/json-requests.js";
 import { errorPrelude } from "../optimizing/prelude/errors.js";
+import { fixedTextPrelude, rewriteFixedTexts } from "../optimizing/prelude/fixed-text.js";
 import type { RuntimeInterfaceContract } from "../runtime/interface-contract.js";
 import { spreadsArguments } from "../optimizing/passes/spread-calls.js";
 import { astChildren, NodeType } from "../frontend/ast/index.js";
@@ -439,13 +440,16 @@ function jsonShapesFor(graph: ModuleGraph): readonly JsonShapeSurface[] {
 function preludeFor(graph: ModuleGraph): string {
   const collections = mentionsCollections(graph) ? collectionPreludeFor(graph) : "";
   const errors = errorPrelude(moduleRoots(graph));
-  return `${collections}${errors}${jsonPrelude(jsonShapesFor(graph))}`;
+  const fixed = fixedTextPrelude([graph.entry.ast]);
+  return `${collections}${errors}${jsonPrelude(jsonShapesFor(graph))}${fixed}`;
 }
 
-function adoptJsonParsers(graph: ModuleGraph): void {
+function adoptPreludeCalls(graph: ModuleGraph): void {
   const shapes = jsonShapesFor(graph);
-  if (shapes.length === 0) return;
-  rewriteJsonParses(moduleRoots(graph), new Set(shapes.map((shape) => shape.name)));
+  if (shapes.length > 0) {
+    rewriteJsonParses(moduleRoots(graph), new Set(shapes.map((shape) => shape.name)));
+  }
+  rewriteFixedTexts([graph.entry.ast]);
 }
 
 function catchesThrows(compiledFn: RegisterCompiledFunction): boolean {
@@ -951,13 +955,14 @@ export class Engine {
     const grown = referencesCollections(probed)
       ? collectionPrelude(collectionRequestsIn(parsed))
       : "";
-    const prelude = `${grown}${errorPrelude([parsed])}${jsonPrelude(shapes)}`;
+    const prelude = `${grown}${errorPrelude([parsed])}${jsonPrelude(shapes)}${fixedTextPrelude([parsed])}`;
     const compiled =
       prelude.length === 0
         ? probed
         : this.compileInRuntime(`${source}
 ${prelude}`, compileOptions, true, (program) => {
             rewriteJsonParses([program], new Set(shapes.map((shape) => shape.name)));
+            rewriteFixedTexts([program]);
           });
     const program = entry === undefined ? compiled : null;
     const functions = this.selectAotFunctions(
@@ -1390,7 +1395,7 @@ ${prelude}`, compileOptions, true, (program) => {
         ? built
         : build(`${built.entry.source}
 ${prelude}`);
-    if (aot) adoptJsonParsers(graph);
+    if (aot) adoptPreludeCalls(graph);
     const checker = this.compileChecker(options);
     const checked = checkModuleGraph(graph, {
       mode,

@@ -1,8 +1,8 @@
 import * as mlfw from "@slexisvn/mlfw";
 import type { RuntimeFunctionMetadata, RuntimeFunctionPayload, TaggedValue } from "../../core/value/index.js";
-import { isNamedArguments } from "../named-arguments.js";
+import { bindNamedSlots, isNamedArguments } from "../named-arguments.js";
 import { camelToSnake, snakeToCamel } from "../../utils/naming.js";
-import { hostBuiltin, optionsArg } from "./host.js";
+import { hostBuiltin, optionsArg, registerHostType } from "./host.js";
 
 export { snakeToCamel };
 
@@ -51,45 +51,11 @@ export function splitOptions(args: unknown[]): { values: unknown[]; options: Rec
   return { values, options };
 }
 
-const PARAM_SYNONYMS: Record<string, string> = {
-  axis: "dim",
-  dim: "axis",
-};
-
-const EMPTY_SLOTS: ReadonlyMap<string, number> = new Map();
-const slotCache = new WeakMap<RuntimeFunctionMetadata, ReadonlyMap<string, number>>();
-
-function positionalSlots(metadata?: RuntimeFunctionMetadata): ReadonlyMap<string, number> {
-  if (!metadata?.params) return EMPTY_SLOTS;
-  const cached = slotCache.get(metadata);
-  if (cached) return cached;
-
-  const slots = new Map<string, number>();
-  let index = 0;
-  for (const param of metadata.params) {
-    if (param.named || param.rest) continue;
-    const synonym = PARAM_SYNONYMS[param.name];
-    slots.set(param.name, index);
-    slots.set(snakeToCamel(param.name), index);
-    if (synonym) slots.set(synonym, index);
-    index++;
-  }
-  slotCache.set(metadata, slots);
-  return slots;
-}
-
 export function bindArgs(args: unknown[], metadata?: RuntimeFunctionMetadata): { values: unknown[]; options: Record<string, unknown> } {
   const { values, options } = splitOptions(args);
-  const slots = positionalSlots(metadata);
-  if (slots.size === 0) return { values, options: camelOptions(options) };
-
-  const rest: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(options)) {
-    const slot = slots.get(key);
-    if (slot === undefined) rest[key] = value;
-    else if (values[slot] === undefined) values[slot] = value;
-  }
-  return { values, options: camelOptions(rest) };
+  const named = Object.entries(options).map(([name, value]) => ({ name, value }));
+  const bound = bindNamedSlots(metadata?.params, values, named, undefined);
+  return { values: bound.values, options: camelOptions(Object.fromEntries(bound.rest.map(({ name, value }) => [name, value]))) };
 }
 
 function bound(metadata: RuntimeFunctionMetadata | undefined, apply: (args: unknown[]) => unknown): NativeFn {
@@ -109,6 +75,17 @@ export function constructWithOptions(Cls: NativeCtor, metadata?: RuntimeFunction
 
 export function register(map: BuiltinMap, name: string, fn: NativeFn, metadata?: RuntimeFunctionMetadata): void {
   map[name] = hostBuiltin(name, fn, metadata);
+}
+
+export function registerHostKinds(
+  source: Record<string, unknown>,
+  names: readonly string[],
+  metadata: Record<string, RuntimeFunctionMetadata>,
+): void {
+  for (const name of names) {
+    const kind = metadata[name]?.kind;
+    if (kind) registerHostType(source[name], kind);
+  }
 }
 
 export function nativeRecord(value: unknown): Record<string, unknown> {

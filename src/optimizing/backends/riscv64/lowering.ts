@@ -918,7 +918,7 @@ export class RiscvLowering extends MachineLoweringBase<RiscvTargetModel> {
   }
 
   protected selectStringConcat(ctx: SelectionContext): void {
-    const buffer = ctx.legality.stringBufferOf(ctx.node)!;
+    const buffer = this.requireStringBuffer(ctx);
     const left = ctx.registerOf(ctx.node.inputs[0]!);
     const right = ctx.registerOf(ctx.node.inputs[1]!);
     const initialized = this.emitBufferCall(

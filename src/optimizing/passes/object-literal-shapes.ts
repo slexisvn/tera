@@ -35,7 +35,7 @@ import { functionTypeTextOf } from "../types/signature.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 import { nominalLatticeType } from "../types/declared.js";
-import { arrayElementNameOf } from "./array-shapes.js";
+import { arrayElementNameOf, producedTypeName } from "./array-shapes.js";
 
 const ANY_TYPE = "any";
 
@@ -61,7 +61,8 @@ function storedTypeName(
   if (types.typeOf(stored).kind !== TypeKind.Array) {
     return (
       shapeHeldBy(stored, classes, types)?.name ??
-      declaredTypeOf(types.typeOf(stored), classes)
+      declaredTypeOf(types.typeOf(stored), classes) ??
+      producedTypeName(stored, graph, classes, types)
     );
   }
   const element = arrayElementNameOf(stored, graph, classes, types);

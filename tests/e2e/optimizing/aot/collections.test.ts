@@ -560,3 +560,126 @@ describe("a loop over what a call answered", () => {
     ),
   );
 });
+
+describe("AOT collections an instance holds", () => {
+  itRunsPe("keeps a map in an instance field across methods", () =>
+    agrees(
+      src(
+        "class Seen:",
+        "  public constructor():",
+        "    this.seen = Map()",
+        "  public add(k: string) -> void:",
+        "    this.seen.set(k, 1)",
+        "  public has(k: string) -> bool:",
+        "    return this.seen.has(k)",
+        "s = Seen()",
+        's.add("a")',
+        'print(s.has("a"))',
+        'print(s.has("b"))',
+      ),
+    ),
+  );
+
+  itRunsPe("keeps a set in an instance field across methods", () =>
+    agrees(
+      src(
+        "class Bag:",
+        "  public constructor():",
+        "    this.items = Set()",
+        "  public add(k: string) -> void:",
+        "    this.items.add(k)",
+        "  public has(k: string) -> bool:",
+        "    return this.items.has(k)",
+        "b = Bag()",
+        'b.add("a")',
+        'print(b.has("a"))',
+        'print(b.has("z"))',
+      ),
+    ),
+  );
+
+  itRunsPe("tallies through a map an instance holds", () =>
+    agrees(
+      src(
+        "class Counter:",
+        "  public constructor():",
+        "    this.counts = Map()",
+        "  public bump(k: string) -> void:",
+        "    if this.counts.has(k):",
+        "      this.counts.set(k, this.counts.get(k) + 1)",
+        "    else:",
+        "      this.counts.set(k, 1)",
+        "  public tally(k: string) -> int:",
+        "    return this.counts.get(k)",
+        "c = Counter()",
+        'c.bump("a")',
+        'c.bump("a")',
+        'c.bump("b")',
+        'print(c.tally("a"))',
+        'print(c.tally("b"))',
+      ),
+    ),
+  );
+
+  itRunsPe("reads the size of a map an instance holds", () =>
+    agrees(
+      src(
+        "class Reg:",
+        "  public constructor():",
+        "    this.m = Map()",
+        "  public put(k: string, v: int) -> void:",
+        "    this.m.set(k, v)",
+        "  public count() -> int:",
+        "    return this.m.size",
+        "r = Reg()",
+        'r.put("a", 1)',
+        'r.put("b", 2)',
+        "print(r.count())",
+      ),
+    ),
+  );
+
+  itRunsPe("keys a map an instance holds by int", () =>
+    agrees(
+      src(
+        "class Slots:",
+        "  public constructor():",
+        "    this.m = Map()",
+        "  public put(k: int, v: int) -> void:",
+        "    this.m.set(k, v)",
+        "  public at(k: int) -> int:",
+        "    return this.m.get(k)",
+        "s = Slots()",
+        "s.put(3, 9)",
+        "print(s.at(3))",
+      ),
+    ),
+  );
+
+  itRunsPe("gives two classes that each hold a map their own table", () =>
+    agrees(
+      src(
+        "class A:",
+        "  public constructor():",
+        "    this.m = Map()",
+        "  public put(k: string) -> void:",
+        "    this.m.set(k, 1)",
+        "  public at(k: string) -> int:",
+        "    return this.m.get(k)",
+        "class B:",
+        "  public constructor():",
+        "    this.m = Map()",
+        "  public put(k: string) -> void:",
+        "    this.m.set(k, 2)",
+        "  public at(k: string) -> int:",
+        "    return this.m.get(k)",
+        "a = A()",
+        "b = B()",
+        'a.put("x")',
+        'b.put("y")',
+        'print(a.at("x"))',
+        'print(b.at("y"))',
+      ),
+    ),
+  );
+});

@@ -108,6 +108,12 @@ interface Site {
   readonly callee: CFGInstruction;
   readonly model: ArrayModel;
   readonly stamp: Stamp;
+  readonly types: TypeInference;
+}
+
+interface Source {
+  readonly array: CFGInstruction;
+  readonly model: ArrayModel;
 }
 
 type Lowering = (site: Site) => boolean;
@@ -186,9 +192,15 @@ function invoke(
 
 type Bound = (length: CFGInstruction) => CFGInstruction;
 
-function openScan(site: Site, boundOf: Bound | null = null, originOf: Bound | null = null): Scan {
-  const { graph, editor, node, model, stamp } = site;
-  const array = node.inputs[1]!;
+function openScan(
+  site: Site,
+  boundOf: Bound | null = null,
+  originOf: Bound | null = null,
+  source: Source | null = null,
+): Scan {
+  const { graph, editor, node, stamp } = site;
+  const array = source?.array ?? node.inputs[1]!;
+  const model = source?.model ?? site.model;
 
   const counted = loadCount(editor, node, array, ARRAY_LENGTH_OFFSET, model, stamp);
   const length = boundOf === null ? counted : boundOf(counted);
@@ -956,11 +968,40 @@ function lowerFilter(site: Site): boolean {
   return true;
 }
 
+function appendedInto(
+  site: Site,
+  result: CFGInstruction,
+  source: Source | null,
+): void {
+  const scan = openScan(site, null, null, source);
+  const element = appendLoad(site, scan.body, scan.buffer, scan.cursor);
+  collectedInto(site, scan, scan.body, result, element, site.model);
+  append(scan.exhausted, irJump(scan.after), site.stamp);
+  connect(scan.exhausted, scan.after);
+}
+
+function lowerConcat(site: Site): boolean {
+  const args = argumentsOf(site.node);
+  if (args.length !== ONE_ARGUMENT) return false;
+  const classes = site.graph.classes;
+  if (classes === null) return false;
+  const other = arrayModelOf(args[0], site.graph, classes, site.types);
+  if (other === null || other.shape !== site.model.shape) return false;
+
+  const result = emptyArray(site.editor, site.node, site.model, site.stamp);
+  appendedInto(site, result, null);
+  appendedInto(site, result, { array: args[0]!, model: other });
+
+  replaceWith(site, result, []);
+  return true;
+}
+
 const LOWERINGS: ReadonlyMap<string, Lowering> = new Map<string, Lowering>([
   ["index_of", (site) => lowerSearch(site, { asBoolean: false })],
   ["last_index_of", lowerLastSearch],
   ["includes", (site) => lowerSearch(site, { asBoolean: true })],
   ["slice", lowerSlice],
+  ["concat", lowerConcat],
   ["find_index", (site) => lowerPredicate(site, { stopsWhenTrue: true, comparison: null })],
   ["find", lowerFind],
   ["flat", lowerFlat],
@@ -1012,13 +1053,17 @@ export function lowerArrayMethods(graph: CFGFunction, types: TypeInference): num
         const target = node.inputs[0]!;
         const into = arrayModelOf(target, graph, classes, types);
         if (into === null) continue;
-        lowerSpread({ graph, editor, node, callee: node, model, stamp }, target, into);
+        lowerSpread({ graph, editor, node, callee: node, model, stamp, types }, target, into);
         changed++;
         break;
       }
       const lowering = loweringFor(node);
       if (lowering === null) continue;
-      if (!lowering.lower({ graph, editor, node, callee: lowering.callee, model, stamp })) continue;
+      if (
+        !lowering.lower({ graph, editor, node, callee: lowering.callee, model, stamp, types })
+      ) {
+        continue;
+      }
       changed++;
       break;
     }

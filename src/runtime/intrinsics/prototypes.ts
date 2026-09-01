@@ -12,24 +12,25 @@ import { getWellKnownSymbols, mkFunction } from "../../core/value/index.js";
 import type { RuntimeFunctionPayload } from "../../core/value/index.js";
 import type { JSObject } from "../../objects/heap/js-object.js";
 import { camelToSnake } from "../../utils/naming.js";
+import { methodsWithMetadata } from "./method-metadata.js";
 
 type BuiltinMethod = RuntimeFunctionPayload & {
   name: string;
   call: RuntimeFunctionPayload["call"];
 };
 
-function populatePrototype(methods: Record<string, BuiltinMethod>): JSObject {
+function populatePrototype(owner: string, methods: Record<string, BuiltinMethod>): JSObject {
   const proto = createJSObject();
-  for (const [name, method] of Object.entries(methods)) {
-    proto.setProperty(camelToSnake(name), mkFunction(method));
+  for (const [name, method] of Object.entries(methodsWithMetadata(owner, methods))) {
+    proto.setProperty(camelToSnake(name), mkFunction(method as BuiltinMethod));
   }
   return proto;
 }
 
 export function createBuiltinPrototypes(): Record<string, JSObject> {
-  const mapPrototype = populatePrototype(MAP_METHODS);
-  const setPrototype = populatePrototype(SET_METHODS);
-  const weakMapPrototype = populatePrototype(WEAKMAP_METHODS);
+  const mapPrototype = populatePrototype("Map", MAP_METHODS);
+  const setPrototype = populatePrototype("Set", SET_METHODS);
+  const weakMapPrototype = populatePrototype("WeakMap", WEAKMAP_METHODS);
   const wellKnownSymbols = getWellKnownSymbols();
 
   if (wellKnownSymbols.iterator) {
@@ -41,12 +42,12 @@ export function createBuiltinPrototypes(): Record<string, JSObject> {
   }
 
   return {
-    stringPrototype: populatePrototype(STRING_METHODS),
-    arrayPrototype: populatePrototype(ARRAY_METHODS),
-    numberPrototype: populatePrototype(NUMBER_METHODS),
-    booleanPrototype: populatePrototype(BOOLEAN_METHODS),
-    regexPrototype: populatePrototype(REGEX_METHODS),
-    errorPrototype: populatePrototype(ERROR_METHODS),
+    stringPrototype: populatePrototype("String", STRING_METHODS),
+    arrayPrototype: populatePrototype("Array", ARRAY_METHODS),
+    numberPrototype: populatePrototype("Number", NUMBER_METHODS),
+    booleanPrototype: populatePrototype("Boolean", BOOLEAN_METHODS),
+    regexPrototype: populatePrototype("RegExp", REGEX_METHODS),
+    errorPrototype: populatePrototype("Error", ERROR_METHODS),
     mapPrototype,
     setPrototype,
     weakMapPrototype,

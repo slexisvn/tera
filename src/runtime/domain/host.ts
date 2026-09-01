@@ -32,6 +32,13 @@ import { isNamedArguments, markNamedArguments } from "../named-arguments.js";
 import { MODEL_MARKER } from "../../frontend/parser/index.js";
 import { formatHostValue } from "./format.js";
 import { installHostIndexing } from "./indexing.js";
+import { methodMetadataFromSpec, type MethodMetadataTable } from "../../utils/language-spec-runtime.js";
+import { TERA_KIND_METHODS, TERA_PSEUDO_TYPES } from "../../../data/tera-language-spec.js";
+
+const SPEC_METHODS: Record<string, MethodMetadataTable> = {
+  ...methodMetadataFromSpec(TERA_PSEUDO_TYPES),
+  ...methodMetadataFromSpec(TERA_KIND_METHODS),
+};
 
 type HostInterpreter = {
   callFunctionValue(fn: TaggedValue, args: TaggedValue[], thisValue: TaggedValue): TaggedValue;
@@ -42,8 +49,10 @@ type HostAsyncBinding = {
   queue: MicrotaskQueue;
   drain: () => void;
   interpreter: HostInterpreter;
-  run?: <T>(fn: () => T) => T;
+  run?: HostReentry;
 };
+
+export type HostReentry = <T>(fn: () => T) => T;
 
 let hostAsync: HostAsyncBinding | null = null;
 let modelBridge: ((model: TaggedValue, interpreter: HostInterpreter) => unknown) | null = null;
@@ -66,28 +75,30 @@ export function bindModelBridge(bridge: typeof modelBridge): void {
   modelBridge = bridge;
 }
 
+export function captureHostReentry(): HostReentry {
+  const run = hostAsync?.run;
+  return run ?? (<T>(fn: () => T) => fn());
+}
+
 function isThenable(value: object): value is PromiseLike<unknown> {
   return typeof (value as { then?: unknown }).then === "function";
 }
 
 function thenableToTagged(value: PromiseLike<unknown>): TaggedValue {
   const binding = hostAsync!;
+  const reenter = captureHostReentry();
   const { capability, value: promise } = mkPromiseCapability(binding.queue);
   value.then(
-    (settled) => {
-      const run = binding.run ?? ((fn: () => void) => fn());
-      run(() => {
+    (settled) =>
+      reenter(() => {
         capability.resolve(nativeToTagged(settled));
         binding.drain();
-      });
-    },
-    (reason) => {
-      const run = binding.run ?? ((fn: () => void) => fn());
-      run(() => {
+      }),
+    (reason) =>
+      reenter(() => {
         capability.reject(nativeToTagged(reason));
         binding.drain();
-      });
-    },
+      }),
   );
   return promise;
 }
@@ -112,14 +123,14 @@ type PromiseRecord = {
 
 export function taggedToPromise(value: TaggedValue): Promise<unknown> {
   const binding = hostAsync;
+  const reenter = captureHostReentry();
   const record = getPayload(value) as PromiseRecord;
   binding?.drain();
   if (record.state === "fulfilled") return Promise.resolve(taggedToNative(record.result));
   if (record.state === "rejected") return Promise.reject(taggedToNative(record.result));
   return new Promise((resolve, reject) => {
     record.addReaction((state, result) => {
-      const run = binding?.run ?? ((fn: () => void) => fn());
-      run(() => {
+      reenter(() => {
         if (state === "fulfilled") resolve(taggedToNative(result));
         else reject(taggedToNative(result));
       });
@@ -137,11 +148,11 @@ export function taggedToNative(value: TaggedValue): unknown {
   if (isFunction(value)) {
     const binding = hostAsync;
     if (!binding) return value;
-    return (...args: unknown[]) => {
-      const run = binding.run ?? ((fn: () => TaggedValue) => fn());
-      const result = run(() => binding.interpreter.callFunctionValue(value, args.map(nativeToTagged), mkUndefined()));
-      return taggedToNative(result);
-    };
+    const reenter = captureHostReentry();
+    return (...args: unknown[]) =>
+      reenter(() =>
+        taggedToNative(binding.interpreter.callFunctionValue(value, args.map(nativeToTagged), mkUndefined())),
+      );
   }
   if (isObject(value)) {
     const object = getPayload(value) as HostObject;
@@ -169,6 +180,20 @@ export function taggedToNative(value: TaggedValue): unknown {
   return getPayload(value);
 }
 
+const hostTypeOwners = new Map<Function, string>();
+
+export function registerHostType(constructor: unknown, owner: string): void {
+  if (typeof constructor === "function" && SPEC_METHODS[owner]) hostTypeOwners.set(constructor, owner);
+}
+
+function methodsOf(value: object): MethodMetadataTable | undefined {
+  for (let current = value; current !== null; current = Object.getPrototypeOf(current)) {
+    const owner = hostTypeOwners.get(current.constructor);
+    if (owner !== undefined) return SPEC_METHODS[owner];
+  }
+  return undefined;
+}
+
 function methodNames(value: object): string[] {
   const names = new Set<string>();
   let current: object | null = value;
@@ -181,9 +206,10 @@ function methodNames(value: object): string[] {
   return [...names];
 }
 
-function hostMethod(value: object, name: string): RuntimeFunctionPayload {
+function hostMethod(value: object, name: string, metadata?: RuntimeFunctionMetadata): RuntimeFunctionPayload {
   return {
     name,
+    metadata,
     call(args: TaggedValue[]) {
       const target = value as Record<string, unknown>;
       const fn = target[name];
@@ -219,6 +245,7 @@ function wrapHostObject(value: object): TaggedValue {
   object.toString = () => typeof value.toString === "function" ? value.toString() : `[Host ${value.constructor?.name || "Object"}]`;
   object._display = (compact: boolean) => formatHostValue(value, compact) ?? object.toString();
   installHostIndexing(object, value, nativeToTagged);
+  const specMethods = methodsOf(value);
   const native = new Set(methodNames(value));
   const functions = new Set<string>();
   for (const name of native) {
@@ -230,7 +257,8 @@ function wrapHostObject(value: object): TaggedValue {
     if (!descriptor) continue;
     const names = [camelToSnake(name)];
     if (typeof descriptor.value === "function") {
-      for (const exposed of new Set(names)) object.setProperty(exposed, mkFunction(hostMethod(value, name)));
+      const metadata = specMethods?.get(name);
+      for (const exposed of new Set(names)) object.setProperty(exposed, mkFunction(hostMethod(value, name, metadata)));
       continue;
     }
     if (functions.has(names[0])) continue;

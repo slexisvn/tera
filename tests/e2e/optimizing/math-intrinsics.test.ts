@@ -91,6 +91,13 @@ describe("Math intrinsics lower in the middle end", () => {
     });
   }, 30000);
 
+  it("agrees across tiers for the transcendental Math functions", () => {
+    differential(
+      hotMath("(acc + Math.exp((i * 0.001)) + Math.sin((i * 1.0)) + Math.cos((i * 1.0)))"),
+      { tiers: jitTiers },
+    );
+  }, 30000);
+
   it("agrees across tiers for binary Math intrinsics", () => {
     differential(hotMath("(acc + Math.min(Math.max((i * 1.0), 100.0), 900.0))"), {
       tiers: jitTiers,

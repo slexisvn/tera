@@ -87,3 +87,85 @@ describe("AOT strings built across branches", () => {
     ).toThrow(/two strings into the same storage/);
   });
 });
+
+describe("AOT text joined through concat", () => {
+  const JOINED: readonly (readonly [string, string])[] = [
+    ["joins two pieces", src('a: string = "ab"', 'print(a.concat("cd"))')],
+    ["joins three pieces in one call", src('a: string = "a"', 'print(a.concat("b", "c"))')],
+    ["joins onto a literal receiver", src('print("ab".concat("cd"))')],
+    [
+      "joins a piece a call answered",
+      src(
+        "fn tail(n: int) -> string:",
+        '  return "!" + n.to_string()',
+        'a: string = "x"',
+        "print(a.concat(tail(2)))",
+      ),
+    ],
+    [
+      "joins inside a loop",
+      src(
+        'out: string = ""',
+        'for w of ["a", "b", "c"]:',
+        "  out = out.concat(w)",
+        "print(out)",
+      ),
+    ],
+  ];
+
+  for (const [what, source] of JOINED) {
+    itRunsPe(what, () => peAgrees(source));
+  }
+});
+
+describe("AOT text read out of a collection and then built on", () => {
+  const ROWS = [
+    "type Row = { name: string, qty: int }",
+    'rows: Row[] = [{ name: "bolt", qty: 4 }, { name: "nut", qty: 12 }]',
+  ];
+
+  const BUILT: readonly (readonly [string, string])[] = [
+    [
+      "joins two produced strings inside a loop over records",
+      src(...ROWS, "for r of rows:", '  print(r.name.pad_end(8, " ") + r.qty.to_string())'),
+    ],
+    [
+      "joins a text field with a produced string",
+      src(...ROWS, "for r of rows:", "  print(r.name + r.qty.to_string())"),
+    ],
+    [
+      "joins after copying the fields into locals",
+      src(
+        ...ROWS,
+        "for r of rows:",
+        "  n: string = r.name",
+        "  q: int = r.qty",
+        '  print(n.pad_end(8, " ") + q.to_string())',
+      ),
+    ],
+    [
+      "joins through an index rather than a for-of",
+      src(
+        ...ROWS,
+        "for i of range(0, 2):",
+        '  print(rows[i].name.pad_end(8, " ") + rows[i].qty.to_string())',
+      ),
+    ],
+    [
+      "joins two produced strings over a text array",
+      src(
+        'names: string[] = ["bolt", "nut"]',
+        "for n of names:",
+        '  print(n.pad_end(8, " ") + n.length.to_string())',
+      ),
+    ],
+    [
+      "appends to a text element in a loop",
+      src('names: string[] = ["a", "b"]', "for n of names:", '  print(n + "!")'),
+    ],
+  ];
+
+  for (const [what, source] of BUILT) {
+    itRunsPe(what, () => peAgrees(source));
+  }
+});
