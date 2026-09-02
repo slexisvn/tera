@@ -240,6 +240,8 @@ function builtinAnswerOf(
   return builtinOwnerMember(owner, member)?.signature.returns ?? null;
 }
 
+const TAKES_ELEMENT: ReadonlySet<string> = new Set<string>(["pop", "shift"]);
+
 function answeredTypeName(
   value: CFGInstruction,
   graph: CFGFunction,
@@ -252,6 +254,10 @@ function answeredTypeName(
   if (callee?.type !== IR_GENERIC_GET_PROP || receiver === undefined) return null;
   const member = callee.props.propName;
   if (typeof member !== "string") return null;
+  if (TAKES_ELEMENT.has(member)) {
+    const taken = arrayElementNameOf(receiver, graph, classes, types);
+    if (taken !== null) return taken;
+  }
   const shape = receiverShape(receiver, graph, classes, types);
   const answered =
     shape === null
@@ -304,6 +310,17 @@ function adoptElementShape(
   }
 }
 
+function answersUnnamed(
+  value: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): boolean {
+  return (
+    value.type === IR_GENERIC_CALL && producedTypeName(value, graph, classes, types) === null
+  );
+}
+
 function inferredElementOf(
   array: ArrayType,
   values: readonly CFGInstruction[],
@@ -314,6 +331,7 @@ function inferredElementOf(
   const carried = latticeFromElementsKind(array.elementsKind);
   let joined: LatticeType = carried.kind === TypeKind.Any ? neverType() : carried;
   for (const value of values) {
+    if (answersUnnamed(value, graph, classes, types)) continue;
     const stored = valueTypeOf(value, graph, classes, types);
     if (isStorableScalar(aotScalarOf(stored)) === null) return null;
     joined = joinTypes(joined, stored)!;
@@ -542,7 +560,12 @@ function answeredArray(
   const member = callee.props.propName;
   if (typeof member !== "string") return null;
   const held = arrayModelOf(array.inputs[1], graph, classes, types);
-  if (held === null) return null;
+  if (held === null) {
+    return arrayModelForDeclaredType(
+      answeredTypeName(array, graph, classes, types),
+      classes,
+    );
+  }
   if (HOLDS_ELEMENT_TYPE.has(member)) return held;
   return member === FLATTENS_ONE_LEVEL ? modelOf(held.elementShape, classes) : null;
 }
@@ -572,19 +595,26 @@ export function arrayModelForDeclaredType(
   return modelOf(classes.defineArray(nominalLatticeType(element, classes), named), classes);
 }
 
+const naming = new Set<CFGInstruction>();
+
 export function arrayElementNameOf(
   array: CFGInstruction | undefined,
   graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
 ): string | null {
-  if (array === undefined) return null;
-  const model = arrayModelOf(array, graph, classes, types);
-  if (model !== null) return model.declaredType;
-  if (array.type !== IR_NEW_ARRAY) return null;
-  const element = elementTypeOf(array, graph, classes, types);
-  if (element === null || element.kind === TypeKind.Array) return null;
-  return declaredTypeOf(element, classes);
+  if (array === undefined || naming.has(array)) return null;
+  naming.add(array);
+  try {
+    const model = arrayModelOf(array, graph, classes, types);
+    if (model !== null) return model.declaredType;
+    if (array.type !== IR_NEW_ARRAY) return null;
+    const element = elementTypeOf(array, graph, classes, types);
+    if (element === null || element.kind === TypeKind.Array) return null;
+    return declaredTypeOf(element, classes);
+  } finally {
+    naming.delete(array);
+  }
 }
 
 export function arrayElementShapeOf(

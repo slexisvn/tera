@@ -151,6 +151,54 @@ describe("shapeObjectLiterals over values whose type inference cannot name", () 
     expect(adoptedField(graph, record, "size")).toBe("int");
   });
 
+  it("names a field the literal leaves empty as an absent one", () => {
+    const graph = holding([]);
+    const record = recordOf(graph, "note", (block) => block.addNode(irConstant(null)));
+
+    shape(graph);
+
+    expect(adoptedField(graph, record, "note")).toBe("null");
+  });
+
+  it("gives a literal pushed into a declared array that array's element shape", () => {
+    const graph = new CFGFunction("collect");
+    graph.declaredSignature = { params: ["Row[]"], returns: null };
+    graph.classes = buildClassTable([
+      {
+        name: "Row",
+        parent: null,
+        abstract: false,
+        members: [
+          {
+            name: "score",
+            declaredType: "int",
+            member: "field",
+            owner: "Row",
+            abstract: false,
+            visibility: "public",
+            static: false,
+          },
+        ],
+        constructorParams: [],
+        constructorParamNames: [],
+      },
+    ]);
+    const rows = graph.addParameter(0);
+    const block = graph.addBlock();
+    const record = block.addNode(irNewObject());
+    block.addNode(irGenericSetProp(record, "score", block.addNode(irConstant(1.5))));
+    const call = block.addNode(
+      irGenericCall(block.addNode(irGenericGetProp(rows, "push")), [rows, record]),
+    );
+    call.props.isMethod = true;
+    block.addNode(irReturn(rows));
+    graph.rebuildUses();
+
+    shape(graph);
+
+    expect(graph.classes.shapeById(Number(record.props[VALUE_CLASS_PROP]))?.name).toBe("Row");
+  });
+
   it("leaves a literal unshaped when nothing can name what it holds", () => {
     const graph = holding([null as unknown as string]);
     const unknown = graph.addParameter(0);

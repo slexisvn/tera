@@ -181,26 +181,23 @@ describe("AOT exceptions", () => {
     expect([run.status, run.stdout]).toEqual([0, "code 42\n"]);
   });
 
-  itRunsPe("declines to keep a caught string across a call that can rebuild it", () => {
-    const source = src(
-      "fn bad(n: int) -> int:",
-      '  throw "code " + n.to_string()',
-      "  return 0",
-      "fn label(n: int) -> string:",
-      '  return "label " + n.to_string()',
-      "try:",
-      "  print(bad(42))",
-      "catch e:",
-      "  print(label(1))",
-      "  print(e)",
+  itRunsPe("keeps a caught string across a call that rebuilds the storage behind it", () => {
+    const run = ran(
+      src(
+        "fn bad(n: int) -> int:",
+        '  throw "code " + n.to_string()',
+        "  return 0",
+        "fn label(n: int) -> string:",
+        '  return "label " + n.to_string()',
+        "try:",
+        "  print(bad(42))",
+        "catch e:",
+        "  print(label(1))",
+        "  print(e)",
+      ),
     );
 
-    expect(() =>
-      nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
-        backend: "x64-windows",
-        format: "executable",
-      }),
-    ).toThrow(/keeps the value it caught across a call to label/);
+    expect([run.status, run.stdout]).toEqual([0, "label 1\ncode 42\n"]);
   });
 
   itRunsPe("throws an Error a class method built", () => {

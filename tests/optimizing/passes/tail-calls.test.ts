@@ -53,6 +53,30 @@ function summing(name = "sum", callee = name): Recursive {
   return { graph, call, returned };
 }
 
+function swapping(): Recursive {
+  const graph = new CFGFunction("swap");
+  graph.declaredSignature = { params: ["int", "int"], names: ["a", "b"], returns: "int" };
+  const a = graph.addParameter(0);
+  const b = graph.addParameter(1);
+
+  const entry = graph.addBlock();
+  const done = graph.addBlock();
+  const recur = graph.addBlock();
+  const zero = entry.addNode(irConstant(0));
+  entry.addNode(irBranch(entry.addNode(irInt32Compare("<=", b, zero)), done, recur));
+  link(entry, done);
+  link(entry, recur);
+
+  done.addNode(irReturn(a));
+
+  const one = recur.addNode(irConstant(1));
+  const next = recur.addNode(irInt32Sub(b, one));
+  const call = recur.addNode(irCallKnownFunction({ name: "swap" } as never, [b, next]));
+  const returned = recur.addNode(irReturn(call));
+  graph.rebuildUses();
+  return { graph, call, returned };
+}
+
 const rewrite = (graph: CFGFunction): number =>
   rewriteSelfTailCalls(graph, new ModuleFunctions(moduleFromGraphs([graph])));
 
@@ -83,6 +107,16 @@ describe("rewriteSelfTailCalls", () => {
     expect(header.phis[1]!.inputs[0]).toBe(acc);
     expect(header.phis[0]!.inputs[1]!.type).toBe("Int32Sub");
     expect(header.phis[1]!.inputs[1]!.type).toBe("Int32Add");
+  });
+
+  it("carries an argument that is itself a parameter as the loop's own value", () => {
+    const { graph } = swapping();
+    const [, b] = graph.parameters;
+    rewrite(graph);
+
+    const header = graph.entry!.successors[0]!;
+    expect(header.phis[0]!.inputs[1]).toBe(header.phis[1]);
+    expect(header.phis[0]!.inputs[1]).not.toBe(b);
   });
 
   it("reads every parameter through the phi that the loop updates", () => {

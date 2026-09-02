@@ -16,13 +16,17 @@ import {
   irGenericGetProp,
   irGenericSetProp,
   irIteratorInit,
+  irIteratorValue,
   irLoadGlobal,
+  irNewArray,
+  irNewObject,
   irReturn,
   resetIRNodeIds,
   type CFGInstruction,
 } from "../../../src/optimizing/ir/index.js";
 import {
   buildClassTable,
+  CLASS_ID_PROP,
   VALUE_CLASS_PROP,
 } from "../../../src/optimizing/metadata/class-table.js";
 import {
@@ -357,5 +361,97 @@ describe("collections an instance holds in a field", () => {
     const classes = holderClasses();
 
     expect(classes.shapeOf(HOLDER)?.fields.get(HELD_FIELD)?.declaredType).toBe("Map");
+  });
+});
+
+const ROW = "Row";
+const REGION_FIELD = "region";
+const AMOUNT_FIELD = "amount";
+
+function rowField(name: string, declaredType: string) {
+  return {
+    name,
+    declaredType,
+    member: "field" as const,
+    owner: ROW,
+    abstract: false,
+    visibility: "public" as const,
+    static: false,
+  };
+}
+
+function rowClasses() {
+  return buildClassTable([
+    {
+      name: mapClassName("string", "float"),
+      parent: null,
+      abstract: false,
+      members: [],
+      constructorParams: [],
+      constructorParamNames: [],
+    },
+    {
+      name: ROW,
+      parent: null,
+      abstract: false,
+      members: [rowField(REGION_FIELD, "string"), rowField(AMOUNT_FIELD, "float")],
+      constructorParams: [],
+      constructorParamNames: [],
+    },
+  ]);
+}
+
+function keyedByFields(key: Key | typeof REGION_FIELD, stored: string): Built {
+  const classes = rowClasses();
+  const graph = new CFGFunction("total");
+  graph.classes = classes;
+  const block = graph.addBlock();
+  const row = block.addNode(irNewObject());
+  row.props[CLASS_ID_PROP] = classes.shapeOf(ROW)!.id;
+  const rows = block.addNode(irNewArray([row]));
+  const self = block.addNode(irIteratorValue(block.addNode(irIteratorInit(rows))));
+
+  const construction = block.addNode(irGenericCall(block.addNode(irLoadGlobal("Map")), []));
+  const held =
+    key === REGION_FIELD
+      ? block.addNode(irGenericGetProp(self, REGION_FIELD))
+      : block.addNode(irConstant(key));
+  const value =
+    stored === "unknown"
+      ? block.addNode(irGenericCall(block.addNode(irLoadGlobal("mystery")), []))
+      : block.addNode(irGenericGetProp(self, stored));
+  const call = block.addNode(
+    irGenericCall(block.addNode(irGenericGetProp(construction, "set")), [
+      construction,
+      held,
+      value,
+    ]),
+  );
+  call.props.isMethod = true;
+  block.addNode(irReturn(construction));
+  graph.rebuildUses();
+  return { graph, construction, iteration: null };
+}
+
+describe("collections keyed by what a record field holds", () => {
+  it("names the key by the field the program reads, not by the lattice", () => {
+    const built = keyedByFields(REGION_FIELD, AMOUNT_FIELD);
+    shape(built);
+
+    expect(constructedName(built)).toBe(mapClassName("string", "float"));
+  });
+
+  it("names the value by the field the program stores", () => {
+    const built = keyedByFields("a", AMOUNT_FIELD);
+    shape(built);
+
+    expect(constructedName(built)).toBe(mapClassName("string", "float"));
+  });
+
+  it("leaves the map alone rather than counting what it cannot name", () => {
+    const built = keyedByFields("a", "unknown");
+    shape(built);
+
+    expect(constructedName(built)).toBe("Map");
   });
 });

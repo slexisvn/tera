@@ -22,7 +22,7 @@ import {
   presentTypeName,
   type NominalTypes,
 } from "../types/declared.js";
-import { joinTypes, TypeKind, type LatticeType } from "../types/lattice.js";
+import { acceptsNull, joinTypes, TypeKind, type LatticeType } from "../types/lattice.js";
 import {
   aotScalarOf,
   isReferenceScalar,
@@ -59,6 +59,9 @@ export const INSTANCE_SIZE_PROP = "instanceSize";
 export const VALUE_CLASS_PROP = "valueClassId";
 export const ARRAY_ELEMENT_SCALAR_PROP = "elementScalar";
 
+const ABSENT_TYPE = "null";
+const UNION_IN_TYPE = /\s*\|\s*/g;
+const UNION_IN_NAME = "$or$";
 const LITERAL_SHAPE_PREFIX = "tera_literal";
 const ARRAY_SHAPE_PREFIX = "tera_array";
 const ARRAY_BUFFER_PREFIX = "tera_array_buffer";
@@ -107,6 +110,13 @@ export function declaredTypeOf(type: LatticeType, classes: ClassTable): string |
     return typeof type.map === "number" ? classes.shapeById(type.map)?.name ?? null : null;
   }
   return declaredNameOf(type);
+}
+
+export function heldTypeOf(type: LatticeType, classes: ClassTable): string | null {
+  if (type.kind === TypeKind.Nullish) return ABSENT_TYPE;
+  const named = declaredTypeOf(type, classes);
+  if (named === null) return null;
+  return acceptsNull(type) ? `${named} | ${ABSENT_TYPE}` : named;
 }
 
 
@@ -183,9 +193,13 @@ export function isLiteralShapeName(name: string): boolean {
   return name.startsWith(`${LITERAL_SHAPE_PREFIX}$`);
 }
 
+function shapeSafeType(declaredType: string): string {
+  return declaredType.replace(UNION_IN_TYPE, () => UNION_IN_NAME);
+}
+
 export function literalShapeSurface(fields: readonly LiteralField[]): ClassSurface {
   const name = `${LITERAL_SHAPE_PREFIX}$${fields
-    .map((field) => `${field.name}_${field.declaredType}`)
+    .map((field) => `${field.name}_${shapeSafeType(field.declaredType)}`)
     .join("$")}`;
   return {
     name,
@@ -366,7 +380,7 @@ function joinedFieldType(classes: ClassTable, held: readonly string[]): string |
   for (const entry of held) {
     joined = joinTypes(joined, latticeFromDeclaredType(entry, builtinTypeEnv(), classes));
   }
-  return joined === null ? null : declaredTypeOf(joined, classes);
+  return joined === null ? null : heldTypeOf(joined, classes);
 }
 
 export function joinedLiteralShape(
@@ -391,6 +405,17 @@ export function joinedLiteralShape(
     fields.push({ name, declaredType });
   }
   return classes.defineSynthetic(literalShapeSurface(fields));
+}
+
+export function sameFieldLayout(left: ClassShape, right: ClassShape): boolean {
+  if (left === right) return true;
+  if (left.size !== right.size || left.fields.size !== right.fields.size) return false;
+  for (const [name, field] of left.fields) {
+    const held = right.fields.get(name);
+    if (held === undefined) return false;
+    if (held.offset !== field.offset || held.scalar !== field.scalar) return false;
+  }
+  return true;
 }
 
 export function callableOf(

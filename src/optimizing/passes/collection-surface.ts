@@ -25,7 +25,7 @@ import type { ClassTable } from "../metadata/class-table.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 import type { TypeInference } from "../analyses/type-inference.js";
-import { arrayElementNameOf, iteratedArrayOf } from "./array-shapes.js";
+import { producedTypeName } from "./array-shapes.js";
 import { memberCallTargets } from "./class-member-lowering.js";
 import { genericCalleeName } from "../metadata/call-signatures.js";
 import {
@@ -60,7 +60,7 @@ const KEY_BY_KIND: ReadonlyMap<string, KeyKind> = new Map<string, KeyKind>([
   [TypeKind.Double, "float"],
 ]);
 
-const KEY_BY_ELEMENT: ReadonlyMap<string, KeyKind> = new Map<string, KeyKind>([
+const KIND_BY_NAME: ReadonlyMap<string, KeyKind> = new Map<string, KeyKind>([
   ["string", "string"],
   ["int", "int"],
   ["float", "float"],
@@ -190,6 +190,15 @@ function kindOf<T>(type: LatticeType, table: ReadonlyMap<string, T>): T | null {
   return table.get(type.kind) ?? null;
 }
 
+function producedName(
+  value: CFGInstruction,
+  graph: CFGFunction,
+  types: TypeInference,
+): string | null {
+  const classes = graph.classes;
+  return classes === null ? null : producedTypeName(value, graph, classes, types);
+}
+
 function keyKindOf(
   value: CFGInstruction,
   graph: CFGFunction,
@@ -197,23 +206,31 @@ function keyKindOf(
 ): KeyKind | null {
   const named = kindOf(types.typeOf(value), KEY_BY_KIND);
   if (named !== null) return named;
-  const classes = graph.classes;
-  const array = iteratedArrayOf(value);
-  if (classes === null || array === null) return null;
-  const element = arrayElementNameOf(array, graph, classes, types);
-  return element === null ? null : (KEY_BY_ELEMENT.get(element) ?? null);
+  const produced = producedName(value, graph, types);
+  return produced === null ? null : (KIND_BY_NAME.get(produced) ?? null);
 }
 
 function divided(node: CFGInstruction): ValueKind | null {
   return node.type === IR_GENERIC_DIV ? "float" : null;
 }
 
+function producedValueKind(
+  node: CFGInstruction,
+  graph: CFGFunction,
+  types: TypeInference,
+): ValueKind | null {
+  const produced = producedName(node, graph, types);
+  if (produced === null) return null;
+  return KIND_BY_NAME.get(produced) ?? programClass(produced, graph.classes);
+}
+
 function valueKindOf(
   stored: CFGInstruction,
   aliases: ReadonlySet<CFGInstruction>,
+  graph: CFGFunction,
   types: TypeInference,
-  classes: ClassTable | null,
 ): ValueKind | null {
+  const classes = graph.classes;
   const seen = new Set<CFGInstruction>();
   const pending: CFGInstruction[] = [stored];
   let carried: ValueKind | null = null;
@@ -225,7 +242,8 @@ function valueKindOf(
     const named =
       kindOf(types.typeOf(node), VALUE_BY_KIND) ??
       classValueKind(node, types, classes) ??
-      divided(node);
+      divided(node) ??
+      producedValueKind(node, graph, types);
     if (named !== null) {
       carried = widened(carried, named);
       if (carried === null) return null;
@@ -259,8 +277,8 @@ function collectionOf(
       if (member !== VALUED_MEMBER || kind !== MAP_GLOBAL) continue;
       const stored = use.inputs[VALUE_ARGUMENT];
       if (stored === undefined) return null;
-      const found = valueKindOf(stored, aliases, types, graph.classes);
-      if (found === null) continue;
+      const found = valueKindOf(stored, aliases, graph, types);
+      if (found === null) return null;
       value = widened(value, found);
       if (value === null) return null;
     }
@@ -624,8 +642,8 @@ function agreeOn(
       if (member !== VALUED_MEMBER || seed.kind !== MAP_GLOBAL) continue;
       const stored = use.inputs[VALUE_ARGUMENT];
       if (stored === undefined) return false;
-      const found = valueKindOf(stored, seed.aliases, owner.types, owner.graph.classes);
-      if (found === null) continue;
+      const found = valueKindOf(stored, seed.aliases, owner.graph, owner.types);
+      if (found === null) return false;
       const widest = widened(carried.value, found);
       if (widest === null) return false;
       carried.value = widest;

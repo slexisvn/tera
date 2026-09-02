@@ -479,6 +479,114 @@ describe("nullable narrowing", () => {
   });
 });
 
+describe("taking one element after a guard that the array holds some", () => {
+  const takes = (guard: string, member: string) =>
+    src(
+      'queue: string[] = ["a", "b"]',
+      guard,
+      `  item: string = queue.${member}()`,
+      "  print(item)",
+    );
+
+  it("takes the front of a queue a while loop guards", () => {
+    expect(diagnose(takes("while queue.length > 0:", "shift"))).toEqual([]);
+  });
+
+  it("takes the back of a stack a while loop guards", () => {
+    expect(diagnose(takes("while queue.length != 0:", "pop"))).toEqual([]);
+  });
+
+  it("takes one under a guard written the other way round", () => {
+    expect(diagnose(takes("while 0 < queue.length:", "shift"))).toEqual([]);
+  });
+
+  it("takes one under a guard that asks for at least one", () => {
+    expect(diagnose(takes("while queue.length >= 1:", "shift"))).toEqual([]);
+  });
+
+  it("takes one under a guard that asks for more than one", () => {
+    expect(diagnose(takes("if queue.length > 1:", "pop"))).toEqual([]);
+  });
+
+  it("takes one in the arm where an emptiness guard did not hold", () => {
+    const source = src(
+      'queue: string[] = ["a"]',
+      "if queue.length == 0:",
+      '  print("empty")',
+      "else:",
+      "  item: string = queue.shift()",
+      "  print(item)",
+    );
+
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("takes one under a guard that also checks something else", () => {
+    const source = src(
+      'queue: string[] = ["a"]',
+      "rounds = 0",
+      "while queue.length > 0 and rounds < 3:",
+      "  item: string = queue.shift()",
+      "  rounds = rounds + 1",
+      "  print(item)",
+    );
+
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("takes one off a field the method guarded", () => {
+    const source = src(
+      "class Queue:",
+      "  public items: string[]",
+      "  public constructor():",
+      "    this.items = []",
+      "  public take() -> string:",
+      "    if this.items.length == 0:",
+      '      return ""',
+      "    first: string = this.items.shift()",
+      "    return first",
+      "print(Queue().take())",
+    );
+
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("still refuses to take one with nothing guarding the array", () => {
+    const source = src('queue: string[] = ["a"]', "item: string = queue.shift()", "print(item)");
+
+    expect(diagnose(source)).toEqual([
+      "Type 'string | undefined' is not assignable to 'string'",
+    ]);
+  });
+
+  it("still refuses to take one when the guard counts another array", () => {
+    const source = src(
+      'queue: string[] = ["a"]',
+      'other: string[] = ["b"]',
+      "while other.length > 0:",
+      "  item: string = queue.shift()",
+      "  print(item)",
+    );
+
+    expect(diagnose(source)).toEqual([
+      "Type 'string | undefined' is not assignable to 'string'",
+    ]);
+  });
+
+  it("still refuses to take one when the guard says the array is empty", () => {
+    const source = src(
+      'queue: string[] = ["a"]',
+      "if queue.length == 0:",
+      "  item: string = queue.shift()",
+      "  print(item)",
+    );
+
+    expect(diagnose(source)).toEqual([
+      "Type 'string | undefined' is not assignable to 'string'",
+    ]);
+  });
+});
+
 describe("names that a built-in already has", () => {
   it("refuses a top-level name the program still calls as a built-in", () => {
     expect(diagnose(src("sum = 5", "print(sum([1, 2]))"))).toEqual([

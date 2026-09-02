@@ -480,3 +480,69 @@ describe("iterating what an array method answers", () => {
     itRunsPe(`walks ${what}`, () => peAgrees(source));
   }
 });
+
+describe("AOT loops that take one element at a time", () => {
+  const DRAINED: readonly (readonly [string, string])[] = [
+    [
+      "walks a queue from the front until it runs out",
+      src(
+        'queue: string[] = ["a", "b", "c"]',
+        "while queue.length > 0:",
+        "  item: string = queue.shift()",
+        "  print(item)",
+      ),
+    ],
+    [
+      "adds up a stack from the back until it runs out",
+      src(
+        "stack: int[] = [1, 2, 3]",
+        "total = 0",
+        "while stack.length > 0:",
+        "  top: int = stack.pop()",
+        "  total = total + top",
+        "print(total)",
+      ),
+    ],
+    [
+      "keeps what it took off one array in another",
+      src(
+        'queue: string[] = ["a", "b", "c"]',
+        "seen: string[] = []",
+        "while queue.length > 0:",
+        "  item: string = queue.shift()",
+        "  seen.push(item)",
+        "print(seen.length)",
+        "print(seen[2])",
+      ),
+    ],
+  ];
+
+  for (const [what, source] of DRAINED) {
+    itRunsPe(what, () => peAgrees(source));
+  }
+});
+
+describe("AOT arrays a loop fills from what it already holds", () => {
+  itRunsPe("sorts by moving elements it read back into the same array", () =>
+    peAgrees(
+      src(
+        "fn sorted(values: int[]) -> int[]:",
+        "  out: int[] = []",
+        "  for value of values:",
+        "    at = 0",
+        "    while at < out.length and out[at] < value:",
+        "      at = at + 1",
+        "    out.push(value)",
+        "    back = out.length - 1",
+        "    while back > at:",
+        "      swap: int = out[back - 1]",
+        "      out[back] = swap",
+        "      out[back - 1] = value",
+        "      back = back - 1",
+        "  return out",
+        "for x of sorted([5, 3, 9, 1, 7]):",
+        "  print(x)",
+      ),
+    ),
+  );
+});

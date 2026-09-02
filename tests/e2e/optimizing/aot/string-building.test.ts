@@ -1,5 +1,4 @@
-import { describe, expect } from "vitest";
-import { nodeEngine } from "../../../helpers/engine.js";
+import { describe } from "vitest";
 import { peAgrees } from "../../../helpers/aot-agreement.js";
 import { itRunsPe } from "../../../helpers/pe-runner.js";
 
@@ -65,26 +64,24 @@ describe("AOT strings built across branches", () => {
     );
   });
 
-  itRunsPe("declines to keep a string a later pass of the same loop overwrites", () => {
-    expect(() =>
-      compiled(
-        src(
-          "fn first(n: int) -> string:",
-          '  held = ""',
-          '  out = ""',
-          "  for i of range(0, n):",
-          "    if i == 0:",
-          '      out = "row " + i.to_string()',
-          "    else:",
-          '      out = "row " + i.to_string() + "!"',
-          "    if i == 0:",
-          "      held = out",
-          "  print(held)",
-          "  return out",
-          "print(first(3))",
-        ),
+  itRunsPe("keeps a string a later pass of the same loop would overwrite", () => {
+    peAgrees(
+      src(
+        "fn first(n: int) -> string:",
+        '  held = ""',
+        '  out = ""',
+        "  for i of range(0, n):",
+        "    if i == 0:",
+        '      out = "row " + i.to_string()',
+        "    else:",
+        '      out = "row " + i.to_string() + "!"',
+        "    if i == 0:",
+        "      held = out",
+        "  print(held)",
+        "  return out",
+        "print(first(3))",
       ),
-    ).toThrow(/two strings into the same storage/);
+    );
   });
 });
 
@@ -168,4 +165,51 @@ describe("AOT text read out of a collection and then built on", () => {
   for (const [what, source] of BUILT) {
     itRunsPe(what, () => peAgrees(source));
   }
+});
+
+describe("AOT strings carried through a loop from more than one source", () => {
+  itRunsPe("wraps words into lines, taking the line from a word or from a join", () =>
+    peAgrees(
+      src(
+        "fn wrap(words: string[], width: int) -> string[]:",
+        "  lines: string[] = []",
+        '  current: string = ""',
+        "  for w of words:",
+        "    if current.length == 0:",
+        "      current = w",
+        "    else:",
+        "      if current.length + 1 + w.length > width:",
+        "        lines.push(current)",
+        "        current = w",
+        "      else:",
+        '        current = current + " " + w',
+        "  if current.length > 0:",
+        "    lines.push(current)",
+        "  return lines",
+        'for line of wrap(["aa", "bb", "cc", "dddddd", "e"], 5):',
+        "  print(line)",
+      ),
+    ),
+  );
+
+  itRunsPe("keeps the carried string readable across enough rounds to collect", () =>
+    peAgrees(
+      src(
+        'words: string[] = ["aa", "bb", "cc"]',
+        'prev: string = ""',
+        "out: string[] = []",
+        "for i of range(0, 12000):",
+        "  cur: string = words[i % 3]",
+        "  if i % 2 == 0:",
+        '    cur = words[i % 3] + "x"',
+        "  spare: int[] = [i]",
+        "  if spare[0] >= 0:",
+        "    out.push(prev)",
+        "  prev = cur",
+        "print(out.length)",
+        "print(out[11999])",
+        "print(prev)",
+      ),
+    ),
+  );
 });

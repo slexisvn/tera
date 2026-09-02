@@ -1165,6 +1165,24 @@ const MATCHES: ReadonlyArray<readonly [string, string]> = [
     ),
   ],
   [
+    "a caught rejection kept across a call that rebuilds the string behind it",
+    src(
+      G,
+      "fn label(n: int) -> string:",
+      '  return "y" + n.to_string()',
+      "async fn f(n: int) -> int:",
+      "  x = await g()",
+      '  throw "boom" + n.to_string()',
+      "  return x",
+      "p = f(7)",
+      "try:",
+      "  print(await p)",
+      "catch e:",
+      "  print(label(1))",
+      "  print(e)",
+    ),
+  ],
+  [
     "a coroutine that branches on a string comparison",
     src(
       "async fn price(name: string) -> float:",
@@ -1187,25 +1205,6 @@ const DECLINES: ReadonlyArray<readonly [string, string, string]> = [
     "a promise used as a plain value",
     src(G, "fn mid() -> Promise<int>:", "  return g()", "mid()"),
     "used as a plain value",
-  ],
-  [
-    "a caught rejection kept across a call that can rebuild the string behind it",
-    src(
-      G,
-      'fn label(n: int) -> string:',
-      '  return "y" + n.to_string()',
-      "async fn f(n: int) -> int:",
-      "  x = await g()",
-      '  throw "boom" + n.to_string()',
-      "  return x",
-      "p = f(7)",
-      "try:",
-      "  print(await p)",
-      "catch e:",
-      "  print(label(1))",
-      "  print(e)",
-    ),
-    "keeps the value it caught across a call to label",
   ],
 ];
 

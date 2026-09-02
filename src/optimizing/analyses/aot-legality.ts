@@ -57,6 +57,7 @@ import { compiledFunctionConstant } from "../ir/compiled-function.js";
 import {
   declaredAotScalar,
   isLiteralShapeName,
+  sameFieldLayout,
   shapeForDeclared,
   FIELD_SCALAR_PROP,
   FIELD_TYPE_PROP,
@@ -126,7 +127,11 @@ import {
 } from "../metadata/builtin-methods.js";
 import { typeInferenceAnalysisId, type TypeInference } from "./type-inference.js";
 import { SPREAD_ARGUMENTS_PROP } from "../passes/spread-calls.js";
-import { arrayModelForDeclaredType, arrayModelOf } from "../passes/array-shapes.js";
+import {
+  arrayModelForDeclaredType,
+  arrayModelOf,
+  type ArrayModel,
+} from "../passes/array-shapes.js";
 import {
   forwardsPendingThrow,
   isPendingThrowReturn,
@@ -222,11 +227,31 @@ function allocated(value: CFGInstruction | undefined): boolean {
 
 const TOUCHES_TEXT: ReadonlySet<string> = new Set<string>([IR_LOAD_TEXT, IR_STORE_TEXT]);
 
+function filledOnce(held: CFGInstruction): boolean {
+  let stores = 0;
+  for (const use of held.uses) {
+    if (use.type === IR_PHI) continue;
+    if (!TOUCHES_TEXT.has(use.type) || use.inputs[0] !== held) return false;
+    if (use.type === IR_STORE_TEXT) stores += 1;
+  }
+  return stores === 1;
+}
+
+export function holdsOwnText(
+  value: CFGInstruction | undefined,
+  seen: Set<CFGInstruction> = new Set(),
+): boolean {
+  if (value === undefined) return false;
+  if (seen.has(value)) return true;
+  seen.add(value);
+  if (value.type === IR_PHI) {
+    return value.inputs.length > 0 && value.inputs.every((input) => holdsOwnText(input, seen));
+  }
+  return allocated(value) && filledOnce(value);
+}
+
 function privateStorage(origin: CFGInstruction): boolean {
-  if (origin.type !== IR_LOAD_TEXT) return false;
-  const held = origin.inputs[0];
-  if (!allocated(held)) return false;
-  return held!.uses.every((use) => TOUCHES_TEXT.has(use.type) && use.inputs[0] === held);
+  return origin.type === IR_LOAD_TEXT && holdsOwnText(origin.inputs[0]);
 }
 
 function writesElsewhere(store: CFGInstruction, origin: CFGInstruction): boolean {
@@ -431,6 +456,20 @@ function mergedProducers(
     else group.push(producer);
   }
   return [...groups, ...byRoot.values()];
+}
+
+export function mergedTextInputs(
+  carried: Iterable<CFGInstruction>,
+  inside: ReadonlySet<CFGInstruction>,
+): CFGInstruction[] {
+  const outside = new Set<CFGInstruction>();
+  for (const phi of carried) {
+    for (const input of phi.inputs) {
+      if (inside.has(input) || isConstantText(input)) continue;
+      outside.add(input);
+    }
+  }
+  return [...outside];
 }
 
 export interface StringBufferWalk {
@@ -660,6 +699,18 @@ export function isRootedPointer(legality: AotLegality, value: CFGInstruction): b
   return legality.scalarOf(value) === SCALAR_POINTER;
 }
 
+export function rootSlotsOf(
+  legality: AotLegality,
+  values: Iterable<CFGInstruction>,
+): Map<CFGInstruction, number> {
+  const slots = new Map<CFGInstruction, number>();
+  for (const value of values) {
+    if (!isRootedPointer(legality, value) || slots.has(value)) continue;
+    slots.set(value, slots.size);
+  }
+  return slots;
+}
+
 export function isAsciiRepresentable(value: string): boolean {
   for (const character of value) {
     if (character.codePointAt(0)! > ASCII_LIMIT) return false;
@@ -669,6 +720,12 @@ export function isAsciiRepresentable(value: string): boolean {
 
 export function builtinOperandScalar(declared: string | null): AotScalar | null {
   return aotScalarOf(nominalLatticeType(declared, null));
+}
+
+function elementsAgree(held: ArrayModel, asked: ArrayModel): boolean {
+  if (held.element !== asked.element) return false;
+  if (held.elementShape === null || asked.elementShape === null) return true;
+  return sameFieldLayout(held.elementShape, asked.elementShape);
 }
 
 function arrayCrossingOf(node: CFGInstruction): string {
@@ -967,7 +1024,7 @@ class LegalityAnalyzer implements AotLegality {
       const asked = arrayModelForDeclaredType(declared, classes);
       if (asked === null) continue;
       const held = arrayModelOf(input, this.graph, classes, this.types);
-      if (held === null || held.element === asked.element) continue;
+      if (held === null || elementsAgree(held, asked)) continue;
       this.fail(
         `${arrayCrossingOf(node)} an array of ${held.declaredType} where ${declared} is ` +
           `declared, and the two are laid out differently; build the array with the declared ` +
@@ -1059,13 +1116,7 @@ class LegalityAnalyzer implements AotLegality {
     const carried: CFGInstruction[] = [];
     for (const value of aliases) if (value.type === IR_PHI) carried.push(value);
     if (model.producers.size === 1 && carried.length <= 1) return true;
-    for (const value of carried) {
-      for (const input of value.inputs) {
-        if (aliases.has(input) || isConstantText(input)) continue;
-        return false;
-      }
-    }
-    return true;
+    return mergedTextInputs(carried, aliases).length === 0;
   }
 
   private bindStringBufferAliases(model: AotStringBuffer): boolean {

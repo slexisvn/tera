@@ -8,8 +8,10 @@ import {
   irConstant,
   irFloat64Add,
   irGenericAdd,
+  irBranch,
   irGenericGetProp,
   irInt32Add,
+  irJump,
   irLoadArrayLength,
   IR_LOAD_ELEMENT,
   irLoadElement,
@@ -17,6 +19,8 @@ import {
   irNewArray,
   irReturn,
   irStoreElement,
+  irLoadText,
+  irNewObject,
   irStoreField,
   irStoreText,
   resetIRNodeIds,
@@ -24,7 +28,11 @@ import {
 import { addPhi, connect, link } from "../../../src/optimizing/ir/cfg-edit.js";
 import {
   analyzeAotLegality,
+  holdsOwnText,
+  mergedTextInputs,
+  rootSlotsOf,
   summarizeStringEscapes,
+  type AotLegality,
 } from "../../../src/optimizing/analyses/aot-legality.js";
 import { callReachability } from "../../../src/optimizing/metadata/call-graph.js";
 import { AnalysisManager } from "../../../src/optimizing/infra/analysis-manager.js";
@@ -35,6 +43,7 @@ import { BUFFER_ELEMENTS_OFFSET } from "../../../src/optimizing/metadata/class-t
 import {
   SCALAR_FLOAT64,
   SCALAR_INT32,
+  SCALAR_POINTER,
   SCALAR_STRING,
   TEXT_STORAGE_BYTES,
   type AotScalar,
@@ -603,5 +612,187 @@ describe("AOT legality text stores", () => {
 
   it("says nothing about --text-size for a store the field bounds", () => {
     expect(reasonOf(storing("x".repeat(FIELD_CAPACITY)))).not.toContain("--text-size");
+  });
+});
+
+describe("storage a text box owns", () => {
+  const TEXT_OFFSET = 8;
+  const TEXT_CAPACITY = 1024;
+
+  function boxed(block: ReturnType<CFGFunction["addBlock"]>, fills: number): CFGInstruction {
+    const box = block.addNode(irNewObject());
+    for (let at = 0; at < fills; at++) {
+      block.addNode(
+        irStoreText(box, TEXT_OFFSET, block.addNode(irConstant(`v${at}`)), TEXT_CAPACITY, "text"),
+      );
+    }
+    return box;
+  }
+
+  function held(fills: number): { graph: CFGFunction; box: CFGInstruction } {
+    const graph = new CFGFunction("hold");
+    const block = graph.addBlock();
+    const box = boxed(block, fills);
+    block.addNode(irReturn(block.addNode(irLoadText(box, TEXT_OFFSET, TEXT_CAPACITY, "text"))));
+    graph.rebuildUses();
+    return { graph, box };
+  }
+
+  it("owns the text of a box exactly one store fills", () => {
+    expect(holdsOwnText(held(1).box)).toBe(true);
+  });
+
+  it("does not own the text of a box a second store refills", () => {
+    expect(holdsOwnText(held(2).box)).toBe(false);
+  });
+
+  it("does not own the text of a box nothing fills", () => {
+    expect(holdsOwnText(held(0).box)).toBe(false);
+  });
+
+  it("does not own the text of a box that goes somewhere else as well", () => {
+    const graph = new CFGFunction("escape");
+    const block = graph.addBlock();
+    const box = boxed(block, 1);
+    block.addNode(irStoreField(block.addNode(irNewObject()), 8, box, "held"));
+    block.addNode(irReturn(block.addNode(irLoadText(box, TEXT_OFFSET, TEXT_CAPACITY, "text"))));
+    graph.rebuildUses();
+
+    expect(holdsOwnText(box)).toBe(false);
+  });
+
+  it("owns the text a phi carries when every arm holds its own box", () => {
+    const graph = new CFGFunction("carry");
+    const entry = graph.addBlock();
+    const taken = graph.addBlock();
+    const other = graph.addBlock();
+    const join = graph.addBlock();
+    entry.addNode(irBranch(entry.addNode(irConstant(true)), taken, other));
+    link(entry, taken);
+    link(entry, other);
+    const left = boxed(taken, 1);
+    taken.addNode(irJump(join));
+    link(taken, join);
+    const right = boxed(other, 1);
+    other.addNode(irJump(join));
+    link(other, join);
+    const carried = addPhi(join, [left, right]);
+    join.addNode(irReturn(join.addNode(irLoadText(carried, TEXT_OFFSET, TEXT_CAPACITY, "text"))));
+    graph.rebuildUses();
+
+    expect(holdsOwnText(carried)).toBe(true);
+  });
+
+  it("does not own the text a phi carries when one arm holds something else", () => {
+    const graph = new CFGFunction("carry");
+    const entry = graph.addBlock();
+    const taken = graph.addBlock();
+    const other = graph.addBlock();
+    const join = graph.addBlock();
+    entry.addNode(irBranch(entry.addNode(irConstant(true)), taken, other));
+    link(entry, taken);
+    link(entry, other);
+    const left = boxed(taken, 1);
+    taken.addNode(irJump(join));
+    link(taken, join);
+    const right = other.addNode(irConstant("plain"));
+    other.addNode(irJump(join));
+    link(other, join);
+    const carried = addPhi(join, [left, right]);
+    join.addNode(irReturn(join.addNode(irLoadText(carried, TEXT_OFFSET, TEXT_CAPACITY, "text"))));
+    graph.rebuildUses();
+
+    expect(holdsOwnText(carried)).toBe(false);
+  });
+});
+
+describe("inputs a string phi web merges from outside itself", () => {
+  function web(): { phis: CFGInstruction[]; outside: CFGInstruction[] } {
+    const graph = new CFGFunction("merge");
+    const entry = graph.addBlock();
+    const taken = graph.addBlock();
+    const join = graph.addBlock();
+    entry.addNode(irBranch(entry.addNode(irConstant(true)), taken, join));
+    link(entry, taken);
+    link(entry, join);
+    const built = taken.addNode(irGenericAdd(taken.addNode(irConstant("a")), taken.addNode(irConstant("b"))));
+    taken.addNode(irJump(join));
+    link(taken, join);
+    const seed = entry.addNode(irConstant(""));
+    const carried = addPhi(join, [seed, built]);
+    join.addNode(irReturn(carried));
+    graph.rebuildUses();
+    return { phis: [carried], outside: [built] };
+  }
+
+  it("reports an input the web does not already hold", () => {
+    const { phis, outside } = web();
+
+    expect(mergedTextInputs(phis, new Set(phis))).toEqual(outside);
+  });
+
+  it("leaves out an input the web already holds", () => {
+    const { phis, outside } = web();
+
+    expect(mergedTextInputs(phis, new Set([...phis, ...outside]))).toEqual([]);
+  });
+
+  it("leaves out a constant, which no producer ever refills", () => {
+    const { phis } = web();
+    const seeds = phis[0]!.inputs.filter((input) => input.type === "Constant");
+
+    expect(mergedTextInputs(phis, new Set(phis))).not.toContain(seeds[0]);
+  });
+});
+
+describe("slots the collector roots a value in", () => {
+  const POINTERS: AotLegality = {
+    scalarOf: () => SCALAR_POINTER,
+  } as unknown as AotLegality;
+
+  function held(): { graph: CFGFunction; values: CFGInstruction[] } {
+    const graph = new CFGFunction("hold");
+    const entry = graph.addBlock();
+    const body = graph.addBlock();
+    entry.addNode(irJump(body));
+    link(entry, body);
+    const made = entry.addNode(irNewObject());
+    const carried = addPhi(body, [made]);
+    const other = body.addNode(irNewObject());
+    body.addNode(irReturn(body.addNode(irStoreField(carried, 8, other, "held"))));
+    graph.rebuildUses();
+    return { graph, values: [carried, made, other] };
+  }
+
+  it("gives each rooted value a slot of its own", () => {
+    const { values } = held();
+    const slots = rootSlotsOf(POINTERS, values);
+
+    expect(new Set(slots.values()).size).toBe(slots.size);
+  });
+
+  it("numbers the slots from zero without a gap", () => {
+    const { values } = held();
+    const slots = rootSlotsOf(POINTERS, values);
+
+    expect([...slots.values()].sort((a, b) => a - b)).toEqual([...slots.keys()].map((_, at) => at));
+  });
+
+  it("keeps one slot for a value the walk reaches twice", () => {
+    const { values } = held();
+    const once = rootSlotsOf(POINTERS, values);
+    const twice = rootSlotsOf(POINTERS, [values[0]!, ...values]);
+
+    expect([...twice.values()]).toEqual([...once.values()]);
+  });
+
+  it("leaves a value nothing uses unrooted", () => {
+    const graph = new CFGFunction("spare");
+    const block = graph.addBlock();
+    const unused = block.addNode(irNewObject());
+    block.addNode(irReturn(block.addNode(irConstant(0))));
+    graph.rebuildUses();
+
+    expect(rootSlotsOf(POINTERS, [unused]).size).toBe(0);
   });
 });

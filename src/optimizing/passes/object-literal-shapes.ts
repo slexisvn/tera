@@ -2,6 +2,8 @@ import {
   irGenericGetProp,
   irGenericSetProp,
   IR_CONSTANT,
+  IR_GENERIC_CALL,
+  IR_GENERIC_GET_PROP,
   IR_COPY_PROPERTIES,
   IR_GENERIC_SET_PROP,
   IR_NEW_OBJECT,
@@ -14,6 +16,7 @@ import { nodeIdStamper } from "../ir/graph-edit.js";
 import {
   CLASS_ID_PROP,
   declaredTypeOf,
+  heldTypeOf,
   INSTANCE_SIZE_PROP,
   isLiteralShapeName,
   literalShapeSurface,
@@ -61,7 +64,7 @@ function storedTypeName(
   if (types.typeOf(stored).kind !== TypeKind.Array) {
     return (
       shapeHeldBy(stored, classes, types)?.name ??
-      declaredTypeOf(types.typeOf(stored), classes) ??
+      heldTypeOf(types.typeOf(stored), classes) ??
       producedTypeName(stored, graph, classes, types)
     );
   }
@@ -141,6 +144,24 @@ function holdsExactly(shape: ClassShape, written: readonly string[]): boolean {
   return written.every((name) => shape.fields.has(name));
 }
 
+const ELEMENT_ARGUMENT = 2;
+const RECEIVER_INPUT = 1;
+const TAKES_AN_ELEMENT: ReadonlySet<string> = new Set<string>(["push", "unshift"]);
+
+function heldElementAt(
+  use: CFGInstruction,
+  at: number,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  if (use.type !== IR_GENERIC_CALL || at !== ELEMENT_ARGUMENT) return null;
+  const callee = use.inputs[0];
+  if (callee?.type !== IR_GENERIC_GET_PROP) return null;
+  if (!TAKES_AN_ELEMENT.has(String(callee.props.propName))) return null;
+  return arrayElementNameOf(use.inputs[RECEIVER_INPUT], graph, classes, types);
+}
+
 function declaredShapeOf(
   allocation: CFGInstruction,
   written: readonly string[],
@@ -155,7 +176,8 @@ function declaredShapeOf(
       if (input !== allocation) continue;
       const asked = shapeForDeclared(
         classes,
-        declaredTypeAt(use, at, graph, classes, types, signatureOf),
+        declaredTypeAt(use, at, graph, classes, types, signatureOf) ??
+          heldElementAt(use, at, graph, classes, types),
       );
       if (asked === null) continue;
       if (agreed !== null && agreed !== asked) return null;

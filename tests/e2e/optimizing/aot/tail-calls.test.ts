@@ -87,6 +87,28 @@ describe("AOT self tail calls", () => {
     expect(run.stdout.trim()).toBe("1784293664");
   });
 
+  itRunsPe("rotates arguments that are themselves parameters", () => {
+    agrees(
+      src(
+        "fn gcd(a: int, b: int) -> int:",
+        "  if b == 0:",
+        "    return a",
+        "  return gcd(b, a % b)",
+        "print(gcd(48, 18))",
+        "print(gcd(1071, 462))",
+      ),
+    );
+    agrees(
+      src(
+        "fn spin(a: int, b: int, c: int) -> int:",
+        "  if c == 0:",
+        "    return a * 100 + b",
+        "  return spin(b, a + 1, c - 1)",
+        "print(spin(1, 2, 3))",
+      ),
+    );
+  });
+
   itRunsPe("keeps a tail call that answers through a class instance correct", () => {
     agrees(
       src(

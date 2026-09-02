@@ -163,7 +163,7 @@ import {
 import { INT32_DECIMAL_BYTES } from "../../machine/data.js";
 import { declaredAotScalar } from "../../metadata/class-table.js";
 import type { DeclaredSignature } from "../../types/signature.js";
-import { isAbsenceConstant, isRootedPointer } from "../../analyses/aot-legality.js";
+import { isAbsenceConstant, rootSlotsOf } from "../../analyses/aot-legality.js";
 import { NULL_TEXT } from "../../metadata/printed-values.js";
 import {
   FLOAT64_DECIMAL_BYTES,
@@ -1816,11 +1816,6 @@ class CFunctionEmitter {
     return this.legality.scalarOf(value) === SCALAR_INT32;
   }
 
-  private reserveRoot(value: CFGInstruction): void {
-    if (!isRootedPointer(this.legality, value)) return;
-    this.rootSlots.set(value, this.rootSlots.size);
-  }
-
   private rootStore(value: CFGInstruction): string | null {
     const slot = this.rootSlots.get(value);
     if (slot === undefined) return null;
@@ -1858,11 +1853,12 @@ class CFunctionEmitter {
         valueSeq = next;
       }
     }
-    for (const param of this.graph.parameters) this.reserveRoot(param);
-    for (const phi of this.blockPhis) this.reserveRoot(phi);
-    for (const block of this.order) {
-      for (const node of block.nodes) this.reserveRoot(node);
-    }
+    const rooted = rootSlotsOf(this.legality, [
+      ...this.graph.parameters,
+      ...this.blockPhis,
+      ...this.order.flatMap((block) => block.nodes),
+    ]);
+    for (const [value, slot] of rooted) this.rootSlots.set(value, slot);
   }
 
   private calledSymbols(): ReadonlySet<string> {

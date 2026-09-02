@@ -13,6 +13,7 @@ import {
   descendsFrom,
   joinedLiteralShape,
   literalShapeSurface,
+  sameFieldLayout,
   type LiteralField,
 } from "../../../src/optimizing/metadata/class-table.js";
 import {
@@ -27,6 +28,7 @@ import {
   aotScalarOf,
   SCALAR_FLOAT64,
   SCALAR_POINTER,
+  SCALAR_STRING,
   SCALAR_TEXT,
   TEXT_STORAGE_BYTES,
 } from "../../../src/optimizing/types/scalar.js";
@@ -436,6 +438,47 @@ describe("structural shapes of declared object types", () => {
   });
 });
 
+describe("sameFieldLayout", () => {
+  const literalOf = (classes: ClassTable, fields: readonly LiteralField[]): ClassShape =>
+    classes.defineSynthetic(literalShapeSurface(fields));
+
+  const declaredRow = (): ClassTable =>
+    buildClassTable([
+      {
+        name: "Row",
+        parent: null,
+        abstract: false,
+        members: [field("n", "int", "Row")],
+        constructorParams: [],
+        constructorParamNames: [],
+      },
+    ]);
+
+  it("accepts a literal that lays its fields out like the class it stands in for", () => {
+    const classes = declaredRow();
+    const literal = literalOf(classes, [{ name: "n", declaredType: "int" }]);
+
+    expect(sameFieldLayout(literal, classes.shapeOf("Row")!)).toBe(true);
+  });
+
+  it("refuses a literal that holds the same field as a different scalar", () => {
+    const classes = declaredRow();
+    const literal = literalOf(classes, [{ name: "n", declaredType: "float" }]);
+
+    expect(sameFieldLayout(literal, classes.shapeOf("Row")!)).toBe(false);
+  });
+
+  it("refuses a shape that holds a field the other does not", () => {
+    const classes = declaredRow();
+    const literal = literalOf(classes, [
+      { name: "n", declaredType: "int" },
+      { name: "m", declaredType: "int" },
+    ]);
+
+    expect(sameFieldLayout(literal, classes.shapeOf("Row")!)).toBe(false);
+  });
+});
+
 describe("joinedLiteralShape", () => {
   const literal = (classes: ClassTable, fields: readonly LiteralField[]): ClassShape =>
     classes.defineSynthetic(literalShapeSurface(fields));
@@ -494,6 +537,36 @@ describe("joinedLiteralShape", () => {
       "string",
       "float",
     ]);
+  });
+
+  it("widens a field one literal holds as a string and another leaves empty", () => {
+    const classes = buildClassTable([]);
+
+    const joined = held(classes, [
+      [{ name: "note", declaredType: "string" }],
+      [{ name: "note", declaredType: "null" }],
+    ]);
+
+    expect(joined?.fields.get("note")?.declaredType).toBe("string | null");
+  });
+
+  it("keeps the widened text field a reference so it can hold nothing", () => {
+    const classes = buildClassTable([]);
+
+    const joined = held(classes, [
+      [{ name: "note", declaredType: "string" }],
+      [{ name: "note", declaredType: "null" }],
+    ]);
+
+    expect(joined?.fields.get("note")?.scalar).toBe(SCALAR_STRING);
+  });
+
+  it("names a shape holding an either-or field so the name reads back as that shape", () => {
+    const classes = buildClassTable([]);
+
+    const shape = literal(classes, [{ name: "note", declaredType: "string | null" }]);
+
+    expect(latticeFromDeclaredType(shape.name, builtinTypeEnv(), classes).map).toBe(shape.id);
   });
 
   it("refuses a field one literal holds as a string and another as a number", () => {

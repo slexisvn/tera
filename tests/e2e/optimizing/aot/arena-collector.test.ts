@@ -118,6 +118,36 @@ describe("AOT arena collector", () => {
     expect(source).toContain("tera_context.roots_base[roots + 0]");
   });
 
+  it("gives a loop-carried reference a root slot of its own", () => {
+    const source = compile(
+      src(
+        ...CELL,
+        "fn walk(n: int) -> int:",
+        "  held = Cell(0)",
+        "  seen = 0",
+        "  i = 0",
+        "  while i < n:",
+        "    made = Cell(i)",
+        "    seen = seen + made.value + held.value",
+        "    held = made",
+        "    i = i + 1",
+        "  return seen",
+      ),
+    );
+    const opened = source.slice(source.indexOf("walk("));
+    const body = opened.slice(0, opened.indexOf("\n}"));
+    const held = new Map<string, Set<string>>();
+    for (const [, slot, name] of body.matchAll(
+      /roots_base\[roots \+ (\d+)\] = \(unsigned char \*\)(\w+);/g,
+    )) {
+      held.set(slot!, (held.get(slot!) ?? new Set()).add(name!));
+    }
+    const shared = [...held.entries()].filter(([, names]) => names.size > 1);
+
+    expect(held.size).toBeGreaterThan(0);
+    expect(shared).toEqual([]);
+  });
+
   itNative("keeps allocating past the size of the arena", () => {
     const source = compile(
       src(

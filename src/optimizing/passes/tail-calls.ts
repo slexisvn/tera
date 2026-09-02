@@ -61,10 +61,12 @@ export function rewriteSelfTailCalls(
   graph.entry = preamble;
   link(preamble, entry);
 
+  const carriedBy = new Map<CFGInstruction, CFGInstruction>();
   for (const parameter of graph.parameters) {
     const carried = stamp(addPhi(entry, []));
     editor.replaceAllUses(parameter, carried);
     carried.addInput(parameter);
+    carriedBy.set(parameter, carried);
   }
   entry.isLoopHeader = true;
   preamble.addNode(stamp(irJump(entry)));
@@ -72,7 +74,11 @@ export function rewriteSelfTailCalls(
   for (const site of sites) {
     editor.remove(site.returned);
     editor.remove(site.call);
-    connect(site.block, entry, site.args);
+    connect(
+      site.block,
+      entry,
+      site.args.map((argument) => carriedBy.get(argument) ?? argument),
+    );
     site.block.addNode(stamp(irJump(entry)));
   }
   return sites.length;

@@ -6,6 +6,7 @@ import {
   irGenericGetProp,
   irGenericSetProp,
   irGenericGetIndex,
+  irGenericSetIndex,
   irNewArray,
   irNewObject,
   irReturn,
@@ -33,6 +34,7 @@ import {
   arrayElementNameOf,
   arrayModelForDeclaredType,
   arrayModelOf,
+  producedTypeName,
   shapeArrayAllocations,
   stampElementTypes,
 } from "../../../src/optimizing/passes/array-shapes.js";
@@ -264,6 +266,114 @@ describe("arrayModelOf over what an array method answers", () => {
     graph.rebuildUses();
 
     expect(modelOf(graph, call)?.declaredType).toBe("int");
+  });
+
+  const nameOf = (graph: CFGFunction, call: CFGInstruction) =>
+    producedTypeName(
+      call,
+      graph,
+      graph.classes!,
+      new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
+    );
+
+  for (const member of ["pop", "shift"]) {
+    it(`names what ${member} takes off by the receiver's element`, () => {
+      const { graph, call } = answering(member);
+
+      expect(nameOf(graph, call)).toBe("int");
+    });
+  }
+
+  it("names a member that answers something other than an element by its own answer", () => {
+    const { graph, call } = answering("join");
+
+    expect(nameOf(graph, call)).toBe("string");
+  });
+
+  it("models an array a builtin answers on a receiver that is not one", () => {
+    const graph = new CFGFunction("parts");
+    graph.declaredSignature = { params: ["string"], returns: null };
+    graph.classes = table();
+    const line = graph.addParameter(0);
+    const block = graph.addBlock();
+    const callee = block.addNode(irGenericGetProp(line, "split"));
+    const call = block.addNode(irGenericCall(callee, [line, block.addNode(irConstant(" "))]));
+    call.props.isMethod = true;
+    block.addNode(irReturn(call));
+    graph.rebuildUses();
+
+    expect(modelOf(graph, call)?.declaredType).toBe("string");
+  });
+});
+
+describe("naming what an array holds when a contributor cannot be named", () => {
+  const nameOf = (graph: CFGFunction, array: CFGInstruction) =>
+    arrayElementNameOf(
+      array,
+      graph,
+      graph.classes!,
+      new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
+    );
+
+  function pushingWhatACallAnswers(): { graph: CFGFunction; array: CFGInstruction } {
+    const graph = new CFGFunction("collect");
+    graph.declaredSignature = { params: ["Map"], returns: null };
+    graph.classes = table();
+    const held = graph.addParameter(0);
+    const block = graph.addBlock();
+    const seed = block.addNode(irConstant("a"));
+    const array = block.addNode(irNewArray([seed]));
+    const answered = block.addNode(
+      irGenericCall(block.addNode(irGenericGetProp(held, "get")), [held, seed]),
+    );
+    answered.props.isMethod = true;
+    const push = block.addNode(
+      irGenericCall(block.addNode(irGenericGetProp(array, "push")), [array, answered]),
+    );
+    push.props.isMethod = true;
+    block.addNode(irReturn(array));
+    graph.rebuildUses();
+    return { graph, array };
+  }
+
+  it("lets the contributors it can name decide the element type", () => {
+    const { graph, array } = pushingWhatACallAnswers();
+
+    expect(nameOf(graph, array)).toBe("string");
+  });
+
+  function fillingItselfFromItself(seeded: boolean): {
+    graph: CFGFunction;
+    array: CFGInstruction;
+  } {
+    const graph = new CFGFunction("shuffle");
+    graph.classes = table();
+    const block = graph.addBlock();
+    const zero = block.addNode(irConstant(0));
+    const array = block.addNode(
+      irNewArray(seeded ? [block.addNode(irConstant(1))] : []),
+    );
+    const read = block.addNode(irGenericGetIndex(array, zero));
+    const push = block.addNode(
+      irGenericCall(block.addNode(irGenericGetProp(array, "push")), [array, read]),
+    );
+    push.props.isMethod = true;
+    block.addNode(irGenericSetIndex(array, zero, read));
+    block.addNode(irReturn(array));
+    graph.rebuildUses();
+    return { graph, array };
+  }
+
+  it("answers rather than recursing when an array is filled from itself", () => {
+    const { graph, array } = fillingItselfFromItself(true);
+
+    expect(nameOf(graph, array)).toBe("int");
+  });
+
+  it("answers rather than recursing when nothing else names the element", () => {
+    const { graph, array } = fillingItselfFromItself(false);
+
+    expect(() => nameOf(graph, array)).not.toThrow();
   });
 });
 

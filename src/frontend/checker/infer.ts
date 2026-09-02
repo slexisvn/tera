@@ -405,7 +405,19 @@ function inferCall(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
   const instantiated = instantiateForCall(sig, node.args as ASTNode[], bound, scope, typeArgsOf(node.callee as ASTNode));
   if (instantiated.async) return promiseType(instantiated.returns, bound.env);
   if (instantiated.generator) return yieldedType(instantiated.returns);
-  return chosenArgumentType(node, bound, scope) ?? instantiated.returns;
+  const answered = chosenArgumentType(node, bound, scope) ?? instantiated.returns;
+  return takesFromFilled(node.callee as ASTNode, scope)
+    ? removeNullish(answered, bound.env)
+    : answered;
+}
+
+const TAKES_ONE: ReadonlySet<string> = new Set(["pop", "shift"]);
+
+function takesFromFilled(callee: ASTNode, scope: Scope): boolean {
+  if (callee.type !== NodeType.MemberExpression) return false;
+  if (!TAKES_ONE.has(memberName(callee))) return false;
+  const name = subjectName(callee.object as ASTNode);
+  return name !== null && lookup(scope, name)?.filled === true;
 }
 
 function inferNew(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
@@ -479,6 +491,13 @@ export function narrowScope(
 ): Scope {
   const child = childScope(parent, target);
   if (!test) return child;
+  for (const filled of filledSubjects(test, negated)) {
+    const held = lookup(parent, filled.name) ?? {
+      type: inferExpression(filled.node, bound, parent),
+      optional: false,
+    };
+    child.locals.set(filled.name, { ...held, filled: true });
+  }
   if (test.type === NodeType.BinaryExpression && ["!=", "==", "!==", "==="].includes(String(test.op))) {
     const left = test.left as ASTNode;
     const right = test.right as ASTNode;
@@ -493,6 +512,76 @@ export function narrowScope(
     }
   }
   return child;
+}
+
+const COUNT_MEMBER = "length";
+const RECEIVER_NAME = "this";
+const MIRRORED: ReadonlyMap<string, string> = new Map([
+  [">", "<"],
+  [">=", "<="],
+  ["<", ">"],
+  ["<=", ">="],
+]);
+
+interface Counted {
+  readonly name: string;
+  readonly node: ASTNode;
+}
+
+function countedName(node: ASTNode): Counted | null {
+  if (node.type !== NodeType.MemberExpression) return null;
+  if (memberName(node) !== COUNT_MEMBER) return null;
+  const held = node.object as ASTNode;
+  const name = subjectName(held);
+  return name === null ? null : { name, node: held };
+}
+
+function literalCount(node: ASTNode): number | null {
+  if (node.type !== NodeType.Literal || node.kind !== "number") return null;
+  return typeof node.value === "number" ? node.value : null;
+}
+
+function leavesOne(op: string, bound: number, negated: boolean): boolean {
+  if (negated) {
+    if (op === "<") return bound >= 1;
+    if (op === "<=") return bound >= 0;
+    return (op === "==" || op === "===") && bound === 0;
+  }
+  if (op === ">") return bound >= 0;
+  if (op === ">=") return bound >= 1;
+  return (op === "!=" || op === "!==") && bound === 0;
+}
+
+const KEPT_WHEN: ReadonlyMap<string, boolean> = new Map([
+  ["&&", false],
+  ["and", false],
+  ["||", true],
+  ["or", true],
+]);
+
+function filledSubjects(test: ASTNode, negated: boolean): Counted[] {
+  if (test.type === NodeType.LogicalExpression && KEPT_WHEN.get(String(test.op)) === negated) {
+    return [
+      ...filledSubjects(test.left as ASTNode, negated),
+      ...filledSubjects(test.right as ASTNode, negated),
+    ];
+  }
+  if (test.type !== NodeType.BinaryExpression) return [];
+  const subject = filledSubject(test, negated);
+  return subject === null ? [] : [subject];
+}
+
+function filledSubject(test: ASTNode, negated: boolean): Counted | null {
+  const left = test.left as ASTNode;
+  const right = test.right as ASTNode;
+  const counted = countedName(left);
+  const subject = counted ?? countedName(right);
+  if (subject === null) return null;
+  const bound = literalCount(counted === null ? left : right);
+  if (bound === null) return null;
+  const op = String(test.op);
+  const read = counted === null ? (MIRRORED.get(op) ?? op) : op;
+  return leavesOne(read, bound, negated) ? subject : null;
 }
 
 function nullishComparisonSubject(left: ASTNode, right: ASTNode): { name: string; node: ASTNode } | null {
@@ -710,6 +799,7 @@ function typedArrayElement(type: TypeName, env: TypeEnv): TypeName | null {
 
 function dottedName(node: ASTNode): string | null {
   if (node.type === NodeType.Identifier) return String(node.name);
+  if (node.type === NodeType.ThisExpression) return RECEIVER_NAME;
   if (node.type !== NodeType.MemberExpression) return null;
   const object = dottedName(node.object as ASTNode);
   if (!object) return null;

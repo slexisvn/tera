@@ -682,4 +682,73 @@ describe("AOT collections an instance holds", () => {
       ),
     ),
   );
+  itRunsPe("keys a map by a string field read out of a record", () =>
+    agrees(
+      src(
+        "type Row = { region: string, amount: float }",
+        'rows: Row[] = [{ region: "n", amount: 10.0 }, { region: "s", amount: 5.5 }]',
+        "totals = Map()",
+        "for r of rows:",
+        "  if totals.has(r.region):",
+        "    totals.set(r.region, totals.get(r.region) + r.amount)",
+        "  else:",
+        "    totals.set(r.region, r.amount)",
+        "for k of totals.keys():",
+        "  print(k)",
+        "  print(totals.get(k))",
+      ),
+    ),
+  );
+
+  itRunsPe("keys a map by a field split out of a line", () =>
+    agrees(
+      src(
+        'lines: string[] = ["INFO start", "WARN slow", "INFO done"]',
+        "levels = Map()",
+        "for line of lines:",
+        '  parts = line.split(" ")',
+        "  level: string = parts[0]",
+        "  if levels.has(level):",
+        "    levels.set(level, levels.get(level) + 1)",
+        "  else:",
+        "    levels.set(level, 1)",
+        "for level of levels.keys():",
+        '  print(level + "=" + levels.get(level).to_string())',
+      ),
+    ),
+  );
+
+  itRunsPe("walks a graph whose queue is refilled from the map", () =>
+    agrees(
+      src(
+        'queue: string[] = ["a"]',
+        "seen: string[] = []",
+        "edges = Map()",
+        'edges.set("a", "b")',
+        'edges.set("b", "c")',
+        "while queue.length > 0:",
+        "  node: string = queue.shift()",
+        "  if seen.includes(node):",
+        "    continue",
+        "  seen.push(node)",
+        "  if edges.has(node):",
+        "    queue.push(edges.get(node))",
+        "for s of seen:",
+        "  print(s)",
+      ),
+    ),
+  );
+
+  itRunsPe("keeps the fractions a record field stored in a map", () =>
+    agrees(
+      src(
+        "type Row = { region: string, amount: float }",
+        'rows: Row[] = [{ region: "n", amount: 10.5 }]',
+        "m = Map()",
+        "for r of rows:",
+        '  m.set("a", r.amount)',
+        'print(m.get("a"))',
+      ),
+    ),
+  );
 });

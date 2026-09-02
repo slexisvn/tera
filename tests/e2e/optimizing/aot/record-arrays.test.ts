@@ -146,6 +146,45 @@ const AGREEING: readonly (readonly [string, string])[] = [
       "  print(b.name)",
     ),
   ],
+  [
+    "walks a record array whose text field is empty in one element",
+    src(
+      "type R = { name: string, note: string | null }",
+      'rows: R[] = [{ name: "a", note: "hi" }, { name: "b", note: null }]',
+      "for r of rows:",
+      "  if r.note == null:",
+      '    print(r.name + ": none")',
+      "  else:",
+      '    print(r.name + ": " + r.note)',
+    ),
+  ],
+  [
+    "walks a record array whose number field is empty in one element",
+    src(
+      "type R = { name: string, note: int | null }",
+      'rows: R[] = [{ name: "a", note: 1 }, { name: "b", note: null }]',
+      "for r of rows:",
+      "  if r.note == null:",
+      '    print(r.name + ": none")',
+      "  else:",
+      "    print(r.name)",
+    ),
+  ],
+  [
+    "keeps whole numbers a call answered in a record the loop pushes",
+    src(
+      "type Row = { name: string, score: int }",
+      "fn parse(text: string) -> Row[]:",
+      "  rows: Row[] = []",
+      '  for line of text.split(";"):',
+      '    parts = line.split(",")',
+      "    if parts.length == 2:",
+      "      rows.push({ name: parts[0], score: parse_int(parts[1]) })",
+      "  return rows",
+      'for row of parse("ada,90;grace,95;"):',
+      '  print(row.name + " " + row.score.to_string())',
+    ),
+  ],
 ];
 
 function declined(source: string): string {

@@ -9,7 +9,7 @@ import {
   type IRSourcePosition,
 } from "../ir/index.js";
 import { buildDispatch } from "../infra/dispatch.js";
-import { isRootedPointer } from "../analyses/aot-legality.js";
+import { rootSlotsOf } from "../analyses/aot-legality.js";
 import type { AotLegality } from "../analyses/aot-legality.js";
 import { SCALAR_POINTER, type AotScalar } from "../types/scalar.js";
 import { argumentLocations, outgoingArgumentBytes } from "../target/abi.js";
@@ -133,8 +133,8 @@ class Selector {
       ...this.graph.parameters,
       ...this.layout.flatMap((block) => [...block.phis, ...block.nodes]),
     ];
-    for (const value of values) {
-      if (isRootedPointer(this.legality, value)) this.rootSlots.set(value, this.rootSlots.size);
+    for (const [value, slot] of rootSlotsOf(this.legality, values)) {
+      this.rootSlots.set(value, slot);
     }
     if (this.rootSlots.size === 0) return;
     this.fn.roots = this.rootSlots.size;
