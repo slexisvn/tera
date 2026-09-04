@@ -8,6 +8,7 @@ import {
   irInt32Compare,
   irJump,
   irLoadElement,
+  irGenericCompare,
   irLoadField,
   irLoadText,
   type CFGBlock,
@@ -41,7 +42,13 @@ import {
   PRINT_TERMINATOR_PROP,
   printTerminatorAt,
 } from "../metadata/builtin-methods.js";
-import { NULL_TEXT } from "../metadata/printed-values.js";
+import {
+  ABSENCE_COMPARISON,
+  absenceValueOf,
+  referenceAbsenceTextOf,
+} from "../metadata/printed-values.js";
+import { declaredTypeNameOf } from "../metadata/call-signatures.js";
+import { presentTypeName } from "../types/declared.js";
 import { TypeKind } from "../types/lattice.js";
 import { SCALAR_TEXT, scalarWidth } from "../types/scalar.js";
 import {
@@ -91,11 +98,14 @@ class PrintExpander {
   private expandable(node: CFGInstruction): boolean {
     if (node.type !== IR_CALL_BUILTIN || String(node.props.name) !== PRINT_BUILTIN) return false;
     if (node.props[PRINT_TERMINATOR_PROP] !== undefined) return false;
-    return node.inputs.some((value) => this.aggregateOf(value) !== null || this.isNull(value));
+    return node.inputs.some(
+      (value) => this.aggregateOf(value) !== null || this.absenceTextOf(value) !== null,
+    );
   }
 
-  private isNull(value: CFGInstruction): boolean {
-    return value.type === IR_CONSTANT && value.props.value === null;
+  private absenceTextOf(value: CFGInstruction): string | null {
+    if (value.type !== IR_CONSTANT) return null;
+    return absenceValueOf(value.props.value)?.text ?? null;
   }
 
   private expand(node: CFGInstruction): void {
@@ -106,6 +116,11 @@ class PrintExpander {
     this.editor.remove(node);
   }
 
+  private presentTypeOf(value: CFGInstruction): string | null {
+    const declared = declaredTypeNameOf(value, this.graph, this.classes, this.types);
+    return declared === null ? null : presentTypeName(declared);
+  }
+
   private shapeOf(value: CFGInstruction): ClassShape | null {
     const type = this.types.typeOf(value);
     if (type.kind === TypeKind.Object && type.map !== null) {
@@ -113,13 +128,15 @@ class PrintExpander {
       if (shaped !== null) return shaped;
     }
     const carried = value.props[VALUE_CLASS_PROP];
-    return typeof carried === "number" ? this.classes.shapeById(carried) : null;
+    if (typeof carried === "number") return this.classes.shapeById(carried);
+    const present = this.presentTypeOf(value);
+    return present === null ? null : this.classes.shapeOf(present);
   }
 
   private arrayOf(value: CFGInstruction): ArrayModel | null {
     return (
       arrayModelOf(value, this.graph, this.classes, this.types) ??
-      arrayModelForDeclaredType(value.props[FIELD_TYPE_PROP] as string, this.classes)
+      arrayModelForDeclaredType(this.presentTypeOf(value), this.classes)
     );
   }
 
@@ -157,6 +174,46 @@ class PrintExpander {
     this.emitPrint(anchor, this.constant(anchor, text), terminator);
   }
 
+  private emitAggregate(
+    anchor: CFGInstruction,
+    value: CFGInstruction,
+    aggregate: ArrayModel | ClassShape,
+    terminator: number,
+  ): void {
+    if ("element" in aggregate) {
+      this.emitElements(anchor, value, aggregate, terminator);
+      return;
+    }
+    this.emitFields(anchor, value, aggregate, terminator);
+  }
+
+  private emitPresentAggregate(
+    anchor: CFGInstruction,
+    value: CFGInstruction,
+    aggregate: ArrayModel | ClassShape,
+    word: string,
+    terminator: number,
+  ): void {
+    const test = anchor.block!;
+    const after = splitBlockBefore(this.graph, test, anchor);
+
+    const absent = this.graph.addBlock();
+    const spelled = this.append(absent, irJump(after));
+    this.emitText(spelled, word, terminator);
+    link(spelled.block!, after);
+
+    const present = this.graph.addBlock();
+    const held = this.append(present, irJump(after));
+    this.emitAggregate(held, value, aggregate, terminator);
+    link(held.block!, after);
+
+    const nothing = this.append(test, irConstant(null));
+    const missing = this.append(test, irGenericCompare(ABSENCE_COMPARISON, value, nothing));
+    this.append(test, irBranch(missing, absent, present));
+    link(test, absent);
+    link(test, present);
+  }
+
   private emitValue(
     anchor: CFGInstruction,
     value: CFGInstruction,
@@ -164,18 +221,20 @@ class PrintExpander {
   ): void {
     const aggregate = this.aggregateOf(value);
     if (aggregate === null) {
-      if (this.isNull(value)) {
-        this.emitText(anchor, NULL_TEXT, terminator);
+      const absent = this.absenceTextOf(value);
+      if (absent !== null) {
+        this.emitText(anchor, absent, terminator);
         return;
       }
       this.emitPrint(anchor, value, terminator);
       return;
     }
-    if ("element" in aggregate) {
-      this.emitElements(anchor, value, aggregate, terminator);
+    const word = referenceAbsenceTextOf(value, this.graph, this.classes, this.types);
+    if (word !== null) {
+      this.emitPresentAggregate(anchor, value, aggregate, word, terminator);
       return;
     }
-    this.emitFields(anchor, value, aggregate, terminator);
+    this.emitAggregate(anchor, value, aggregate, terminator);
   }
 
   private fieldValue(

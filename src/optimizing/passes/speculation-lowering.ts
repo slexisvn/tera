@@ -35,10 +35,10 @@ import {
   irInt32Shl,
   irInt32Shr,
   irInt32Ushr,
+  genericCalleeName,
 } from "../ir/index.js";
 import {
   carryNamedArguments,
-  genericCalleeName,
 } from "../metadata/call-signatures.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
@@ -55,7 +55,6 @@ const NUMERIC_OR_UNKNOWN = new Set<string>([
   TypeKind.Any,
   TypeKind.Never,
 ]);
-
 
 type Rewrite = (node: CFGInstruction) => CFGInstruction;
 

@@ -26,6 +26,8 @@ export const TEXT_BUFFER_MINIMUM_BYTES = 1 << 8;
 
 export const VALUE_SCALAR_PROP = "valueScalar";
 
+export const MAY_BE_ABSENT_PROP = "mayBeAbsent";
+
 const SCALAR_BY_KIND = new Map<string, AotScalar>([
   [TypeKind.Smi, SCALAR_INT32],
   [TypeKind.Boolean, SCALAR_INT32],

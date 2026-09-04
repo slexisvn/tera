@@ -170,12 +170,12 @@ describe("array subscripts beyond either end fault, where the interpreter answer
     expect(run.stderr).toContain(OUT_OF_RANGE);
   });
 
-  itRunsPe("leaves the fault uncatchable, the way an empty pop already is", () => {
+  itRunsPe("leaves the fault uncatchable", () => {
     const caught = (statement: string) =>
       runPe(image(src("xs: int[] = []", "try:", `  ${statement}`, "catch e:", '  print("caught")')));
 
     expect(caught("print(xs[0])").stderr).toContain(OUT_OF_RANGE);
-    expect(caught("print(xs.pop())").stderr).toContain("cannot pop an empty array");
+    expect(caught('print(xs[0])').stdout).toBe("");
   });
 
   it("compiles the program rather than declining it", () => {

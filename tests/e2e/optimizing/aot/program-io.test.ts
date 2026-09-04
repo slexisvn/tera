@@ -122,7 +122,7 @@ describe("print and input as compiled builtins", () => {
   });
 
   itRunsPe("returns an empty line once stdin is exhausted", () => {
-    agrees(src('first = input("1: ")', 'second = input("2: ")', "print(second.length)"), ["only"]);
+    agrees(src('first = input("1: ")', 'second = input("2: ")', 'print(second == "")'), ["only"]);
   });
 
   itRunsPe("prompts with nothing when input is called bare", () => {

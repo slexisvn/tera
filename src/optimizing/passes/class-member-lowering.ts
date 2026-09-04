@@ -19,9 +19,15 @@ import {
   irBranch,
   irCallKnownFunction,
   irConstant,
+  irGenericCompare,
   irGenericGetProp,
   irGenericSetProp,
+  irInt32Or,
+  irSelect,
   irInt32Compare,
+  IR_INT32_COMPARE,
+  IR_BRANCH,
+  IR_NOT,
   irJump,
   irLoadField,
   irLoadText,
@@ -29,11 +35,11 @@ import {
   irRuntimeBase,
   irStoreField,
   irStoreText,
+  genericCalleeName,
 } from "../ir/index.js";
 import { addPhi, connect, link, splitBlockAfter } from "../ir/cfg-edit.js";
 import {
   carryNamedArguments,
-  genericCalleeName,
   stampCalleeSignatures,
 } from "../metadata/call-signatures.js";
 import { GraphEditor } from "../ir/editor.js";
@@ -43,6 +49,9 @@ import { classValueNameOf } from "../metadata/class-symbols.js";
 import { splitCellKey } from "../../runtime/intrinsics/global-cells.js";
 import {
   callableOf,
+  carriesMember,
+  ITERATOR_MEMBER,
+  stepsItself,
   CLASS_ID_PROP,
   CLASS_SHAPE_ID_OFFSET,
   FIELD_SCALAR_PROP,
@@ -55,12 +64,20 @@ import {
   type ClassShape,
   type ClassTable,
 } from "../metadata/class-table.js";
-import { arrayElementShapeOf } from "./array-shapes.js";
+import { arrayElementShapeOf, producedTypeName } from "./array-shapes.js";
 import { TypeKind } from "../types/lattice.js";
+import { DominatorTree } from "../analyses/dominance.js";
 import { nominalLatticeType, presentTypeName } from "../types/declared.js";
-import { scalarWidth, SCALAR_INT32, SCALAR_TEXT } from "../types/scalar.js";
+import {
+  isNumericScalar,
+  MAY_BE_ABSENT_PROP,
+  scalarWidth,
+  SCALAR_INT32,
+  SCALAR_TEXT,
+} from "../types/scalar.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { isPairClassName, PAIR_FIELDS } from "../prelude/collections.js";
+import { STRING_TYPE } from "../metadata/builtin-methods.js";
 import type { DeclaredSignature } from "../types/signature.js";
 
 const SHAPE_ID_TYPE = "int";
@@ -677,14 +694,6 @@ function memberKeyOf(node: CFGInstruction, shape: ClassShape): string | null {
   return PAIR_FIELDS[value] ?? null;
 }
 
-function carriesMember(shape: ClassShape, name: string): boolean {
-  if (shape.fields.has(name)) return true;
-  for (const kind of shape.callables.keys()) {
-    if (shape.callables.get(kind)?.has(name) === true) return true;
-  }
-  return false;
-}
-
 function namedAccessFor(
   node: CFGInstruction,
   graph: CFGFunction,
@@ -723,6 +732,249 @@ function membershipFor(
   return stamp(irConstant(carried));
 }
 
+const KEY_EQUALS = "==";
+
+function storesUnusedIteratorHook(
+  node: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): boolean {
+  if (node.type !== IR_GENERIC_SET_INDEX && node.type !== IR_GENERIC_SET_PROP) return false;
+  const named =
+    node.type === IR_GENERIC_SET_PROP
+      ? String(node.props.propName)
+      : lookupKeyOf(node, 1, graph, classes, types)?.named ?? null;
+  if (named !== ITERATOR_MEMBER) return false;
+  const shape = shapeOfReceiver(node.inputs[0], graph, classes, types);
+  return shape !== null && stepsItself(shape);
+}
+
+function lookupFieldsOf(shape: ClassShape): readonly ClassField[] | null {
+  if (shape.unsupported.length > 0) return null;
+  const fields = [...shape.fields.values()];
+  if (fields.length === 0) return null;
+  return fields.every((field) => isNumericScalar(field.scalar)) ? fields : null;
+}
+
+interface LookupKey {
+  readonly key: CFGInstruction;
+  readonly named: string | null;
+}
+
+function namesAString(
+  key: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): boolean {
+  if (types.typeOf(key).kind === TypeKind.String) return true;
+  return producedTypeName(key, graph, classes, types) === STRING_TYPE;
+}
+
+function lookupKeyOf(
+  node: CFGInstruction,
+  at: number,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): LookupKey | null {
+  const key = node.inputs[at];
+  if (key === undefined) return null;
+  if (key.type === IR_CONSTANT) {
+    const held = key.props.value;
+    return typeof held === "string" ? { key, named: held } : null;
+  }
+  return namesAString(key, graph, classes, types) ? { key, named: null } : null;
+}
+
+function runtimeKeyOf(
+  node: CFGInstruction,
+  at: number,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): CFGInstruction | null {
+  const found = lookupKeyOf(node, at, graph, classes, types);
+  return found === null || found.named !== null ? null : found.key;
+}
+
+function lookupTableAt(
+  node: CFGInstruction,
+  at: number,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): readonly ClassField[] | null {
+  const shape = shapeOfReceiver(node.inputs[at], graph, classes, types);
+  return shape === null ? null : lookupFieldsOf(shape);
+}
+
+function matchesKey(
+  editor: GraphEditor,
+  node: CFGInstruction,
+  key: CFGInstruction,
+  field: ClassField,
+  stamp: Stamp,
+): CFGInstruction {
+  const name = stamp(irConstant(field.name));
+  editor.insertBefore(node, name);
+  const same = stamp(irGenericCompare(KEY_EQUALS, key, name));
+  same.frameState = node.frameState;
+  editor.insertBefore(node, same);
+  return same;
+}
+
+function keyedMembershipFor(
+  editor: GraphEditor,
+  node: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+  stamp: Stamp,
+  search: GuardSearch,
+): CFGInstruction | null {
+  if (node.type !== IR_GENERIC_IN) return null;
+  const key = runtimeKeyOf(node, 0, graph, classes, types);
+  if (key === null) return null;
+  const fields = lookupTableAt(node, 1, graph, classes, types);
+  if (fields === null) return null;
+
+  let answer: CFGInstruction | null = null;
+  for (const field of fields) {
+    const same = matchesKey(editor, node, key, field, stamp);
+    if (answer === null) {
+      answer = same;
+      continue;
+    }
+    answer = stamp(irInt32Or(answer, same));
+    editor.insertBefore(node, answer);
+  }
+  if (answer !== null) {
+    search.memberships.push({ key, receiver: node.inputs[1]!, arms: armsProving(node) });
+  }
+  return answer;
+}
+
+interface Membership {
+  readonly key: CFGInstruction;
+  readonly receiver: CFGInstruction;
+  readonly arms: readonly CFGBlock[];
+}
+
+interface GuardSearch {
+  readonly memberships: Membership[];
+  dominance(): DominatorTree;
+}
+
+function negatedOperandOf(condition: CFGInstruction): CFGInstruction | null {
+  if (condition.type === IR_NOT) return condition.inputs[0] ?? null;
+  if (condition.type !== IR_INT32_COMPARE || condition.props.op !== KEY_EQUALS) return null;
+  const [left, right] = condition.inputs;
+  if (left === undefined || right === undefined) return null;
+  return right.type === IR_CONSTANT && right.props.value === 0 ? left : null;
+}
+
+function armsTaking(condition: CFGInstruction, when: boolean, arms: CFGBlock[]): void {
+  for (const use of condition.uses) {
+    if (use.type !== IR_BRANCH || use.block === null) continue;
+    const wanted = when ? use.props.trueBlock : use.props.falseBlock;
+    const arm = use.block.successors.find((successor) => successor.id === wanted);
+    if (arm !== undefined) arms.push(arm);
+  }
+}
+
+function armsProving(test: CFGInstruction): readonly CFGBlock[] {
+  const arms: CFGBlock[] = [];
+  armsTaking(test, true, arms);
+  for (const use of test.uses) {
+    if (negatedOperandOf(use) === test) armsTaking(use, false, arms);
+  }
+  return arms;
+}
+
+function provenPresent(
+  node: CFGInstruction,
+  key: CFGInstruction,
+  receiver: CFGInstruction,
+  search: GuardSearch,
+): boolean {
+  const reached = node.block;
+  if (reached === null || search.memberships.length === 0) return false;
+  let dominance: DominatorTree | null = null;
+  for (const held of search.memberships) {
+    if (held.key !== key || held.receiver !== receiver) continue;
+    dominance ??= search.dominance();
+    for (const arm of held.arms) {
+      if (dominance.dominates(arm, reached)) return true;
+    }
+  }
+  return false;
+}
+
+function fieldValueAt(
+  editor: GraphEditor,
+  node: CFGInstruction,
+  receiver: CFGInstruction,
+  field: ClassField,
+  classes: ClassTable,
+  stamp: Stamp,
+): CFGInstruction {
+  const held = stamp(irLoadField(receiver, field.offset));
+  held.props[CLASS_ID_PROP] = classes.shapeIdOf(field.owner);
+  held.props[FIELD_TYPE_PROP] = field.declaredType;
+  held.props[FIELD_SCALAR_PROP] = field.scalar;
+  held.frameState = node.frameState;
+  editor.insertBefore(node, held);
+  return held;
+}
+
+function absentValueAt(
+  editor: GraphEditor,
+  node: CFGInstruction,
+  stamp: Stamp,
+): CFGInstruction {
+  const absent = stamp(irConstant(undefined));
+  absent.props[MAY_BE_ABSENT_PROP] = true;
+  editor.insertBefore(node, absent);
+  return absent;
+}
+
+function keyedLookupFor(
+  editor: GraphEditor,
+  node: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+  stamp: Stamp,
+  search: GuardSearch,
+): CFGInstruction | null {
+  if (node.type !== IR_GENERIC_GET_INDEX) return null;
+  const found = lookupKeyOf(node, 1, graph, classes, types);
+  if (found === null) return null;
+  const fields = lookupTableAt(node, 0, graph, classes, types);
+  if (fields === null) return null;
+  if (found.named !== null) {
+    if (fields.some((field) => field.name === found.named)) return null;
+    return absentValueAt(editor, node, stamp);
+  }
+  const key = found.key;
+  const receiver = node.inputs[0]!;
+  const present = provenPresent(node, key, receiver, search);
+  const chosen = present ? fields.slice(0, -1) : fields;
+
+  let answer = present
+    ? fieldValueAt(editor, node, receiver, fields[fields.length - 1]!, classes, stamp)
+    : absentValueAt(editor, node, stamp);
+  for (const field of chosen) {
+    const same = matchesKey(editor, node, key, field, stamp);
+    const held = fieldValueAt(editor, node, receiver, field, classes, stamp);
+    answer = stamp(irSelect(same, held, answer));
+    editor.insertBefore(node, answer);
+  }
+  return answer;
+}
+
 function replaceWithNode(
   editor: GraphEditor,
   node: CFGInstruction,
@@ -745,10 +997,20 @@ function lowerMemberRound(
 
   const editor = new GraphEditor(graph);
   const stamp = nodeIdStamper(graph);
+  let dominance: DominatorTree | null = null;
+  const search: GuardSearch = {
+    memberships: [],
+    dominance: () => (dominance ??= new DominatorTree(graph)),
+  };
   let count = carryCalleeResultClasses(graph, classes, types);
   for (const block of graph.blocks) {
     for (const node of [...block.nodes]) {
       if (node.block !== block) continue;
+      if (storesUnusedIteratorHook(node, graph, classes, types)) {
+        editor.remove(node);
+        count++;
+        continue;
+      }
       const named = namedAccessFor(node, graph, classes, types, stamp);
       if (named !== null) {
         replaceWithNode(editor, node, named);
@@ -758,6 +1020,15 @@ function lowerMemberRound(
           applyFieldAccess(editor, renamed, classes, stamp);
           count++;
         }
+        continue;
+      }
+      const keyed =
+        keyedMembershipFor(editor, node, graph, classes, types, stamp, search) ??
+        keyedLookupFor(editor, node, graph, classes, types, stamp, search);
+      if (keyed !== null) {
+        editor.replaceAllUses(node, keyed);
+        editor.remove(node);
+        count++;
         continue;
       }
       if (round === "all") {

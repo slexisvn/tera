@@ -580,7 +580,7 @@ class Table implements ClassTable {
   }
 
   defineArray(element: LatticeType, elementName?: string): ClassShape | null {
-    const declared = elementName ?? declaredTypeOf(element, this);
+    const declared = elementName ?? heldTypeOf(element, this);
     const stored = isStorableScalar(aotScalarOf(element));
     if (declared === null || stored === null) return null;
     const scalar = stored === SCALAR_STRING ? SCALAR_TEXT : stored;
@@ -951,6 +951,38 @@ export function buildClassTable(
   env?: TypeEnv,
 ): ClassTable {
   return new Table(surfaces, env);
+}
+
+export const ITERATOR_MEMBER = "@@iterator";
+export const STEP_MEMBER = "next";
+
+export function carriesMember(shape: ClassShape, name: string): boolean {
+  if (shape.fields.has(name)) return true;
+  for (const members of shape.callables.values()) {
+    if (members.has(name)) return true;
+  }
+  return false;
+}
+
+function answeredTypeName(declaredType: string): string {
+  const arrow = declaredType.lastIndexOf(SIGNATURE_ARROW);
+  const answered = arrow < 0 ? declaredType : declaredType.slice(arrow + SIGNATURE_ARROW.length);
+  return answered.trim();
+}
+
+function iteratorHookAnswers(shape: ClassShape): string | null {
+  const held = shape.fields.get(ITERATOR_MEMBER);
+  if (held !== undefined) return answeredTypeName(held.declaredType);
+  for (const members of shape.callables.values()) {
+    const hook = members.get(ITERATOR_MEMBER);
+    if (hook !== undefined) return hook.signature.returns;
+  }
+  return null;
+}
+
+export function stepsItself(shape: ClassShape): boolean {
+  if (!carriesMember(shape, STEP_MEMBER)) return false;
+  return iteratorHookAnswers(shape) === shape.name;
 }
 
 export function referenceFieldOffsets(shape: ClassShape): readonly number[] {

@@ -37,13 +37,24 @@ import { jsonPrelude, type JsonShapeSurface } from "../optimizing/prelude/json.j
 import { jsonShapesAcross, rewriteJsonParses } from "../optimizing/prelude/json-requests.js";
 import { errorPrelude } from "../optimizing/prelude/errors.js";
 import { fixedTextPrelude, rewriteFixedTexts } from "../optimizing/prelude/fixed-text.js";
+import { textMethodPrelude, rewriteTextMethods } from "../optimizing/prelude/text-methods.js";
+import {
+  mathTranscendentalPrelude,
+  rewriteMathTranscendentals,
+} from "../optimizing/prelude/math-transcendentals.js";
 import type { RuntimeInterfaceContract } from "../runtime/interface-contract.js";
 import { spreadsArguments } from "../optimizing/passes/spread-calls.js";
 import { astChildren, NodeType } from "../frontend/ast/index.js";
 import type { AotOutputFormat } from "../optimizing/target/artifact.js";
 import { createModuleIR, type CompilationUnit } from "../optimizing/compilation-unit.js";
-import { IR_GENERIC_CALL, type CFGFunction, type CFGInstruction } from "../optimizing/ir/index.js";
-import { CALLEE_SYMBOL_PROP, genericCalleeName } from "../optimizing/metadata/call-signatures.js";
+import {
+  IR_GENERIC_CALL,
+  type CFGFunction,
+  type CFGInstruction,
+  CALLEE_SYMBOL_PROP,
+  genericCalleeName,
+} from "../optimizing/ir/index.js";
+
 import { memberCallTargets, type MemberCallTargets } from "../optimizing/passes/class-member-lowering.js";
 import { typeInferenceAnalysisId } from "../optimizing/analyses/type-inference.js";
 import type { BackendRegistry } from "../optimizing/target/registry.js";
@@ -124,7 +135,6 @@ export type EngineOptions = {
   onOptimize?: (fn: RegisterCompiledFunction, graph: OptimizedGraph) => void;
   onUnhandledRejection?: (rejections: EngineUnhandledRejection[]) => void;
 };
-
 
 export type EngineUnhandledRejection = {
   reason: unknown;
@@ -437,11 +447,30 @@ function jsonShapesFor(graph: ModuleGraph): readonly JsonShapeSurface[] {
   return jsonShapesAcross(moduleRoots(graph), namesTheEntryCanSpell(graph.entry));
 }
 
+interface SourcePrelude {
+  readonly emit: (roots: readonly ASTNode[]) => string;
+  readonly adopt: (roots: readonly ASTNode[]) => number;
+}
+
+const SOURCE_PRELUDES: readonly SourcePrelude[] = [
+  { emit: fixedTextPrelude, adopt: rewriteFixedTexts },
+  { emit: textMethodPrelude, adopt: rewriteTextMethods },
+  { emit: mathTranscendentalPrelude, adopt: rewriteMathTranscendentals },
+];
+
+function sourcePreludes(roots: readonly ASTNode[]): string {
+  return SOURCE_PRELUDES.map((prelude) => prelude.emit(roots)).join("");
+}
+
+function adoptSourcePreludes(roots: readonly ASTNode[]): void {
+  for (const prelude of SOURCE_PRELUDES) prelude.adopt(roots);
+}
+
 function preludeFor(graph: ModuleGraph): string {
   const collections = mentionsCollections(graph) ? collectionPreludeFor(graph) : "";
   const errors = errorPrelude(moduleRoots(graph));
-  const fixed = fixedTextPrelude([graph.entry.ast]);
-  return `${collections}${errors}${jsonPrelude(jsonShapesFor(graph))}${fixed}`;
+  const json = jsonPrelude(jsonShapesFor(graph));
+  return `${collections}${errors}${json}${sourcePreludes([graph.entry.ast])}`;
 }
 
 function adoptPreludeCalls(graph: ModuleGraph): void {
@@ -449,7 +478,7 @@ function adoptPreludeCalls(graph: ModuleGraph): void {
   if (shapes.length > 0) {
     rewriteJsonParses(moduleRoots(graph), new Set(shapes.map((shape) => shape.name)));
   }
-  rewriteFixedTexts([graph.entry.ast]);
+  adoptSourcePreludes([graph.entry.ast]);
 }
 
 function catchesThrows(compiledFn: RegisterCompiledFunction): boolean {
@@ -955,14 +984,14 @@ export class Engine {
     const grown = referencesCollections(probed)
       ? collectionPrelude(collectionRequestsIn(parsed))
       : "";
-    const prelude = `${grown}${errorPrelude([parsed])}${jsonPrelude(shapes)}${fixedTextPrelude([parsed])}`;
+    const prelude = `${grown}${errorPrelude([parsed])}${jsonPrelude(shapes)}${sourcePreludes([parsed])}`;
     const compiled =
       prelude.length === 0
         ? probed
         : this.compileInRuntime(`${source}
 ${prelude}`, compileOptions, true, (program) => {
             rewriteJsonParses([program], new Set(shapes.map((shape) => shape.name)));
-            rewriteFixedTexts([program]);
+            adoptSourcePreludes([program]);
           });
     const program = entry === undefined ? compiled : null;
     const functions = this.selectAotFunctions(

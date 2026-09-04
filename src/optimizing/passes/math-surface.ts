@@ -1,7 +1,9 @@
 import {
   irConstant,
   irGenericCall,
+  irGenericCompare,
   irGenericMul,
+  irSelect,
   namespaceCallArguments,
   namespaceMemberOf,
   IR_CONSTANT,
@@ -13,6 +15,7 @@ import { nodeIdStamper } from "../ir/graph-edit.js";
 import { BUILTIN_NAMESPACE } from "../metadata/builtin-methods.js";
 
 const POWER_MEMBER = "pow";
+const SIGN_MEMBER = "sign";
 const FOLDED_MEMBERS: ReadonlySet<string> = new Set<string>(["min", "max"]);
 const NAMESPACE_CONSTANTS: ReadonlyMap<string, number> = new Map<string, number>([
   ["PI", Math.PI],
@@ -21,6 +24,11 @@ const NAMESPACE_CONSTANTS: ReadonlyMap<string, number> = new Map<string, number>
 const PAIR = 2;
 const IDENTITY = 1;
 const HIGHEST_EXPANDED_POWER = 64;
+const ONE = 1;
+const MINUS_ONE = -1;
+const ZERO = 0;
+const GREATER_THAN = ">";
+const LESS_THAN = "<";
 
 type Stamp = (node: CFGInstruction) => CFGInstruction;
 
@@ -79,6 +87,29 @@ function expandPower(
   return true;
 }
 
+function expandSign(
+  editor: GraphEditor,
+  node: CFGInstruction,
+  stamp: Stamp,
+): boolean {
+  const args = namespaceCallArguments(node, BUILTIN_NAMESPACE, SIGN_MEMBER);
+  if (args === null || args.length !== IDENTITY) return false;
+  const value = args[0]!;
+  const inserted = (built: CFGInstruction): CFGInstruction => {
+    const placed = stamp(built);
+    editor.insertBefore(node, placed);
+    return placed;
+  };
+  const zero = inserted(irConstant(ZERO));
+  const positive = inserted(irGenericCompare(GREATER_THAN, value, zero));
+  const negative = inserted(irGenericCompare(LESS_THAN, value, zero));
+  const below = inserted(irSelect(negative, inserted(irConstant(MINUS_ONE)), value));
+  const signed = inserted(irSelect(positive, inserted(irConstant(ONE)), below));
+  editor.replaceAllUses(node, signed);
+  editor.remove(node);
+  return true;
+}
+
 function foldPairs(
   editor: GraphEditor,
   node: CFGInstruction,
@@ -133,6 +164,7 @@ export function lowerMathSurface(graph: CFGFunction): number {
     for (const node of [...block.nodes]) {
       if (node.block !== block) continue;
       if (expandPower(editor, node, stamp)) lowered += 1;
+      else if (expandSign(editor, node, stamp)) lowered += 1;
       else if (foldPairs(editor, node, stamp)) lowered += 1;
       else if (spellConstant(editor, node, stamp)) lowered += 1;
     }

@@ -1,3 +1,4 @@
+import { byteEscapedLiteral } from "../../target/text-literal.js";
 import {
   type CFGBlock,
   type CFGFunction,
@@ -52,6 +53,7 @@ import {
   IR_CALL_BUILTIN,
   IR_LOAD_GLOBAL,
   arrayReserveOf,
+  calleeSymbolName,
 } from "../../ir/index.js";
 import { buildDispatch } from "../../infra/dispatch.js";
 import {
@@ -117,6 +119,7 @@ import {
   typeInferenceAnalysisId,
   type TypeInference,
 } from "../../analyses/type-inference.js";
+import { analyzePointsTo } from "../../analyses/points-to.js";
 import {
   analyzeAotLegality,
   builtinOperandScalar,
@@ -128,7 +131,7 @@ import {
   type AotLegality,
   type AotStringBuffer,
 } from "../../analyses/aot-legality.js";
-import { calleeSymbolName } from "../../metadata/call-signatures.js";
+
 import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
 import {
   AGGREGATE_CLOSE_TEXT,
@@ -164,10 +167,14 @@ import { INT32_DECIMAL_BYTES } from "../../machine/data.js";
 import { declaredAotScalar } from "../../metadata/class-table.js";
 import type { DeclaredSignature } from "../../types/signature.js";
 import { isAbsenceConstant, rootSlotsOf } from "../../analyses/aot-legality.js";
-import { NULL_TEXT } from "../../metadata/printed-values.js";
+import {
+  ABSENCE_VALUES,
+  absenceValueOf,
+  NULL_TEXT,
+  type AbsenceValue,
+} from "../../metadata/printed-values.js";
 import {
   FLOAT64_DECIMAL_BYTES,
-  FLOAT64_NULL_BITS,
   FLOAT64_EXPONENT_BIAS,
   FLOAT64_EXPONENT_DIGITS,
   FLOAT64_EXPONENT_MASK,
@@ -476,10 +483,12 @@ static char *tera_f64_to_str(char *dst, int32_t cap, double value) {
   }
   uint64_t bits;
   memcpy(&bits, &value, sizeof bits);
-  if (bits == ${FLOAT64_NULL_BITS}ull) {
-    dst[tera_str_put(dst, 0, "${NULL_TEXT}")] = '\\0';
+${ABSENCE_VALUES.map(
+  (absence) => `  if (bits == ${absence.bits}ull) {
+    dst[tera_str_put(dst, 0, "${absence.text}")] = '\\0';
     return dst;
-  }
+  }`,
+).join("\n")}
   int32_t negative = (int32_t)(bits >> ${FLOAT64_SIGN_SHIFT});
   int32_t biased = (int32_t)((bits >> ${FLOAT64_MANTISSA_BITS}) & 0x${FLOAT64_EXPONENT_MASK.toString(16)}u);
   uint64_t mantissa = bits & 0x${FLOAT64_MANTISSA_MASK.toString(16)}ull;
@@ -1593,7 +1602,7 @@ static inline unsigned char *${C_ARRAY_RESERVE}(unsigned char *array, int32_t sh
   return fresh;
 }`;
 
-const C_ABSENT_NUMBER = `tera_f64_of_bits(${FLOAT64_NULL_BITS}ull)`;
+const cAbsentNumber = (absence: AbsenceValue) => `tera_f64_of_bits(${absence.bits}ull)`;
 const EMPTY_TERMINATOR = NO_TERMINATOR;
 
 const C_ABSENCE_SUPPORT = `static inline double tera_f64_of_bits(uint64_t bits) {
@@ -1606,6 +1615,11 @@ static inline uint64_t tera_f64_bits(double value) {
   uint64_t bits;
   memcpy(&bits, &value, sizeof(bits));
   return bits;
+}
+
+static inline int32_t tera_f64_absent(double value) {
+  uint64_t bits = tera_f64_bits(value);
+  return ${ABSENCE_VALUES.map((absence) => `bits == ${absence.bits}ull`).join(" || ")};
 }`;
 
 const C_BUILTIN_SUPPORT = [
@@ -1715,16 +1729,7 @@ export function cIdentifier(name: string): string {
 }
 
 function cStringLiteral(value: string): string {
-  let out = '"';
-  for (const character of value) {
-    const code = character.codePointAt(0)!;
-    if (character === '"' || character === "\\") out += `\\${character}`;
-    else if (character === "\n") out += "\\n";
-    else if (character === "\t") out += "\\t";
-    else if (code < 0x20) out += `\\x${code.toString(16).padStart(2, "0")}`;
-    else out += character;
-  }
-  return `${out}"`;
+  return byteEscapedLiteral(value);
 }
 
 interface CBuiltinMethod {
@@ -1931,9 +1936,12 @@ class CFunctionEmitter {
         );
         continue;
       }
-      if (value === null) {
+      const absence = absenceValueOf(value);
+      if (absence !== null) {
         const absent =
-          this.legality.scalarOf(constant) === SCALAR_FLOAT64 ? C_ABSENT_NUMBER : "0";
+          this.legality.scalarOf(constant) === SCALAR_FLOAT64
+            ? cAbsentNumber(absence)
+            : "0";
         this.constantDeclarations.push(
           `${declarationOf(this.typeNameOf(constant), name)} = ${absent};`,
         );
@@ -2289,7 +2297,7 @@ class CFunctionEmitter {
       this.define(
         ctx,
         this.legality.absenceComparesAsNumber(ctx.node)
-          ? `tera_f64_bits(${left}) ${operator} tera_f64_bits(${right})`
+          ? `tera_f64_absent(${left}) ${operator} tera_f64_absent(${right})`
           : `(const void *)${left} ${operator} (const void *)${right}`,
       );
       return;
@@ -2446,7 +2454,7 @@ export function emitNumericFunction(
   graph: CFGFunction,
   types: TypeInference = inferTypes(graph),
 ): CEmitResult {
-  const legality = analyzeAotLegality(graph, types);
+  const legality = analyzeAotLegality(graph, types, analyzePointsTo(graph));
   if (!legality.ok) return { ok: false, reason: legality.reason };
   return new CFunctionEmitter(graph, legality.legality).emit();
 }

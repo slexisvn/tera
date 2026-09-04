@@ -5,10 +5,11 @@ import {
   IR_GENERIC_CALL,
   type CFGFunction,
   type CFGInstruction,
+  genericCalleeName,
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
-import { genericCalleeName } from "../metadata/call-signatures.js";
+
 import { memberCallTargets } from "./class-member-lowering.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import type { DeclaredSignature } from "../types/signature.js";

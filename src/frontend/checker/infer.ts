@@ -1,9 +1,17 @@
-import { declaredParamInfo, NodeType, type ASTNode, type ObjectPropertyNode } from "../ast/index.js";
+import {
+  declaredParamInfo,
+  memberName,
+  NodeType,
+  type ASTNode,
+  type ObjectPropertyNode,
+} from "../ast/index.js";
 import { isUnwrittenType } from "../../core/type-text.js";
+import { countProvesSome } from "../../core/indexing.js";
 import { lookup, lookupSignature, type BoundProgram, type Scope } from "./binder.js";
 import { binaryOperatorSemantics, isTensorType } from "./operator-types.js";
 import {
   arrayElementType,
+  arrayOfType,
   assignableType,
   awaitedType,
   builtinMethod,
@@ -124,12 +132,6 @@ function literalType(node: ASTNode): TypeName {
   return node.value === undefined ? "undefined" : "any";
 }
 
-const SIMPLE_ELEMENT = /^[A-Za-z_$][\w$.]*(\[\])*$/;
-
-function arrayTypeOf(element: TypeName): TypeName {
-  return SIMPLE_ELEMENT.test(cleanType(element)) ? `${element}[]` : `(${element})[]`;
-}
-
 function inferArray(node: ASTNode, bound: BoundProgram, scope: Scope, expectedType?: TypeName | null): TypeName {
   const elements = (node.elements as Array<ASTNode | null>).filter((item): item is ASTNode => !!item);
   const expected = expectedType ? resolveType(expectedType, bound.env) : null;
@@ -140,10 +142,10 @@ function inferArray(node: ASTNode, bound: BoundProgram, scope: Scope, expectedTy
   );
   if (tuple) return `[${elementTypes.join(", ")}]`;
   if (!elementTypes.length) {
-    return expectedElement ? arrayTypeOf(expectedElement) : "any[]";
+    return expectedElement ? arrayOfType(expectedElement) : "any[]";
   }
   const common = leastUpperBound(elementTypes, bound.env);
-  return common ? arrayTypeOf(common) : `[${elementTypes.join(", ")}]`;
+  return common ? arrayOfType(common) : `[${elementTypes.join(", ")}]`;
 }
 
 function arrayElementTypes(
@@ -221,10 +223,6 @@ export function objectLiteralFields(node: ASTNode, bound: BoundProgram, scope: S
     fields.set(name, { type: inferExpression(value, bound, scope), optional: false, value });
   }
   return fields;
-}
-
-function memberName(node: ASTNode): string {
-  return typeof node.property === "string" ? node.property : String((node.property as ASTNode).name ?? "");
 }
 
 function inferMember(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName {
@@ -541,17 +539,6 @@ function literalCount(node: ASTNode): number | null {
   return typeof node.value === "number" ? node.value : null;
 }
 
-function leavesOne(op: string, bound: number, negated: boolean): boolean {
-  if (negated) {
-    if (op === "<") return bound >= 1;
-    if (op === "<=") return bound >= 0;
-    return (op === "==" || op === "===") && bound === 0;
-  }
-  if (op === ">") return bound >= 0;
-  if (op === ">=") return bound >= 1;
-  return (op === "!=" || op === "!==") && bound === 0;
-}
-
 const KEPT_WHEN: ReadonlyMap<string, boolean> = new Map([
   ["&&", false],
   ["and", false],
@@ -581,7 +568,7 @@ function filledSubject(test: ASTNode, negated: boolean): Counted | null {
   if (bound === null) return null;
   const op = String(test.op);
   const read = counted === null ? (MIRRORED.get(op) ?? op) : op;
-  return leavesOne(read, bound, negated) ? subject : null;
+  return countProvesSome(read, bound, negated) ? subject : null;
 }
 
 function nullishComparisonSubject(left: ASTNode, right: ASTNode): { name: string; node: ASTNode } | null {
@@ -691,7 +678,7 @@ export function comprehensionArrayType(
   const loopScope: Scope = { parent: scope, locals: new Map(), signatures: new Map(), signature: scope.signature };
   loopScope.locals.set(comp.variable, { type: comprehensionElementType(comp, bound, scope), optional: false });
   const element = comp.projection ? inferExpression(comp.projection, bound, loopScope) : "any";
-  return arrayTypeOf(element);
+  return arrayOfType(element);
 }
 
 function arrayComprehensionType(node: ASTNode, bound: BoundProgram, scope: Scope): TypeName | null {

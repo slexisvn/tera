@@ -50,6 +50,7 @@ import {
   IR_LOAD_TEXT,
   IR_STORE_TEXT,
   IR_STORE_ELEMENT,
+  calleeSymbolName,
 } from "../../ir/index.js";
 import {
   AOT_CHAR_AT,
@@ -59,9 +60,12 @@ import {
   int32ConstantOf,
   isAbsenceConstant,
 } from "../../analyses/aot-legality.js";
-import { calleeSymbolName } from "../../metadata/call-signatures.js";
+
 import { callThroughArguments, codeSymbolOf } from "../../analyses/aot-legality.js";
-import { doubleBits, FLOAT64_NULL_BITS } from "../../target/float64.js";
+import { doubleBits } from "../../target/float64.js";
+import { ABSENCE_VALUES, absenceValueOf } from "../../metadata/printed-values.js";
+
+const ABSENT_REFERENCE = 0;
 import { isReferenceScalar } from "../../types/scalar.js";
 import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
 import { asciiData, integerData, zeroFilledBuffer } from "../../machine/data.js";
@@ -420,8 +424,11 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
       ctx.emit(instruction("leaq", [writeOf(destination), mem(8, { symbol })]));
       return destination;
     }
-    if (value === null && scalar === SCALAR_FLOAT64) {
-      return this.loadDoubleBits(ctx, FLOAT64_NULL_BITS, ctx.temp(scalar));
+    const absence = absenceValueOf(value);
+    if (absence !== null) {
+      return scalar === SCALAR_FLOAT64
+        ? this.loadDoubleBits(ctx, absence.bits, ctx.temp(scalar))
+        : this.loadNumber(ctx, ABSENT_REFERENCE, scalar);
     }
     return this.loadNumber(ctx, Number(value), scalar);
   }
@@ -576,15 +583,38 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
     return bits;
   }
 
+  private absenceFlagOf(ctx: SelectionContext, value: CFGInstruction): VirtualRegister {
+    const bits = this.bitsOf(ctx, value);
+    const flag = ctx.tempIn(X64_GPR, 8);
+    const matched = ctx.tempIn(X64_GPR, 8);
+    let seeded = false;
+    for (const absence of ABSENCE_VALUES) {
+      const pattern = ctx.tempIn(X64_GPR, 8);
+      const held = this.loadDoubleBits(ctx, absence.bits, ctx.temp(SCALAR_FLOAT64));
+      ctx.emit(instruction("movq", [writeOf(pattern), readOf(held)]));
+      ctx.emit(instruction("cmpq", [use(bits, 8), use(pattern, 8)]));
+      if (!seeded) {
+        this.emitSetCondition(ctx, "e", flag);
+        seeded = true;
+        continue;
+      }
+      this.emitSetCondition(ctx, "e", matched);
+      ctx.emit(
+        instruction("orl", [def(flag, 4), use(flag, 4), use(matched, 4)], { tied: true }),
+      );
+    }
+    return flag;
+  }
+
   private selectAbsenceCompare(ctx: SelectionContext): void {
     const operation = String(ctx.node.props.op);
     const code = INT_CONDITIONS.get(operation);
     if (code === undefined) {
       throw new BackendLoweringError(`unsupported comparison ${operation}`);
     }
-    const left = this.bitsOf(ctx, ctx.node.inputs[0]!);
-    const right = this.bitsOf(ctx, ctx.node.inputs[1]!);
-    ctx.emit(instruction("cmpq", [use(left, 8), use(right, 8)]));
+    const left = this.absenceFlagOf(ctx, ctx.node.inputs[0]!);
+    const right = this.absenceFlagOf(ctx, ctx.node.inputs[1]!);
+    ctx.emit(instruction("cmpl", [use(left, 4), use(right, 4)]));
     const result = this.destination(ctx, SCALAR_INT32);
     this.emitSetCondition(ctx, code, result);
     this.produce(ctx, result, SCALAR_INT32);

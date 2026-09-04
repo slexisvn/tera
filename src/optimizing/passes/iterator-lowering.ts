@@ -1,6 +1,7 @@
 import {
   type CFGFunction,
   type CFGInstruction,
+  IR_CALL_KNOWN_FUNCTION,
   IR_CONSTANT,
   IR_GENERIC_CALL,
   IR_ITERATOR_DONE,
@@ -14,8 +15,11 @@ import {
   irInt32Add,
   irInt32Compare,
   irInt32Sub,
+  irGenericCall,
+  irGenericGetProp,
   irLoadElement,
   irLoadArrayLength,
+  rangeCallArguments,
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
@@ -26,9 +30,9 @@ import {
   SCALAR_INT32,
 } from "../types/scalar.js";
 import type { TypeInference } from "../analyses/type-inference.js";
+import { TypeKind } from "../types/lattice.js";
+import { STEP_MEMBER, stepsItself } from "../metadata/class-table.js";
 import { arrayModelOf } from "./array-shapes.js";
-import { RANGE_BUILTIN } from "../metadata/builtin-methods.js";
-import { genericCalleeName } from "../metadata/call-signatures.js";
 
 const BEFORE_FIRST = -1;
 const STEP = 1;
@@ -45,8 +49,12 @@ const ITERATOR_OPS: ReadonlySet<string> = new Set<string>([
 
 type Stamp = (node: CFGInstruction) => CFGInstruction;
 
+const STEP_DONE = "done";
+const STEP_VALUE = "value";
+
 type Sequence =
   | { readonly kind: "elements"; readonly array: CFGInstruction }
+  | { readonly kind: "protocol"; readonly source: CFGInstruction }
   | {
       readonly kind: "range";
       readonly call: CFGInstruction;
@@ -71,6 +79,11 @@ function reachedThrough(
   }
   return null;
 }
+
+const CALL_SHAPES: ReadonlySet<string> = new Set<string>([
+  IR_GENERIC_CALL,
+  IR_CALL_KNOWN_FUNCTION,
+]);
 
 const THROUGH_CURSORS: ReadonlySet<string> = new Set<string>([IR_ITERATOR_NEXT, IR_PHI]);
 const THROUGH_ALIASES: ReadonlySet<string> = new Set<string>([IR_PHI]);
@@ -110,10 +123,8 @@ function rangeBehind(
   graph: CFGFunction,
   types: TypeInference,
 ): Sequence | null {
-  if (call.type !== IR_GENERIC_CALL || call.props.isMethod === true) return null;
-  if (genericCalleeName(call) !== RANGE_BUILTIN) return null;
-
-  const args = call.inputs.slice(1);
+  const args = rangeCallArguments(call);
+  if (args === null) return null;
   if (args.length === 0 || args.length > 3) return null;
   const step = args.length === 3 ? constantNumber(args[2]) : STEP;
   if (step === null || step === 0) return null;
@@ -137,10 +148,8 @@ function sequenceBehind(
     (candidate) => candidate.type === IR_NEW_ARRAY,
   );
   if (allocation !== null) return { kind: "elements", array: allocation };
-  const call = reachedThrough(
-    iterable,
-    THROUGH_ALIASES,
-    (candidate) => candidate.type === IR_GENERIC_CALL,
+  const call = reachedThrough(iterable, THROUGH_ALIASES, (candidate) =>
+    CALL_SHAPES.has(candidate.type),
   );
   if (call !== null) {
     const counted = rangeBehind(call, graph, types);
@@ -150,9 +159,49 @@ function sequenceBehind(
   if (classes !== null && arrayModelOf(iterable, graph, classes, types) !== null) {
     return { kind: "elements", array: iterable };
   }
+  const stepping = protocolBehind(iterable, graph, types);
+  if (stepping !== null) return stepping;
   const element = aotElementScalarOf(types.typeOf(iterable));
   if (element === null || isReferenceScalar(element)) return null;
   return { kind: "elements", array: iterable };
+}
+
+
+function protocolBehind(
+  iterable: CFGInstruction,
+  graph: CFGFunction,
+  types: TypeInference,
+): Sequence | null {
+  const classes = graph.classes;
+  if (classes === null) return null;
+  const type = types.typeOf(iterable);
+  if (type.kind !== TypeKind.Object || typeof type.map !== "number") return null;
+  const shape = classes.shapeById(type.map);
+  if (shape === null || !stepsItself(shape)) return null;
+  return { kind: "protocol", source: iterable };
+}
+
+function protocolReplacement(
+  editor: GraphEditor,
+  node: CFGInstruction,
+  sequence: Extract<Sequence, { kind: "protocol" }>,
+  stamp: Stamp,
+): CFGInstruction {
+  if (node.type === IR_ITERATOR_INIT) return stamp(irConstant(null));
+  const held = node.inputs[0]!;
+  if (node.type === IR_ITERATOR_NEXT) {
+    const callee = stamp(irGenericGetProp(sequence.source, STEP_MEMBER));
+    callee.frameState = node.frameState;
+    editor.insertBefore(node, callee);
+    const call = stamp(irGenericCall(callee, [sequence.source]));
+    call.props.isMethod = true;
+    call.frameState = node.frameState;
+    return call;
+  }
+  const member = node.type === IR_ITERATOR_DONE ? STEP_DONE : STEP_VALUE;
+  const read = stamp(irGenericGetProp(held, member));
+  read.frameState = node.frameState;
+  return read;
 }
 
 function rangeStart(
@@ -223,9 +272,9 @@ function replacementFor(
   sequence: Sequence,
   stamp: Stamp,
 ): CFGInstruction {
-  return sequence.kind === "elements"
-    ? elementsReplacement(editor, node, sequence, stamp)
-    : rangeReplacement(editor, node, sequence, stamp);
+  if (sequence.kind === "elements") return elementsReplacement(editor, node, sequence, stamp);
+  if (sequence.kind === "protocol") return protocolReplacement(editor, node, sequence, stamp);
+  return rangeReplacement(editor, node, sequence, stamp);
 }
 
 function settled(
@@ -249,6 +298,9 @@ function asSettled(
   if (replacements.size === 0) return sequence;
   if (sequence.kind === "elements") {
     return { kind: "elements", array: settled(sequence.array, replacements) };
+  }
+  if (sequence.kind === "protocol") {
+    return { kind: "protocol", source: settled(sequence.source, replacements) };
   }
   return {
     ...sequence,
@@ -289,9 +341,9 @@ export function lowerIterators(graph: CFGFunction, types: TypeInference): number
   }
   for (const sequence of new Set(sequences.values())) {
     if (sequence.kind !== "range" || sequence.call.uses.length > 0) continue;
-    const callee = sequence.call.inputs[0]!;
+    const operands = [...sequence.call.inputs];
     editor.remove(sequence.call);
-    editor.removeIfDead(callee);
+    for (const operand of operands) editor.removeIfDead(operand);
   }
   if (count > 0) graph.rebuildUses();
   return count;

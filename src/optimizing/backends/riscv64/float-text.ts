@@ -21,6 +21,7 @@ import { TERA_POINTER_BYTES } from "../../target/runtime-layout.js";
 import {
   BIGNUM_NAMES,
   DECIMAL_POINT,
+  ABSENCE_VALUES,
   DIGIT_ZERO,
   EXPONENT_MARK,
   floatTextKeys,
@@ -530,7 +531,16 @@ function emitDecode(context: DriverContext): void {
     .emit("sb", r("zero"), mem(1, { base: r(CURSOR) }))
     .to("j", "return")
     .at("decode")
-    .emit("fmv.x.d", w(DIGIT), r("fa0"))
+    .emit("fmv.x.d", w(DIGIT), r("fa0"));
+  ABSENCE_VALUES.forEach((absence, index) => {
+    const present = `absent.${index}.present`;
+    builder
+      .emit("li", w("t3"), imm(absence.bits))
+      .to("bne", present, r(DIGIT), r("t3"));
+    copyText(context, absence.text, `absent.${index}.text`);
+    builder.to("j", "terminate").at(present);
+  });
+  builder
     .emit("srli", w(FLAGS), r(DIGIT), imm(FLOAT64_SIGN_SHIFT))
     .emit("srli", w("t2"), r(DIGIT), imm(FLOAT64_MANTISSA_BITS))
     .emit("andi", w("t2"), r("t2"), imm(FLOAT64_EXPONENT_MASK))

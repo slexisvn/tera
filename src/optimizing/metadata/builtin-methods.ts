@@ -198,6 +198,10 @@ const NAMESPACE_FUNCTION_DECLARATIONS: readonly NamespaceFunctionDeclaration[] =
   { name: RANDOM_MEMBER, argCount: 0, pure: false },
 ];
 
+export function callsBuiltin(node: ir.CFGInstruction, name: string): boolean {
+  return node.type === ir.IR_CALL_BUILTIN && String(node.props.name) === name;
+}
+
 export function qualifiedMethodName(owner: string, name: string): string {
   return `${owner}.${name}`;
 }

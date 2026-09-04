@@ -519,7 +519,7 @@ export function arrayElementType(type: TypeName): TypeName | null {
 
 export function arrayOfType(element: TypeName): TypeName {
   const source = String(cleanType(element));
-  return /^[A-Za-z_$][\w$.]*(\[\])*$/.test(source) ? `${source}[]` : "Array";
+  return /^[A-Za-z_$][\w$.]*(\[\])*$/.test(source) ? `${source}[]` : `(${source})[]`;
 }
 
 export function indexedAccessType(type: TypeName, keyType: TypeName | null, literal: string | number | null, slice: boolean, env: TypeEnv): TypeName {

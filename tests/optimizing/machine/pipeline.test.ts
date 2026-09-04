@@ -30,7 +30,12 @@ import { compileMachineFunction } from "../../../src/optimizing/machine/pipeline
 import { compilerOptions } from "../../../src/optimizing/options.js";
 import { isVirtual, registerOperandsOf } from "../../../src/optimizing/machine/ir.js";
 import { emittedOpcodesOf } from "../../../src/optimizing/machine/select.js";
-import { legalizeOperations } from "../../../src/optimizing/passes/operation-legalization.js";
+import {
+  legalizeOperations,
+  type ValueLegality,
+} from "../../../src/optimizing/passes/operation-legalization.js";
+
+const EVERY_VALUE: ValueLegality = new Map();
 import type { MachineLowering } from "../../../src/optimizing/machine/lowering.js";
 import { X64Lowering } from "../../../src/optimizing/backends/x64/lowering.js";
 import { x64Target } from "../../../src/optimizing/backends/x64/target.js";
@@ -58,7 +63,7 @@ function legalityOf(graph: CFGFunction): {
 
 function compile(graph: CFGFunction, lowering: MachineLowering) {
   graph.emits = emittedOpcodesOf(lowering);
-  legalizeOperations(graph);
+  legalizeOperations(graph, EVERY_VALUE);
   const { legality, analyses } = legalityOf(graph);
   return compileMachineFunction(
     graph,

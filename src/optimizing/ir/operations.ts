@@ -1,6 +1,7 @@
 import type { CFGInstruction, IRMetadataValue } from "./index.js";
 import { CLASS_ID_PROP, FIELD_TYPE_PROP } from "../metadata/class-table.js";
 import { RANGE_BUILTIN } from "../metadata/builtin-methods.js";
+import { compiledFunctionConstant } from "./compiled-function.js";
 import {
   builtinMemberType,
   type BuiltinMemberType,
@@ -486,10 +487,41 @@ export function iteratorSourceOf(node: TransferNode): CFGInstruction | null {
   return null;
 }
 
+export const CALLEE_SYMBOL_PROP = "calleeSymbol";
+
+export function genericCalleeName(node: CFGInstruction): string | null {
+  const renamed = node.props[CALLEE_SYMBOL_PROP];
+  if (typeof renamed === "string") return renamed;
+  const callee = node.inputs[0];
+  if (callee === undefined) return null;
+  if (callee.type === IR_LOAD_GLOBAL) {
+    const name = callee.props.name;
+    return typeof name === "string" ? name : null;
+  }
+  if (callee.type !== IR_CONSTANT) return null;
+  return compiledFunctionConstant(callee.props.value)?.name ?? null;
+}
+
+export function calleeSymbolName(node: CFGInstruction): string | null {
+  const target = node.props.target as { name?: unknown } | undefined;
+  return typeof target?.name === "string" ? target.name : null;
+}
+
+export function calleeNameOf(node: CFGInstruction): string | null {
+  if (node.type === IR_GENERIC_CALL) return genericCalleeName(node);
+  return node.type === IR_CALL_KNOWN_FUNCTION ? calleeSymbolName(node) : null;
+}
+
+export function rangeCallArguments(node: CFGInstruction): readonly CFGInstruction[] | null {
+  if (node.props.isMethod === true) return null;
+  const direct = node.type === IR_CALL_KNOWN_FUNCTION;
+  if (!direct && node.type !== IR_GENERIC_CALL) return null;
+  if (calleeNameOf(node) !== RANGE_BUILTIN) return null;
+  return direct ? node.inputs : node.inputs.slice(1);
+}
+
 function countsUp(iterable: CFGInstruction): boolean {
-  if (iterable.type !== IR_GENERIC_CALL || iterable.props.isMethod === true) return false;
-  const callee = iterable.inputs[0];
-  return callee?.type === IR_LOAD_GLOBAL && String(callee.props.name) === RANGE_BUILTIN;
+  return rangeCallArguments(iterable) !== null;
 }
 
 function iteratorValueTransfer(node: TransferNode, context: TypeContext): LatticeType {

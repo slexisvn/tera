@@ -399,4 +399,41 @@ describe("typeNarrowing", () => {
       expect(add.type).toBe(IR_INT32_ADD);
     });
   });
+  describe("comparing against null", () => {
+    function comparing(declared: string, guard: boolean) {
+      const graph = new CFGFunction("test");
+      graph.declaredSignature = { params: [declared], returns: "bool" };
+      const block = graph.addBlock();
+      const p0 = graph.addParameter(0);
+      const value = guard ? checkSmi(p0) : p0;
+      if (guard) block.addNode(value);
+      const absent = irConstant(null);
+      block.addNode(absent);
+      const compare = irGenericCompare("==", value, absent);
+      block.addNode(compare);
+      block.addNode(irReturn(compare));
+      return { graph, compare };
+    }
+
+    it("folds it away when the value is declared as one that cannot be null", () => {
+      const { graph, compare } = comparing("int", false);
+      narrowTypes(graph);
+
+      expect(compare.block).toBeNull();
+    });
+
+    it("keeps it when the value is declared as one that can be null", () => {
+      const { graph, compare } = comparing("int | null", false);
+      narrowTypes(graph);
+
+      expect(compare.block).not.toBeNull();
+    });
+
+    it("keeps it when only a speculation says the value cannot be null", () => {
+      const { graph, compare } = comparing("int | null", true);
+      narrowTypes(graph);
+
+      expect(compare.block).not.toBeNull();
+    });
+  });
 });

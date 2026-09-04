@@ -6976,11 +6976,18 @@ export const TERA_PSEUDO_TYPES = {
             "optional": false,
             "rest": false,
             "defaultValue": null
+          },
+          {
+            "name": "limit",
+            "type": "int",
+            "optional": true,
+            "rest": false,
+            "defaultValue": null
           }
         ],
         "returns": "string[]",
         "isGetter": false,
-        "description": "Split the string on `sep`."
+        "description": "Split the string on `sep`, keeping at most `limit` pieces."
       },
       {
         "name": "replace",
@@ -7100,6 +7107,21 @@ export const TERA_PSEUDO_TYPES = {
         "returns": "int",
         "isGetter": false,
         "description": "Return the index of the first occurrence of `sub`, or `-1` if absent."
+      },
+      {
+        "name": "last_index_of",
+        "params": [
+          {
+            "name": "sub",
+            "type": null,
+            "optional": false,
+            "rest": false,
+            "defaultValue": null
+          }
+        ],
+        "returns": "int",
+        "isGetter": false,
+        "description": "Return the index of the last occurrence of `sub`, or `-1` if absent."
       },
       {
         "name": "includes",

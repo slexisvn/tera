@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import type { AotProgram } from "../../../../src/optimizing/drivers/aot.js";
+import { ABSENCE_VALUES } from "../../../../src/optimizing/metadata/printed-values.js";
+import { FLOAT64_EXPONENT_MASK } from "../../../../src/optimizing/target/float64.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
@@ -188,5 +190,57 @@ describe("riscv64 assembly", () => {
       );
 
     expect(build).toThrow(/riscv64 backend cannot emit: this target has no machine code encoder/);
+  });
+});
+
+const FLOAT_TEXT_ROUTINE = "tera_rv64_f64_to_str";
+
+function linesOf(assembly: string): string[] {
+  return assembly.split(/\r?\n/);
+}
+
+function routineOf(assembly: string, symbol: string): string {
+  const lines = linesOf(assembly);
+  const opened = lines.indexOf(`${symbol}:`);
+  if (opened < 0) throw new Error(`assembly has no ${symbol}`);
+  const closed = lines.findIndex((line) => line.startsWith(`\t.size ${symbol},`));
+  return lines.slice(opened, closed < 0 ? lines.length : closed).join("\n");
+}
+
+function textCopiedFor(assembly: string, bits: bigint): string | null {
+  const lines = linesOf(assembly);
+  const held = new RegExp(`^li \\w+, ${bits}$`);
+  const tested = lines.findIndex((line) => held.test(line.trim()));
+  if (tested < 0) return null;
+  const loaded = lines.slice(tested).find((line) => /lla \w+, \.LR\d+_/.test(line));
+  const label = loaded?.match(/\.LR\d+_\w+/)?.[0];
+  const declared = lines.indexOf(`${label}:`);
+  return declared < 0 ? null : (lines[declared + 1] ?? "").trim();
+}
+
+describe("riscv64 absent numbers", () => {
+  const PRINTS_ABSENCE = src("xs: int[] = []", "print(xs.pop())");
+
+  it("copies a text of its own for every absent payload it can be handed", () => {
+    const assembly = assemblyOf(PRINTS_ABSENCE);
+
+    for (const absence of ABSENCE_VALUES) {
+      expect(textCopiedFor(assembly, absence.bits)).toBe(`.asciz "${absence.text}"`);
+    }
+  });
+
+  it("tests every absent payload before it decodes the exponent", () => {
+    const routine = routineOf(assemblyOf(PRINTS_ABSENCE), FLOAT_TEXT_ROUTINE);
+    const decodedAt = routine.search(
+      new RegExp(`andi \\w+, \\w+, ${FLOAT64_EXPONENT_MASK}\\b`),
+    );
+
+    expect(decodedAt).toBeGreaterThan(0);
+    for (const absence of ABSENCE_VALUES) {
+      const testedAt = routine.search(new RegExp(`li \\w+, ${absence.bits}\\b`));
+
+      expect(testedAt).toBeGreaterThan(0);
+      expect(testedAt).toBeLessThan(decodedAt);
+    }
   });
 });

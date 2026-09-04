@@ -15,10 +15,17 @@ import {
   irInt32Mul,
   irInt32Sub,
   irJump,
+  irGenericCompare,
   irNeg,
   irReturn,
   resetIRNodeIds,
 } from "../../../../src/optimizing/ir/index.js";
+import {
+  ABSENCE_COMPARISON,
+  ABSENCE_VALUES,
+  absenceValueOf,
+} from "../../../../src/optimizing/metadata/printed-values.js";
+import { FLOAT64_MANTISSA_BITS } from "../../../../src/optimizing/target/float64.js";
 import { link, connect, addPhi } from "../../../../src/optimizing/ir/cfg-edit.js";
 import { emitNumericFunction } from "../../../../src/optimizing/backends/c/emit.js";
 import {
@@ -514,5 +521,83 @@ describe("what emitNumericFunction reports about a function it lowered", () => {
 
     expect(declined(graph).length).toBeGreaterThan(0);
     expect(declined(graph)).toBe(declined(graph));
+  });
+});
+
+const FLOAT_TEXT_OPENING = "static char *tera_f64_to_str";
+const ABSENT_TEST_OPENING = "static inline int32_t tera_f64_absent";
+const ABSENT_HELD: readonly unknown[] = [null, undefined];
+
+function definitionOf(preamble: string, opening: string): string {
+  const start = preamble.indexOf(opening);
+  if (start < 0) throw new Error(`preamble has no ${opening}`);
+  return preamble.slice(start, preamble.indexOf("\n}", start));
+}
+
+function absenceCompare(name: string, held: unknown): CFGFunction {
+  const graph = declaring(name, ["float"], "bool");
+  const observed = graph.addParameter(0);
+  const block = graph.addBlock();
+  const nothing = irConstant(held);
+  const compare = irGenericCompare(ABSENCE_COMPARISON, observed, nothing);
+  block.addNode(nothing);
+  block.addNode(compare);
+  block.addNode(irReturn(compare));
+  return graph;
+}
+
+describe("what the C backend emits for an absent number", () => {
+  it("compares the two operands as absence flags, not as raw payload words", () => {
+    const source = emitted(absenceCompare("is_absent", null)).source;
+
+    expect(source).toMatch(/tera_f64_absent\(\w+\) == tera_f64_absent\(\w+\)/);
+    expect(source).not.toMatch(/tera_f64_bits\(\w+\) == tera_f64_bits\(\w+\)/);
+  });
+
+  it("answers the flag for every absence payload so null and undefined agree", () => {
+    const helper = definitionOf(
+      emitted(absenceCompare("is_absent", null)).sourcePreamble,
+      ABSENT_TEST_OPENING,
+    );
+
+    for (const absence of ABSENCE_VALUES) {
+      expect(helper).toContain(`bits == ${absence.bits}ull`);
+    }
+    expect(helper.split("||")).toHaveLength(ABSENCE_VALUES.length);
+  });
+
+  it("materialises each absence flavour as the payload that flavour owns", () => {
+    expect(ABSENT_HELD).toHaveLength(ABSENCE_VALUES.length);
+    for (const held of ABSENT_HELD) {
+      const source = emitted(absenceCompare("is_absent", held)).source;
+
+      expect(source).toContain(`= tera_f64_of_bits(${absenceValueOf(held)!.bits}ull);`);
+    }
+  });
+
+  it("prints a text of its own for every absence payload", () => {
+    const text = definitionOf(
+      emitted(returningConstant("answer", 42)).sourcePreamble,
+      FLOAT_TEXT_OPENING,
+    );
+
+    for (const absence of ABSENCE_VALUES) {
+      expect(text).toContain(`if (bits == ${absence.bits}ull) {`);
+      expect(text).toContain(`"${absence.text}"`);
+    }
+  });
+
+  it("decides the printed text before it reads the exponent out of the payload", () => {
+    const text = definitionOf(
+      emitted(returningConstant("answer", 42)).sourcePreamble,
+      FLOAT_TEXT_OPENING,
+    );
+    const lastAbsence = ABSENCE_VALUES[ABSENCE_VALUES.length - 1]!;
+    const testedAt = text.indexOf(`bits == ${lastAbsence.bits}ull`);
+    const decodedAt = text.indexOf(`bits >> ${FLOAT64_MANTISSA_BITS}`);
+
+    expect(testedAt).toBeGreaterThan(0);
+    expect(decodedAt).toBeGreaterThan(0);
+    expect(testedAt).toBeLessThan(decodedAt);
   });
 });

@@ -32,10 +32,20 @@ export const production = (gc?: object) => engineFor("production", gc);
 
 export type DiffOpts = { tiers?: Tier[]; gc?: object };
 
+const PRINTS_INSTEAD_OF_ANSWERING =
+  "differential compares what a program answers, not what it printed; end the source with the " +
+  "value itself rather than a print, or the tiers are compared as undefined === undefined";
+
+const answersNothingVisible = (source: string): boolean => {
+  const lines = source.split(String.fromCharCode(10)).filter((line) => line.trim().length > 0);
+  return lines[lines.length - 1]?.trimStart().startsWith("print(") === true;
+};
+
 export const differential = (
   source: string,
   { tiers = ["baseline", "jit", "osr"], gc }: DiffOpts = {},
 ) => {
+  if (answersNothingVisible(source)) throw new Error(PRINTS_INSTEAD_OF_ANSWERING);
   const expected = engineFor("oracle", gc).runNative(source);
   for (const tier of tiers) expect(engineFor(tier, gc).runNative(source)).toEqual(expected);
   return expected;

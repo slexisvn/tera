@@ -269,3 +269,4 @@ describe("AOT array spread", () => {
       "4\n9\n",
     ));
 });
+

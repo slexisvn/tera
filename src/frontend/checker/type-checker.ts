@@ -1,4 +1,11 @@
-import { adoptContextualSignature, astChildren, NodeType, type ASTNode, type ObjectPropertyNode } from "../ast/index.js";
+import {
+  adoptContextualSignature,
+  astChildren,
+  memberName,
+  NodeType,
+  type ASTNode,
+  type ObjectPropertyNode,
+} from "../ast/index.js";
 import {
   lookup,
   lookupSignature,
@@ -385,9 +392,9 @@ export class TypeChecker {
   ): void {
     if (expr.type !== NodeType.AssignmentExpression) return;
     const target = expr.target as ASTNode | undefined;
-    if (!target || target.type !== NodeType.MemberExpression || target.computed) return;
+    if (!target || target.type !== NodeType.MemberExpression) return;
     if ((target.object as ASTNode)?.type !== NodeType.ThisExpression) return;
-    const field = typeof target.property === "string" ? target.property : String((target.property as ASTNode)?.name ?? "");
+    const field = memberName(target);
     if (!field) return;
     const existing = shape.fields.get(field);
     if (existing !== undefined && !inferred.has(field)) return;

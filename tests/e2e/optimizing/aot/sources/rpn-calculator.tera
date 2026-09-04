@@ -1,0 +1,26 @@
+fn apply(op: string, a: float, b: float) -> float:
+  if op == "+":
+    return a + b
+  if op == "-":
+    return a - b
+  if op == "*":
+    return a * b
+  return a / b
+
+fn evaluate(tokens: string[]) -> float:
+  stack: float[] = []
+  for t of tokens:
+    if t == "+" or t == "-" or t == "*" or t == "/":
+      if stack.length < 2:
+        throw "not enough operands"
+      b = stack.pop()
+      a = stack.pop()
+      stack.push(apply(t, a, b))
+    else:
+      stack.push(parse_float(t))
+  if stack.length != 1:
+    throw "leftover operands"
+  return stack.pop()
+
+print(evaluate(["3", "4", "+", "2", "*"]))
+print(evaluate(["5", "1", "2", "+", "4", "*", "+", "3", "-"]))

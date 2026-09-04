@@ -6,14 +6,18 @@ import type {
 import {
   buildClassTable,
   callableOf,
+  carriesMember,
   type ClassShape,
   type ClassTable,
   CLASS_HEADER_BYTES,
   constructorFieldDisagreement,
   descendsFrom,
+  ITERATOR_MEMBER,
   joinedLiteralShape,
   literalShapeSurface,
   sameFieldLayout,
+  STEP_MEMBER,
+  stepsItself,
   type LiteralField,
 } from "../../../src/optimizing/metadata/class-table.js";
 import {
@@ -23,6 +27,7 @@ import {
 import {
   builtinTypeEnv,
   latticeFromDeclaredType,
+  nominalLatticeType,
 } from "../../../src/optimizing/types/declared.js";
 import {
   aotScalarOf,
@@ -606,5 +611,78 @@ describe("joinedLiteralShape", () => {
     const classes = buildClassTable([classSurface("Row", [field("h", "float", "Row")])]);
 
     expect(joinedLiteralShape(classes, [classes.shapeOf("Row")!])).toBeNull();
+  });
+});
+
+const RANGER = "Ranger";
+const WALKER = "Walker";
+
+const NULLABLE_INT = "int | null";
+const PLAIN_INT = "int";
+
+describe("ClassTable.defineArray names an array after the type its elements hold", () => {
+  it("keeps the absence an element admits in the name it lays the array out under", () => {
+    const classes = buildClassTable([]);
+
+    const shape = classes.defineArray(nominalLatticeType(NULLABLE_INT, classes))!;
+
+    expect(classes.arrayLayoutOf(shape)?.declaredType).toBe(NULLABLE_INT);
+  });
+
+  it("gives an element that admits an absence a shape apart from the one that does not", () => {
+    const classes = buildClassTable([]);
+
+    const plain = classes.defineArray(nominalLatticeType(PLAIN_INT, classes))!;
+    const maybe = classes.defineArray(nominalLatticeType(NULLABLE_INT, classes))!;
+
+    expect(maybe.name).not.toBe(plain.name);
+  });
+});
+
+function ranger(members: readonly ClassMemberSurface[]): ClassShape {
+  return buildClassTable([classSurface(RANGER, members)]).shapeOf(RANGER)!;
+}
+
+const hookAnswering = (answer: string, kind: "field" | "method"): ClassMemberSurface =>
+  kind === "field"
+    ? field(ITERATOR_MEMBER, `() -> ${answer}`, RANGER)
+    : method(ITERATOR_MEMBER, `() -> ${answer}`, RANGER);
+
+const steps = (kind: "field" | "method"): ClassMemberSurface =>
+  kind === "field" ? field(STEP_MEMBER, "int", RANGER) : method(STEP_MEMBER, "int", RANGER);
+
+describe("carriesMember", () => {
+  it("finds a member the shape spells as a field", () => {
+    expect(carriesMember(ranger([steps("field")]), STEP_MEMBER)).toBe(true);
+  });
+
+  it("finds a member the shape spells as a method", () => {
+    expect(carriesMember(ranger([steps("method")]), STEP_MEMBER)).toBe(true);
+  });
+
+  it("answers no for a member the shape carries neither way", () => {
+    expect(carriesMember(ranger([steps("method")]), ITERATOR_MEMBER)).toBe(false);
+  });
+});
+
+describe("stepsItself", () => {
+  it("holds for a shape whose iterator field answers with the shape itself", () => {
+    expect(stepsItself(ranger([hookAnswering(RANGER, "field"), steps("field")]))).toBe(true);
+  });
+
+  it("holds for a shape whose iterator method answers with the shape itself", () => {
+    expect(stepsItself(ranger([hookAnswering(RANGER, "method"), steps("method")]))).toBe(true);
+  });
+
+  it("fails for a shape whose iterator hands back a stepper of another class", () => {
+    expect(stepsItself(ranger([hookAnswering(WALKER, "method"), steps("method")]))).toBe(false);
+  });
+
+  it("fails for a shape that steps but hands out no iterator at all", () => {
+    expect(stepsItself(ranger([steps("method")]))).toBe(false);
+  });
+
+  it("fails for a shape that hands out an iterator but cannot step", () => {
+    expect(stepsItself(ranger([hookAnswering(RANGER, "method")]))).toBe(false);
   });
 });

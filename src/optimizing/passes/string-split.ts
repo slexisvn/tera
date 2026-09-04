@@ -5,6 +5,7 @@ import {
   irInt32Add,
   irInt32Compare,
   irJump,
+  irSelect,
   IR_CONSTANT,
   memberCalled,
   type CFGBlock,
@@ -17,6 +18,7 @@ import { nodeIdStamper } from "../ir/graph-edit.js";
 import {
   builtinMethodCallMetadata,
   builtinMethodIntrinsicFor,
+  STRING_TO_END,
 } from "../metadata/builtin-methods.js";
 import type { ClassTable } from "../metadata/class-table.js";
 import { stringType, TypeKind } from "../types/lattice.js";
@@ -28,6 +30,7 @@ import {
   type ArrayModel,
 } from "./array-shapes.js";
 import { append, type Stamp } from "./guards.js";
+import { isAsciiCharacterCode, BYTEWISE_PROP } from "../analyses/wide-text.js";
 
 const SPLIT_MEMBER = "split";
 const LENGTH_MEMBER = "length";
@@ -40,6 +43,7 @@ const STEP = 1;
 const EQUALS = "==";
 const LESS_THAN = "<";
 const RECEIVER_AND_SEPARATOR = 2;
+const ORDERED_PAIR = 2;
 
 interface Site {
   readonly graph: CFGFunction;
@@ -49,7 +53,20 @@ interface Site {
   readonly callee: CFGInstruction;
   readonly subject: CFGInstruction;
   readonly separator: number;
+  readonly kept: Kept | null;
   readonly model: ArrayModel;
+}
+
+type Kept = { readonly count: number } | { readonly counting: CFGInstruction };
+
+function keptFrom(limit: CFGInstruction | undefined, types: TypeInference): Kept | null | undefined {
+  if (limit === undefined) return null;
+  if (limit.type === IR_CONSTANT) {
+    const value = limit.props.value;
+    if (typeof value !== "number" || !Number.isInteger(value)) return undefined;
+    return { count: Math.min(value >>> 0, STRING_TO_END) };
+  }
+  return types.typeOf(limit).kind === TypeKind.Smi ? { counting: limit } : undefined;
 }
 
 function separatorCode(value: CFGInstruction | undefined): number | null {
@@ -57,7 +74,9 @@ function separatorCode(value: CFGInstruction | undefined): number | null {
   const text = value.props.value;
   if (typeof text !== "string") return null;
   if (text.length === 0) return EVERY_CHARACTER;
-  return text.length === SINGLE_CHARACTER ? text.codePointAt(0)! : null;
+  if (text.length !== SINGLE_CHARACTER) return null;
+  const code = text.codePointAt(0)!;
+  return isAsciiCharacterCode(code) ? code : null;
 }
 
 function callBuiltin(
@@ -93,6 +112,11 @@ function ahead(site: Site, node: CFGInstruction): CFGInstruction {
   return placed(site, node, (added) => site.editor.insertBefore(site.node, added));
 }
 
+function bytewise(node: CFGInstruction): CFGInstruction {
+  node.props[BYTEWISE_PROP] = true;
+  return node;
+}
+
 function siteOf(
   node: CFGInstruction,
   graph: CFGFunction,
@@ -105,18 +129,42 @@ function siteOf(
   if (callee === null) return null;
   const subject = node.inputs[1];
   if (subject === undefined || types.typeOf(subject).kind !== TypeKind.String) return null;
-  if (node.inputs.length !== RECEIVER_AND_SEPARATOR + 1) return null;
-  const separator = separatorCode(node.inputs[2]);
+  const given = node.inputs.slice(RECEIVER_AND_SEPARATOR);
+  if (given.length === 0 || given.length > ORDERED_PAIR) return null;
+  const separator = separatorCode(given[0]);
   if (separator === null) return null;
+  const kept = keptFrom(given[1], types);
+  if (kept === undefined) return null;
   const model = arrayModelForElement(classes, stringType());
   if (model === null) return null;
-  return { graph, editor, stamp, node, callee, subject, separator, model };
+  return { graph, editor, stamp, node, callee, subject, separator, kept, model };
 }
 
-function lowerCharacters(site: Site): void {
+function keptBound(site: Site): CFGInstruction | null {
+  const { kept } = site;
+  if (kept === null) return null;
+  if ("count" in kept) return ahead(site, irConstant(kept.count));
+  const unlimited = ahead(site, irConstant(STRING_TO_END));
+  const origin = ahead(site, irConstant(FIRST_INDEX));
+  const negative = ahead(site, irInt32Compare(LESS_THAN, kept.counting, origin));
+  return ahead(site, irSelect(negative, unlimited, kept.counting));
+}
+
+function lowerCharacters(site: Site, bound: CFGInstruction | null): void {
   const { graph, editor, node, stamp, subject, model } = site;
   const parts = emptyArray(editor, node, model, stamp);
-  const length = ahead(site, callOf(site, LENGTH_MEMBER, [subject]));
+  const counted = ahead(site, callOf(site, LENGTH_MEMBER, [subject]));
+  const length =
+    bound === null
+      ? counted
+      : ahead(
+          site,
+          irSelect(
+            ahead(site, irInt32Compare(LESS_THAN, counted, bound)),
+            counted,
+            bound,
+          ),
+        );
   const origin = ahead(site, irConstant(FIRST_INDEX));
   const step = ahead(site, irConstant(STEP));
 
@@ -148,13 +196,14 @@ function lowerCharacters(site: Site): void {
 }
 
 function lowerSite(site: Site): void {
+  const bound = keptBound(site);
   if (site.separator === EVERY_CHARACTER) {
-    lowerCharacters(site);
+    lowerCharacters(site, bound);
     return;
   }
   const { graph, editor, node, stamp, subject, model } = site;
   const parts = emptyArray(editor, node, model, stamp);
-  const length = ahead(site, callOf(site, LENGTH_MEMBER, [subject]));
+  const length = bytewise(ahead(site, callOf(site, LENGTH_MEMBER, [subject])));
   const origin = ahead(site, irConstant(FIRST_INDEX));
   const wanted = ahead(site, irConstant(site.separator));
   const step = ahead(site, irConstant(STEP));
@@ -173,39 +222,61 @@ function lowerSite(site: Site): void {
 
   const cursor = stamp(addPhi(header, [origin]));
   const start = stamp(addPhi(header, [origin]));
+  const kept = bound === null ? null : stamp(addPhi(header, [origin]));
   const more = append(header, irInt32Compare(LESS_THAN, cursor, length), stamp);
-  append(header, irBranch(more, body, tail), stamp);
-  link(header, body);
+  const scanning = kept === null ? body : graph.addBlock();
+  append(header, irBranch(more, scanning, tail), stamp);
+  link(header, scanning);
   link(header, tail);
+  if (kept !== null) {
+    const room = append(scanning, irInt32Compare(LESS_THAN, kept, bound!), stamp);
+    append(scanning, irBranch(room, body, tail), stamp);
+    link(scanning, body);
+    link(scanning, tail);
+  }
 
-  const character = callBuiltin(site, body, CHARACTER_AT, [subject, cursor]);
+  const character = bytewise(callBuiltin(site, body, CHARACTER_AT, [subject, cursor]));
   const hit = append(body, irInt32Compare(EQUALS, character, wanted), stamp);
   append(body, irBranch(hit, cut, skip), stamp);
   link(body, cut);
   link(body, skip);
 
-  const piece = callBuiltin(site, cut, SLICE_MEMBER, [subject, start, cursor]);
+  const piece = bytewise(callBuiltin(site, cut, SLICE_MEMBER, [subject, start, cursor]));
   const cutJump = append(cut, irJump(advance), stamp);
   pushElement(editor, cutJump, parts, piece, model, stamp);
   const resumed = stamp(irInt32Add(cursor, step));
   resumed.props.noOverflow = true;
   editor.insertBefore(cutJump, resumed);
+  const taken = kept === null ? null : stamp(irInt32Add(kept, step));
+  if (taken !== null) {
+    taken.props.noOverflow = true;
+    editor.insertBefore(cutJump, taken);
+  }
   append(skip, irJump(advance), stamp);
 
   const carried = stamp(addPhi(advance));
-  connect(cut, advance, [resumed]);
-  connect(skip, advance, [start]);
+  const counted = kept === null ? null : stamp(addPhi(advance));
+  connect(cut, advance, counted === null ? [resumed] : [resumed, taken!]);
+  connect(skip, advance, counted === null ? [start] : [start, kept!]);
   const next = append(advance, irInt32Add(cursor, step), stamp);
   next.props.noOverflow = true;
   append(advance, irJump(header), stamp);
   link(advance, header);
   cursor.addInput(next);
   start.addInput(carried);
+  if (kept !== null) kept.addInput(counted!);
 
-  const last = callBuiltin(site, tail, SLICE_MEMBER, [subject, start, length]);
-  const tailJump = append(tail, irJump(after), stamp);
+  const tailed = kept === null ? tail : graph.addBlock();
+  if (kept !== null) {
+    const room = append(tail, irInt32Compare(LESS_THAN, kept, bound!), stamp);
+    append(tail, irBranch(room, tailed, after), stamp);
+    link(tail, tailed);
+    link(tail, after);
+  }
+  const last = bytewise(callBuiltin(site, tailed, SLICE_MEMBER, [subject, start, length]));
+  const tailJump = append(tailed, irJump(after), stamp);
   pushElement(editor, tailJump, parts, last, model, stamp);
-  link(tail, after);
+  link(tailed, after);
 
   editor.replaceAllUses(node, parts);
   editor.remove(node);

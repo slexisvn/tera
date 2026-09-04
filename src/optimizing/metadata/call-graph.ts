@@ -1,5 +1,8 @@
-import { IR_CALL_KNOWN_FUNCTION, type CFGFunction } from "../ir/index.js";
-import { calleeSymbolName } from "./call-signatures.js";
+import {
+  IR_CALL_KNOWN_FUNCTION,
+  type CFGFunction,
+  calleeSymbolName,
+} from "../ir/index.js";
 
 export interface CallReachability {
   callees(name: string): ReadonlySet<string>;

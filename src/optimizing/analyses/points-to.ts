@@ -209,7 +209,7 @@ function escapedSitesOf(
   return escaped;
 }
 
-function analyzePointsTo(graph: ir.CFGFunction): PointsToResult {
+export function analyzePointsTo(graph: ir.CFGFunction): PointsToResult {
   const values = collectValues(graph);
   const flow = seed(values);
   propagate(values, flow);

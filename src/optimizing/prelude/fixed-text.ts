@@ -1,4 +1,11 @@
-import { astChildren, Identifier, Literal, NodeType, type ASTNode } from "../../frontend/ast/index.js";
+import {
+  astChildren,
+  Identifier,
+  Literal,
+  nodesMatching,
+  NodeType,
+  type ASTNode,
+} from "../../frontend/ast/index.js";
 
 export const FIXED_TEXT_MEMBER = "to_fixed";
 export const FIXED_TEXT_FUNCTION = "_fixed_text";
@@ -288,13 +295,6 @@ function declaresMember(node: ASTNode): boolean {
   return methods.some((method) => method.name === FIXED_TEXT_MEMBER);
 }
 
-function sitesIn(node: ASTNode, found: ASTNode[]): ASTNode[] {
-  if (node === null || node === undefined) return found;
-  if (callsMember(node)) found.push(node);
-  for (const child of astChildren(node)) sitesIn(child, found);
-  return found;
-}
-
 function declaresAnywhere(node: ASTNode): boolean {
   if (node === null || node === undefined) return false;
   return declaresMember(node) || astChildren(node).some(declaresAnywhere);
@@ -302,9 +302,7 @@ function declaresAnywhere(node: ASTNode): boolean {
 
 function callSites(roots: readonly ASTNode[]): readonly ASTNode[] {
   if (roots.some(declaresAnywhere)) return [];
-  const found: ASTNode[] = [];
-  for (const root of roots) sitesIn(root, found);
-  return found;
+  return nodesMatching(roots, callsMember);
 }
 
 export function fixedTextPrelude(roots: readonly ASTNode[]): string {

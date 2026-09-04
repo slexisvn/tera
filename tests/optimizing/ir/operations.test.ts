@@ -253,3 +253,82 @@ describe("operation property table", () => {
     expect(ops.writesMemory(store)).toBe(true);
   });
 });
+
+describe("naming the callee of a call", () => {
+  const globalCall = (name: string, args: ir.CFGInstruction[]) =>
+    ir.irGenericCall(ir.irLoadGlobal(name), args);
+
+  it("reads a generic call through the global it loads", () => {
+    expect(ops.genericCalleeName(globalCall("range", []))).toBe("range");
+  });
+
+  it("prefers the symbol an earlier pass stamped over the loaded global", () => {
+    const call = globalCall("range", []);
+    call.props[ops.CALLEE_SYMBOL_PROP] = "renamed";
+
+    expect(ops.genericCalleeName(call)).toBe("renamed");
+  });
+
+  it("reads a generic call whose callee is a compiled function constant", () => {
+    const compiled = ir.irConstant({ instructions: [], paramCount: 0, name: "counted" });
+
+    expect(ops.genericCalleeName(ir.irGenericCall(compiled, []))).toBe("counted");
+  });
+
+  it("answers nothing for a generic call whose callee names nothing", () => {
+    expect(ops.genericCalleeName(ir.irGenericCall(ir.irConstant(0), []))).toBeNull();
+  });
+
+  it("reads a resolved call through the target it carries", () => {
+    expect(ops.calleeSymbolName(ir.irCallKnownFunction({ name: "range" }, []))).toBe("range");
+  });
+
+  it("names either call shape through one entry point", () => {
+    expect(ops.calleeNameOf(globalCall("range", []))).toBe("range");
+    expect(ops.calleeNameOf(ir.irCallKnownFunction({ name: "range" }, []))).toBe("range");
+  });
+
+  it("names nothing for a shape that is not a call at all", () => {
+    expect(ops.calleeNameOf(ir.irLoadGlobal("range"))).toBeNull();
+  });
+});
+
+describe("rangeCallArguments", () => {
+  const bounds = () => [ir.irConstant(0), ir.irConstant(4)];
+
+  it("drops the callee operand from a generic range call", () => {
+    const args = bounds();
+
+    expect(ops.rangeCallArguments(ir.irGenericCall(ir.irLoadGlobal("range"), args))).toEqual(args);
+  });
+
+  it("takes every operand of a range call a later pass already resolved", () => {
+    const args = bounds();
+
+    expect(ops.rangeCallArguments(ir.irCallKnownFunction({ name: "range" }, args))).toEqual(args);
+  });
+
+  it("takes a generic range call whose callee another pass rewrote to a symbol", () => {
+    const args = bounds();
+    const call = ir.irGenericCall(ir.irConstant(0), args);
+    call.props[ops.CALLEE_SYMBOL_PROP] = "range";
+
+    expect(ops.rangeCallArguments(call)).toEqual(args);
+  });
+
+  it("answers nothing for a call to something else", () => {
+    expect(ops.rangeCallArguments(ir.irGenericCall(ir.irLoadGlobal("size"), bounds()))).toBeNull();
+    expect(ops.rangeCallArguments(ir.irCallKnownFunction({ name: "size" }, bounds()))).toBeNull();
+  });
+
+  it("answers nothing for a range reached as a member of a receiver", () => {
+    const call = ir.irGenericCall(ir.irLoadGlobal("range"), bounds());
+    call.props.isMethod = true;
+
+    expect(ops.rangeCallArguments(call)).toBeNull();
+  });
+
+  it("answers nothing for a node that is not a call", () => {
+    expect(ops.rangeCallArguments(ir.irLoadGlobal("range"))).toBeNull();
+  });
+});

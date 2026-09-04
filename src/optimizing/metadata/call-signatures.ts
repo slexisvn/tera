@@ -1,9 +1,11 @@
 import {
+  calleeNameOf,
   IR_CALL_KNOWN_FUNCTION,
-  IR_CONSTANT,
   IR_GENERIC_CALL,
+  IR_GENERIC_GET_PROP,
   IR_GENERIC_SET_PROP,
   IR_LOAD_GLOBAL,
+  IR_PARAMETER,
   IR_RETURN,
   IR_STORE_GLOBAL,
   IR_STORE_FIELD,
@@ -11,7 +13,6 @@ import {
   type CFGInstruction,
   type IRMetadataValue,
 } from "../ir/index.js";
-import { compiledFunctionConstant } from "../ir/compiled-function.js";
 import { TypeKind } from "../types/lattice.js";
 import type { DeclaredDefault, DeclaredSignature } from "../types/signature.js";
 import type { TypeInference } from "../analyses/type-inference.js";
@@ -23,34 +24,9 @@ interface CallTarget {
   readonly declaredSignature?: DeclaredSignature | null;
 }
 
-export const CALLEE_SYMBOL_PROP = "calleeSymbol";
-
-export function genericCalleeName(node: CFGInstruction): string | null {
-  const renamed = node.props[CALLEE_SYMBOL_PROP];
-  if (typeof renamed === "string") return renamed;
-  const callee = node.inputs[0];
-  if (callee === undefined) return null;
-  if (callee.type === IR_LOAD_GLOBAL) {
-    const name = callee.props.name;
-    return typeof name === "string" ? name : null;
-  }
-  if (callee.type !== IR_CONSTANT) return null;
-  return compiledFunctionConstant(callee.props.value)?.name ?? null;
-}
-
-export function calleeSymbolName(node: CFGInstruction): string | null {
-  const target = node.props.target as CallTarget | undefined;
-  return typeof target?.name === "string" ? target.name : null;
-}
-
 export function calleeDeclaredSignature(node: CFGInstruction): DeclaredSignature | null {
   const target = node.props.target as CallTarget | undefined;
   return target?.declaredSignature ?? null;
-}
-
-export function calleeNameOf(node: CFGInstruction): string | null {
-  if (node.type === IR_GENERIC_CALL) return genericCalleeName(node);
-  return node.type === IR_CALL_KNOWN_FUNCTION ? calleeSymbolName(node) : null;
 }
 
 export function stampCalleeSignatures(
@@ -105,6 +81,31 @@ export function memberDeclaredType(
 ): string | null {
   if (typeof member !== "string") return null;
   return shapeHeldBy(owner, classes, types)?.fields.get(member)?.declaredType ?? null;
+}
+
+export function fieldDeclaredType(
+  value: CFGInstruction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  if (value.type !== IR_GENERIC_GET_PROP) return null;
+  return memberDeclaredType(value.inputs[0], value.props.propName, classes, types);
+}
+
+export function declaredTypeNameOf(
+  value: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  const field = value.props[FIELD_TYPE_PROP];
+  if (typeof field === "string") return field;
+  const owned = fieldDeclaredType(value, classes, types);
+  if (owned !== null) return owned;
+  if (value.type === IR_PARAMETER) {
+    return graph.declaredSignature?.params[Number(value.props.index)] ?? null;
+  }
+  return calleeDeclaredSignature(value)?.returns ?? null;
 }
 
 function parameterIndexOf(call: CFGInstruction, at: number): number {

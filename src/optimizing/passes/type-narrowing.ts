@@ -1,3 +1,4 @@
+import { genericCalleeName } from "../ir/index.js";
 import * as ir from "../ir/index.js";
 import { tracer } from "../../core/tracing/index.js";
 import { detachNode, nodeIdStamper, replaceValueUses } from "../ir/graph-edit.js";
@@ -5,7 +6,7 @@ import type { DominatorTree } from "../analyses/dominance.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { DECLARED_INT } from "../types/declared.js";
 import { RANGE_BUILTIN } from "../metadata/builtin-methods.js";
-import { genericCalleeName } from "../metadata/call-signatures.js";
+
 import {
   excludeType,
   narrowType,
@@ -51,7 +52,6 @@ function countsInInt32(use: ir.CFGInstruction): boolean {
   const callee = genericCalleeName(use);
   return callee !== null && COUNTS_IN_INT32.has(callee);
 }
-
 
 const GENERIC_TO_FLOAT64 = new Map<string, ir.Opcode>([
   [ir.IR_GENERIC_ADD, ir.IR_FLOAT64_ADD],
@@ -252,6 +252,7 @@ class Narrower {
     if (left === undefined || right === undefined) return null;
     const value = isNullishConstant(right) ? left : isNullishConstant(left) ? right : null;
     if (value === null) return null;
+    if (this.types.isSpeculative(value)) return null;
     const type = this.typeAt(value);
     if (acceptsNull(type)) return null;
     return DEFINED_KINDS.has(type.kind) ? result : null;

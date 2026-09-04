@@ -287,6 +287,121 @@ const MUTATION_PROGRAMS: readonly (readonly [string, string])[] = [
   ["keeps equal elements with no comparator", src("xs: int[] = [2, 1, 2, 1]", "xs.sort()", "print(xs)")],
   ["hands back the array it sorted as text", src('xs: string[] = ["b", "a"]', "print(xs.sort())")],
   ["joins an array it just sorted as text", src("xs: int[] = [10, 9]", "xs.sort()", 'print(xs.join(","))')],
+  ["puts an int at the front", src("xs: int[] = [3, 5, 7]", "xs.unshift(1)", 'print(xs.join(","))')],
+  ["answers the length after putting one at the front", src("xs: int[] = [3, 5]", "print(xs.unshift(1))")],
+  ["puts one at the front of an empty array", src("xs: int[] = []", "xs.unshift(2)", 'print(xs.join(","), xs.length)')],
+  ["puts a string at the front", src('xs: string[] = ["b", "c"]', 'xs.unshift("a")', 'print(xs.join(","))')],
+  ["puts a float at the front", src("xs: float[] = [1.5, 2.5]", "xs.unshift(0.5)", 'print(xs.join(","))')],
+  ["reads back the element it moved aside", src("xs: int[] = [3, 5]", "xs.unshift(1)", "print(xs[0], xs[1], xs[2])")],
+  [
+    "puts one at the front over and over",
+    src("xs: int[] = []", "for i of range(5):", "  xs.unshift(i)", 'print(xs.join(","))'),
+  ],
+  [
+    "puts one at the front of an array that grew",
+    src("xs: int[] = [2]", "xs.push(3)", "xs.unshift(1)", 'print(xs.join(","))'),
+  ],
+  [
+    "takes back from the front what it put there",
+    src("xs: int[] = [2, 3]", "xs.unshift(1)", "print(xs.shift())", 'print(xs.join(","))'),
+  ],
+  [
+    "takes a range out of the middle",
+    src("xs: int[] = [3, 5, 7, 9]", 'print(xs.splice(1, 2).join(","))', 'print(xs.join(","))'),
+  ],
+  [
+    "takes everything from a position when no count is given",
+    src("xs: int[] = [1, 2, 3]", 'print(xs.splice(1).join(","))', 'print(xs.join(","))'),
+  ],
+  [
+    "counts a negative start from the end",
+    src("xs: int[] = [1, 2, 3, 4, 5]", 'print(xs.splice(-2, 1).join(","))', 'print(xs.join(","))'),
+  ],
+  [
+    "stops a count that runs past the end",
+    src("xs: int[] = [1, 2, 3]", 'print(xs.splice(1, 99).join(","))', 'print(xs.join(","))'),
+  ],
+  [
+    "takes nothing for a count of zero",
+    src("xs: int[] = [1, 2, 3]", 'print(`[${xs.splice(1, 0).join(",")}]`)', 'print(xs.join(","))'),
+  ],
+  [
+    "takes nothing for a count below zero",
+    src("xs: int[] = [1, 2, 3]", 'print(`[${xs.splice(1, -5).join(",")}]`)', 'print(xs.join(","))'),
+  ],
+  [
+    "takes nothing from a start past the end",
+    src("xs: int[] = [1, 2]", 'print(`[${xs.splice(9, 1).join(",")}]`)', 'print(xs.join(","))'),
+  ],
+  [
+    "empties the array from the front",
+    src("xs: int[] = [1, 2, 3]", 'print(xs.splice(0).join(","))', "print(xs.length)"),
+  ],
+  [
+    "takes a range out of an empty array",
+    src("xs: int[] = []", 'print(`[${xs.splice(0, 3).join(",")}]`, xs.length)'),
+  ],
+  [
+    "takes a range of strings out",
+    src('xs: string[] = ["a", "b", "c", "d"]', 'print(xs.splice(1, 2).join(","))', 'print(xs.join(","))'),
+  ],
+  [
+    "takes a range of floats out and reads what moved down",
+    src("xs: float[] = [1.5, 2.5, 3.5, 4.5]", 'print(xs.splice(2, 1).join(","))', "print(xs[0], xs[2])"),
+  ],
+  [
+    "drains an array two at a time",
+    src("xs: int[] = [0, 1, 2, 3, 4, 5]", "while xs.length > 2:", '  print(xs.splice(0, 2).join("-"))', 'print(xs.join(","))'),
+  ],
+  [
+    "puts one value in place of the range it removed",
+    src("xs: int[] = [1, 2, 3, 4]", 'print(xs.splice(1, 2, 9).join(","))', 'print(xs.join(","))'),
+  ],
+  [
+    "puts several values in place of one",
+    src("xs: int[] = [1, 2, 3]", 'print(xs.splice(1, 1, 7, 8, 9).join(","))', 'print(xs.join(","))'),
+  ],
+  [
+    "puts values in without removing any",
+    src("xs: int[] = [1, 4]", 'print(`[${xs.splice(1, 0, 2, 3).join(",")}]`)', 'print(xs.join(","))'),
+  ],
+  [
+    "puts values in at a position counted from the end",
+    src("xs: int[] = [1, 2, 3, 4]", 'print(xs.splice(-2, 1, 9).join(","))', 'print(xs.join(","))'),
+  ],
+  [
+    "puts values in past the end of what it holds",
+    src("xs: int[] = [1, 2]", 'print(`[${xs.splice(9, 3, 8, 9).join(",")}]`)', 'print(xs.join(","))'),
+  ],
+  [
+    "puts a value into an empty array",
+    src("xs: int[] = []", 'print(`[${xs.splice(0, 3, 7).join(",")}]`)', 'print(xs.join(","), xs.length)'),
+  ],
+  [
+    "puts strings in place of the ones it removed",
+    src(
+      'xs: string[] = ["a", "b", "c", "d"]',
+      'print(xs.splice(1, 2, "x", "y", "z").join(","))',
+      'print(xs.join(","))',
+    ),
+  ],
+  [
+    "puts floats in and reads back what moved up",
+    src(
+      "xs: float[] = [1.5, 2.5, 3.5]",
+      'print(xs.splice(1, 1, 9.25, 8.75).join(","))',
+      "print(xs[0], xs[1], xs[2], xs[3], xs.length)",
+    ),
+  ],
+  [
+    "keeps the order of the values it put in over several calls",
+    src(
+      "xs: int[] = [0, 5]",
+      "xs.splice(1, 0, 1, 2)",
+      "xs.splice(3, 0, 3, 4)",
+      'print(xs.join(","), xs.length)',
+    ),
+  ],
 ];
 
 describe("array mutation methods", () => {
@@ -295,12 +410,53 @@ describe("array mutation methods", () => {
     itNative(`${name} the same way through the C backend`, native.agrees(source));
   }
 
-  itRunsPe("faults on popping an empty array, where the interpreter answers undefined", () => {
-    const run = runPe(image(src("xs: int[] = []", "print(xs.pop())")));
+  itRunsPe("answers undefined for popping an empty array, the way the interpreter does", () => {
+    peAgrees(src("xs: int[] = []", "print(xs.pop())"));
+  });
+
+  itRunsPe("answers undefined for shifting an empty array too", () => {
+    peAgrees(src("xs: int[] = []", "print(xs.shift())"));
+  });
+
+  itRunsPe("answers undefined only once the array has drained", () => {
+    peAgrees(
+      src("xs: int[] = [1]", "print(xs.pop())", "print(xs.pop())", "print(xs.length)"),
+    );
+  });
+
+  itNative(
+    "answers undefined for an empty pop through the C backend",
+    native.agrees(src("xs: int[] = []", "print(xs.pop())")),
+  );
+
+  it("says what a splice needs when the array has no element type to pin down", () => {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(
+      src("fn go(xs: any) -> int:", "  xs.splice(0, 1, 9)", "  return 0", "print(go([1, 2]))", ""),
+      { backend: "x64-windows", format: "assembly" },
+    );
+
+    expect(program.skipped.map((one) => one.reason).join(" | ")).toContain(
+      "splice compiles over an array whose element type the compiler could pin down",
+    );
+  });
+
+  it("refuses a splice whose values arrive spread out of an array, naming the spread", () => {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(
+      src("xs: int[] = [1, 2, 3]", "ys: int[] = [8, 9]", "xs.splice(1, 1, ...ys)", "print(xs)", ""),
+      { backend: "x64-windows", format: "assembly" },
+    );
+
+    expect(program.skipped.map((one) => one.reason).join(" | ")).toContain(
+      "a call spreads an array into a function whose argument count the compiler cannot tell",
+    );
+  });
+
+  itRunsPe("still faults draining an array whose elements are not numbers", () => {
+    const run = runPe(image(src('xs: string[] = ["a"]', "print(xs.pop())", "print(xs.pop())")));
 
     expect(run.status).not.toBe(0);
+    expect(run.stdout).toBe("a\n");
     expect(run.stderr).toContain("cannot pop an empty array");
-    expect(run.stdout).toBe("");
   });
 });
 
@@ -545,4 +701,38 @@ describe("AOT arrays a loop fills from what it already holds", () => {
       ),
     ),
   );
+});
+
+describe("an array variable a loop reassigns", () => {
+  itRunsPe("keeps working on the array the loop handed back", () => {
+    peAgrees(
+      src(
+        "queue: int[] = [1]",
+        "seen: int[] = []",
+        "while queue.length > 0:",
+        "  held = queue.shift()",
+        "  seen.push(held)",
+        "  if held < 5:",
+        "    queue.push(held + 1)",
+        "  if seen.length > 8:",
+        "    queue = []",
+        'print(seen.join(","))',
+        "print(queue.length)",
+      ),
+    );
+  });
+
+  itRunsPe("works on whichever of two arrays a branch chose", () => {
+    peAgrees(
+      src(
+        "left: int[] = [1, 2]",
+        "right: int[] = [3]",
+        "picked = left",
+        "if right.length > 0:",
+        "  picked = right",
+        "picked.push(9)",
+        'print(picked.join(","))',
+      ),
+    );
+  });
 });

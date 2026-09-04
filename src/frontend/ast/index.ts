@@ -220,6 +220,29 @@ export type ASTNode = {
 };
 export type BindingKind = "let" | "const" | "var";
 
+export function nodesMatching(
+  roots: readonly ASTNode[],
+  matches: (node: ASTNode) => boolean,
+): ASTNode[] {
+  const found: ASTNode[] = [];
+  const walk = (node: ASTNode): void => {
+    if (node === null || node === undefined) return;
+    if (matches(node)) found.push(node);
+    for (const child of astChildren(node)) walk(child);
+  };
+  for (const root of roots) walk(root);
+  return found;
+}
+
+export function memberName(node: ASTNode): string {
+  const property = node.property as ASTNode | string | undefined;
+  if (typeof property === "string") return property;
+  if (property === undefined) return "";
+  if (!node.computed) return String(property.name ?? "");
+  if (property.type !== NodeType.Literal) return "";
+  return typeof property.value === "string" ? property.value : "";
+}
+
 export function astChildren(node: ASTNode): ASTNode[] {
   const children: ASTNode[] = [];
   const hold = (value: unknown): void => {

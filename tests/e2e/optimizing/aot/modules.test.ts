@@ -569,3 +569,70 @@ describe("classes across modules", () => {
     ).toThrow(/class Point is declared in left and right/);
   });
 });
+
+describe("a variable an imported module declares with a type", () => {
+  function ranProject(files: Record<string, string>): { status: number; stdout: string } {
+    const root = project(files);
+    const program = nodeEngine({ typecheck: "off" }).compileAotModule(
+      path.join(root, "main.tera"),
+      { root, backend: "x64-windows", format: "executable", wholeProgram: true },
+    );
+    expect(program.skipped).toEqual([]);
+    const run = runPe(program.files[0]!.contents as Uint8Array);
+    return { status: run.status, stdout: run.stdout };
+  }
+
+  const lines = (...parts: string[]) => `${parts.join(NEWLINE)}${NEWLINE}`;
+
+  itRunsPe("reads one the module only ever reads", () => {
+    expect(
+      ranProject({
+        "conf.tera": lines("limit: int = 7", "fn limitOf() -> int:", "  return limit"),
+        "main.tera": lines("from conf import limitOf", "print(limitOf())"),
+      }),
+    ).toEqual({ status: 0, stdout: `7${NEWLINE}` });
+  });
+
+  itRunsPe("keeps one the module mutates across calls", () => {
+    expect(
+      ranProject({
+        "tally.tera": lines(
+          "seen: int = 0",
+          "fn note() -> int:",
+          "  seen = seen + 1",
+          "  return seen",
+        ),
+        "main.tera": lines("from tally import note", "print(note())", "print(note())"),
+      }),
+    ).toEqual({ status: 0, stdout: `1${NEWLINE}2${NEWLINE}` });
+  });
+
+  itRunsPe("keeps two modules that chose the same name apart", () => {
+    expect(
+      ranProject({
+        "left.tera": lines("limit: int = 1", "fn leftLimit() -> int:", "  return limit"),
+        "right.tera": lines("limit: int = 2", "fn rightLimit() -> int:", "  return limit"),
+        "main.tera": lines(
+          "from left import leftLimit",
+          "from right import rightLimit",
+          "print(leftLimit())",
+          "print(rightLimit())",
+        ),
+      }),
+    ).toEqual({ status: 0, stdout: `1${NEWLINE}2${NEWLINE}` });
+  });
+
+  itRunsPe("reaches one two imports deep", () => {
+    expect(
+      ranProject({
+        "base.tera": lines("factor: int = 3", "fn scale(n: int) -> int:", "  return n * factor"),
+        "mid.tera": lines(
+          "from base import scale",
+          "fn quad(n: int) -> int:",
+          "  return scale(scale(n))",
+        ),
+        "main.tera": lines("from mid import quad", "print(quad(2))"),
+      }),
+    ).toEqual({ status: 0, stdout: `18${NEWLINE}` });
+  });
+});

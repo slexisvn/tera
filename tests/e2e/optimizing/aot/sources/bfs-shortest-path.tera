@@ -1,0 +1,30 @@
+adj: int[][] = [[1, 2], [0, 3], [0, 3], [1, 2, 4], [3]]
+
+fn shortest(start: int, to: int) -> int:
+  n = adj.length
+  seen: int[] = []
+  for i of range(n):
+    seen.push(0)
+  queue: int[] = [start]
+  depth: int[] = [0]
+  seen[start] = 1
+  head = 0
+  while head < queue.length:
+    v = queue[head]
+    d = depth[head]
+    head = head + 1
+    if v == to:
+      return d
+    row = adj[v]
+    m = row.length
+    for j of range(m):
+      w = row[j]
+      if seen[w] == 0:
+        seen[w] = 1
+        queue.push(w)
+        depth.push(d + 1)
+  return -1
+
+print(shortest(0, 4))
+print(shortest(4, 0))
+print(shortest(0, 0))

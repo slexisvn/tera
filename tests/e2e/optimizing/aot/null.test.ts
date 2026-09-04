@@ -307,3 +307,285 @@ describe("AOT nullable references", () => {
     );
   });
 });
+
+describe("AOT undefined", () => {
+  const ANSWERS_UNSET = src(
+    "fn at(n: int) -> int | undefined:",
+    "  if n > 0:",
+    "    return 7",
+    "  return undefined",
+  );
+
+  itRunsPe("prints undefined where the interpreter prints undefined, not null", () => {
+    peAgrees(src(ANSWERS_UNSET, "print(at(0))", "print(at(1))"));
+  });
+
+  itNative(
+    "prints it the same way through the C backend",
+    native.agrees(src(ANSWERS_UNSET, "print(at(0))", "print(at(1))")),
+  );
+
+  itRunsPe("keeps null printing as null alongside it", () => {
+    peAgrees(
+      src(
+        ANSWERS_UNSET,
+        "fn missing(n: int) -> int | null:",
+        "  if n > 0:",
+        "    return 7",
+        "  return null",
+        "print(at(0))",
+        "print(missing(0))",
+      ),
+    );
+  });
+
+  itRunsPe("still answers true when undefined is compared against null", () => {
+    peAgrees(src(ANSWERS_UNSET, "print(at(0) == null)", "print(at(1) == null)"));
+  });
+
+  itNative(
+    "compares it against null the same way through the C backend",
+    native.agrees(src(ANSWERS_UNSET, "print(at(0) == null)", "print(at(1) == null)")),
+  );
+
+  itRunsPe("does not read a real NaN as absent", () => {
+    peAgrees(src("x = 0.0 / 0.0", "print(x)", "print(x == null)"));
+  });
+
+  itRunsPe("carries undefined through a declared field", () => {
+    peAgrees(
+      src(
+        "class Slot:",
+        "  public held: int | undefined = undefined",
+        "s = Slot()",
+        "print(s.held)",
+        "s.held = 4",
+        "print(s.held)",
+      ),
+    );
+  });
+
+  itRunsPe("carries undefined through an array element", () => {
+    peAgrees(src("xs: (int | undefined)[] = [1, undefined]", "print(xs[0])", "print(xs[1])"));
+  });
+
+  const NAMES_OR_UNSET = src(
+    "fn name(n: int) -> string | undefined:",
+    "  if n > 0:",
+    '    return "ada"',
+    "  return undefined",
+  );
+
+  itRunsPe("spells undefined for a reference the declared type says is unset", () => {
+    peAgrees(src(NAMES_OR_UNSET, "print(name(0))", "print(name(1))"));
+  });
+
+  itNative(
+    "spells it the same way through the C backend",
+    native.agrees(src(NAMES_OR_UNSET, "print(name(0))", "print(name(1))")),
+  );
+
+  itRunsPe("keeps a null-carrying reference printing as null beside it", () => {
+    peAgrees(
+      src(
+        NAMES_OR_UNSET,
+        "fn missing(n: int) -> string | null:",
+        "  if n > 0:",
+        '    return "ada"',
+        "  return null",
+        "print(name(0))",
+        "print(missing(0))",
+      ),
+    );
+  });
+
+  itRunsPe("spells it for text an unset reference is joined into", () => {
+    peAgrees(src(NAMES_OR_UNSET, 'print("v=" + name(0))', 'print("v=" + name(1))'));
+  });
+
+  itRunsPe("compares an unset reference against null the way the interpreter does", () => {
+    peAgrees(src(NAMES_OR_UNSET, "print(name(0) == null)", "print(name(1) == null)"));
+  });
+
+  itRunsPe("carries an unset reference through a declared field", () => {
+    peAgrees(
+      src(
+        "class Slot:",
+        "  public held: string | undefined = undefined",
+        "s = Slot()",
+        "print(s.held)",
+        's.held = "ada"',
+        "print(s.held)",
+      ),
+    );
+  });
+
+  itRunsPe("passes an unset reference on to a declared parameter", () => {
+    peAgrees(
+      src(
+        NAMES_OR_UNSET,
+        "fn show(s: string | undefined) -> int:",
+        "  print(s)",
+        "  return 0",
+        "show(name(0))",
+        "show(name(1))",
+      ),
+    );
+  });
+
+  it("still refuses a reference whose type admits both absences, since they share one pointer", () => {
+    expect(
+      declined(
+        src(
+          "fn name(n: int) -> string | null | undefined:",
+          "  if n > 1:",
+          '    return "ada"',
+          "  if n > 0:",
+          "    return null",
+          "  return undefined",
+          "print(name(0))",
+        ),
+      ),
+    ).toContain("cannot be told apart");
+  });
+});
+
+describe("AOT arrays whose elements may be absent", () => {
+  const holds = (element: string, absent: string, first: string) =>
+    src(
+      `xs: (${element})[] = [${first}, ${absent}]`,
+      `fn at(i: int) -> ${element}:`,
+      "  return xs[i]",
+      "print(at(0))",
+      "print(at(1))",
+    );
+
+  itRunsPe("reads back an int element that is absent", () => {
+    peAgrees(holds("int | null", "null", "1"));
+  });
+
+  itRunsPe("reads back an int element that is unset", () => {
+    peAgrees(holds("int | undefined", "undefined", "1"));
+  });
+
+  itRunsPe("reads back a float element that is absent", () => {
+    peAgrees(holds("float | null", "null", "1.5"));
+  });
+
+  itNative(
+    "reads it back the same way through the C backend",
+    native.agrees(holds("int | null", "null", "1")),
+  );
+
+  itRunsPe("prints the whole array with the absent element spelled out", () => {
+    peAgrees(src("xs: (int | null)[] = [1, null]", "print(xs)"));
+  });
+
+  itRunsPe("keeps a plain int array packed as ints beside a nullable one", () => {
+    peAgrees(
+      src(
+        "plain: int[] = [7, 8]",
+        "maybe: (int | null)[] = [1, null]",
+        "fn a(i: int) -> int:",
+        "  return plain[i]",
+        "fn b(i: int) -> int | null:",
+        "  return maybe[i]",
+        "print(a(0))",
+        "print(a(1))",
+        "print(b(0))",
+        "print(b(1))",
+      ),
+    );
+  });
+
+  it("still declines a text element, which has no room for an absence beside the characters", () => {
+    expect(declined(holds("string | null", "null", '"a"'))).not.toBe("");
+  });
+
+  it("still declines an element whose type has no name once the absence joins it", () => {
+    expect(declined(holds("bool | null", "null", "true"))).not.toBe("");
+  });
+});
+
+describe("AOT printing an aggregate that may be absent", () => {
+  const finds = (returns: string, absent: string) =>
+    src(
+      "class P:",
+      "  public v: int = 1",
+      `fn find(n: int) -> ${returns}:`,
+      "  if n == 0:",
+      "    return P()",
+      `  return ${absent}`,
+    );
+
+  itRunsPe("spells null instead of reading fields off a pointer that holds none", () => {
+    peAgrees(src(finds("P | null", "null"), "print(find(0))", "print(find(1))"));
+  });
+
+  itRunsPe("spells undefined for the flavour the declared type names", () => {
+    peAgrees(src(finds("P | undefined", "undefined"), "print(find(0))", "print(find(1))"));
+  });
+
+  itNative(
+    "spells it the same way through the C backend",
+    native.agrees(src(finds("P | null", "null"), "print(find(0))", "print(find(1))")),
+  );
+
+  itRunsPe("still prints the fields when the reference holds an object", () => {
+    peAgrees(src(finds("P | null", "null"), "print(find(0))"));
+  });
+});
+
+describe("AOT null comparison soundness", () => {
+  const KEEPS_A_LINK = src(
+    "class Box:",
+    "  public link: Box | null = null",
+    "  public constructor(v: int):",
+    "    this.v = v",
+  );
+
+  itRunsPe("answers a nullable parameter compared against null, beside a null store", () => {
+    peAgrees(
+      src(
+        KEEPS_A_LINK,
+        "fn probe(n: int | null, b: Box) -> bool:",
+        "  b.link = null",
+        "  return n == null",
+        "b = Box(1)",
+        "print(probe(null, b))",
+        "print(probe(3, b))",
+      ),
+    );
+  });
+
+  itNative(
+    "answers it the same way through the C backend",
+    native.agrees(
+      src(
+        KEEPS_A_LINK,
+        "fn probe(n: int | null, b: Box) -> bool:",
+        "  b.link = null",
+        "  return n == null",
+        "b = Box(1)",
+        "print(probe(null, b))",
+        "print(probe(3, b))",
+      ),
+    ),
+  );
+
+  itRunsPe("branches on a nullable parameter beside a null store", () => {
+    peAgrees(
+      src(
+        KEEPS_A_LINK,
+        "fn probe(n: int | null, b: Box) -> int:",
+        "  b.link = null",
+        "  if n == null:",
+        "    return -1",
+        "  return n + 1",
+        "b = Box(1)",
+        "print(probe(null, b))",
+        "print(probe(3, b))",
+      ),
+    );
+  });
+});

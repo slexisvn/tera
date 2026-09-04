@@ -32,8 +32,6 @@ function declined(source: string): string {
   return program.skipped.map((entry) => entry.reason).join("; ");
 }
 
-// The promise surface is rewritten into ordinary async functions, so what these check
-// is that the rewrite settles the same values in the same order as the interpreter.
 const SHAPES: ReadonlyArray<readonly [string, string]> = [
   ["Promise.resolve handed to then", 'Promise.resolve(42).then(v => print("resolved", v))'],
   [
@@ -188,5 +186,104 @@ describe("AOT promise surface", () => {
 
     const run = runPe(program.files[0]!.contents as Uint8Array);
     expect([run.status, run.stdout]).toEqual([0, `${printedBy(source).join("\n")}\n`]);
+  });
+});
+
+describe("AOT Promise.reject", () => {
+  const REJECTS: readonly (readonly [string, string])[] = [
+    [
+      "a rejection a catch turns back into a value",
+      src('Promise.reject("boom")', '  .catch(e => `caught: ${e}`)', "  .then(v => print(v))"),
+    ],
+    [
+      "a rejection a catch only prints",
+      src('Promise.reject("boom")', "  .catch(e => print(`caught: ${e}`))"),
+    ],
+    [
+      "a rejection an await hands to a catch block",
+      src(
+        "async fn run() -> void:",
+        "  try:",
+        '    await Promise.reject("boom")',
+        "  catch failure:",
+        "    print(`caught: ${failure}`)",
+        "run()",
+      ),
+    ],
+  ];
+
+  for (const [shape, source] of REJECTS) {
+    itRunsPe(`settles like the interpreter for ${shape}`, () => {
+      const program = compiled(source);
+      const run = runPe(program.files[0]!.contents as Uint8Array);
+
+      expect([shape, run.status, run.stdout]).toEqual([
+        shape,
+        0,
+        `${printedBy(source).join("\n")}\n`,
+      ]);
+    });
+  }
+
+  itRunsPe("hands a rejection past a then rather than running its callback", () => {
+    const source = src(
+      'Promise.reject("boom")',
+      '  .then(v => print("unreachable", v))',
+      '  .catch(e => print("chain caught:", e))',
+    );
+    const program = compiled(source);
+    const run = runPe(program.files[0]!.contents as Uint8Array);
+
+    expect(run.stdout).not.toContain("unreachable");
+    expect([run.status, run.stdout]).toEqual([0, `${printedBy(source).join("\n")}\n`]);
+  });
+
+  itRunsPe("hands a thrown rejection past a then as well", () => {
+    const source = src(
+      BOOM,
+      "boom(1)",
+      '  .then(v => print("unreachable", v))',
+      '  .catch(e => print("caught:", e))',
+    );
+    const program = compiled(source);
+    const run = runPe(program.files[0]!.contents as Uint8Array);
+
+    expect(run.stdout).not.toContain("unreachable");
+    expect([run.status, run.stdout]).toEqual([0, `${printedBy(source).join("\n")}\n`]);
+  });
+
+  itRunsPe("keeps two rejections apart rather than letting one overwrite the other", () => {
+    const source = src(
+      'Promise.reject("first").catch(e => print("a", e))',
+      'Promise.reject("second").catch(e => print("b", e))',
+    );
+    const program = compiled(source);
+    const run = runPe(program.files[0]!.contents as Uint8Array);
+
+    expect([run.status, run.stdout]).toEqual([0, `${printedBy(source).join("\n")}\n`]);
+  });
+
+  itRunsPe("settles a rejected chain beside a resolved one in the interpreter's order", () => {
+    const source = src(
+      "Promise.resolve(80)",
+      "  .then(v => v / 2)",
+      "  .then(v => `half is ${v}`)",
+      "  .then(v => print(v))",
+      'Promise.reject("nope")',
+      '  .then(v => print("unreachable", v))',
+      '  .catch(e => print("caught", e))',
+    );
+    const program = compiled(source);
+    const run = runPe(program.files[0]!.contents as Uint8Array);
+
+    expect(run.stdout).not.toContain("unreachable");
+    expect([run.status, run.stdout]).toEqual([0, `${printedBy(source).join("\n")}\n`]);
+  });
+
+  it("rewrites a rejection into an async function of its own", () => {
+    const program = compiled(src('Promise.reject("boom")', "  .catch(e => print(e))"));
+    const names = program.compiled.map((fn) => fn.name);
+
+    expect(names.some((name) => name.startsWith("tera_promise$reject"))).toBe(true);
   });
 });

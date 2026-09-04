@@ -1,4 +1,4 @@
-import type { CFGFunction } from "../ir/index.js";
+import { IR_SELECT, type CFGFunction } from "../ir/index.js";
 import type { AnalysisId, AnalysisManager } from "../infra/analysis-manager.js";
 import type { TransformPass } from "../infra/pass-manager.js";
 import { dominanceAnalysisId } from "../analyses/dominance.js";
@@ -10,7 +10,8 @@ import {
   stampElementTypes,
 } from "../passes/array-shapes.js";
 import { lowerArrayMethods } from "../passes/array-methods.js";
-import { lowerBooleanText } from "../passes/boolean-text.js";
+import { lowerTextMethodCalls } from "../passes/text-method-calls.js";
+import { lowerPrintedText } from "../passes/printed-text.js";
 import { expandAggregatePrints } from "../passes/print-expansion.js";
 import { lowerBuiltinMethods } from "../passes/builtin-method-lowering.js";
 import {
@@ -298,6 +299,14 @@ export function targetLegalizationPipeline(
       }),
     },
     {
+      name: "text-method-calls",
+      preserves: { kind: "none" },
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerTextMethodCalls(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
       name: "array-method-lowering",
       preserves: { kind: "none" },
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
@@ -341,11 +350,11 @@ export function targetLegalizationPipeline(
       }),
     },
     {
-      name: "boolean-text",
+      name: "printed-text",
       preserves: { kind: "none" },
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
       run: (graph, analyses) => ({
-        changed: lowerBooleanText(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+        changed: lowerPrintedText(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
     {
@@ -399,7 +408,14 @@ export function targetLegalizationPipeline(
     {
       name: "operation-legalization",
       preserves: { kind: "none" },
-      run: (graph) => ({ changed: legalizeOperations(graph) > 0 }),
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed:
+          legalizeOperations(
+            graph,
+            new Map([[IR_SELECT, valuesTargetSelects(target, analyses.get(typeInferenceAnalysisId))]]),
+          ) > 0,
+      }),
     },
     {
       name: "dead-code-elimination",

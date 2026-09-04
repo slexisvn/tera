@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeIndex, resolveSlice } from "../../src/core/indexing.js";
+import { countProvesSome, normalizeIndex, resolveSlice } from "../../src/core/indexing.js";
 
 const slice = (start: number | null, stop: number | null, step = 1) => ({ start, stop, step });
 
@@ -64,6 +64,54 @@ describe("core indexing", () => {
     it("rejects a non-integer index", () => {
       expect(() => normalizeIndex(1.5, 4)).toThrow("Index must be an integer");
       expect(() => normalizeIndex(Number.NaN, 4)).toThrow("Index must be an integer");
+    });
+  });
+
+  describe("countProvesSome", () => {
+    it("proves some from a count above any bound at or over zero", () => {
+      expect(countProvesSome(">", 0)).toBe(true);
+      expect(countProvesSome(">", 3)).toBe(true);
+      expect(countProvesSome(">", -1)).toBe(false);
+    });
+
+    it("proves some from a count at or over one", () => {
+      expect(countProvesSome(">=", 1)).toBe(true);
+      expect(countProvesSome(">=", 0)).toBe(false);
+    });
+
+    it("proves some from a count that equals a bound of at least one", () => {
+      expect(countProvesSome("==", 1)).toBe(true);
+      expect(countProvesSome("==", 3)).toBe(true);
+      expect(countProvesSome("loose==", 1)).toBe(true);
+      expect(countProvesSome("===", 2)).toBe(true);
+      expect(countProvesSome("==", 0)).toBe(false);
+    });
+
+    it("proves some only from a count that differs from zero", () => {
+      expect(countProvesSome("!=", 0)).toBe(true);
+      expect(countProvesSome("loose!=", 0)).toBe(true);
+      expect(countProvesSome("!=", 1)).toBe(false);
+    });
+
+    it("reads a negated test as its complement", () => {
+      expect(countProvesSome("!=", 1, true)).toBe(true);
+      expect(countProvesSome("loose!=", 2, true)).toBe(true);
+      expect(countProvesSome("<", 1, true)).toBe(true);
+      expect(countProvesSome("<=", 0, true)).toBe(true);
+      expect(countProvesSome("==", 0, true)).toBe(true);
+    });
+
+    it("proves nothing from a negated test that leaves the count at zero", () => {
+      expect(countProvesSome("!=", 0, true)).toBe(false);
+      expect(countProvesSome("loose!=", 0, true)).toBe(false);
+      expect(countProvesSome(">", 0, true)).toBe(false);
+      expect(countProvesSome(">=", 1, true)).toBe(false);
+    });
+
+    it("proves nothing from an operator it does not know", () => {
+      expect(countProvesSome("in", 1)).toBe(false);
+      expect(countProvesSome("<", 1)).toBe(false);
+      expect(countProvesSome("in", 1, true)).toBe(false);
     });
   });
 });

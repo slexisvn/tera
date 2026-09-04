@@ -45,6 +45,7 @@ import {
   IR_RETURN,
   IR_STORE_ELEMENT,
   IR_STORE_TEXT,
+  calleeSymbolName,
 } from "../../ir/index.js";
 import {
   AOT_CHAR_AT,
@@ -52,7 +53,7 @@ import {
   AOT_INT_TO_STRING,
   type AotStringBuffer,
 } from "../../analyses/aot-legality.js";
-import { calleeSymbolName } from "../../metadata/call-signatures.js";
+
 import { callThroughArguments, codeSymbolOf } from "../../analyses/aot-legality.js";
 import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
 import { doubleBits } from "../../target/float64.js";

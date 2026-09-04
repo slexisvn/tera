@@ -1,24 +1,33 @@
 import {
   irAwait,
   irCallKnownFunction,
+  irConstant,
   irNewArray,
   irReturn,
   CFGFunction,
   CFGInstruction,
+  type CFGBlock,
   IR_CALL_KNOWN_FUNCTION,
   IR_CONSTANT,
   IR_AWAIT,
   IR_GENERIC_CALL,
   IR_NEW_ARRAY,
   IR_RETURN,
-
+  IR_CALL_BUILTIN,
   IR_LOAD_GLOBAL,
+  calleeNameOf,
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
 import { compiledFunctionConstant } from "../ir/compiled-function.js";
 import type { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
-import { branchOnPendingThrow, takePendingThrow } from "../builder/throw-recovery.js";
-import { calleeNameOf } from "../metadata/call-signatures.js";
+import {
+  branchOnPendingThrow,
+  recordPendingThrow,
+  returnPendingThrow,
+  takePendingThrow,
+} from "../builder/throw-recovery.js";
+
+import { builtinIntrinsicByName } from "../metadata/builtin-methods.js";
 import { isUnwritten, type DeclaredSignature } from "../types/signature.js";
 import { inferTypes } from "../analyses/type-inference.js";
 import { joinTypes, TypeKind, type LatticeType } from "../types/lattice.js";
@@ -27,6 +36,21 @@ import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
 
 const PROMISE_GLOBAL = "Promise";
 const RESOLVE = "resolve";
+const REJECT = "reject";
+
+type Settle = (graph: CFGFunction, entry: CFGBlock, held: CFGInstruction) => void;
+
+const SETTLED_BY_MEMBER: ReadonlyMap<string, Settle> = new Map<string, Settle>([
+  [RESOLVE, (_graph, entry, held) => { entry.addNode(irReturn(held)); }],
+  [
+    REJECT,
+    (graph, entry, held) => {
+      graph.recoversThrows = true;
+      recordPendingThrow(entry, held);
+      returnPendingThrow(entry);
+    },
+  ],
+]);
 const THEN = "then";
 const CATCH = "catch";
 const ALL = "all";
@@ -76,9 +100,31 @@ function writtenNameOf(type: LatticeType, classes: ClassTable | null): string {
   return WRITTEN_BY_KIND.get(type.kind) ?? ANY_TYPE;
 }
 
+function settlesAValue(produced: CFGFunction): boolean {
+  return writtenReturnOf(produced) !== VOID_TYPE;
+}
+
+function voidIn(block: { addNode(node: CFGInstruction): CFGInstruction }): CFGInstruction {
+  return block.addNode(irConstant(undefined));
+}
+
+function calledBuiltinName(value: CFGInstruction): string | null {
+  if (value.type === IR_CALL_BUILTIN) {
+    return typeof value.props.name === "string" ? value.props.name : null;
+  }
+  return value.type === IR_GENERIC_CALL ? calleeNameOf(value) : null;
+}
+
+function answersNothing(value: CFGInstruction): boolean {
+  if (value.type === IR_CONSTANT && value.props.value === undefined) return true;
+  const name = calledBuiltinName(value);
+  if (name === null) return false;
+  return builtinIntrinsicByName(name)?.signature.returns === VOID_TYPE;
+}
+
 function writtenReturnOf(graph: CFGFunction): string {
   const declared = graph.declaredSignature?.returns;
-  if (!isUnwritten(declared)) return declared!;
+  if (!isUnwritten(declared) && declared !== ANY_TYPE) return declared!;
   const types = inferTypes(graph);
   let joined: LatticeType | null = null;
   for (const block of graph.blocks) {
@@ -86,7 +132,7 @@ function writtenReturnOf(graph: CFGFunction): string {
       if (node.type !== IR_RETURN) continue;
       const value = node.inputs[0];
       if (value === undefined) continue;
-      if (value.type === IR_CONSTANT && value.props.value === undefined) continue;
+      if (answersNothing(value)) continue;
       joined = joinTypes(joined, types.typeOf(value));
     }
   }
@@ -171,8 +217,9 @@ class PromiseSurface {
   private lower(owner: CFGFunction, editor: GraphEditor, node: CFGInstruction): void {
     const call = methodCallOf(node);
     if (call === null) return;
-    if (isPromiseGlobal(call.receiver) && call.member === RESOLVE) {
-      this.lowerResolve(owner, editor, call);
+    const settle = isPromiseGlobal(call.receiver) ? SETTLED_BY_MEMBER.get(call.member) : undefined;
+    if (settle !== undefined) {
+      this.lowerSettled(owner, editor, call, call.member, settle);
       return;
     }
     if (isPromiseGlobal(call.receiver) && call.member === ALL) {
@@ -184,19 +231,23 @@ class PromiseSurface {
     }
   }
 
-  private lowerResolve(owner: CFGFunction, editor: GraphEditor, call: MethodCall): void {
+  private lowerSettled(
+    owner: CFGFunction,
+    editor: GraphEditor,
+    call: MethodCall,
+    kind: string,
+    settle: (graph: CFGFunction, entry: CFGBlock, held: CFGInstruction) => void,
+  ): void {
     const value = call.args[0];
     if (value === undefined || call.args.length !== 1) return;
-    const graph = this.mint(RESOLVE);
+    const graph = this.mint(kind);
     const parameter = graph.addParameter(0);
-    const entry = graph.addBlock();
-    entry.addNode(irReturn(parameter));
+    settle(graph, graph.addBlock(), parameter);
     const written = writtenTypeOfConstant(value);
     graph.declaredSignature = { params: [written], returns: written };
     graph.rebuildUses();
 
-    const replacement = irCallKnownFunction(graph as never, [value]);
-    this.swap(owner, editor, call.node, replacement);
+    this.swap(owner, editor, call.node, irCallKnownFunction(graph as never, [value]));
   }
 
   private lowerAll(owner: CFGFunction, editor: GraphEditor, call: MethodCall): void {
@@ -258,18 +309,19 @@ class PromiseSurface {
     const awaited = irAwait(started);
     entry.addNode(awaited);
 
+    graph.recoversThrows = true;
+    const { taken, resumed } = branchOnPendingThrow(graph, entry);
     if (catches) {
-      graph.recoversThrows = true;
-      const { taken, resumed } = branchOnPendingThrow(graph, entry);
       const thrown = takePendingThrow(taken);
       const handled = irCallKnownFunction(callback as never, [thrown]);
       taken.addNode(handled);
       taken.addNode(irReturn(handled));
-      resumed.addNode(irReturn(awaited));
+      resumed.addNode(irReturn(settlesAValue(produced) ? awaited : voidIn(resumed)));
     } else {
+      returnPendingThrow(taken);
       const handed = irCallKnownFunction(callback as never, [awaited]);
-      entry.addNode(handed);
-      entry.addNode(irReturn(handed));
+      resumed.addNode(handed);
+      resumed.addNode(irReturn(handed));
     }
     const written = produced.declaredSignature?.params ?? [];
     graph.declaredSignature = {

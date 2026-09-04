@@ -25,6 +25,8 @@ type RegexPayload = {
   lastIndex?: number;
 };
 
+const SPLIT_LIMIT = 1;
+
 function regexPayload(value: TaggedValue): RegexPayload {
   return getPayload(value) as RegexPayload;
 }
@@ -161,7 +163,9 @@ export const STRING_METHODS = {
             ? (getPayload(args[0]) as string)
             : undefined;
       }
-      const parts = sep === undefined ? [str] : str.split(sep);
+      const given = integerArg(args, SPLIT_LIMIT, undefined);
+      const kept = given === undefined ? undefined : given >>> 0;
+      const parts = sep === undefined ? [str].slice(0, kept) : str.split(sep, kept);
       return mkArray(createJSArray(parts.map((p: string) => mkString(p))));
     },
   },

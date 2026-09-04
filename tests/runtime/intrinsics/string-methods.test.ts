@@ -107,6 +107,35 @@ describe("STRING_METHODS", () => {
       const parts = arrElements(result).map((v) => str(v));
       expect(parts).toEqual(["abc"]);
     });
+
+    it("keeps at most as many pieces as the limit allows", () => {
+      const result = callMethod("split", s("a,b,c,d"), s(","), mkSmi(2));
+      const parts = arrElements(result).map((v) => str(v));
+      expect(parts).toEqual(["a", "b"]);
+    });
+
+    it("answers nothing for a limit of zero", () => {
+      expect(arrElements(callMethod("split", s("a,b"), s(","), mkSmi(0)))).toEqual([]);
+      expect(arrElements(callMethod("split", s("abc"), undefined, mkSmi(0)))).toEqual([]);
+    });
+
+    it("reads a negative limit as no limit at all", () => {
+      const result = callMethod("split", s("a,b,c"), s(","), mkSmi(-1));
+      const parts = arrElements(result).map((v) => str(v));
+      expect(parts).toEqual(["a", "b", "c"]);
+    });
+
+    it("keeps the first characters when the separator is empty", () => {
+      const result = callMethod("split", s("wxyz"), s(""), mkSmi(2));
+      const parts = arrElements(result).map((v) => str(v));
+      expect(parts).toEqual(["w", "x"]);
+    });
+
+    it("leaves a limit past the pieces alone", () => {
+      const result = callMethod("split", s("a,b"), s(","), mkSmi(9));
+      const parts = arrElements(result).map((v) => str(v));
+      expect(parts).toEqual(["a", "b"]);
+    });
   });
 
   describe("replace/replaceAll", () => {

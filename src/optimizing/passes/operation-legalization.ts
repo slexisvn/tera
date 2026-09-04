@@ -53,14 +53,25 @@ const EXPANSIONS: ReadonlyMap<string, OperationExpansion> = new Map<
   OperationExpansion
 >([[IR_SELECT, expandSelect]]);
 
-function illegalIn(block: CFGBlock, legal: ReadonlySet<string>): CFGInstruction | null {
+export type ValueLegality = ReadonlyMap<string, (node: CFGInstruction) => boolean>;
+
+function illegalIn(
+  block: CFGBlock,
+  legal: ReadonlySet<string>,
+  admissible: ValueLegality,
+): CFGInstruction | null {
   for (const node of block.nodes) {
-    if (!legal.has(node.type) && EXPANSIONS.has(node.type)) return node;
+    if (!EXPANSIONS.has(node.type)) continue;
+    if (!legal.has(node.type)) return node;
+    if (admissible.get(node.type)?.(node) === false) return node;
   }
   return null;
 }
 
-export function legalizeOperations(graph: CFGFunction): number {
+export function legalizeOperations(
+  graph: CFGFunction,
+  admissible: ValueLegality,
+): number {
   const legal = graph.emits;
   if (legal === null) return 0;
   const stamp = nodeIdStamper(graph);
@@ -68,7 +79,7 @@ export function legalizeOperations(graph: CFGFunction): number {
   let rewritten = 0;
   while (pending.length > 0) {
     const block = pending.pop()!;
-    const node = illegalIn(block, legal);
+    const node = illegalIn(block, legal, admissible);
     if (node === null) continue;
     pending.push(block, ...EXPANSIONS.get(node.type)!(graph, node, stamp));
     rewritten++;

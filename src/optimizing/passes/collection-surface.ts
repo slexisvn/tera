@@ -18,16 +18,18 @@ import {
   IR_RETURN,
   type CFGFunction,
   type CFGInstruction,
+  calleeSymbolName,
+  genericCalleeName,
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
-import { calleeSymbolName } from "../metadata/call-signatures.js";
+
 import type { ClassTable } from "../metadata/class-table.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { producedTypeName } from "./array-shapes.js";
 import { memberCallTargets } from "./class-member-lowering.js";
-import { genericCalleeName } from "../metadata/call-signatures.js";
+
 import {
   mapClassName,
   setClassName,

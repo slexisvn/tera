@@ -4,6 +4,7 @@ import {
   PACKED_TAGGED,
 } from "../../objects/elements/elements-kind.js";
 import {
+  acceptsNull,
   anyType,
   doubleType,
   smiType,
@@ -44,7 +45,9 @@ const REP_BY_KIND = new Map<string, ElementRep>([
 ]);
 
 export function elementsKindFor(element: LatticeType): string {
-  return KIND_BY_TYPE.get(element.kind) ?? PACKED_TAGGED;
+  const packed = KIND_BY_TYPE.get(element.kind);
+  if (packed === undefined) return PACKED_TAGGED;
+  return acceptsNull(element) ? PACKED_DOUBLE : packed;
 }
 
 export function latticeFromElementsKind(kind: unknown): LatticeType {

@@ -96,6 +96,18 @@ import {
   type WasmMemoryLayout,
 } from "./memory-layout.js";
 import { elementsKindId, elementsKindName } from "./object-layout.js";
+
+const READS_A_RECEIVER: ReadonlySet<string> = new Set<string>([
+  ir.IR_GENERIC_GET_PROP,
+  ir.IR_GENERIC_SET_PROP,
+  ir.IR_CHECK_MAP,
+  ir.IR_GENERIC_GET_INDEX,
+  ir.IR_GENERIC_SET_INDEX,
+]);
+
+function holdsTheReceiver(value: ir.CFGInstruction | undefined): boolean {
+  return value?.type === ir.IR_CONSTANT && value.props.isThis === true;
+}
 import {
   metadataString,
   metadataNumber,
@@ -461,21 +473,11 @@ export class WasmCodegen {
         ) {
           return speculation("number guard on non-parameter handle value");
         }
-        if (
-          (node.type === ir.IR_GENERIC_GET_PROP ||
-            node.type === ir.IR_GENERIC_SET_PROP ||
-            node.type === ir.IR_GENERIC_DELETE_PROP ||
-            node.type === ir.IR_LOAD_FIELD ||
-            node.type === ir.IR_STORE_FIELD ||
-            node.type === ir.IR_CHECK_MAP ||
-            node.type === ir.IR_GENERIC_GET_INDEX ||
-            node.type === ir.IR_GENERIC_SET_INDEX) &&
-          node.inputs[0] &&
-          node.inputs[0].type === ir.IR_CONSTANT &&
-          node.inputs[0].props &&
-          node.inputs[0].props.isThis
-        ) {
+        if (READS_A_RECEIVER.has(node.type) && holdsTheReceiver(node.inputs[0])) {
           return unsupported("property access on this receiver");
+        }
+        if (node.type === ir.IR_RETURN && holdsTheReceiver(node.inputs[0])) {
+          return unsupported("handing back this receiver");
         }
         if (node.type === ir.IR_RETURN) hasReturn = true;
         if (

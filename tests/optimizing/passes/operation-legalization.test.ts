@@ -15,10 +15,20 @@ import {
 } from "../../../src/optimizing/ir/index.js";
 import { AOT_OPCODES, analyzeAotLegality } from "../../../src/optimizing/analyses/aot-legality.js";
 import { AnalysisManager } from "../../../src/optimizing/infra/analysis-manager.js";
+import { pointsToAnalysisId } from "../../../src/optimizing/analyses/points-to.js";
 import { createAnalysisRegistry } from "../../../src/optimizing/analyses/index.js";
 import { typeInferenceAnalysisId } from "../../../src/optimizing/analyses/type-inference.js";
-import { legalizeOperations } from "../../../src/optimizing/passes/operation-legalization.js";
+import {
+  legalizeOperations,
+  type ValueLegality,
+} from "../../../src/optimizing/passes/operation-legalization.js";
+
 import { validateGraphInvariants } from "../../../src/optimizing/validation/graph-validator.js";
+
+const EVERY_VALUE: ValueLegality = new Map();
+
+const admitting = (admits: (node: CFGInstruction) => boolean): ValueLegality =>
+  new Map([[IR_SELECT, admits]]);
 
 beforeEach(() => resetIRNodeIds());
 
@@ -67,7 +77,11 @@ function nodesOf(graph: CFGFunction): CFGInstruction[] {
 
 function legalityOf(graph: CFGFunction) {
   const analyses = new AnalysisManager(graph, createAnalysisRegistry());
-  return analyzeAotLegality(graph, analyses.get(typeInferenceAnalysisId));
+  return analyzeAotLegality(
+    graph,
+    analyses.get(typeInferenceAnalysisId),
+    analyses.get(pointsToAnalysisId),
+  );
 }
 
 describe("operation legalization", () => {
@@ -75,14 +89,14 @@ describe("operation legalization", () => {
     const { graph, select } = chooses();
     graph.emits = WITH_SELECT;
 
-    expect(legalizeOperations(graph)).toBe(0);
+    expect(legalizeOperations(graph, EVERY_VALUE)).toBe(0);
     expect(nodesOf(graph)).toContain(select);
   });
 
   it("does nothing when no target has named its opcodes", () => {
     const { graph, select } = chooses();
 
-    expect(legalizeOperations(graph)).toBe(0);
+    expect(legalizeOperations(graph, EVERY_VALUE)).toBe(0);
     expect(nodesOf(graph)).toContain(select);
   });
 
@@ -90,7 +104,7 @@ describe("operation legalization", () => {
     const { graph, entry, raised, lowered } = chooses();
     graph.emits = WITHOUT_SELECT;
 
-    expect(legalizeOperations(graph)).toBe(1);
+    expect(legalizeOperations(graph, EVERY_VALUE)).toBe(1);
 
     expect(nodesOf(graph).filter((node) => node.type === IR_SELECT)).toEqual([]);
     expect(entry.successors).toHaveLength(2);
@@ -108,7 +122,7 @@ describe("operation legalization", () => {
   it("keeps the graph well formed and every node id its own", () => {
     const { graph } = chooses();
     graph.emits = WITHOUT_SELECT;
-    legalizeOperations(graph);
+    legalizeOperations(graph, EVERY_VALUE);
 
     expect(() => validateGraphInvariants(graph)).not.toThrow();
   });
@@ -117,7 +131,7 @@ describe("operation legalization", () => {
     const { graph } = chooses(3);
     graph.emits = WITHOUT_SELECT;
 
-    expect(legalizeOperations(graph)).toBe(3);
+    expect(legalizeOperations(graph, EVERY_VALUE)).toBe(3);
     expect(nodesOf(graph).filter((node) => node.type === IR_SELECT)).toEqual([]);
     expect(nodesOf(graph).filter((node) => node.type === IR_PHI)).toHaveLength(3);
     expect(() => validateGraphInvariants(graph)).not.toThrow();
@@ -132,8 +146,25 @@ describe("operation legalization", () => {
 
     const rewritten = chooses();
     rewritten.graph.emits = WITHOUT_SELECT;
-    legalizeOperations(rewritten.graph);
+    legalizeOperations(rewritten.graph, EVERY_VALUE);
 
     expect(legalityOf(rewritten.graph).ok).toBe(true);
+  });
+  it("expands a select the target admits for one scalar but not the value's own", () => {
+    const { graph, select } = chooses();
+    graph.emits = WITH_SELECT;
+
+    expect(legalizeOperations(graph, admitting((merged) => merged !== select))).toBe(1);
+    expect(nodesOf(graph).filter((node) => node.type === IR_SELECT)).toEqual([]);
+    expect(nodesOf(graph).filter((node) => node.type === IR_PHI)).toHaveLength(1);
+    expect(() => validateGraphInvariants(graph)).not.toThrow();
+  });
+
+  it("leaves a select the target admits for the value at hand", () => {
+    const { graph } = chooses();
+    graph.emits = WITH_SELECT;
+
+    expect(legalizeOperations(graph, admitting(() => true))).toBe(0);
+    expect(nodesOf(graph).filter((node) => node.type === IR_SELECT)).toHaveLength(1);
   });
 });

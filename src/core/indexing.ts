@@ -24,3 +24,32 @@ export function normalizeIndex(value: number, length: number): number {
   if (!Number.isInteger(value)) throw new RangeError("Index must be an integer");
   return value < 0 ? value + length : value;
 }
+
+const COMPLEMENT: ReadonlyMap<string, string> = new Map<string, string>([
+  [">", "<="],
+  [">=", "<"],
+  ["<", ">="],
+  ["<=", ">"],
+  ["==", "!="],
+  ["!=", "=="],
+  ["===", "!=="],
+  ["!==", "==="],
+  ["loose==", "loose!="],
+  ["loose!=", "loose=="],
+]);
+
+const PROVES_SOME: ReadonlyMap<string, (bound: number) => boolean> = new Map([
+  [">", (bound: number) => bound >= 0],
+  [">=", (bound: number) => bound >= 1],
+  ["==", (bound: number) => bound >= 1],
+  ["===", (bound: number) => bound >= 1],
+  ["loose==", (bound: number) => bound >= 1],
+  ["!=", (bound: number) => bound === 0],
+  ["!==", (bound: number) => bound === 0],
+  ["loose!=", (bound: number) => bound === 0],
+]);
+
+export function countProvesSome(op: string, bound: number, negated = false): boolean {
+  const read = negated ? COMPLEMENT.get(op) : op;
+  return read === undefined ? false : PROVES_SOME.get(read)?.(bound) === true;
+}

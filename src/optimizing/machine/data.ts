@@ -1,4 +1,5 @@
 import type { MachineDatum } from "./ir.js";
+import { byteEscapedLiteral } from "../target/text-literal.js";
 
 export type MachineDataItem =
   | { readonly kind: "integer"; readonly value: bigint; readonly size: number }
@@ -65,23 +66,10 @@ export function machineDataSize(items: readonly MachineDataItem[]): number {
   return items.reduce((total, item) => total + dataItemSize(item), 0);
 }
 
-function asciiLiteral(value: string): string {
-  let out = '"';
-  for (const character of value) {
-    const code = character.codePointAt(0)!;
-    if (character === '"' || character === "\\") out += `\\${character}`;
-    else if (character === "\n") out += "\\n";
-    else if (character === "\t") out += "\\t";
-    else if (code < 0x20) out += `\\${code.toString(8).padStart(3, "0")}`;
-    else out += character;
-  }
-  return `${out}"`;
-}
-
 export function dataItemText(item: MachineDataItem): string {
   if (item.kind === "zero") return `\t.zero ${item.size}`;
   if (item.kind === "ascii") {
-    return `\t${item.terminated ? ".asciz" : ".ascii"} ${asciiLiteral(item.text)}`;
+    return `\t${item.terminated ? ".asciz" : ".ascii"} ${byteEscapedLiteral(item.text)}`;
   }
   const directive = INTEGER_DIRECTIVES.get(item.size);
   if (directive === undefined) throw new Error(`no data directive for ${item.size} bytes`);

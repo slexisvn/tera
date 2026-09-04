@@ -2,6 +2,10 @@ import {
   CFGInstruction as IRNode,
   IR_CALL_KNOWN_FUNCTION,
   IR_CONSTANT,
+  IR_BRANCH,
+  IR_GENERIC_GET_PROP,
+  IR_INT32_COMPARE,
+  IR_LOAD_ARRAY_LENGTH,
   IR_LOAD_GLOBAL,
   IR_SPREAD_ELEMENTS,
   irBranch,
@@ -18,6 +22,7 @@ import {
   irLoadElement,
   irStoreElement,
   memberCalled,
+  writesMemory,
   type CFGBlock,
   type CFGFunction,
   type CFGInstruction,
@@ -25,10 +30,12 @@ import {
 } from "../ir/index.js";
 import { addPhi, connect, link, splitBlockBefore } from "../ir/cfg-edit.js";
 import { compiledFunctionConstant } from "../ir/compiled-function.js";
+import { countProvesSome } from "../../core/indexing.js";
 import { functionTargetOf } from "../metadata/module-functions.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
 import type { TypeInference } from "../analyses/type-inference.js";
+import { DominatorTree } from "../analyses/dominance.js";
 import type { DeclaredSignature } from "../types/signature.js";
 import { nominalLatticeType } from "../types/declared.js";
 import {
@@ -45,6 +52,7 @@ import {
   type ArrayModel,
 } from "./array-shapes.js";
 import { append, constantAt, faultWhen, type Stamp } from "./guards.js";
+import { spreadsArguments } from "./spread-calls.js";
 import { ARRAY_LENGTH_OFFSET } from "../metadata/class-table.js";
 import {
   builtinMethodCallMetadata,
@@ -54,6 +62,7 @@ import {
 import { doubleType, smiType, stringType, type LatticeType } from "../types/lattice.js";
 import {
   aotScalarOf,
+  isNumericScalar,
   SCALAR_FLOAT64,
   SCALAR_INT32,
   SCALAR_POINTER,
@@ -477,6 +486,22 @@ function describedLoad(
   return load;
 }
 
+function describedStore(
+  site: Site,
+  anchor: CFGInstruction,
+  buffer: CFGInstruction,
+  index: CFGInstruction,
+  value: CFGInstruction,
+): CFGInstruction {
+  return elementAccess(
+    site.editor,
+    anchor,
+    irStoreElement(buffer, index, value),
+    site.model,
+    site.stamp,
+  );
+}
+
 function faultWhenEmpty(site: Site, message: string): CFGInstruction {
   const { graph, editor, node, model, stamp } = site;
   const array = node.inputs[1]!;
@@ -500,12 +525,12 @@ function lowerShift(site: Site): boolean {
   const { editor, node, model, stamp } = site;
   const array = node.inputs[1]!;
 
-  const length = faultWhenEmpty(site, EMPTY_SHIFT);
+  const take = takeFrom(site, EMPTY_SHIFT);
   const step = constantAt(editor, node, STEP, stamp);
   const front = constantAt(editor, node, FIRST_INDEX, stamp);
   const held = describedLoad(site, node, loadBuffer(editor, node, array, model, stamp), front);
   const taken = detachedText(site, held, (added) => editor.insertBefore(node, added));
-  const shorter = shortenedBy(site, length, step);
+  const shorter = shortenedBy(site, take.length, step);
 
   const scan = openScan(site, () => shorter);
   const following = offsetBy(site, scan.body, scan.cursor, step, true);
@@ -517,8 +542,169 @@ function lowerShift(site: Site): boolean {
   connect(scan.exhausted, scan.after);
 
   storeCount(editor, node, array, ARRAY_LENGTH_OFFSET, shorter, model, stamp);
-  replaceWith(site, taken, []);
+  replaceWith(site, take.finish(taken), []);
   return true;
+}
+
+function insertAt(
+  site: Site,
+  array: CFGInstruction,
+  index: CFGInstruction,
+  value: CFGInstruction,
+): CFGInstruction {
+  const { editor, node, model, stamp } = site;
+
+  const before = loadCount(editor, node, array, ARRAY_LENGTH_OFFSET, model, stamp);
+  const longer = pushElement(editor, node, array, value, model, stamp);
+  const step = constantAt(editor, node, STEP, stamp);
+  const moving = shortenedBy(site, before, index);
+
+  const scan = openScan(site, () => moving, null, { array, model });
+  const target = offsetBy(site, scan.body, before, scan.cursor, false);
+  const source = offsetBy(site, scan.body, target, step, false);
+  const moved = appendLoad(site, scan.body, scan.buffer, source);
+  appendStore(site, scan.body, scan.buffer, target, moved);
+  append(scan.body, irJump(scan.advance), stamp);
+  link(scan.body, scan.advance);
+  append(scan.exhausted, irJump(scan.after), stamp);
+  connect(scan.exhausted, scan.after);
+
+  describedStore(site, node, scan.buffer, index, value);
+  return longer;
+}
+
+function lowerUnshift(site: Site): boolean {
+  const args = argumentsOf(site.node);
+  if (args.length !== ONE_ARGUMENT) return false;
+  const front = constantAt(site.editor, site.node, FIRST_INDEX, site.stamp);
+
+  replaceWith(site, insertAt(site, site.node.inputs[1]!, front, args[0]!), []);
+  return true;
+}
+
+function absentAt(site: Site, before: CFGInstruction): CFGInstruction {
+  const constant = site.stamp(irConstant(undefined));
+  site.editor.insertBefore(before, constant);
+  return constant;
+}
+
+interface Drain {
+  readonly length: CFGInstruction;
+  readonly absent: CFGInstruction;
+  readonly empty: CFGBlock;
+}
+
+function openDrain(site: Site): Drain {
+  const { graph, editor, node, model, stamp } = site;
+  const array = node.inputs[1]!;
+
+  const length = loadCount(editor, node, array, ARRAY_LENGTH_OFFSET, model, stamp);
+  const none = constantAt(editor, node, EMPTY_LENGTH, stamp);
+  const absent = absentAt(site, node);
+  const drained = stamp(irInt32Compare(EQUALS, length, none));
+  editor.insertBefore(node, drained);
+
+  const entry = node.block!;
+  const taken = splitBlockBefore(graph, entry, node);
+  const empty = graph.addBlock();
+  append(entry, irBranch(drained, empty, taken), stamp);
+  link(entry, empty);
+  link(entry, taken);
+
+  return { length, absent, empty };
+}
+
+function closeDrain(site: Site, drain: Drain, value: CFGInstruction): CFGInstruction {
+  const { graph, node, stamp } = site;
+  const end = node.block!;
+  const join = splitBlockBefore(graph, end, node);
+
+  append(end, irJump(join), stamp);
+  append(drain.empty, irJump(join), stamp);
+  const answer = stamp(addPhi(join));
+  connect(end, join, [value]);
+  connect(drain.empty, join, [drain.absent]);
+  return answer;
+}
+
+const LENGTH_MEMBER = "length";
+function readsLengthOf(value: CFGInstruction | undefined, array: CFGInstruction): boolean {
+  if (value === undefined) return false;
+  if (value.type === IR_LOAD_ARRAY_LENGTH) return value.inputs[0] === array;
+  return (
+    value.type === IR_GENERIC_GET_PROP &&
+    value.props.propName === LENGTH_MEMBER &&
+    value.inputs[0] === array
+  );
+}
+
+function boundOf(value: CFGInstruction | undefined): number | null {
+  if (value === undefined || value.type !== IR_CONSTANT) return null;
+  const held = value.props.value;
+  return typeof held === "number" && Number.isInteger(held) ? held : null;
+}
+
+function nonEmptyArm(condition: CFGInstruction, array: CFGInstruction): boolean | null {
+  if (condition.type !== IR_INT32_COMPARE) return null;
+  const [left, right] = condition.inputs;
+  if (!readsLengthOf(left, array)) return null;
+  const bound = boundOf(right);
+  if (bound === null) return null;
+  const operator = String(condition.props.op);
+  if (countProvesSome(operator, bound)) return true;
+  return countProvesSome(operator, bound, true) ? false : null;
+}
+
+function mayShorten(node: CFGInstruction, array: CFGInstruction, taking: CFGInstruction): boolean {
+  return node !== taking && writesMemory(node) && node.inputs.includes(array);
+}
+
+function shortenedElsewhere(site: Site, array: CFGInstruction): boolean {
+  for (const block of site.graph.blocks) {
+    for (const node of block.nodes) {
+      if (mayShorten(node, array, site.node)) return true;
+    }
+  }
+  return false;
+}
+
+function provenNonEmpty(site: Site): boolean {
+  const reached = site.node.block;
+  const array = site.node.inputs[1];
+  if (reached === null || array === undefined) return false;
+  if (shortenedElsewhere(site, array)) return false;
+  let dominance: DominatorTree | null = null;
+  for (const block of site.graph.blocks) {
+    const branch = block.nodes[block.nodes.length - 1];
+    if (branch === undefined || branch.type !== IR_BRANCH) continue;
+    const condition = branch.inputs[0];
+    if (condition === undefined) continue;
+    const arm = nonEmptyArm(condition, array);
+    if (arm === null) continue;
+    const wanted = arm ? branch.props.trueBlock : branch.props.falseBlock;
+    const proving = block.successors.find((successor) => successor.id === wanted);
+    if (proving === undefined) continue;
+    dominance ??= new DominatorTree(site.graph);
+    if (dominance.dominates(proving, reached)) return true;
+  }
+  return false;
+}
+
+function answersAbsence(site: Site): boolean {
+  return isNumericScalar(site.model.element) && !provenNonEmpty(site);
+}
+
+interface Take {
+  readonly length: CFGInstruction;
+  readonly finish: (value: CFGInstruction) => CFGInstruction;
+}
+
+function takeFrom(site: Site, empty: string): Take {
+  if (!answersAbsence(site)) {
+    return { length: faultWhenEmpty(site, empty), finish: (value) => value };
+  }
+  const drain = openDrain(site);
+  return { length: drain.length, finish: (value) => closeDrain(site, drain, value) };
 }
 
 function lowerPop(site: Site): boolean {
@@ -526,17 +712,16 @@ function lowerPop(site: Site): boolean {
   const { editor, node, model, stamp } = site;
   const array = node.inputs[1]!;
 
-  const length = faultWhenEmpty(site, EMPTY_POP);
+  const take = takeFrom(site, EMPTY_POP);
   const step = constantAt(editor, node, STEP, stamp);
-
-  const last = stamp(irInt32Sub(length, step));
+  const last = stamp(irInt32Sub(take.length, step));
   last.props.noOverflow = true;
   editor.insertBefore(node, last);
   const buffer = loadBuffer(editor, node, array, model, stamp);
   const value = describedLoad(site, node, buffer, last);
   storeCount(editor, node, array, ARRAY_LENGTH_OFFSET, last, model, stamp);
 
-  replaceWith(site, value, []);
+  replaceWith(site, take.finish(value), []);
   return true;
 }
 
@@ -980,6 +1165,83 @@ function appendedInto(
   connect(scan.exhausted, scan.after);
 }
 
+function clampedBetween(
+  site: Site,
+  value: CFGInstruction,
+  length: CFGInstruction,
+): CFGInstruction {
+  const origin = constantAt(site.editor, site.node, FIRST_INDEX, site.stamp);
+  const behind = comparedAt(site, LESS_THAN, value, origin);
+  const held = chooseAt(site, behind, origin, value);
+  return chooseAt(site, comparedAt(site, GREATER_THAN, held, length), length, held);
+}
+
+function spliceOrigin(
+  site: Site,
+  given: CFGInstruction,
+  length: CFGInstruction,
+): CFGInstruction {
+  return sliceBound(site, given, length, (bound) => clampedBetween(site, bound, length));
+}
+
+function spliceEnd(
+  site: Site,
+  given: CFGInstruction | undefined,
+  origin: CFGInstruction,
+  length: CFGInstruction,
+): CFGInstruction {
+  if (given === undefined) return length;
+  const wanted = summedAt(site, origin, clampedBetween(site, given, length));
+  return chooseAt(site, comparedAt(site, GREATER_THAN, wanted, length), length, wanted);
+}
+
+function lowerSplice(site: Site): boolean {
+  const args = argumentsOf(site.node);
+  if (args.length === NO_ARGUMENTS) return false;
+
+  const { editor, node, model, stamp } = site;
+  const array = node.inputs[1]!;
+  const length = loadCount(editor, node, array, ARRAY_LENGTH_OFFSET, model, stamp);
+  const origin = spliceOrigin(site, args[0]!, length);
+  const end = spliceEnd(site, args[1], origin, length);
+  const removed = shortenedBy(site, end, origin);
+
+  const taken = emptyArray(editor, node, model, stamp);
+  const gathering = openScan(site, () => end, () => origin);
+  const element = appendLoad(site, gathering.body, gathering.buffer, gathering.cursor);
+  collectedInto(site, gathering, gathering.body, taken, element, model);
+  append(gathering.exhausted, irJump(gathering.after), stamp);
+  connect(gathering.exhausted, gathering.after);
+
+  const closing = openScan(site, () => length, () => end);
+  const moved = appendLoad(site, closing.body, closing.buffer, closing.cursor);
+  const settled = offsetBy(site, closing.body, closing.cursor, removed, false);
+  appendStore(site, closing.body, closing.buffer, settled, moved);
+  append(closing.body, irJump(closing.advance), stamp);
+  link(closing.body, closing.advance);
+  append(closing.exhausted, irJump(closing.after), stamp);
+  connect(closing.exhausted, closing.after);
+
+  storeCount(
+    editor,
+    node,
+    array,
+    ARRAY_LENGTH_OFFSET,
+    shortenedBy(site, length, removed),
+    model,
+    stamp,
+  );
+
+  const inserted = args.slice(ORDERED_PAIR);
+  for (let offset = 0; offset < inserted.length; offset++) {
+    const at = summedAt(site, origin, constantAt(editor, node, offset, stamp));
+    insertAt(site, array, at, inserted[offset]!);
+  }
+
+  replaceWith(site, taken, []);
+  return true;
+}
+
 function lowerConcat(site: Site): boolean {
   const args = argumentsOf(site.node);
   if (args.length !== ONE_ARGUMENT) return false;
@@ -1010,6 +1272,8 @@ const LOWERINGS: ReadonlyMap<string, Lowering> = new Map<string, Lowering>([
   ["map", lowerMap],
   ["pop", lowerPop],
   ["shift", lowerShift],
+  ["unshift", lowerUnshift],
+  ["splice", lowerSplice],
   ["reverse", lowerReverse],
   ["sort", lowerSort],
   ["join", lowerJoin],
@@ -1047,6 +1311,7 @@ export function lowerArrayMethods(graph: CFGFunction, types: TypeInference): num
     const block = graph.blocks[index]!;
     for (const node of [...block.nodes]) {
       if (node.block !== block) continue;
+      if (spreadsArguments(node)) continue;
       const model = arrayModelOf(node.inputs[1], graph, classes, types);
       if (model === null) continue;
       if (node.type === IR_SPREAD_ELEMENTS) {

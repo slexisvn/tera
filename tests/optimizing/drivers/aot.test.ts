@@ -19,6 +19,7 @@ import type {
   BackendArtifact,
 } from "../../../src/optimizing/target/artifact.js";
 import { BackendLoweringError } from "../../../src/optimizing/target/errors.js";
+import { NARROW_TEXT } from "../../../src/optimizing/analyses/wide-text.js";
 
 interface TextModuleArtifact extends BackendArtifact {
   readonly kind: "text-module";
@@ -31,7 +32,7 @@ function isTextModule(artifact: BackendArtifact): artifact is TextModuleArtifact
 
 beforeEach(() => resetIRNodeIds());
 
-function returnsConstant(name: string, value: number): CFGFunction {
+function returnsConstant(name: string, value: number | string): CFGFunction {
   const graph = new CFGFunction(name);
   const block = graph.addBlock();
   const constant = irConstant(value);
@@ -264,5 +265,44 @@ describe("what compileModule tells the backend to link", () => {
 
     expect(program.compiled.map((fn) => fn.name)).toEqual(["one", "two"]);
     expect(program.skipped).toEqual([]);
+  });
+});
+
+const OUTSIDE_ASCII = "Xin chào";
+const INSIDE_ASCII = "hello";
+
+describe("what compileModule tells every graph about the width of its text", () => {
+  it("stamps a module whose escaping text leaves ASCII as wide", () => {
+    const greets = returnsConstant("greets", OUTSIDE_ASCII);
+
+    compileModule(moduleFromGraphs([greets], "module"), textModuleBackend());
+
+    expect(greets.wideText?.escapes).toBe(true);
+  });
+
+  it("names the function whose text got away as the reason", () => {
+    const greets = returnsConstant("greets", OUTSIDE_ASCII);
+
+    compileModule(moduleFromGraphs([greets], "module"), textModuleBackend());
+
+    expect(greets.wideText?.reason).toBe("greets");
+  });
+
+  it("leaves a module whose text is all ASCII narrow", () => {
+    const greets = returnsConstant("greets", INSIDE_ASCII);
+
+    compileModule(moduleFromGraphs([greets], "module"), textModuleBackend());
+
+    expect(greets.wideText).toBe(NARROW_TEXT);
+  });
+
+  it("stamps the one module-wide answer on a graph that spells no text of its own", () => {
+    const greets = returnsConstant("greets", OUTSIDE_ASCII);
+    const answer = returnsConstant("answer", 42);
+
+    compileModule(moduleFromGraphs([greets, answer], "module"), textModuleBackend());
+
+    expect(answer.wideText).toBe(greets.wideText);
+    expect(answer.wideText?.escapes).toBe(true);
   });
 });

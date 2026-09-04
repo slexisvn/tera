@@ -1,19 +1,23 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   CFGFunction,
+  irBranch,
   irConstant,
   irGenericCall,
   irGenericGetProp,
   irGenericSetProp,
   irGenericGetIndex,
   irGenericSetIndex,
+  irJump,
   irNewArray,
   irNewObject,
   irReturn,
   resetIRNodeIds,
   IR_NEW_ARRAY,
+  type CFGBlock,
   type CFGInstruction,
 } from "../../../src/optimizing/ir/index.js";
+import { addPhi, link } from "../../../src/optimizing/ir/cfg-edit.js";
 import { AnalysisManager } from "../../../src/optimizing/infra/analysis-manager.js";
 import {
   createAnalysisRegistry,
@@ -22,6 +26,7 @@ import {
 import {
   buildClassTable,
   CLASS_ID_PROP,
+  FIELD_SCALAR_PROP,
   FIELD_TYPE_PROP,
   INSTANCE_SIZE_PROP,
   literalShapeSurface,
@@ -29,7 +34,11 @@ import {
   type ClassTable,
 } from "../../../src/optimizing/metadata/class-table.js";
 import { nominalLatticeType } from "../../../src/optimizing/types/declared.js";
-import { SCALAR_INT32 } from "../../../src/optimizing/types/scalar.js";
+import {
+  SCALAR_FLOAT64,
+  SCALAR_INT32,
+  type AotScalar,
+} from "../../../src/optimizing/types/scalar.js";
 import {
   arrayElementNameOf,
   arrayModelForDeclaredType,
@@ -42,6 +51,17 @@ import {
 beforeEach(() => resetIRNodeIds());
 
 const table = (): ClassTable => buildClassTable([]);
+
+const inferred = (graph: CFGFunction) =>
+  new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId);
+
+const shapeArrays = (graph: CFGFunction): number => shapeArrayAllocations(graph, inferred(graph));
+
+const modelOf = (graph: CFGFunction, value: CFGInstruction) =>
+  arrayModelOf(value, graph, graph.classes!, inferred(graph));
+
+const elementNameOf = (graph: CFGFunction, array: CFGInstruction) =>
+  arrayElementNameOf(array, graph, graph.classes!, inferred(graph));
 
 describe("arrayModelForDeclaredType", () => {
   it("carries an int array's element as a scalar with no element shape", () => {
@@ -93,6 +113,63 @@ describe("ClassTable.defineArray", () => {
 
     expect(classes.arrayLayoutOf(shape)?.declaredType).toBe("int");
   });
+
+  it("keeps an element that admits an absence apart from the one that does not", () => {
+    const classes = table();
+    const plain = classes.defineArray(nominalLatticeType("int", classes))!;
+    const maybe = classes.defineArray(nominalLatticeType("int | null", classes))!;
+
+    expect(maybe.id).not.toBe(plain.id);
+  });
+
+  it("lays a nullable numeric element out as a double, leaving the plain one an int", () => {
+    const classes = table();
+    const plain = classes.defineArray(nominalLatticeType("int", classes))!;
+    const maybe = classes.defineArray(nominalLatticeType("int | null", classes))!;
+
+    expect(classes.arrayLayoutOf(maybe)?.element).toBe(SCALAR_FLOAT64);
+    expect(classes.arrayLayoutOf(plain)?.element).toBe(SCALAR_INT32);
+  });
+});
+
+describe("shapeArrayAllocations over a literal that holds an absence", () => {
+  function literal(returns: string, held: readonly (number | null)[]) {
+    const graph = new CFGFunction("held");
+    graph.declaredSignature = { params: [], returns };
+    graph.classes = table();
+    const block = graph.addBlock();
+    const values = held.map((value) => block.addNode(irConstant(value)));
+    const array = block.addNode(irNewArray(values));
+    block.addNode(irReturn(array));
+    graph.rebuildUses();
+    return { graph, array };
+  }
+
+  const storedAs = (graph: CFGFunction, scalar: AotScalar): number =>
+    graph.blocks
+      .flatMap((block) => block.nodes)
+      .filter((node) => node.props[FIELD_SCALAR_PROP] === scalar).length;
+
+  it("shapes a numeric literal one of whose elements is absent", () => {
+    const { graph } = literal("(int | null)[]", [1, null]);
+
+    expect(shapeArrays(graph)).toBe(1);
+  });
+
+  it("stores every element as a double, which is what carries the absence", () => {
+    const held = [1, null, 3];
+    const { graph } = literal("(int | null)[]", held);
+    shapeArrays(graph);
+
+    expect(storedAs(graph, SCALAR_FLOAT64)).toBe(held.length);
+  });
+
+  it("leaves a literal of plain ints packed as ints", () => {
+    const { graph } = literal("int[]", [1, 2]);
+
+    expect(shapeArrays(graph)).toBe(1);
+    expect(storedAs(graph, SCALAR_FLOAT64)).toBe(0);
+  });
 });
 
 describe("shapeArrayAllocations over nested literals", () => {
@@ -110,21 +187,15 @@ describe("shapeArrayAllocations over nested literals", () => {
     return { graph, outer, inner };
   }
 
-  const shape = (graph: CFGFunction): number =>
-    shapeArrayAllocations(
-      graph,
-      new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
-    );
-
   it("shapes both the inner and the outer allocation", () => {
     const { graph } = nestedLiteral();
 
-    expect(shape(graph)).toBe(2);
+    expect(shapeArrays(graph)).toBe(2);
   });
 
   it("replaces every array literal with a shaped allocation", () => {
     const { graph } = nestedLiteral();
-    shape(graph);
+    shapeArrays(graph);
 
     const remaining = graph.blocks
       .flatMap((block) => block.nodes)
@@ -134,7 +205,7 @@ describe("shapeArrayAllocations over nested literals", () => {
 
   it("stores the inner elements as ints and the outer element as an int array", () => {
     const { graph } = nestedLiteral();
-    shape(graph);
+    shapeArrays(graph);
 
     const stored = new Set(
       graph.blocks
@@ -176,21 +247,15 @@ describe("shapeArrayAllocations over record literals that disagree", () => {
     return { graph, records: [whole, fractional] };
   }
 
-  const shape = (graph: CFGFunction): number =>
-    shapeArrayAllocations(
-      graph,
-      new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
-    );
-
   it("shapes the array holding records that name their field differently", () => {
     const { graph } = mixedRecords();
 
-    expect(shape(graph)).toBe(1);
+    expect(shapeArrays(graph)).toBe(1);
   });
 
   it("moves both records onto one shape so the array holds a single layout", () => {
     const { graph, records } = mixedRecords();
-    shape(graph);
+    shapeArrays(graph);
 
     const adopted = new Set(records.map((record) => record.props[VALUE_CLASS_PROP]));
     expect(adopted.size).toBe(1);
@@ -198,7 +263,7 @@ describe("shapeArrayAllocations over record literals that disagree", () => {
 
   it("adopts the widened shape rather than either record's own", () => {
     const { graph, records } = mixedRecords();
-    shape(graph);
+    shapeArrays(graph);
 
     const adopted = graph.classes!.shapeById(records[0]!.props[VALUE_CLASS_PROP] as number)!;
     expect(adopted.fields.get("h")?.declaredType).toBe("float");
@@ -206,7 +271,7 @@ describe("shapeArrayAllocations over record literals that disagree", () => {
 
   it("keeps each record's instance size in step with the shape it adopted", () => {
     const { graph, records } = mixedRecords();
-    shape(graph);
+    shapeArrays(graph);
 
     const adopted = graph.classes!.shapeById(records[0]!.props[VALUE_CLASS_PROP] as number)!;
     expect(records.map((record) => record.props[INSTANCE_SIZE_PROP])).toEqual([
@@ -230,14 +295,6 @@ describe("arrayModelOf over what an array method answers", () => {
     graph.rebuildUses();
     return { graph, call };
   }
-
-  const modelOf = (graph: CFGFunction, call: CFGInstruction) =>
-    arrayModelOf(
-      call,
-      graph,
-      graph.classes!,
-      new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
-    );
 
   for (const member of ["concat", "slice", "filter", "reverse", "sort"]) {
     it(`carries the receiver's element through ${member}`, () => {
@@ -269,12 +326,7 @@ describe("arrayModelOf over what an array method answers", () => {
   });
 
   const nameOf = (graph: CFGFunction, call: CFGInstruction) =>
-    producedTypeName(
-      call,
-      graph,
-      graph.classes!,
-      new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
-    );
+    producedTypeName(call, graph, graph.classes!, inferred(graph));
 
   for (const member of ["pop", "shift"]) {
     it(`names what ${member} takes off by the receiver's element`, () => {
@@ -306,15 +358,80 @@ describe("arrayModelOf over what an array method answers", () => {
   });
 });
 
-describe("naming what an array holds when a contributor cannot be named", () => {
-  const nameOf = (graph: CFGFunction, array: CFGInstruction) =>
-    arrayElementNameOf(
-      array,
-      graph,
-      graph.classes!,
-      new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
-    );
+describe("arrayModelOf over arrays joined at a control-flow merge", () => {
+  function allocated(graph: CFGFunction, block: CFGBlock, declared: string): CFGInstruction {
+    const model = arrayModelForDeclaredType(declared, graph.classes!)!;
+    const allocation = block.addNode(irNewObject());
+    allocation.props[CLASS_ID_PROP] = model.shape.id;
+    allocation.props[INSTANCE_SIZE_PROP] = model.shape.size;
+    allocation.props[VALUE_CLASS_PROP] = model.shape.id;
+    return allocation;
+  }
 
+  function joining(left: string, right: string): { graph: CFGFunction; merged: CFGInstruction } {
+    const graph = new CFGFunction("merge");
+    graph.classes = table();
+    const entry = graph.addBlock();
+    const taken = graph.addBlock();
+    const untaken = graph.addBlock();
+    const join = graph.addBlock();
+    entry.addNode(irBranch(entry.addNode(irConstant(true)), taken, untaken));
+    link(entry, taken);
+    link(entry, untaken);
+    const first = allocated(graph, taken, left);
+    taken.addNode(irJump(join));
+    link(taken, join);
+    const second = allocated(graph, untaken, right);
+    untaken.addNode(irJump(join));
+    link(untaken, join);
+    const merged = addPhi(join, [first, second]);
+    join.addNode(irReturn(merged));
+    graph.rebuildUses();
+    return { graph, merged };
+  }
+
+  function carriedAroundALoop(): { graph: CFGFunction; merged: CFGInstruction } {
+    const graph = new CFGFunction("carry");
+    graph.classes = table();
+    const entry = graph.addBlock();
+    const header = graph.addBlock();
+    const latch = graph.addBlock();
+    const exit = graph.addBlock();
+    const seed = allocated(graph, entry, "int[]");
+    entry.addNode(irJump(header));
+    link(entry, header);
+    const merged = addPhi(header, [seed]);
+    header.addNode(irBranch(header.addNode(irConstant(true)), latch, exit));
+    link(header, latch);
+    link(header, exit);
+    latch.addNode(irJump(header));
+    link(latch, header);
+    merged.addInput(merged);
+    exit.addNode(irReturn(merged));
+    graph.rebuildUses();
+    return { graph, merged };
+  }
+
+  it("carries the element through a merge whose arms allocate the same array", () => {
+    const { graph, merged } = joining("int[]", "int[]");
+
+    expect(modelOf(graph, merged)?.declaredType).toBe("int");
+  });
+
+  it("answers nothing for a merge whose arms hold elements that disagree", () => {
+    const { graph, merged } = joining("int[]", "float[]");
+
+    expect(modelOf(graph, merged)).toBeNull();
+  });
+
+  it("answers the seeded arm rather than recursing on a phi that feeds itself", () => {
+    const { graph, merged } = carriedAroundALoop();
+
+    expect(modelOf(graph, merged)?.declaredType).toBe("int");
+  });
+});
+
+describe("naming what an array holds when a contributor cannot be named", () => {
   function pushingWhatACallAnswers(): { graph: CFGFunction; array: CFGInstruction } {
     const graph = new CFGFunction("collect");
     graph.declaredSignature = { params: ["Map"], returns: null };
@@ -339,7 +456,7 @@ describe("naming what an array holds when a contributor cannot be named", () => 
   it("lets the contributors it can name decide the element type", () => {
     const { graph, array } = pushingWhatACallAnswers();
 
-    expect(nameOf(graph, array)).toBe("string");
+    expect(elementNameOf(graph, array)).toBe("string");
   });
 
   function fillingItselfFromItself(seeded: boolean): {
@@ -367,18 +484,20 @@ describe("naming what an array holds when a contributor cannot be named", () => 
   it("answers rather than recursing when an array is filled from itself", () => {
     const { graph, array } = fillingItselfFromItself(true);
 
-    expect(nameOf(graph, array)).toBe("int");
+    expect(elementNameOf(graph, array)).toBe("int");
   });
 
   it("answers rather than recursing when nothing else names the element", () => {
     const { graph, array } = fillingItselfFromItself(false);
 
-    expect(() => nameOf(graph, array)).not.toThrow();
+    expect(() => elementNameOf(graph, array)).not.toThrow();
   });
 });
 
 describe("naming what an array literal holds", () => {
-  function literal(values: readonly (number | number[])[]): {
+  type Held = number | string;
+
+  function literal(values: readonly (Held | Held[])[]): {
     graph: CFGFunction;
     array: CFGInstruction;
   } {
@@ -396,38 +515,50 @@ describe("naming what an array literal holds", () => {
     return { graph, array };
   }
 
-  const named = (graph: CFGFunction, array: CFGInstruction) =>
-    arrayElementNameOf(
-      array,
-      graph,
-      graph.classes!,
-      new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
-    );
-
   it("names the element of a flat literal", () => {
     const { graph, array } = literal([1, 2]);
 
-    expect(named(graph, array)).toBe("int");
+    expect(elementNameOf(graph, array)).toBe("int");
   });
 
-  it("answers nothing rather than a bare array name for a nested literal", () => {
+  it("names a nested literal's element by the array its rows are", () => {
     const { graph, array } = literal([[1], [2]]);
 
-    expect(named(graph, array)).toBeNull();
+    expect(elementNameOf(graph, array)).toBe("int[]");
+  });
+
+  it("names a nested literal of text by the text array its rows are", () => {
+    const { graph, array } = literal([["a"], ["b"]]);
+
+    expect(elementNameOf(graph, array)).toBe("string[]");
+  });
+
+  it("answers nothing for a nested literal whose rows hold different things", () => {
+    const { graph, array } = literal([[1], ["a"]]);
+
+    expect(elementNameOf(graph, array)).toBeNull();
   });
 
   it("leaves an element read unstamped while its element has no name", () => {
+    const { graph, array } = literal([[1], ["a"]]);
+    const block = graph.blocks[0]!;
+    const read = block.addNode(irGenericGetIndex(array, block.addNode(irConstant(0))));
+    graph.rebuildUses();
+
+    stampElementTypes(graph, inferred(graph));
+
+    expect(read.props[FIELD_TYPE_PROP]).toBeUndefined();
+  });
+
+  it("stamps an element read on a nested literal with the row's array type", () => {
     const { graph, array } = literal([[1], [2]]);
     const block = graph.blocks[0]!;
     const read = block.addNode(irGenericGetIndex(array, block.addNode(irConstant(0))));
     graph.rebuildUses();
 
-    stampElementTypes(
-      graph,
-      new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
-    );
+    stampElementTypes(graph, inferred(graph));
 
-    expect(read.props[FIELD_TYPE_PROP]).toBeUndefined();
+    expect(read.props[FIELD_TYPE_PROP]).toBe("int[]");
   });
 
   it("stamps an element read once its element can be named", () => {
@@ -436,10 +567,7 @@ describe("naming what an array literal holds", () => {
     const read = block.addNode(irGenericGetIndex(array, block.addNode(irConstant(0))));
     graph.rebuildUses();
 
-    stampElementTypes(
-      graph,
-      new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
-    );
+    stampElementTypes(graph, inferred(graph));
 
     expect(read.props[FIELD_TYPE_PROP]).toBe("int");
   });

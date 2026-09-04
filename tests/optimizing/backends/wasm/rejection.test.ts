@@ -149,3 +149,25 @@ describe("the graph validator is the net that replaced blanket use-list rebuildi
     expect(() => validateOptimizedGraph(graph)).toThrow(/stale use/);
   });
 });
+
+describe("wasm declines handing back the receiver", () => {
+  function receiverGraph(returnsThis: boolean) {
+    return rejectionFor((graph) => {
+      const block = graph.addBlock();
+      const receiver = irConstant(undefined);
+      receiver.props.isThis = true;
+      block.addNode(receiver);
+      const other = irConstant(1);
+      block.addNode(other);
+      block.addNode(irReturn(returnsThis ? receiver : other));
+    });
+  }
+
+  it("declines a function whose answer is the receiver", () => {
+    expect(String(receiverGraph(true)?.reason)).toContain("this receiver");
+  });
+
+  it("keeps compiling a function that only mentions the receiver", () => {
+    expect(receiverGraph(false)).toBeNull();
+  });
+});

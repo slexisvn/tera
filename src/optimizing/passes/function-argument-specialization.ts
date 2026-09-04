@@ -4,11 +4,12 @@ import {
   CFGInstruction,
   IR_CALL_KNOWN_FUNCTION,
   IR_GENERIC_CALL,
+  calleeNameOf,
 } from "../ir/index.js";
 import { cloneGraph } from "../ir/clone.js";
 import { ModuleFunctions } from "../metadata/module-functions.js";
 import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
-import { calleeNameOf } from "../metadata/call-signatures.js";
+
 import type { DeclaredSignature } from "../types/signature.js";
 import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
 import { functionSignatureOf, isUnwritten } from "../types/signature.js";

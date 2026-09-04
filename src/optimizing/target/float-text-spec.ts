@@ -10,13 +10,15 @@ import {
   NEGATIVE_INFINITY_TEXT,
   NOT_A_NUMBER_TEXT,
 } from "./text.js";
-import { NULL_TEXT } from "../metadata/printed-values.js";
+import { ABSENCE_VALUES, NULL_TEXT, UNDEFINED_TEXT } from "../metadata/printed-values.js";
 
 export {
+  ABSENCE_VALUES,
   INFINITY_TEXT,
   NEGATIVE_INFINITY_TEXT,
   NOT_A_NUMBER_TEXT,
   NULL_TEXT,
+  UNDEFINED_TEXT,
 };
 
 export const RADIX = DECIMAL_RADIX;
@@ -54,7 +56,6 @@ export interface FloatTextKeys {
   readonly digits: string;
   readonly exponent: string;
   readonly notANumber: string;
-  readonly absent: string;
   readonly infinity: string;
   readonly negativeInfinity: string;
   bignum(name: BignumName): string;
@@ -64,21 +65,19 @@ export interface FloatTextKeys {
 export function floatTextKeys(prefix: string): FloatTextKeys {
   const key = (suffix: string) => `${prefix}:float-${suffix}`;
   const notANumber = key("nan");
-  const absent = key("absent");
   const infinity = key("infinity");
   const negativeInfinity = key("negative-infinity");
   const byText = new Map([
     [NOT_A_NUMBER_TEXT, notANumber],
-    [NULL_TEXT, absent],
     [INFINITY_TEXT, infinity],
     [NEGATIVE_INFINITY_TEXT, negativeInfinity],
+    ...ABSENCE_VALUES.map((absence) => [absence.text, key(`absent-${absence.text}`)] as const),
   ]);
   return {
     state: key("state"),
     digits: key("digits"),
     exponent: key("exponent"),
     notANumber,
-    absent,
     infinity,
     negativeInfinity,
     bignum: (name) => key(name),

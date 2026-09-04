@@ -8,13 +8,19 @@ import {
   IR_LOAD_GLOBAL,
   irBranch,
   irConstant,
+  irGenericCompare,
   irJump,
 } from "../ir/index.js";
 import { addPhi, connect, link, splitBlockBefore } from "../ir/cfg-edit.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
 import { PRINT_BUILTIN, STRING_BUILTIN, TO_STRING_MEMBER } from "../metadata/builtin-methods.js";
-import { BOOLEAN_TEXT } from "../metadata/printed-values.js";
+import {
+  ABSENCE_COMPARISON,
+  BOOLEAN_TEXT,
+  NULL_TEXT,
+  referenceAbsenceTextOf,
+} from "../metadata/printed-values.js";
 import { TypeKind } from "../types/lattice.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 
@@ -54,7 +60,30 @@ function spelledBoolean(node: CFGInstruction, types: TypeInference): CFGInstruct
   return isBoolean(rendered, types) ? rendered : null;
 }
 
-export function lowerBooleanText(graph: CFGFunction, types: TypeInference): number {
+function absentWordOf(
+  value: CFGInstruction,
+  graph: CFGFunction,
+  types: TypeInference,
+): string | null {
+  const classes = graph.classes;
+  if (classes === null) return null;
+  const word = referenceAbsenceTextOf(value, graph, classes, types);
+  return word === NULL_TEXT ? null : word;
+}
+
+function textFor(
+  graph: CFGFunction,
+  node: CFGInstruction,
+  input: CFGInstruction,
+  types: TypeInference,
+  stamp: Stamp,
+): CFGInstruction | null {
+  if (isBoolean(input, types)) return selectBooleanText(graph, node, input, stamp);
+  const word = absentWordOf(input, graph, types);
+  return word === null ? null : selectAbsentText(graph, node, input, word, stamp);
+}
+
+export function lowerPrintedText(graph: CFGFunction, types: TypeInference): number {
   const editor = new GraphEditor(graph);
   const stamp = nodeIdStamper(graph);
   let count = 0;
@@ -71,8 +100,8 @@ export function lowerBooleanText(graph: CFGFunction, types: TypeInference): numb
       if (!readsText(node, types)) continue;
       const chosen = new Map<CFGInstruction, CFGInstruction>();
       node.inputs.forEach((input, index) => {
-        if (!isBoolean(input, types)) return;
-        const text = chosen.get(input) ?? selectBooleanText(graph, node, input, stamp);
+        const text = chosen.get(input) ?? textFor(graph, node, input, types, stamp);
+        if (text === null) return;
         chosen.set(input, text);
         node.replaceInput(index, text);
         count++;
@@ -81,6 +110,37 @@ export function lowerBooleanText(graph: CFGFunction, types: TypeInference): numb
   }
   if (count > 0) graph.rebuildUses();
   return count;
+}
+
+function selectAbsentText(
+  graph: CFGFunction,
+  node: CFGInstruction,
+  value: CFGInstruction,
+  word: string,
+  stamp: Stamp,
+): CFGInstruction {
+  const test = node.block!;
+  const after = splitBlockBefore(graph, test, node);
+  const text = stamp(addPhi(after, []));
+
+  const absent = graph.addBlock();
+  const spelled = stamp(irConstant(word));
+  absent.addNode(spelled);
+  absent.addNode(stamp(irJump(after)));
+  connect(absent, after, [spelled]);
+
+  const present = graph.addBlock();
+  present.addNode(stamp(irJump(after)));
+  connect(present, after, [value]);
+
+  const nothing = stamp(irConstant(null));
+  test.addNode(nothing);
+  const missing = stamp(irGenericCompare(ABSENCE_COMPARISON, value, nothing));
+  test.addNode(missing);
+  test.addNode(stamp(irBranch(missing, absent, present)));
+  link(test, absent);
+  link(test, present);
+  return text;
 }
 
 function replaceWithText(

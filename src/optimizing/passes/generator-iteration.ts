@@ -19,10 +19,11 @@ import {
   IR_STORE_TEXT,
   type CFGFunction,
   type CFGInstruction,
+  calleeNameOf,
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
-import { calleeNameOf } from "../metadata/call-signatures.js";
+
 import {
   CLASS_ID_PROP,
   FIELD_SCALAR_PROP,

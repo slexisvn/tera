@@ -34,6 +34,7 @@ export const FLOAT64_DECIMAL_BYTES =
   1;
 
 export const FLOAT64_NULL_BITS = 0x7ff8_0000_0000_0001n;
+export const FLOAT64_UNDEFINED_BITS = 0x7ff8_0000_0000_0002n;
 
 export const FLOAT64_BIGNUM_LENGTH_BYTES = 8;
 export const FLOAT64_BIGNUM_BYTES =

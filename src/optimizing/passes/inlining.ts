@@ -29,13 +29,16 @@ import {
   type CFGBlock,
   type CFGFunction,
   type CFGInstruction,
+  calleeSymbolName,
 } from "../ir/index.js";
 import { cloneBlocks, cloneGraph } from "../ir/clone.js";
 import { GraphEditor } from "../ir/editor.js";
 import { addPhi, link, splitBlockBefore } from "../ir/cfg-edit.js";
 import { detachInputs, nodeIdStamper, type Stamp } from "../ir/graph-edit.js";
 import { remarks } from "../infra/pass-remarks.js";
-import { calleeSymbolName, NAMED_ARGUMENTS_PROP } from "../metadata/call-signatures.js";
+import {
+  NAMED_ARGUMENTS_PROP,
+} from "../metadata/call-signatures.js";
 import { declaredAcceptsNull, DECLARED_INT } from "../types/declared.js";
 import { declaredAotScalar } from "../metadata/class-table.js";
 import { declaredInt32Return } from "../../runtime/declared-int.js";

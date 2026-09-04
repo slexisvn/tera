@@ -3,24 +3,22 @@ import {
   irCallKnownFunction,
   IR_AWAIT,
   IR_CALL_BUILTIN,
-  IR_CALL_KNOWN_FUNCTION,
   IR_GENERIC_CALL,
   IR_LOAD_GLOBAL,
   IR_RETURN,
   type CFGFunction,
   type CFGInstruction,
+  calleeNameOf,
+  calleeSymbolName,
+  CALLEE_SYMBOL_PROP,
 } from "../ir/index.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
 import { isUnwritten, type DeclaredSignature } from "../types/signature.js";
 import type { ClassShape, ClassTable } from "../metadata/class-table.js";
 import {
-  calleeNameOf,
-  calleeSymbolName,
-  CALLEE_SYMBOL_PROP,
-  genericCalleeName,
   stampCalleeSignatures,
 } from "../metadata/call-signatures.js";
-import { THROW_BUILTIN } from "../metadata/builtin-methods.js";
+import { callsBuiltin, THROW_BUILTIN } from "../metadata/builtin-methods.js";
 import { ModuleFunctions } from "../metadata/module-functions.js";
 import {
   aotLegalityAnalysisId,
@@ -28,6 +26,8 @@ import {
   undeclaredParameterOf,
   undeclaredParameterReason,
 } from "../analyses/aot-legality.js";
+import { summarizeWideText } from "../analyses/wide-text.js";
+import { aotScalarOf, SCALAR_STRING } from "../types/scalar.js";
 import { AWAITED_CALL_PROP } from "../builder/ir-builder.js";
 import { forwardsPendingThrow, isPendingThrowReturn } from "../builder/throw-recovery.js";
 import {
@@ -301,17 +301,12 @@ function settledReturns(module: ModuleIR): ReadonlyMap<string, string> {
   return returns;
 }
 
-function calleeOf(node: CFGInstruction): string | null {
-  if (node.type !== IR_GENERIC_CALL && node.type !== IR_CALL_KNOWN_FUNCTION) return null;
-  return genericCalleeName(node) ?? calleeSymbolName(node);
-}
-
 function awaitsSomething(graph: CFGFunction, asynchronous: ReadonlySet<string>): boolean {
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
       if (node.type !== IR_AWAIT) continue;
       const awaited = node.inputs[0];
-      const name = awaited === undefined ? null : calleeOf(awaited);
+      const name = awaited === undefined ? null : calleeNameOf(awaited);
       if (name !== null && asynchronous.has(name)) return true;
     }
   }
@@ -336,7 +331,7 @@ function suspendingFunctions(
     for (const block of unit.graph.blocks) {
       for (const node of block.nodes) {
         if (node.props[AWAITED_CALL_PROP] === true) continue;
-        const name = calleeOf(node);
+        const name = calleeNameOf(node);
         if (name !== null && name !== CORO_SLEEP && asynchronous.has(name)) suspending.add(name);
       }
     }
@@ -355,7 +350,7 @@ function misusedPromise(
 ): AotSkippedFunction | null {
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      const name = calleeOf(node);
+      const name = calleeNameOf(node);
       if (name === null || !suspending.has(name)) continue;
       if (node.uses.every((use) => use.type === IR_AWAIT)) continue;
       return {
@@ -447,7 +442,7 @@ function planCoroutines(
 function raisesThrow(graph: CFGFunction, rejecting: ReadonlySet<string>): boolean {
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
-      if (node.type === IR_CALL_BUILTIN && node.props.name === THROW_BUILTIN) return true;
+      if (callsBuiltin(node, THROW_BUILTIN)) return true;
       if (forwardsPendingThrow(node)) return true;
       const callee = calleeNameOf(node);
       if (callee !== null && rejecting.has(callee)) return true;
@@ -590,7 +585,6 @@ function requireDeclaredParameters(module: ModuleIR): void {
   if (undeclared.length > 0) throw new AotUndeclaredParameterError(undeclared);
 }
 
-
 function nameFunctionValues(module: ModuleIR, classes: ClassTable | null): void {
   const functions = new ModuleFunctions(module);
   const namesAClass = (name: string): boolean =>
@@ -728,7 +722,7 @@ export function compileModule(
   }
   const declined = new Set(failures.map((failure) => failure.name));
   const promiseOf = (node: CFGInstruction): ClassShape | null => {
-    const name = calleeOf(node);
+    const name = calleeNameOf(node);
     return name === null ? null : plan.promises.get(name) ?? null;
   };
 
@@ -772,13 +766,13 @@ export function compileModule(
 
   const awaitsAPromise = (node: CFGInstruction): boolean => {
     const awaited = node.inputs[0];
-    const name = awaited === undefined ? null : calleeOf(awaited);
+    const name = awaited === undefined ? null : calleeNameOf(awaited);
     return name !== null && plan.asynchronous.has(name);
   };
 
   const settled = settledReturns(module);
   const settledTypeOf = (node: CFGInstruction): string | null => {
-    const name = calleeOf(node);
+    const name = calleeNameOf(node);
     return name === null ? null : settled.get(name) ?? null;
   };
 
@@ -834,8 +828,18 @@ export function compileModule(
     })),
     reachability,
   );
+  const wide = summarizeWideText(
+    emitting.map(({ graph, analyses }) => {
+      const types = analyses.get(typeInferenceAnalysisId);
+      return {
+        graph,
+        isText: (value: CFGInstruction) => aotScalarOf(types.typeOf(value)) === SCALAR_STRING,
+      };
+    }),
+  );
   for (const { graph, analyses } of emitting) {
     graph.stringEscapes = escapes;
+    graph.wideText = wide;
     analyses.invalidate(aotLegalityAnalysisId);
   }
 

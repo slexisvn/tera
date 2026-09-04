@@ -233,3 +233,77 @@ describe("AOT exceptions", () => {
     ]);
   });
 });
+
+describe("a function whose last statement is a throw", () => {
+  const NEWLINE = String.fromCharCode(10);
+
+  function ranPe(source: string): { status: number; stdout: string } {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(`${source}${NEWLINE}`, {
+      backend: "x64-windows",
+      format: "executable",
+    });
+    expect(program.skipped).toEqual([]);
+    const run = runPe(program.files[0]!.contents as Uint8Array);
+    return { status: run.status, stdout: run.stdout };
+  }
+
+  itRunsPe("answers past a conditional return followed by a throw", () => {
+    expect(
+      ranPe(
+        src(
+          "fn pick(n: int) -> int:",
+          "  if n > 0:",
+          "    return n * 7",
+          '  throw "not positive"',
+          "print(pick(3))",
+        ),
+      ),
+    ).toEqual({ status: 0, stdout: `21${NEWLINE}` });
+  });
+
+  itRunsPe("answers a string the same way", () => {
+    expect(
+      ranPe(
+        src(
+          "fn name(n: int) -> string:",
+          "  if n > 0:",
+          '    return "positive"',
+          '  throw "not positive"',
+          'print(name(1))',
+        ),
+      ),
+    ).toEqual({ status: 0, stdout: `positive${NEWLINE}` });
+  });
+
+  itRunsPe("hands back what a guarded pop took", () => {
+    expect(
+      ranPe(
+        src(
+          "fn top(xs: float[]) -> float:",
+          "  if xs.length > 0:",
+          "    return xs.pop()",
+          '  throw "empty"',
+          "print(top([2.5]))",
+        ),
+      ),
+    ).toEqual({ status: 0, stdout: `2.5${NEWLINE}` });
+  });
+
+  itRunsPe("still throws when the guard does not hold", () => {
+    const program = nodeEngine({ typecheck: "off" }).compileAot(
+      src(
+        "fn pick(n: int) -> int:",
+        "  if n > 0:",
+        "    return n * 7",
+        '  throw "not positive"',
+        "print(pick(0))",
+        "",
+      ),
+      { backend: "x64-windows", format: "executable" },
+    );
+    const run = runPe(program.files[0]!.contents as Uint8Array);
+
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain("not positive");
+  });
+});

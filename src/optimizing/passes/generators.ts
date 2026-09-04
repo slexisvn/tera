@@ -9,7 +9,7 @@ import {
   type CFGBlock,
   type CFGInstruction,
 } from "../ir/index.js";
-import { fieldDeclaredType } from "./array-shapes.js";
+import { fieldDeclaredType } from "../metadata/call-signatures.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { disconnect } from "../ir/cfg-edit.js";
 import { inferTypes } from "../analyses/type-inference.js";

@@ -34,6 +34,7 @@ import {
   callableOf,
   commonShapeOf,
   declaredTypeOf,
+  heldTypeOf,
   isLiteralShapeName,
   joinedLiteralShape,
   ARRAY_CAPACITY_OFFSET,
@@ -50,7 +51,7 @@ import {
   type ClassTable,
 } from "../metadata/class-table.js";
 import type { TypeInference } from "../analyses/type-inference.js";
-import { declaredTypeAt, memberDeclaredType } from "../metadata/call-signatures.js";
+import { declaredTypeAt, declaredTypeNameOf } from "../metadata/call-signatures.js";
 import {
   builtinOwnerMember,
   declaredNameOf,
@@ -58,7 +59,7 @@ import {
   nominalLatticeType,
 } from "../types/declared.js";
 import { isUnwritten } from "../types/signature.js";
-import { arrayElementType } from "../../frontend/checker/type-system.js";
+import { arrayElementType, arrayOfType } from "../../frontend/checker/type-system.js";
 import { latticeFromElementsKind } from "../types/elements.js";
 import {
   doubleType,
@@ -77,8 +78,10 @@ import {
   scalarWidth,
   SCALAR_INT32,
   SCALAR_POINTER,
+  SCALAR_FLOAT64,
   SCALAR_STRING,
   SCALAR_TEXT,
+  SCALAR_VOID,
   type AotScalar,
 } from "../types/scalar.js";
 
@@ -330,14 +333,16 @@ function inferredElementOf(
 ): LatticeType | null {
   const carried = latticeFromElementsKind(array.elementsKind);
   let joined: LatticeType = carried.kind === TypeKind.Any ? neverType() : carried;
+  let absent = false;
   for (const value of values) {
     if (answersUnnamed(value, graph, classes, types)) continue;
     const stored = valueTypeOf(value, graph, classes, types);
-    if (isStorableScalar(aotScalarOf(stored)) === null) return null;
+    absent ||= stored.kind === TypeKind.Nullish;
+    if (!absent && isStorableScalar(aotScalarOf(stored)) === null) return null;
     joined = joinTypes(joined, stored)!;
   }
-  if (declaredTypeOf(joined, classes) !== null) return joined;
-  return sharedClass(values, classes, types) ?? doubleType();
+  if (heldTypeOf(joined, classes) !== null) return joined;
+  return absent ? null : sharedClass(values, classes, types) ?? doubleType();
 }
 
 function holdsEvery(
@@ -372,6 +377,7 @@ function elementTypeOf(
 }
 
 function fits(value: AotScalar, element: AotScalar): boolean {
+  if (value === SCALAR_VOID) return element === SCALAR_FLOAT64 || element === SCALAR_POINTER;
   if (element === SCALAR_TEXT) return value === SCALAR_STRING || value === SCALAR_TEXT;
   return isReferenceScalar(element) || isReferenceScalar(value)
     ? value === element
@@ -412,15 +418,6 @@ function shapedArray(array: CFGInstruction, classes: ClassTable): ArrayModel | n
   return modelOf(typeof carried === "number" ? classes.shapeById(carried) : null, classes);
 }
 
-export function fieldDeclaredType(
-  array: CFGInstruction,
-  classes: ClassTable,
-  types: TypeInference,
-): string | null {
-  if (array.type !== IR_GENERIC_GET_PROP) return null;
-  return memberDeclaredType(array.inputs[0], array.props.propName, classes, types);
-}
-
 function enclosingArrayOf(
   use: CFGInstruction,
   value: CFGInstruction,
@@ -452,7 +449,7 @@ function declaredArrayTypeOf(
   types: TypeInference,
   seen: Set<CFGInstruction> = new Set<CFGInstruction>(),
 ): string | null {
-  const own = declaredArrayOf(array, graph, classes, types);
+  const own = declaredTypeNameOf(array, graph, classes, types);
   if (own !== null) return own;
   if (seen.has(array)) return null;
   seen.add(array);
@@ -499,25 +496,6 @@ function demandedElementOf(
     }
   }
   return demanded;
-}
-
-function declaredArrayOf(
-  array: CFGInstruction,
-  graph: CFGFunction,
-  classes: ClassTable,
-  types: TypeInference,
-): string | null {
-  const field = array.props[FIELD_TYPE_PROP];
-  if (typeof field === "string") return field;
-  const owned = fieldDeclaredType(array, classes, types);
-  if (owned !== null) return owned;
-  if (array.type === IR_PARAMETER) {
-    return graph.declaredSignature?.params[Number(array.props.index)] ?? null;
-  }
-  const target = array.props.target as
-    | { declaredSignature?: { returns?: string | null } | null }
-    | undefined;
-  return target?.declaredSignature?.returns ?? null;
 }
 
 function receivedElement(
@@ -570,6 +548,31 @@ function answeredArray(
   return member === FLATTENS_ONE_LEVEL ? modelOf(held.elementShape, classes) : null;
 }
 
+const merging = new Set<CFGInstruction>();
+
+function mergedArray(
+  array: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): ArrayModel | null {
+  if (array.type !== IR_PHI || merging.has(array)) return null;
+  merging.add(array);
+  try {
+    let found: ArrayModel | null = null;
+    for (const input of array.inputs) {
+      if (merging.has(input)) continue;
+      const held = arrayModelOf(input, graph, classes, types);
+      if (held === null) return null;
+      if (found !== null && found.shape.id !== held.shape.id) return null;
+      found = held;
+    }
+    return found;
+  } finally {
+    merging.delete(array);
+  }
+}
+
 export function arrayModelOf(
   array: CFGInstruction | undefined,
   graph: CFGFunction,
@@ -580,7 +583,8 @@ export function arrayModelOf(
   return (
     shapedArray(array, classes) ??
     receivedArray(array, graph, classes, types) ??
-    answeredArray(array, graph, classes, types)
+    answeredArray(array, graph, classes, types) ??
+    mergedArray(array, graph, classes, types)
   );
 }
 
@@ -597,6 +601,33 @@ export function arrayModelForDeclaredType(
 
 const naming = new Set<CFGInstruction>();
 
+function literalElementNameOf(
+  array: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  const element = elementTypeOf(array, graph, classes, types);
+  if (element === null) return null;
+  if (element.kind === TypeKind.Array) return heldArrayNameOf(array, graph, classes, types);
+  return heldTypeOf(element, classes);
+}
+
+function heldArrayNameOf(
+  array: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  let shared: string | null = null;
+  for (const value of storedValues(array)) {
+    const held = arrayElementNameOf(value, graph, classes, types);
+    if (held === null || (shared !== null && shared !== held)) return null;
+    shared = held;
+  }
+  return shared === null ? null : arrayOfType(shared);
+}
+
 export function arrayElementNameOf(
   array: CFGInstruction | undefined,
   graph: CFGFunction,
@@ -608,10 +639,9 @@ export function arrayElementNameOf(
   try {
     const model = arrayModelOf(array, graph, classes, types);
     if (model !== null) return model.declaredType;
-    if (array.type !== IR_NEW_ARRAY) return null;
-    const element = elementTypeOf(array, graph, classes, types);
-    if (element === null || element.kind === TypeKind.Array) return null;
-    return declaredTypeOf(element, classes);
+    return array.type === IR_NEW_ARRAY
+      ? literalElementNameOf(array, graph, classes, types)
+      : null;
   } finally {
     naming.delete(array);
   }

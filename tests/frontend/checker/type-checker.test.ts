@@ -551,6 +551,72 @@ describe("taking one element after a guard that the array holds some", () => {
     expect(diagnose(source)).toEqual([]);
   });
 
+  it("takes one under a guard that asks for an exact count", () => {
+    expect(diagnose(takes("if queue.length == 2:", "pop"))).toEqual([]);
+  });
+
+  it("takes one under an exact-count guard written the other way round", () => {
+    expect(diagnose(takes("if 2 == queue.length:", "pop"))).toEqual([]);
+  });
+
+  it("takes one after a guard that throws unless the count is exact", () => {
+    const source = src(
+      "fn only(stack: float[]) -> float:",
+      "  if stack.length != 1:",
+      '    throw "leftover operands"',
+      "  return stack.pop()",
+      "print(only([2.5]))",
+    );
+
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("takes one after a guard that throws unless the count is some other exact one", () => {
+    const source = src(
+      "fn third(stack: int[]) -> int:",
+      "  if stack.length != 3:",
+      '    throw "wrong shape"',
+      "  return stack.pop()",
+      "print(third([1, 2, 3]))",
+    );
+
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("still refuses to take one after a guard that throws unless the array is empty", () => {
+    const source = src(
+      "fn only(stack: float[]) -> float:",
+      "  if stack.length != 0:",
+      '    throw "not empty"',
+      "  return stack.pop()",
+      "print(only([]))",
+    );
+
+    expect(diagnose(source)).toEqual([
+      "Type 'float | undefined' is not assignable to return type 'float'",
+    ]);
+  });
+
+  it("still refuses to take one in the arm where an exact-count guard did not hold", () => {
+    expect(diagnose(takes("if queue.length != 2:", "pop"))).toEqual([
+      "Type 'string | undefined' is not assignable to 'string'",
+    ]);
+  });
+
+  it("still refuses to take one after a guard that throws when the array holds some", () => {
+    const source = src(
+      "fn only(stack: float[]) -> float:",
+      "  if stack.length > 0:",
+      '    throw "not empty"',
+      "  return stack.pop()",
+      "print(only([]))",
+    );
+
+    expect(diagnose(source)).toEqual([
+      "Type 'float | undefined' is not assignable to return type 'float'",
+    ]);
+  });
+
   it("still refuses to take one with nothing guarding the array", () => {
     const source = src('queue: string[] = ["a"]', "item: string = queue.shift()", "print(item)");
 
@@ -899,5 +965,97 @@ describe("types the checker used to widen away", () => {
 
   it("accepts appending to text through concat", () => {
     expect(diagnose(src('a: string = "ab"', 'b: string = a.concat("cd")', "print(b)"))).toEqual([]);
+  });
+});
+
+describe("fields written through a literal subscript", () => {
+  it("carries a field the constructor wrote as a subscript", () => {
+    expect(
+      diagnose(
+        src(
+          "class Holder:",
+          "  public constructor():",
+          '    this["tag"] = 7',
+          "h = Holder()",
+          "print(h.tag + 1)",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("types it the same as the plain form", () => {
+    const subscript = diagnose(
+      src(
+        "class Holder:",
+        "  public constructor():",
+        '    this["tag"] = 7',
+        "h = Holder()",
+        "held: string = h.tag",
+        "print(held)",
+      ),
+    );
+    const plain = diagnose(
+      src(
+        "class Holder:",
+        "  public constructor():",
+        "    this.tag = 7",
+        "h = Holder()",
+        "held: string = h.tag",
+        "print(held)",
+      ),
+    );
+
+    expect(subscript).toEqual(plain);
+    expect(subscript.join(" ")).toContain("not assignable");
+  });
+
+  it("leaves a subscript the compiler cannot name alone", () => {
+    expect(
+      diagnose(
+        src(
+          "class Holder:",
+          "  public constructor(k: string):",
+          "    this[k] = 7",
+          'h = Holder("a")',
+          "print(h)",
+        ),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("the text members the language spells out", () => {
+  it("admits the count of pieces a split may keep", () => {
+    expect(diagnose(src('parts: string[] = "a,b,c".split(",", 2)', "print(parts)"))).toEqual([]);
+  });
+
+  it("still admits a split given only a separator", () => {
+    expect(diagnose(src('parts: string[] = "a,b,c".split(",")', "print(parts)"))).toEqual([]);
+  });
+
+  it("rejects a count of pieces that is not a whole number", () => {
+    expect(diagnose(src('parts: string[] = "a,b".split(",", 1.5)', "print(parts)")).join(" "))
+      .toContain("parameter 'limit: int'");
+  });
+
+  it("rejects a third argument to a split", () => {
+    expect(diagnose(src('parts: string[] = "a,b".split(",", 1, 2)', "print(parts)"))).toEqual([
+      "Too many positional arguments for String.split()",
+    ]);
+  });
+
+  it("answers an int for the last place a substring sits", () => {
+    expect(diagnose(src('at: int = "abcabc".last_index_of("b")', "print(at)"))).toEqual([]);
+  });
+
+  it("rejects using that place as text", () => {
+    expect(diagnose(src('at: string = "abcabc".last_index_of("b")', "print(at)")).join(" "))
+      .toContain("not assignable");
+  });
+
+  it("rejects a second argument to it", () => {
+    expect(diagnose(src('at: int = "abcabc".last_index_of("b", 3)', "print(at)"))).toEqual([
+      "Too many positional arguments for String.last_index_of()",
+    ]);
   });
 });

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   CFGFunction,
   CFGInstruction,
+  IR_CONSTANT,
   IR_NEW_OBJECT,
   irCallBuiltin,
   irCallKnownFunction,
@@ -9,15 +10,17 @@ import {
   irFloat64Add,
   irGenericAdd,
   irBranch,
+  irFloat64Compare,
+  irGenericCompare,
   irGenericGetProp,
   irInt32Add,
   irJump,
-  irLoadArrayLength,
   IR_LOAD_ELEMENT,
+  IR_SELECT,
   irLoadElement,
   irLoadGlobal,
-  irNewArray,
   irReturn,
+  irSelect,
   irStoreElement,
   irLoadText,
   irNewObject,
@@ -32,19 +35,30 @@ import {
   mergedTextInputs,
   rootSlotsOf,
   summarizeStringEscapes,
+  AOT_OPCODES,
+  SPREAD_CALL_REASON,
   type AotLegality,
 } from "../../../src/optimizing/analyses/aot-legality.js";
+import { SPREAD_ARGUMENTS_PROP } from "../../../src/optimizing/passes/spread-calls.js";
+import {
+  BYTEWISE_PROP,
+  NARROW_TEXT,
+  wideTextReason,
+} from "../../../src/optimizing/analyses/wide-text.js";
 import { callReachability } from "../../../src/optimizing/metadata/call-graph.js";
+import { BUFFER_ELEMENTS_OFFSET, buildClassTable } from "../../../src/optimizing/metadata/class-table.js";
 import { AnalysisManager } from "../../../src/optimizing/infra/analysis-manager.js";
+import { pointsToAnalysisId } from "../../../src/optimizing/analyses/points-to.js";
 import { createAnalysisRegistry } from "../../../src/optimizing/analyses/index.js";
 import { typeInferenceAnalysisId } from "../../../src/optimizing/analyses/type-inference.js";
 import { gatheredParameterName } from "../../../src/optimizing/types/signature.js";
-import { BUFFER_ELEMENTS_OFFSET } from "../../../src/optimizing/metadata/class-table.js";
 import {
+  MAY_BE_ABSENT_PROP,
   SCALAR_FLOAT64,
   SCALAR_INT32,
   SCALAR_POINTER,
   SCALAR_STRING,
+  SCALAR_VOID,
   TEXT_STORAGE_BYTES,
   type AotScalar,
 } from "../../../src/optimizing/types/scalar.js";
@@ -58,9 +72,17 @@ import {
 
 beforeEach(() => resetIRNodeIds());
 
+const charCodeAt = builtinMethodIntrinsicByName(
+  qualifiedMethodName("string", "char_code_at"),
+)!;
+
 function analyze(graph: CFGFunction) {
   const analyses = new AnalysisManager(graph, createAnalysisRegistry());
-  return analyzeAotLegality(graph, analyses.get(typeInferenceAnalysisId));
+  return analyzeAotLegality(
+    graph,
+    analyses.get(typeInferenceAnalysisId),
+    analyses.get(pointsToAnalysisId),
+  );
 }
 
 function reasonOf(graph: CFGFunction): string {
@@ -127,18 +149,6 @@ describe("AOT legality values", () => {
     expect(reasonOf(graph)).toContain(IR_NEW_OBJECT);
   });
 
-  it("names the property it cannot lower", () => {
-    const graph = new CFGFunction("member");
-    graph.declaredSignature = { params: ["string"], returns: "int" };
-    const receiver = graph.addParameter(0);
-    const block = graph.addBlock();
-    const property = irGenericGetProp(receiver, "length");
-    block.addNode(property);
-    block.addNode(irReturn(property));
-
-    expect(reasonOf(graph)).toContain("unsupported property length");
-  });
-
   it("rejects a global whose value is used, and names it", () => {
     const graph = returning("global", (fn) => {
       const global = irLoadGlobal("counter");
@@ -199,7 +209,7 @@ describe("AOT legality values", () => {
     const value = irConstant("x".repeat(graph.textBufferBytes));
     block.addNode(value);
     block.addNode(irReturn(value));
-    expect(reasonOf(graph)).toContain(`longer than the ${graph.textBufferBytes - 1} characters`);
+    expect(reasonOf(graph)).toContain(`longer than the ${graph.textBufferBytes - 1} bytes`);
   });
 
   it("accepts a string constant that fills the storage exactly", () => {
@@ -212,14 +222,89 @@ describe("AOT legality values", () => {
     expect(analyze(graph).ok).toBe(true);
   });
 
-  it("rejects a string constant outside ASCII", () => {
+  it("accepts a string constant outside ASCII", () => {
     const graph = new CFGFunction("wide");
     graph.declaredSignature = { params: [], returns: "string" };
     const block = graph.addBlock();
     const value = irConstant("café");
     block.addNode(value);
     block.addNode(irReturn(value));
-    expect(reasonOf(graph)).toContain("ASCII");
+    expect(analyze(graph).ok).toBe(true);
+  });
+
+  it("measures a string constant outside ASCII by the bytes it takes", () => {
+    const graph = new CFGFunction("wide");
+    graph.declaredSignature = { params: [], returns: "string" };
+    const block = graph.addBlock();
+    const value = irConstant("é".repeat(graph.textBufferBytes / 2));
+    block.addNode(value);
+    block.addNode(irReturn(value));
+    expect(reasonOf(graph)).toContain("bytes a compiled string holds");
+  });
+});
+
+describe("AOT absence constants", () => {
+  function answering(name: string, returns: string, held: null | undefined): CFGFunction {
+    const graph = new CFGFunction(name);
+    graph.classes = buildClassTable([]);
+    graph.declaredSignature = { params: [], returns };
+    const block = graph.addBlock();
+    const value = irConstant(held);
+    block.addNode(value);
+    block.addNode(irReturn(value));
+    return graph;
+  }
+
+  it("carries undefined as a number, so its payload survives", () => {
+    const graph = answering("unset", "int | undefined", undefined);
+
+    expect(admitted(graph).scalarOf(graph.blocks[0]!.nodes[0]!)).toBe(SCALAR_FLOAT64);
+  });
+
+  it("carries null as a number the same way", () => {
+    const graph = answering("absent", "int | null", null);
+
+    expect(admitted(graph).scalarOf(graph.blocks[0]!.nodes[0]!)).toBe(SCALAR_FLOAT64);
+  });
+
+  it("accepts undefined held as a reference the declared type names as the only absence", () => {
+    expect(analyze(answering("unset_ref", "string | undefined", undefined)).ok).toBe(true);
+  });
+
+  it("refuses it where the declared type admits both, so one pointer means two things", () => {
+    expect(
+      reasonOf(answering("either_ref", "string | null | undefined", undefined)),
+    ).toContain("cannot be told apart");
+  });
+
+  it("refuses it where the declared type names no absence to read it as", () => {
+    expect(reasonOf(answering("plain_ref", "string", undefined))).toContain(
+      "cannot be told apart",
+    );
+  });
+
+  it("still accepts null held as a reference", () => {
+    expect(analyze(answering("absent_ref", "string | null", null)).ok).toBe(true);
+  });
+
+  it("leaves an unused absence constant without a representation", () => {
+    const graph = new CFGFunction("spare");
+    graph.declaredSignature = { params: [], returns: "int" };
+    const block = graph.addBlock();
+    const spare = block.addNode(irConstant(undefined));
+    block.addNode(irReturn(block.addNode(irConstant(1))));
+
+    expect(admitted(graph).scalarOf(spare)).toBe(SCALAR_VOID);
+  });
+
+  it("leaves a void function answering undefined alone", () => {
+    const graph = new CFGFunction("nothing");
+    const block = graph.addBlock();
+    const value = irConstant(undefined);
+    block.addNode(value);
+    block.addNode(irReturn(value));
+
+    expect(analyze(graph).ok).toBe(true);
   });
 });
 
@@ -289,10 +374,6 @@ describe("AOT legality arrays", () => {
 });
 
 describe("AOT legality builtins", () => {
-  const charCodeAt = builtinMethodIntrinsicByName(
-    qualifiedMethodName("string", "char_code_at"),
-  )!;
-
   function builtinCall(name: string, params: readonly (string | null)[]): CFGFunction {
     const graph = new CFGFunction("call");
     graph.declaredSignature = { params: [...params], returns: "int" };
@@ -739,7 +820,7 @@ describe("inputs a string phi web merges from outside itself", () => {
 
   it("leaves out a constant, which no producer ever refills", () => {
     const { phis } = web();
-    const seeds = phis[0]!.inputs.filter((input) => input.type === "Constant");
+    const seeds = phis[0]!.inputs.filter((input) => input.type === IR_CONSTANT);
 
     expect(mergedTextInputs(phis, new Set(phis))).not.toContain(seeds[0]);
   });
@@ -796,3 +877,202 @@ describe("slots the collector roots a value in", () => {
     expect(rootSlotsOf(POINTERS, [unused]).size).toBe(0);
   });
 });
+
+describe("AOT text that holds characters outside ASCII", () => {
+  const ASCII_TEXT = "cafe";
+  const WIDE_TEXT = "café";
+  const ORDERING = "<";
+  const EQUALITY = "==";
+  const FIRST_CHARACTER = 0;
+  const orderingReason = wideTextReason(`ordering text with ${ORDERING}`);
+
+  function comparing(op: string, text: string): CFGFunction {
+    const graph = new CFGFunction("order");
+    graph.declaredSignature = { params: ["string"], returns: "int" };
+    graph.wideText = NARROW_TEXT;
+    const left = graph.addParameter(0);
+    const block = graph.addBlock();
+    const right = block.addNode(irConstant(text));
+    block.addNode(irReturn(block.addNode(irGenericCompare(op, left, right))));
+    return graph;
+  }
+
+  function counting(text: string, inBytes: boolean): CFGFunction {
+    const graph = new CFGFunction("count");
+    graph.declaredSignature = { params: [], returns: "int" };
+    graph.wideText = NARROW_TEXT;
+    const block = graph.addBlock();
+    const subject = block.addNode(irConstant(text));
+    const at = block.addNode(irConstant(FIRST_CHARACTER));
+    const call = irCallBuiltin(
+      charCodeAt.qualifiedName,
+      [subject, at],
+      builtinMethodCallMetadata(charCodeAt),
+    );
+    if (inBytes) call.props[BYTEWISE_PROP] = true;
+    block.addNode(call);
+    block.addNode(irReturn(call));
+    return graph;
+  }
+
+  it("refuses to order text a constant outside ASCII reaches", () => {
+    expect(reasonOf(comparing(ORDERING, WIDE_TEXT))).toBe(orderingReason);
+  });
+
+  it("orders text every constant of which is ASCII", () => {
+    expect(analyze(comparing(ORDERING, ASCII_TEXT)).ok).toBe(true);
+  });
+
+  it("still compares text outside ASCII for equality, which counts nothing", () => {
+    expect(analyze(comparing(EQUALITY, WIDE_TEXT)).ok).toBe(true);
+  });
+
+  it("refuses to order a parameter once the module lets wide text escape", () => {
+    const graph = comparing(ORDERING, ASCII_TEXT);
+    graph.wideText = { escapes: true, reason: "elsewhere" };
+
+    expect(reasonOf(graph)).toBe(orderingReason);
+  });
+
+  it("refuses a builtin that counts characters of text outside ASCII", () => {
+    expect(reasonOf(counting(WIDE_TEXT, false))).toBe(
+      wideTextReason(charCodeAt.qualifiedName),
+    );
+  });
+
+  it("accepts the same builtin over text that is all ASCII", () => {
+    expect(analyze(counting(ASCII_TEXT, false)).ok).toBe(true);
+  });
+
+  it("accepts it over text outside ASCII once the call counts bytes", () => {
+    expect(analyze(counting(WIDE_TEXT, true)).ok).toBe(true);
+  });
+});
+
+describe("AOT returns that a record may not carry", () => {
+  const TRUNCATION_REASON = "a whole number has no way to say absent";
+
+  function absentValue(): CFGInstruction {
+    const held = irConstant(undefined);
+    held.props[MAY_BE_ABSENT_PROP] = true;
+    return held;
+  }
+
+  function merging(returns: string, held: CFGInstruction): CFGFunction {
+    const graph = new CFGFunction("looked_up");
+    graph.declaredSignature = { params: ["int"], returns };
+    const chooser = graph.addParameter(0);
+    const entry = graph.addBlock();
+    const taken = graph.addBlock();
+    const join = graph.addBlock();
+    const zero = entry.addNode(irConstant(0));
+    entry.addNode(irBranch(chooser, taken, join));
+    link(entry, taken);
+    link(entry, join);
+    taken.addNode(held);
+    taken.addNode(irJump(join));
+    link(taken, join);
+    join.addNode(irReturn(addPhi(join, [zero, held])));
+    return graph;
+  }
+
+  function choosing(returns: string): CFGFunction {
+    const graph = new CFGFunction("chosen");
+    graph.emits = new Set([...AOT_OPCODES, IR_SELECT]);
+    graph.declaredSignature = { params: ["int"], returns };
+    const chooser = graph.addParameter(0);
+    const block = graph.addBlock();
+    const zero = block.addNode(irConstant(0));
+    const held = block.addNode(absentValue());
+    block.addNode(irReturn(block.addNode(irSelect(chooser, held, zero))));
+    return graph;
+  }
+
+  it("refuses a merge of a possibly absent value into a whole-number return", () => {
+    expect(reasonOf(merging("int", absentValue()))).toContain(TRUNCATION_REASON);
+  });
+
+  it("accepts the same merge where the return type can say absent", () => {
+    expect(analyze(merging("int | undefined", absentValue())).ok).toBe(true);
+  });
+
+  it("accepts a merge of an absence no lookup marked as possibly absent", () => {
+    expect(analyze(merging("int", irConstant(undefined))).ok).toBe(true);
+  });
+
+  it("follows a choice between two values as it follows a merge", () => {
+    expect(reasonOf(choosing("int"))).toContain(TRUNCATION_REASON);
+  });
+
+  it("accepts the same choice where the return type can say absent", () => {
+    expect(analyze(choosing("int | undefined")).ok).toBe(true);
+  });
+});
+
+describe("AOT absence compared as a number", () => {
+  const EQUALITY = "==";
+  type Operand = { readonly absent: null | undefined } | { readonly param: number };
+
+  function comparing(params: readonly string[], left: Operand, right: Operand) {
+    const graph = new CFGFunction("compared");
+    graph.declaredSignature = { params: [...params], returns: "int" };
+    const held = params.map((_unused, index) => graph.addParameter(index));
+    const block = graph.addBlock();
+    const operandOf = (side: Operand): CFGInstruction =>
+      "param" in side ? held[side.param]! : block.addNode(irConstant(side.absent));
+    const compared = block.addNode(
+      irFloat64Compare(EQUALITY, operandOf(left), operandOf(right)),
+    );
+    block.addNode(irReturn(compared));
+    return { graph, compared };
+  }
+
+  function comparesAsNumber(
+    params: readonly string[],
+    left: Operand,
+    right: Operand,
+  ): boolean {
+    const { graph, compared } = comparing(params, left, right);
+    return admitted(graph).absenceComparesAsNumber(compared);
+  }
+
+  it("reads an absence against a number as a number", () => {
+    expect(comparesAsNumber(["float"], { absent: null }, { param: 0 })).toBe(true);
+  });
+
+  it("reads an absence against a string as a reference", () => {
+    expect(comparesAsNumber(["string"], { absent: null }, { param: 0 })).toBe(false);
+  });
+
+  it("reads two absences as numbers when one of them has no reference to be", () => {
+    expect(comparesAsNumber([], { absent: null }, { absent: undefined })).toBe(true);
+  });
+
+  it("reads two absences that are both references as references", () => {
+    expect(comparesAsNumber([], { absent: null }, { absent: null })).toBe(false);
+  });
+});
+
+describe("AOT reasons for a property the compiler cannot lower", () => {
+  function reading(spread: boolean): CFGFunction {
+    const graph = new CFGFunction("member");
+    graph.declaredSignature = { params: ["string"], returns: "int" };
+    const receiver = graph.addParameter(0);
+    const block = graph.addBlock();
+    const property = block.addNode(irGenericGetProp(receiver, "length"));
+    const call = irCallKnownFunction({ name: "total" } as never, [property]);
+    if (spread) call.props[SPREAD_ARGUMENTS_PROP] = true;
+    block.addNode(call);
+    block.addNode(irReturn(call));
+    return graph;
+  }
+
+  it("names the property when nothing spreads what it read", () => {
+    expect(reasonOf(reading(false))).toContain("unsupported property length");
+  });
+
+  it("blames the spread instead when the read is spread into a call", () => {
+    expect(reasonOf(reading(true))).toBe(SPREAD_CALL_REASON);
+  });
+});
+

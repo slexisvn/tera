@@ -3,13 +3,13 @@ import {
   type CFGInstruction,
   irConstant,
   IR_CALL_KNOWN_FUNCTION,
+  calleeSymbolName,
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
 import {
   declaredDefaultsByName,
   NAMED_ARGUMENTS_PROP,
-  calleeSymbolName,
 } from "../metadata/call-signatures.js";
 import { metadataStringArray } from "../ir/metadata.js";
 import type { DeclaredDefault, DeclaredSignature } from "../types/signature.js";

@@ -49,6 +49,9 @@ const TEXT_RESULTS: readonly (readonly [string, string])[] = [
   ['"ab".repeat(3)', "ababab"],
   ['"a-b-c".replace("-", "+")', "a+b-c"],
   ['"a-b-c".replace_all("-", "+")', "a+b+c"],
+  ['"abcdef".substring(1, 4)', "bcd"],
+  ['"abcdef".substring(4, 1)', "bcd"],
+  ['"abcdef".substring(2)', "cdef"],
 ];
 
 
@@ -77,6 +80,29 @@ const AGREEING_PROGRAMS: readonly (readonly [string, string])[] = [
   ["reports a missing substring as -1", 'print("abcd".index_of("zz"))'],
   ["finds the first of several matches", 'print("abab".index_of("ab"))'],
   ["finds the empty substring at zero", 'print("abcd".index_of(""))'],
+  ["finds the last occurrence of a substring", 'print("abcabc".last_index_of("bc"))'],
+  ["reports a missing last occurrence as -1", 'print("abcd".last_index_of("zz"))'],
+  ["finds a last occurrence that is the whole string", 'print("abcd".last_index_of("abcd"))'],
+  ["reports a needle longer than the string as -1", 'print("ab".last_index_of("abcd"))'],
+  ["answers the length for an empty needle", 'print("abcd".last_index_of(""))'],
+  ["answers zero for an empty needle in an empty string", 'print("".last_index_of(""))'],
+  ["reports any needle missing from an empty string as -1", 'print("".last_index_of("a"))'],
+  ["finds the last of overlapping matches", 'print("aaaa".last_index_of("aa"))'],
+  [
+    "finds the last occurrence in a variable",
+    src('raw = "a/b/c"', 'print(raw.last_index_of("/"))'),
+  ],
+  [
+    "takes the part after the last separator",
+    src(
+      "fn tail(path: string) -> string:",
+      '  cut = path.last_index_of("/")',
+      "  if cut < 0:",
+      "    return path",
+      "  return path.substring(cut + 1)",
+      'print(tail("a/b/c.txt"), tail("bare"))',
+    ),
+  ],
   ["tells that a substring is present", 'print("abcd".includes("bc"))'],
   ["tells that a substring is absent", 'print("abcd".includes("zz"))'],
   ["tests a prefix", 'print("abcd".starts_with("ab"))'],
@@ -84,6 +110,23 @@ const AGREEING_PROGRAMS: readonly (readonly [string, string])[] = [
   ["tests a suffix", 'print("abcd".ends_with("cd"))'],
   ["rejects a non-suffix", 'print("abcd".ends_with("ab"))'],
   ["rejects a suffix longer than the string", 'print("ab".ends_with("xxxx"))'],
+  ["takes a substring between two positions", 'print("abcdef".substring(1, 4))'],
+  ["swaps an inverted substring range", 'print("abcdef".substring(4, 1))'],
+  ["takes a substring to the end when the end is omitted", 'print("abcdef".substring(2))'],
+  ["clamps a negative substring start to the front", 'print("abcdef".substring(-3, 99))'],
+  ["takes an empty substring", 'print("[" + "abcdef".substring(2, 2) + "]")'],
+  ["takes a substring of a variable", src('raw = "hello world"', 'print(raw.substring(6))')],
+  [
+    "cuts a line at its separator",
+    src(
+      "fn head(line: string) -> string:",
+      '  cut = line.index_of(":")',
+      "  if cut < 0:",
+      "    return line",
+      "  return line.substring(0, cut)",
+      'print(head("a:1"), head("nope"))',
+    ),
+  ],
   [
     "chains several methods on a constant",
     'print("  Hello World  ".trim().to_upper_case().slice(0, 5))',
@@ -354,6 +397,52 @@ describe("string methods as compiled builtins", () => {
       ),
     );
   });
+  itRunsPe("keeps at most as many pieces as a split was told to", () => {
+    agrees(
+      src(
+        "fn show(parts: string[]):",
+        '  print(parts.length, parts.join("|"))',
+        'show("a,b,c,d".split(",", 2))',
+        'show("a,b,c,d".split(",", 0))',
+        'show("a,b,c,d".split(",", 1))',
+        'show("a,b,c,d".split(",", 9))',
+        'show("".split(",", 1))',
+        'show("".split(",", 0))',
+        'show("a,,b".split(",", 2))',
+        'show(",lead".split(",", 1))',
+        'show("trail,".split(",", 5))',
+        'show("a,b".split(",", 0 - 1))',
+      ),
+    );
+  });
+
+  itRunsPe("keeps at most that many characters when the separator is empty", () => {
+    agrees(
+      src(
+        "fn show(parts: string[]):",
+        '  print(parts.length, parts.join("|"))',
+        'show("wxyz".split("", 2))',
+        'show("wxyz".split("", 0))',
+        'show("wxyz".split("", 9))',
+        'show("".split("", 3))',
+      ),
+    );
+  });
+
+  itRunsPe("keeps as many pieces as it is told at run time", () => {
+    agrees(
+      src(
+        "fn take(line: string, n: int) -> string[]:",
+        '  return line.split(",", n)',
+        "i = 0",
+        "while i < 6:",
+        '  print(take("a,b,c,d", i).join("|"))',
+        "  i = i + 1",
+        'print(take("a,b,c,d", 0 - 3).join("|"))',
+      ),
+    );
+  });
+
   itRunsPe("splits into characters when the separator is empty", () => {
     agrees(
       src(

@@ -16,6 +16,7 @@ import { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.j
 import { superClassBindingOwner } from "../../core/class-member.js";
 import type { ClassTable } from "./class-table.js";
 import type { ModuleIR } from "../compilation-unit.js";
+import { cellKey } from "../../runtime/intrinsics/global-cells.js";
 
 const LOCAL_CAPTURE: ContextSlotSource = "local";
 const UPVALUE_CAPTURE: ContextSlotSource = "upvalue";
@@ -41,11 +42,24 @@ function creatorsIn(module: ModuleIR): Creators {
   return creators;
 }
 
+type NameFilter = (name: string | null) => string | null;
+
+function scopedName(
+  scope: RegisterCompiledFunction,
+  slot: number,
+  fallback: string | null,
+  isVariable: NameFilter,
+): string | null {
+  const held = isVariable(scope.localNames[slot] ?? fallback);
+  return held === null ? null : cellKey(scope.moduleSpec, held);
+}
+
 function moduleVariableOf(
   fn: RegisterCompiledFunction,
   index: number,
   creators: Creators,
-  entry: RegisterCompiledFunction,
+  scopes: ReadonlySet<RegisterCompiledFunction>,
+  isVariable: NameFilter,
 ): string | null {
   const upvalue = fn.upvalues[index];
   const creator = creators.get(fn);
@@ -53,10 +67,10 @@ function moduleVariableOf(
     return null;
   }
   if (upvalue.outerType === UPVALUE_CAPTURE) {
-    return moduleVariableOf(creator, upvalue.outerSlot, creators, entry);
+    return moduleVariableOf(creator, upvalue.outerSlot, creators, scopes, isVariable);
   }
-  if (upvalue.outerType !== LOCAL_CAPTURE || creator !== entry) return null;
-  return entry.localNames[upvalue.outerSlot] ?? upvalue.name ?? null;
+  if (upvalue.outerType !== LOCAL_CAPTURE || !scopes.has(creator)) return null;
+  return scopedName(creator, upvalue.outerSlot, upvalue.name ?? null, isVariable);
 }
 
 function isUndefinedConstant(value: CFGInstruction | undefined): boolean {
@@ -144,19 +158,32 @@ export function lowerModuleCaptures(module: ModuleIR, entryName: string): number
     return classes?.shapeOf(name) == null ? name : null;
   };
 
-  let rewritten = rewrite(entryUnit.graph, (node) =>
-    sourceOf(node) === LOCAL_CAPTURE
-      ? isVariable(entry.localNames[slotOf(node)] ?? null)
-      : null,
-  );
-  if (rewritten > 0) entryUnit.analyses?.invalidateAll();
+  const scopes = new Set<RegisterCompiledFunction>();
+  for (const unit of module.units) {
+    const compiled = unit.compiledFunction;
+    if (compiled !== null && !creators.has(compiled)) scopes.add(compiled);
+  }
+  scopes.add(entry);
+
+  let rewritten = 0;
+  for (const unit of module.units) {
+    const compiled = unit.compiledFunction;
+    if (compiled === null || !scopes.has(compiled)) continue;
+    const changed = rewrite(unit.graph, (node) =>
+      sourceOf(node) === LOCAL_CAPTURE
+        ? scopedName(compiled, slotOf(node), null, isVariable)
+        : null,
+    );
+    if (changed > 0) unit.analyses?.invalidateAll();
+    rewritten += changed;
+  }
 
   const lowered = new Set<RegisterCompiledFunction>();
   for (const unit of module.units) {
     const compiled = unit.compiledFunction;
-    if (unit === entryUnit || compiled === null) continue;
+    if (compiled === null || scopes.has(compiled)) continue;
     const variableOf = (index: number) =>
-      isVariable(moduleVariableOf(compiled, index, creators, entry));
+      moduleVariableOf(compiled, index, creators, scopes, isVariable);
     if (
       compiled.upvalues.length > 0 &&
       compiled.upvalues.every((_, index) => variableOf(index) !== null)
