@@ -2,8 +2,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   CFGFunction,
   irAwait,
+  irCallKnownFunction,
   irConstant,
+  irGenericGetIndex,
+  irGenericSetIndex,
   irInt32Add,
+  irJump,
+  irLoadArrayLength,
+  irNewArray,
   irNewObject,
   irReturn,
   resetIRNodeIds,
@@ -11,6 +17,7 @@ import {
   IR_GENERIC_ADD,
   IR_CALL_BUILTIN,
   IR_CALL_KNOWN_FUNCTION,
+  IR_NEW_ARRAY,
   IR_NEW_OBJECT,
   IR_STORE_FIELD,
   IR_STORE_TEXT,
@@ -19,6 +26,7 @@ import {
   type CFGInstruction,
 } from "../../../src/optimizing/ir/index.js";
 import {
+  localizeConstantArrays,
   lowerAwaitedPromises,
   splitCoroutine,
   type PromiseOf,
@@ -34,6 +42,7 @@ import {
   CORO_STATE_REJECTED,
   CORO_VALUE_FIELD,
 } from "../../../src/optimizing/metadata/coroutines.js";
+import { link } from "../../../src/optimizing/ir/cfg-edit.js";
 import { TERA_NEVER_SETTLED } from "../../../src/optimizing/target/faults.js";
 import { validateGraphInvariants } from "../../../src/optimizing/validation/graph-validator.js";
 import { recordPendingThrow, returnPendingThrow } from "../../../src/optimizing/builder/throw-recovery.js";
@@ -367,5 +376,102 @@ describe("lowerAwaitedPromises", () => {
     const { graph } = lower("int");
 
     expect(validateGraphInvariants(graph)).toBe(true);
+  });
+});
+
+describe("moving a constant array next to the block that reads it", () => {
+  type Held = "read" | "length" | "write" | "handOver";
+
+  function usingConstantArray(how: Held) {
+    const graph = new CFGFunction("walks");
+    const entry = graph.addBlock();
+    const array = entry.addNode(
+      irNewArray([entry.addNode(irConstant(1)), entry.addNode(irConstant(2))]),
+    );
+    const reader = graph.addBlock();
+    entry.addNode(irJump(reader));
+    link(entry, reader);
+    const held =
+      how === "length"
+        ? reader.addNode(irLoadArrayLength(array))
+        : how === "read"
+          ? reader.addNode(irGenericGetIndex(array, reader.addNode(irConstant(0))))
+          : how === "write"
+            ? reader.addNode(
+                irGenericSetIndex(array, reader.addNode(irConstant(0)), reader.addNode(irConstant(9))),
+              )
+            : reader.addNode(irCallKnownFunction({ name: "takes" } as never, [array]));
+    reader.addNode(irReturn(held));
+    graph.rebuildUses();
+    localizeConstantArrays(graph);
+    graph.rebuildUses();
+    return { graph, array, reader };
+  }
+
+  const arraysIn = (block: CFGBlock): CFGInstruction[] =>
+    block.nodes.filter((node) => node.type === IR_NEW_ARRAY);
+
+  it("copies the array into the block that only reads an element of it", () => {
+    const { reader } = usingConstantArray("read");
+
+    expect(arraysIn(reader)).toHaveLength(1);
+  });
+
+  it("copies it into a block that only asks how long it is", () => {
+    const { reader } = usingConstantArray("length");
+
+    expect(arraysIn(reader)).toHaveLength(1);
+  });
+
+  it("leaves an array a later block writes into where it was built", () => {
+    const { reader } = usingConstantArray("write");
+
+    expect(arraysIn(reader)).toHaveLength(0);
+  });
+
+  it("leaves an array handed to a call where it was built, since the call may keep it", () => {
+    const { reader } = usingConstantArray("handOver");
+
+    expect(arraysIn(reader)).toHaveLength(0);
+  });
+});
+
+describe("a coroutine holding a whole array across a suspend", () => {
+  function keepingArray(element: string): CFGFunction {
+    const graph = new CFGFunction("f");
+    graph.classes = table();
+    graph.declaredSignature = { params: [element], returns: "int" };
+    const held = graph.addParameter(0);
+    const block = graph.addBlock();
+    const array = block.addNode(irNewArray([held, held]));
+    block.addNode(irAwait(block.addNode(irConstant(1))));
+    block.addNode(irReturn(block.addNode(irLoadArrayLength(array))));
+    graph.rebuildUses();
+    return graph;
+  }
+
+  const slotTypes = (shape: ClassShape): string[] =>
+    [...shape.fields.values()].map((field) => field.declaredType);
+
+  function slotElement(element: string): string | null {
+    const graph = keepingArray(element);
+    const { frame } = split(graph, graph.classes!);
+    const named = slotTypes(frame!).at(-1)!;
+    const shape = graph.classes!.shapeOf(named);
+    return shape === null ? null : graph.classes!.arrayLayoutOf(shape)?.declaredType ?? null;
+  }
+
+  it("gives the array a frame slot rather than refusing to split", () => {
+    const graph = keepingArray("int");
+
+    expect(() => split(graph, graph.classes!)).not.toThrow();
+  });
+
+  it("names that slot by the shape the array has, not by a number", () => {
+    expect(slotElement("int")).toBe("int");
+  });
+
+  it("names a slot holding an array of text the same way", () => {
+    expect(slotElement("string")).toBe("string");
   });
 });

@@ -102,6 +102,8 @@ export const NUMBER_BUILTIN = "Number";
 export const CLOCK_BUILTIN = "tera_now";
 export const WAIT_BUILTIN = "tera_wait";
 export const TO_STRING_MEMBER = "to_string";
+export const FROM_CHAR_CODE_MEMBER = "fromCharCode";
+export const CHAR_FROM_CODE_BUILTIN = qualifiedMethodName(STRING_BUILTIN, FROM_CHAR_CODE_MEMBER);
 
 const PRINT_ARGUMENT_SEPARATOR = " ".codePointAt(0)!;
 const PRINT_LINE_TERMINATOR = "\n".codePointAt(0)!;
@@ -141,6 +143,7 @@ const GLOBAL_BUILTIN_DECLARATIONS: readonly GlobalBuiltinDeclaration[] = [
   { name: PARSE_FLOAT_BUILTIN, params: ["string"], returns: "float", variadic: false },
   { name: CLOCK_BUILTIN, params: [], returns: "float", variadic: false },
   { name: WAIT_BUILTIN, params: ["float"], returns: "void", variadic: false },
+  { name: CHAR_FROM_CODE_BUILTIN, params: ["int"], returns: "string", variadic: false },
 ];
 
 function buildGlobalRegistry(): Map<string, BuiltinIntrinsic> {
@@ -291,7 +294,7 @@ export const STRING_TYPE = "string";
 
 function namesReturning(match: (intrinsic: BuiltinIntrinsic) => boolean): ReadonlySet<string> {
   const names = new Set<string>();
-  for (const registry of [REGISTRY, NAMESPACE_REGISTRY]) {
+  for (const registry of [REGISTRY, NAMESPACE_REGISTRY, GLOBAL_REGISTRY]) {
     for (const intrinsic of registry.values()) {
       if (match(intrinsic)) names.add(intrinsic.qualifiedName);
     }

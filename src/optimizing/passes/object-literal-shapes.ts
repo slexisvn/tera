@@ -53,7 +53,7 @@ function functionValueTypeOf(stored: CFGInstruction, graph: CFGFunction): string
   );
 }
 
-function storedTypeName(
+export function heldTypeNameOf(
   stored: CFGInstruction,
   graph: CFGFunction,
   classes: ClassTable,
@@ -97,7 +97,7 @@ function initializerOf(
     const name = String(use.props.propName);
     const stored = use.inputs[1];
     if (stored === undefined) return null;
-    const declaredType = storedTypeName(stored, graph, classes, types);
+    const declaredType = heldTypeNameOf(stored, graph, classes, types);
     if (declaredType === null) return null;
     const seen = named.get(name);
     if (seen !== undefined) {
@@ -118,6 +118,16 @@ function inferredShapeOf(
 ): ClassShape | null {
   const fields = initializerOf(allocation, graph, classes, types);
   return fields === null ? null : classes.defineSynthetic(literalShapeSurface(fields));
+}
+
+export function literalShapeNameOf(
+  allocation: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  if (allocation.type !== IR_NEW_OBJECT) return null;
+  return inferredShapeOf(allocation, graph, classes, types)?.name ?? null;
 }
 
 export function literalReturnShapeOf(graph: CFGFunction): string | null {

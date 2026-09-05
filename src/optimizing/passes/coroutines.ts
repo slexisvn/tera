@@ -25,10 +25,10 @@ import {
   IR_CONSTANT,
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_SET_INDEX,
+  IR_LOAD_ARRAY_LENGTH,
   IR_LOAD_ELEMENT,
   IR_NEW_ARRAY,
   IR_PHI,
-  IR_STORE_ELEMENT,
   IR_RETURN,
   IR_RUNTIME_BASE,
   SETTLED_TYPE_PROP,
@@ -38,6 +38,7 @@ import {
 import { disconnect, link } from "../ir/cfg-edit.js";
 import { reserveNodeIds } from "../ir/graph-edit.js";
 import { computeValueLiveness } from "../analyses/value-liveness.js";
+import { heldTypeNameOf } from "./object-literal-shapes.js";
 import { inferTypes } from "../analyses/type-inference.js";
 import {
   isPendingThrowReturn,
@@ -122,7 +123,6 @@ const RESUME_PENDING = 1;
 const RESUME_DONE = 0;
 const FLOAT = "float";
 
-const ARRAY_WRITES = new Set<string>([IR_STORE_ELEMENT, IR_GENERIC_SET_INDEX]);
 const ARRAY_READS = new Set<string>([IR_LOAD_ELEMENT, IR_GENERIC_GET_INDEX]);
 
 const SLOT_TYPES = new Map<string, string>([
@@ -548,10 +548,15 @@ export function localizeRuntimeBases(graph: CFGFunction): void {
   );
 }
 
+function readsOnly(use: CFGInstruction, array: CFGInstruction): boolean {
+  if (ARRAY_READS.has(use.type)) return use.inputs[0] === array;
+  return use.type === IR_LOAD_ARRAY_LENGTH;
+}
+
 function rematerializable(node: CFGInstruction): boolean {
   if (node.type !== IR_NEW_ARRAY) return false;
   if (!node.inputs.every((input) => input.type === IR_CONSTANT)) return false;
-  return !node.uses.some((use) => ARRAY_WRITES.has(use.type) && use.inputs[0] === node);
+  return node.uses.every((use) => readsOnly(use, node));
 }
 
 export function localizeConstantArrays(graph: CFGFunction): void {
@@ -594,7 +599,10 @@ export class FrameSpills {
     const types = inferTypes(graph);
     const declare = (value: CFGInstruction, name: string): void => {
       const type = types.typeOf(value);
-      const declaredType = slotTypeOf(type, classes) ?? loadedElementType(value);
+      const declaredType =
+        slotTypeOf(type, classes) ??
+        loadedElementType(value) ??
+        heldTypeNameOf(value, graph, classes, types);
       if (declaredType === null) {
         throw new CoroutineSplitError(
           `${graph.name} keeps a ${type.kind} value across a suspend, and the compiler has no ` +

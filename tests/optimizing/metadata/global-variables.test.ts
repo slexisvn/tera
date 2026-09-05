@@ -8,7 +8,9 @@ import {
   irGenericGetProp,
   irGenericSetIndex,
   irLoadGlobal,
+  irGenericSetProp,
   irNewArray,
+  irNewObject,
   irReturn,
   irStoreGlobal,
   resetIRNodeIds,
@@ -292,5 +294,43 @@ describe("declareGlobalVariables and the type a module variable was declared wit
 
   it("ignores a plain variable's annotation when it cannot hold what it is given", () => {
     expect(declaredTypeOfScalarGlobal(0.5, "int")).toBe("float");
+  });
+});
+
+describe("declareGlobalVariables over an annotated empty array", () => {
+  const RECORD = "tera_literal$salary_int";
+
+  function record(block: Block): CFGInstruction {
+    const allocation = block.addNode(irNewObject());
+    block.addNode(irGenericSetProp(allocation, "salary", block.addNode(irConstant(1))));
+    return allocation;
+  }
+
+  it("keeps the element the annotation names when nothing in the module contradicts it", () => {
+    expect(declaredTypeOfGlobal(() => {}, [], "string[]")).toBe("string[]");
+  });
+
+  it("keeps a record element the annotation names rather than guessing a number", () => {
+    expect(declaredTypeOfGlobal(() => {}, [], `${RECORD}[]`)).toBe(`${RECORD}[]`);
+  });
+
+  it("names the record element a function pushes into an unannotated array", () => {
+    const declared = declaredTypeOfGlobal((block, held) => {
+      pushInto(block, held, record(block));
+    });
+
+    expect(declared).toBe(`${RECORD}[]`);
+  });
+
+  it("still lets what the program stores decide against a wider annotation", () => {
+    const declared = declaredTypeOfGlobal(
+      (block, held) => {
+        pushInto(block, held, block.addNode(irConstant("a")));
+      },
+      [],
+      "int[]",
+    );
+
+    expect(declared).toBe("string[]");
   });
 });

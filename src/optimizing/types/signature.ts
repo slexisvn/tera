@@ -1,4 +1,4 @@
-import { isUnwrittenType } from "../../core/type-text.js";
+import { isUnwrittenType, splitTopLevel } from "../../core/type-text.js";
 
 export type DeclaredDefault = number | string | boolean | null;
 
@@ -6,25 +6,16 @@ const SIGNATURE_ARROW = "->";
 const GATHERED_PARAMETER_PREFIX = "gathered$";
 
 function topLevelParts(source: string): readonly string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let at = 0; at < source.length; at++) {
-    const character = source[at]!;
-    if (character === "(" || character === "[" || character === "<") depth++;
-    else if (character === ")" || character === "]" || character === ">") depth--;
-    else if (character === "," && depth === 0) {
-      parts.push(source.slice(start, at));
-      start = at + 1;
-    }
-  }
-  parts.push(source.slice(start));
-  return parts.map((part) => part.trim()).filter((part) => part.length > 0);
+  return splitTopLevel(source, ",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
 }
+
+const FUNCTION_KEYWORD = /^fn\s*(?=\()/;
 
 export function functionSignatureOf(declared: string | null | undefined): DeclaredSignature | null {
   if (typeof declared !== "string") return null;
-  const source = declared.trim();
+  const source = declared.trim().replace(FUNCTION_KEYWORD, "");
   if (!source.startsWith("(")) return null;
   let depth = 0;
   for (let at = 0; at < source.length; at++) {

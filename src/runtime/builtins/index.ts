@@ -1,3 +1,4 @@
+import { spellings } from "../../utils/naming.js";
 import {
   mkUndefined,
   mkNumber,
@@ -137,13 +138,26 @@ function namespaceValue(value: BuiltinNamespaceValue): TaggedValue | null {
   return null;
 }
 
+function spellOut(
+  properties: Record<string, TaggedValue>,
+  name: string,
+  value: TaggedValue,
+): void {
+  for (const spelled of spellings(name)) properties[spelled] = value;
+}
+
 function functionValue(payload: RuntimeFunctionPayload): TaggedValue {
   const fnProperties: Record<string, TaggedValue> = { ...(payload.properties ?? {}) };
   const fn: RuntimeFunctionPayload = { ...payload, properties: fnProperties };
   for (const [key, value] of Object.entries(payload)) {
     if (key === "call" || key === "construct" || key === "name" || key === "properties") continue;
-    if (isRuntimeFunctionPayload(value)) fnProperties[key] = mkFunction(value);
-    else if (typeof value === "number" && Number.isFinite(value)) fnProperties[key] = mkNumber(value);
+    const held = isRuntimeFunctionPayload(value)
+      ? mkFunction(value)
+      : typeof value === "number" && Number.isFinite(value)
+        ? mkNumber(value)
+        : null;
+    if (held === null) continue;
+    spellOut(fnProperties, key, held);
   }
   return mkFunction(fn);
 }
@@ -157,7 +171,8 @@ export function builtinValue(name: string, entry: BuiltinRegistryEntry): TaggedV
   for (const [methodName, method] of Object.entries(namespace)) {
     if (methodName === "name") continue;
     const value = namespaceValue(method);
-    if (value !== null) nsProperties[methodName] = value;
+    if (value === null) continue;
+    spellOut(nsProperties, methodName, value);
   }
   return mkFunction({ name, properties: nsProperties });
 }

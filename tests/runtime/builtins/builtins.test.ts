@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { builtins } from "../../../src/runtime/builtins/index.js";
+import { builtins, builtinValue } from "../../../src/runtime/builtins/index.js";
 import {
   mkSmi,
   mkDouble,
@@ -335,5 +335,47 @@ describe("builtins", () => {
       const obj = mkObject(createJSObject());
       expect(getPayload(builtins.String.call([obj]))).toBe("[object Object]");
     });
+  });
+});
+
+describe("the spellings a builtin namespace answers its members under", () => {
+  const propertiesOf = (name: string): Record<string, TaggedValue> =>
+    getPayload(builtinValue(name, builtins[name]!)).properties;
+
+  it("answers a camel-spelled member under the name it was written with", () => {
+    expect(propertiesOf("String").fromCharCode).toBeDefined();
+  });
+
+  it("answers the same member under the spelling the language uses", () => {
+    const properties = propertiesOf("String");
+
+    expect(properties.from_char_code).toBe(properties.fromCharCode);
+  });
+
+  it("adds no second spelling for a member already written that way", () => {
+    const properties = propertiesOf("Object");
+
+    expect(properties.keys).toBeDefined();
+    expect(Object.keys(properties).filter((name) => name.startsWith("keys"))).toEqual(["keys"]);
+  });
+
+  it("spells a member of a builtin function the same two ways", () => {
+    const properties = propertiesOf("Object");
+
+    expect(properties.get_prototype_of).toBe(properties.getPrototypeOf);
+  });
+
+  it("leaves a constant written in capitals under that one name", () => {
+    const properties = propertiesOf("Number");
+
+    expect(properties.MAX_SAFE_INTEGER).toBeDefined();
+    expect(properties.max_safe_integer).toBeUndefined();
+  });
+
+  it("spells the character a code names, whichever way it was asked for", () => {
+    const properties = propertiesOf("String");
+    const spelled = (held: TaggedValue) => getPayload(getPayload(held).call([mkSmi(65)]));
+
+    expect(spelled(properties.from_char_code!)).toBe(spelled(properties.fromCharCode!));
   });
 });

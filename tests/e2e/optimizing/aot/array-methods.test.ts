@@ -736,3 +736,37 @@ describe("an array variable a loop reassigns", () => {
     );
   });
 });
+
+describe("taking a record off the end or the front of an array", () => {
+  itRunsPe("reads the fields of a record it shifted off", () => {
+    peAgrees(
+      src(
+        "type Job = { id: int, cost: int }",
+        "queue: Job[] = []",
+        "next_id = 1",
+        "fn enqueue(cost: int):",
+        "  queue.push({ id: next_id, cost: cost })",
+        "  next_id += 1",
+        "for c of [5, 2, 9]:",
+        "  enqueue(c)",
+        "clock = 0",
+        "while queue.length > 0:",
+        "  job = queue.shift()",
+        "  clock += job.cost",
+        "  print(job.id, job.cost, clock)",
+      ),
+    );
+  });
+
+  itRunsPe("reads the fields of a record it popped off", () => {
+    peAgrees(
+      src(
+        "type Point = { x: int, y: int }",
+        "xs: Point[] = [{ x: 1, y: 2 }, { x: 3, y: 4 }]",
+        "while xs.length > 0:",
+        "  held = xs.pop()",
+        "  print(held.x + held.y)",
+      ),
+    );
+  });
+});

@@ -2,9 +2,11 @@ import {
   type CFGFunction,
   type CFGInstruction,
   IR_GENERIC_CALL,
+  IR_GENERIC_GET_PROP,
   IR_LOAD_GLOBAL,
   irCallBuiltin,
   irConstant,
+  irGenericAdd,
   irGenericCall,
   irGenericGetProp,
   irRequiresFrameState,
@@ -18,6 +20,8 @@ import {
   builtinNamespaceIntrinsic,
   qualifiedMethodName,
   BUILTIN_NAMESPACE,
+  CHAR_FROM_CODE_BUILTIN,
+  FROM_CHAR_CODE_MEMBER,
   NUMBER_BUILTIN,
   PARSE_FLOAT_BUILTIN,
   STRING_BUILTIN,
@@ -27,6 +31,7 @@ import {
 } from "../metadata/builtin-methods.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { producedType } from "../metadata/produced-type.js";
+import { spellings } from "../../utils/naming.js";
 import { TypeKind } from "../types/lattice.js";
 import type { NominalTypes } from "../types/declared.js";
 import {
@@ -39,6 +44,10 @@ import {
 
 const OMITTED_STRING = "";
 const RENDERED_ONLY = 2;
+const RECEIVER_AND_CALLEE = 2;
+const FROM_CHAR_CODE_SPELLINGS: ReadonlySet<string> = new Set<string>(
+  spellings(FROM_CHAR_CODE_MEMBER),
+);
 const ONE_OPERAND = 1;
 const TRUNCATED_MEMBER = "trunc";
 
@@ -174,6 +183,48 @@ type Lowering = {
   readonly wholeText?: boolean;
 };
 
+function charCodeOperands(node: CFGInstruction): readonly CFGInstruction[] | null {
+  if (node.type !== IR_GENERIC_CALL || node.props.isMethod !== true) return null;
+  const callee = node.inputs[0];
+  if (callee?.type !== IR_GENERIC_GET_PROP) return null;
+  if (!FROM_CHAR_CODE_SPELLINGS.has(String(callee.props.propName))) return null;
+  const namespace = callee.inputs[0];
+  if (namespace?.type !== IR_LOAD_GLOBAL || String(namespace.props.name) !== STRING_BUILTIN) {
+    return null;
+  }
+  const operands = node.inputs.slice(RECEIVER_AND_CALLEE);
+  return operands.length === 0 ? null : operands;
+}
+
+function spellCharCodes(
+  editor: GraphEditor,
+  node: CFGInstruction,
+  operands: readonly CFGInstruction[],
+  stamp: Stamp,
+): void {
+  const intrinsic = builtinGlobalIntrinsicByName(CHAR_FROM_CODE_BUILTIN)!;
+  let spelled: CFGInstruction | null = null;
+  for (const operand of operands) {
+    const one = stamp(
+      irCallBuiltin(intrinsic.qualifiedName, [operand], builtinMethodCallMetadata(intrinsic)),
+    );
+    if (irRequiresFrameState(one)) one.frameState = node.frameState;
+    editor.insertBefore(node, one);
+    if (spelled === null) {
+      spelled = one;
+      continue;
+    }
+    const joined = stamp(irGenericAdd(spelled, one));
+    joined.frameState = node.frameState;
+    editor.insertBefore(node, joined);
+    spelled = joined;
+  }
+  const callee = node.inputs[0]!;
+  editor.replaceAllUses(node, spelled!);
+  editor.remove(node);
+  editor.removeIfDead(callee);
+}
+
 function loweringFor(node: CFGInstruction): Lowering | null {
   if (node.type !== IR_GENERIC_CALL || node.props.isMethod === true) return null;
   const callee = node.inputs[0];
@@ -228,6 +279,12 @@ export function lowerGlobalBuiltins(graph: CFGFunction, types: TypeInference): n
       const spelled = spellsBoolean(node, types, classes);
       if (spelled !== null) {
         spellLater(editor, node, spelled, stamp);
+        count++;
+        continue;
+      }
+      const codes = charCodeOperands(node);
+      if (codes !== null) {
+        spellCharCodes(editor, node, codes, stamp);
         count++;
         continue;
       }

@@ -34,6 +34,7 @@ import { lowerGlobalVariables } from "../passes/global-variable-lowering.js";
 import { lowerStringSplit } from "../passes/string-split.js";
 import { lowerParseNumbers } from "../passes/parse-number-surface.js";
 import { lowerIterators } from "../passes/iterator-lowering.js";
+import { lowerFloatRemainder } from "../passes/float-mod.js";
 import { lowerNamedArguments } from "../passes/named-argument-lowering.js";
 import { shapeObjectLiterals } from "../passes/object-literal-shapes.js";
 import { lowerObjectSurface } from "../passes/object-surface.js";
@@ -165,6 +166,14 @@ export function targetLegalizationPipeline(
       requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
       run: (graph, analyses) => ({
         changed: lowerIterators(graph, analyses.get(typeInferenceAnalysisId)) > 0,
+      }),
+    },
+    {
+      name: "float-remainder",
+      preserves: preservesControlFlow,
+      requires: [typeInferenceAnalysisId as AnalysisId<unknown>],
+      run: (graph, analyses) => ({
+        changed: lowerFloatRemainder(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
     {

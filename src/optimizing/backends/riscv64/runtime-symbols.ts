@@ -18,6 +18,7 @@ export const RISCV_RUNTIME_SYMBOLS = {
   stringSet: "tera_rv64_str_set",
   stringAppend: "tera_rv64_str_append",
   charAt: "tera_rv64_char_at",
+  charFromCode: "tera_rv64_char_from_code",
   int32ToString: "tera_rv64_i32_to_str",
   stringLength: "tera_rv64_strlen",
   stringCompare: "tera_rv64_strcmp",

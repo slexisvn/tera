@@ -192,6 +192,17 @@ const LOGICAL_OPS = new Set(["&&", "||"]);
 
 const CONDITION_CONTINUATION_OPERATORS = new Set<string>([".", "?.", "?"]);
 
+const PROPERTY_NAME_TOKENS: ReadonlySet<string> = new Set<string>([
+  TokenType.Identifier,
+  TokenType.Keyword,
+  TokenType.String,
+  TokenType.Number,
+]);
+
+function namesProperty(token: ParserToken | undefined): boolean {
+  return token !== undefined && PROPERTY_NAME_TOKENS.has(token.type);
+}
+
 function canonicalOperator(op: string): string {
   if (op === "and") return "&&";
   if (op === "or") return "||";
@@ -2059,11 +2070,7 @@ export class Parser {
           key = this.parseExpression();
           this.expect(TokenType.Punctuator, "]");
           computed = true;
-        } else if (this.check(TokenType.Identifier)) {
-          key = this.tokenString(this.advance(), "property name");
-        } else if (this.check(TokenType.String)) {
-          key = this.tokenString(this.advance(), "property name");
-        } else if (this.check(TokenType.Number)) {
+        } else if (namesProperty(this.current())) {
           key = this.tokenString(this.advance(), "property name");
         } else {
           this.error("Expected property name", this.current());

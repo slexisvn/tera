@@ -331,3 +331,76 @@ describe("AOT generators", () => {
     declines(src("fn* mixed():", "  yield 1", '  yield "two"', "for v of mixed():", "  print(v)"));
   });
 });
+
+describe("a generator that yields whole arrays", () => {
+  itRunsPe("yields arrays it built one at a time", () => {
+    agrees(
+      src(
+        "fn* pages():",
+        "  a: int[] = [1, 2]",
+        "  yield a",
+        "  b: int[] = [3]",
+        "  yield b",
+        "for p of pages():",
+        "  print(p.length, p)",
+      ),
+    );
+  });
+
+  itRunsPe("keeps an array parameter across every suspend", () => {
+    agrees(
+      src(
+        "fn* take(xs: int[]):",
+        "  i = 0",
+        "  while i < xs.length:",
+        "    yield xs[i]",
+        "    i += 1",
+        "for v of take([4, 5, 6]):",
+        "  print(v)",
+      ),
+    );
+  });
+
+  itRunsPe("keeps what it pushed into an array it yields", () => {
+    agrees(
+      src(
+        "fn* chunks(xs: int[], size: int):",
+        "  i = 0",
+        "  while i < xs.length:",
+        "    page: int[] = []",
+        "    j = 0",
+        "    while j < size && i + j < xs.length:",
+        "      page.push(xs[i + j])",
+        "      j += 1",
+        "    yield page",
+        "    i += size",
+        "for p of chunks([1, 2, 3, 4, 5], 2):",
+        "  print(p.length, p)",
+      ),
+    );
+  });
+
+  itRunsPe("walks a for-of loop that suspends in its body", () => {
+    agrees(
+      src(
+        "fn* each(xs: int[]):",
+        "  for x of xs:",
+        "    yield x * 2",
+        "for v of each([1, 2, 3]):",
+        "  print(v)",
+      ),
+    );
+  });
+
+  itRunsPe("yields arrays of text the same way", () => {
+    agrees(
+      src(
+        "fn* words(text: string):",
+        '  for line of text.split(";"):',
+        '    yield line.split(",")',
+        'for parts of words("a,b;c,d,e"):',
+        '  print(parts.length, parts.join("|"))',
+      ),
+    );
+  });
+});

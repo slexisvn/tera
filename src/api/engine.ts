@@ -37,12 +37,7 @@ import { jsonPrelude, type JsonShapeSurface } from "../optimizing/prelude/json.j
 import { jsonShapesAcross, rewriteJsonParses } from "../optimizing/prelude/json-requests.js";
 import { errorPrelude } from "../optimizing/prelude/errors.js";
 import { parseNumberPrelude } from "../optimizing/prelude/parse-number.js";
-import { fixedTextPrelude, rewriteFixedTexts } from "../optimizing/prelude/fixed-text.js";
-import { textMethodPrelude, rewriteTextMethods } from "../optimizing/prelude/text-methods.js";
-import {
-  mathTranscendentalPrelude,
-  rewriteMathTranscendentals,
-} from "../optimizing/prelude/math-transcendentals.js";
+import { adoptSourcePreludes, sourcePreludes } from "../optimizing/prelude/index.js";
 import type { RuntimeInterfaceContract } from "../runtime/interface-contract.js";
 import { spreadsArguments } from "../optimizing/passes/spread-calls.js";
 import { astChildren, NodeType } from "../frontend/ast/index.js";
@@ -446,25 +441,6 @@ function collectionPreludeFor(graph: ModuleGraph): string {
 
 function jsonShapesFor(graph: ModuleGraph): readonly JsonShapeSurface[] {
   return jsonShapesAcross(moduleRoots(graph), namesTheEntryCanSpell(graph.entry));
-}
-
-interface SourcePrelude {
-  readonly emit: (roots: readonly ASTNode[]) => string;
-  readonly adopt: (roots: readonly ASTNode[]) => number;
-}
-
-const SOURCE_PRELUDES: readonly SourcePrelude[] = [
-  { emit: fixedTextPrelude, adopt: rewriteFixedTexts },
-  { emit: textMethodPrelude, adopt: rewriteTextMethods },
-  { emit: mathTranscendentalPrelude, adopt: rewriteMathTranscendentals },
-];
-
-function sourcePreludes(roots: readonly ASTNode[]): string {
-  return SOURCE_PRELUDES.map((prelude) => prelude.emit(roots)).join("");
-}
-
-function adoptSourcePreludes(roots: readonly ASTNode[]): void {
-  for (const prelude of SOURCE_PRELUDES) prelude.adopt(roots);
 }
 
 function preludeText(

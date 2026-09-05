@@ -1,5 +1,8 @@
 import {
   irCallKnownFunction,
+  irLoadField,
+  irNewObject,
+  irStoreField,
   IR_CALL_KNOWN_FUNCTION,
   IR_GENERIC_CALL,
   IR_LOAD_CONTEXT_SLOT,
@@ -12,11 +15,23 @@ import {
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
 import { AnalysisManager } from "../infra/analysis-manager.js";
+import { DominatorTree } from "../analyses/dominance.js";
 import { createAnalysisRegistry } from "../analyses/index.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
 import { RegisterCompiledFunction } from "../../bytecode/register/ops/bytecode.js";
-import { declaredTypeOf, type ClassTable } from "./class-table.js";
-import { ModuleFunctions } from "./module-functions.js";
+import {
+  declaredTypeOf,
+  CLASS_ID_PROP,
+  FIELD_SCALAR_PROP,
+  FIELD_TYPE_PROP,
+  INSTANCE_SIZE_PROP,
+  VALUE_CLASS_PROP,
+  type ClassShape,
+  type ClassTable,
+} from "./class-table.js";
+import { syntheticSurface } from "./coroutines.js";
+import { declaredTypeNameOf } from "./call-signatures.js";
+import { FUNCTION_TARGET_PROP, ModuleFunctions } from "./module-functions.js";
 import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
 
 const LOCAL_CAPTURE = "local";
@@ -24,12 +39,31 @@ const UPVALUE_CAPTURE = "upvalue";
 const CAPTURED_PARAMETER_NAME = "captured";
 const SINGLE_CAPTURE = 1;
 const CAPTURE_SLOT = 0;
+const CLOSURE_FRAME_PREFIX = "tera_closure";
+
+function capturedFieldName(slot: number): string {
+  return `${CAPTURED_PARAMETER_NAME}${slot}`;
+}
+
+export const CLOSURE_CAPTURE_PROP = "carriesCapture";
+
+export function carriesCapture(value: CFGInstruction): boolean {
+  return value.props[CLOSURE_CAPTURE_PROP] === true;
+}
+
+interface Held {
+  readonly slot: number;
+  readonly value: CFGInstruction;
+  readonly declaredType: string;
+}
 
 interface Closure {
   readonly unit: CompilationUnit;
   readonly creator: CompilationUnit;
+  readonly held: readonly Held[];
   readonly captured: CFGInstruction;
   readonly capturedType: string;
+  readonly frame: ClassShape | null;
 }
 
 function contextSlots(graph: CFGFunction, source: string): CFGInstruction[] {
@@ -70,39 +104,151 @@ function analysesOf(unit: CompilationUnit): AnalysisManager<CFGFunction> {
   return unit.analyses ?? new AnalysisManager<CFGFunction>(unit.graph, createAnalysisRegistry());
 }
 
+function heldValuesOf(
+  unit: CompilationUnit,
+  creator: CompilationUnit,
+  classes: ClassTable,
+): readonly Held[] | null {
+  const compiled = unit.compiledFunction!;
+  const types = analysesOf(creator).get(typeInferenceAnalysisId);
+  const held: Held[] = [];
+  for (const [slot, upvalue] of compiled.upvalues.entries()) {
+    if (upvalue?.outerType !== LOCAL_CAPTURE || upvalue.outerSlot === undefined) return null;
+    const value = storedInSlot(creator.graph, upvalue.outerSlot);
+    if (value === null) return null;
+    const declaredType =
+      declaredTypeOf(types.typeOf(value), classes) ??
+      declaredTypeNameOf(value, creator.graph, classes, types);
+    if (declaredType === null) return null;
+    held.push({ slot, value, declaredType });
+  }
+  return held;
+}
+
 function capturedOf(
   unit: CompilationUnit,
   creator: CompilationUnit,
   classes: ClassTable,
 ): Closure | null {
   const compiled = unit.compiledFunction;
-  if (compiled === null || compiled.upvalues.length !== SINGLE_CAPTURE) return null;
-  const upvalue = compiled.upvalues[CAPTURE_SLOT];
-  if (upvalue?.outerType !== LOCAL_CAPTURE || upvalue.outerSlot === undefined) return null;
+  if (compiled === null || compiled.upvalues.length === 0) return null;
   if (contextSlots(unit.graph, LOCAL_CAPTURE).length > 0) return null;
+  const read = new Set<number>();
   for (const node of contextSlots(unit.graph, UPVALUE_CAPTURE)) {
     if (node.type === IR_STORE_CONTEXT_SLOT) return null;
-    if (Number(node.props.slot) !== CAPTURE_SLOT) return null;
+    read.add(Number(node.props.slot));
   }
-  const captured = storedInSlot(creator.graph, upvalue.outerSlot);
-  if (captured === null) return null;
-  const types = analysesOf(creator).get(typeInferenceAnalysisId);
-  const capturedType = declaredTypeOf(types.typeOf(captured), classes);
-  return capturedType === null ? null : { unit, creator, captured, capturedType };
+  const held = heldValuesOf(unit, creator, classes);
+  if (held === null) return null;
+  for (const slot of read) {
+    if (!held.some((one) => one.slot === slot)) return null;
+  }
+  if (held.length === SINGLE_CAPTURE) {
+    const only = held[CAPTURE_SLOT]!;
+    return {
+      unit,
+      creator,
+      held,
+      captured: only.value,
+      capturedType: only.declaredType,
+      frame: null,
+    };
+  }
+  const frame = closureFrameShape(classes, unit.graph.name, held);
+  const captured = buildFrame(creator.graph, frame, held);
+  return captured === null
+    ? null
+    : { unit, creator, held, captured, capturedType: frame.name, frame };
+}
+
+function closureFrameShape(
+  classes: ClassTable,
+  fn: string,
+  held: readonly Held[],
+): ClassShape {
+  return classes.defineSynthetic(
+    syntheticSurface(
+      `${CLOSURE_FRAME_PREFIX}$${fn}`,
+      null,
+      held.map((one) => [capturedFieldName(one.slot), one.declaredType] as const),
+    ),
+  );
+}
+
+function buildFrame(
+  graph: CFGFunction,
+  frame: ClassShape,
+  held: readonly Held[],
+): CFGInstruction | null {
+  const placed = held.map((one) => one.value).filter((value) => value.block !== null);
+  const dominance = new DominatorTree(graph);
+  const last = placed.reduce(
+    (carried: CFGInstruction | null, value) =>
+      carried === null || precedes(dominance, carried, value) ? value : carried,
+    null,
+  );
+  if (last !== null && !placed.every((value) => reaches(dominance, value, last))) return null;
+  const entry = graph.blocks[0]?.nodes[0] ?? null;
+  if (last === null && entry === null) return null;
+  const editor = new GraphEditor(graph);
+  const stamp = nodeIdStamper(graph);
+  const allocation = stamp(irNewObject());
+  allocation.props[CLASS_ID_PROP] = frame.id;
+  allocation.props[INSTANCE_SIZE_PROP] = frame.size;
+  allocation.props[VALUE_CLASS_PROP] = frame.id;
+  if (last === null) editor.insertBefore(entry!, allocation);
+  else editor.insertAfter(last, allocation);
+  let after: CFGInstruction = allocation;
+  for (const one of held) {
+    const field = frame.fields.get(capturedFieldName(one.slot))!;
+    const store = stamp(
+      irStoreField(allocation, field.offset, one.value, capturedFieldName(one.slot)),
+    );
+    store.props[FIELD_TYPE_PROP] = one.declaredType;
+    store.props[FIELD_SCALAR_PROP] = field.scalar;
+    editor.insertAfter(after, store);
+    after = store;
+  }
+  graph.rebuildUses();
+  return allocation;
+}
+
+function precedes(
+  dominance: DominatorTree,
+  left: CFGInstruction,
+  right: CFGInstruction,
+): boolean {
+  if (left.block === null) return true;
+  if (right.block === null) return false;
+  if (left.block === right.block) {
+    return left.block.nodes.indexOf(left) < right.block.nodes.indexOf(right);
+  }
+  return dominance.dominates(left.block, right.block);
+}
+
+function reaches(
+  dominance: DominatorTree,
+  definition: CFGInstruction,
+  at: CFGInstruction,
+): boolean {
+  return definition === at || precedes(dominance, definition, at);
 }
 
 function liftBody(closure: Closure): void {
   const graph = closure.unit.graph;
   const parameter = graph.addParameter(graph.parameterCount);
-  graph.parameterCount += 1;
   graph.parameters.pop();
   graph.parameters.unshift(parameter);
   graph.parameters.forEach((held, index) => {
     held.props.index = index;
   });
   const editor = new GraphEditor(graph);
+  const stamp = nodeIdStamper(graph);
+  const { frame } = closure;
   for (const node of contextSlots(graph, UPVALUE_CAPTURE)) {
-    editor.replaceAllUses(node, parameter);
+    const held =
+      frame === null ? parameter : readCapture(editor, stamp, frame, parameter, node);
+    editor.replaceAllUses(node, held);
     editor.remove(node);
   }
   const declared = graph.declaredSignature;
@@ -120,6 +266,23 @@ function liftBody(closure: Closure): void {
   graph.rebuildUses();
 }
 
+function readCapture(
+  editor: GraphEditor,
+  stamp: (node: CFGInstruction) => CFGInstruction,
+  frame: ClassShape,
+  parameter: CFGInstruction,
+  node: CFGInstruction,
+): CFGInstruction {
+  const name = capturedFieldName(Number(node.props.slot));
+  const field = frame.fields.get(name)!;
+  const read = stamp(irLoadField(parameter, field.offset));
+  read.props.propName = name;
+  read.props[FIELD_TYPE_PROP] = field.declaredType;
+  read.props[FIELD_SCALAR_PROP] = field.scalar;
+  editor.insertBefore(node, read);
+  return read;
+}
+
 function retireCreator(closure: Closure): void {
   const graph = closure.creator.graph;
   const editor = new GraphEditor(graph);
@@ -128,8 +291,11 @@ function retireCreator(closure: Closure): void {
     editor.replaceAllUses(made, closure.captured);
     editor.remove(made);
   }
+  const bySlot = new Map(closure.held.map((one) => [one.slot, one.value] as const));
   for (const node of contextSlots(graph, LOCAL_CAPTURE)) {
-    if (node.type === IR_LOAD_CONTEXT_SLOT) editor.replaceAllUses(node, closure.captured);
+    if (node.type === IR_LOAD_CONTEXT_SLOT) {
+      editor.replaceAllUses(node, bySlot.get(Number(node.props.slot)) ?? closure.captured);
+    }
     editor.remove(node);
   }
   graph.rebuildUses();
@@ -172,6 +338,8 @@ class Conversion {
     for (const closure of closures) {
       liftBody(closure);
       retireCreator(closure);
+      closure.unit.analyses?.invalidateAll();
+      closure.creator.analyses?.invalidateAll();
       this.identities.set(closure.captured, closure.unit);
       if (answersClosure(closure.creator.graph, closure.captured)) {
         this.answering.set(closure.creator.graph.name, closure.unit);
@@ -184,9 +352,21 @@ class Conversion {
 
     let rewritten = 0;
     for (const unit of this.module.units) {
+      this.markClosureValues(unit, functions);
       rewritten += this.rewriteCalls(unit, functions);
     }
     return rewritten;
+  }
+
+  private markClosureValues(unit: CompilationUnit, functions: ModuleFunctions): void {
+    for (const block of unit.graph.blocks) {
+      for (const node of block.nodes) {
+        const answered = this.calledClosure(node, functions);
+        if (answered === null) continue;
+        node.props[FUNCTION_TARGET_PROP] = answered.graph.name;
+        node.props[CLOSURE_CAPTURE_PROP] = true;
+      }
+    }
   }
 
   private creatorOf(compiled: RegisterCompiledFunction): CompilationUnit | null {

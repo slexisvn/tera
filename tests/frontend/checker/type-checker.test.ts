@@ -593,13 +593,13 @@ describe("taking one element after a guard that the array holds some", () => {
     );
 
     expect(diagnose(source)).toEqual([
-      "Type 'float | undefined' is not assignable to return type 'float'",
+      "Type 'float | undefined' is not assignable to return type 'float' (the value may be absent: guard it before use, or spell a fallback with ??)",
     ]);
   });
 
   it("still refuses to take one in the arm where an exact-count guard did not hold", () => {
     expect(diagnose(takes("if queue.length != 2:", "pop"))).toEqual([
-      "Type 'string | undefined' is not assignable to 'string'",
+      "Type 'string | undefined' is not assignable to 'string' (the value may be absent: guard it before use, or spell a fallback with ??)",
     ]);
   });
 
@@ -613,7 +613,7 @@ describe("taking one element after a guard that the array holds some", () => {
     );
 
     expect(diagnose(source)).toEqual([
-      "Type 'float | undefined' is not assignable to return type 'float'",
+      "Type 'float | undefined' is not assignable to return type 'float' (the value may be absent: guard it before use, or spell a fallback with ??)",
     ]);
   });
 
@@ -621,7 +621,7 @@ describe("taking one element after a guard that the array holds some", () => {
     const source = src('queue: string[] = ["a"]', "item: string = queue.shift()", "print(item)");
 
     expect(diagnose(source)).toEqual([
-      "Type 'string | undefined' is not assignable to 'string'",
+      "Type 'string | undefined' is not assignable to 'string' (the value may be absent: guard it before use, or spell a fallback with ??)",
     ]);
   });
 
@@ -635,7 +635,7 @@ describe("taking one element after a guard that the array holds some", () => {
     );
 
     expect(diagnose(source)).toEqual([
-      "Type 'string | undefined' is not assignable to 'string'",
+      "Type 'string | undefined' is not assignable to 'string' (the value may be absent: guard it before use, or spell a fallback with ??)",
     ]);
   });
 
@@ -648,7 +648,7 @@ describe("taking one element after a guard that the array holds some", () => {
     );
 
     expect(diagnose(source)).toEqual([
-      "Type 'string | undefined' is not assignable to 'string'",
+      "Type 'string | undefined' is not assignable to 'string' (the value may be absent: guard it before use, or spell a fallback with ??)",
     ]);
   });
 });
@@ -1057,5 +1057,52 @@ describe("the text members the language spells out", () => {
     expect(diagnose(src('at: int = "abcabc".last_index_of("b", 3)', "print(at)"))).toEqual([
       "Too many positional arguments for String.last_index_of()",
     ]);
+  });
+});
+
+describe("advice on a value that may be absent", () => {
+  const ABSENCE = /the value may be absent: guard it before use, or spell a fallback with \?\?/;
+
+  it("says how to answer for a take that a return type has no room for", () => {
+    const messages = diagnose(
+      src(
+        "class Box:",
+        "  public constructor():",
+        "    this.items = []",
+        "  public add(v: int):",
+        "    this.items.push(v)",
+        "  public take() -> int:",
+        "    return this.items.pop()",
+        "b = Box()",
+        "b.add(1)",
+        "print(b.take())",
+      ),
+    );
+
+    expect(messages.join("\n")).toMatch(ABSENCE);
+  });
+
+  it("says how to answer for a take a declared binding has no room for", () => {
+    const messages = diagnose(
+      src("xs: int[] = [1]", "held: int = xs.pop()", "print(held)"),
+    );
+
+    expect(messages.join("\n")).toMatch(ABSENCE);
+  });
+
+  it("stays quiet once a length test has ruled the absence out", () => {
+    expect(
+      diagnose(src("xs: int[] = [1]", "if xs.length > 0:", "  held: int = xs.pop()", "  print(held)")),
+    ).toEqual([]);
+  });
+
+  it("stays quiet once a fallback spells what an empty collection answers", () => {
+    expect(diagnose(src("xs: int[] = [1]", "held: int = xs.pop() ?? 0", "print(held)"))).toEqual([]);
+  });
+
+  it("leaves a mismatch that absence does not explain without the advice", () => {
+    const messages = diagnose(src('held: int = "text"', "print(held)"));
+
+    expect(messages.join("\n")).not.toMatch(ABSENCE);
   });
 });

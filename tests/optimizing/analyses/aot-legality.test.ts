@@ -194,9 +194,20 @@ describe("AOT legality values", () => {
     expect(reasonOf(graph)).toContain("resolvable name");
   });
 
-  it("rejects a non-finite constant", () => {
-    const graph = returning("infinite", (fn) => {
-      const value = irConstant(Number.POSITIVE_INFINITY);
+  it("takes a constant that names no finite number", () => {
+    for (const value of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
+      const graph = returning("infinite", (fn) => {
+        const held = irConstant(value);
+        fn.addBlock().addNode(held);
+        return held;
+      });
+      expect(analyze(graph).ok).toBe(true);
+    }
+  });
+
+  it("still rejects a constant that names no number at all", () => {
+    const graph = returning("symbolic", (fn) => {
+      const value = irConstant(Symbol("held") as never);
       fn.addBlock().addNode(value);
       return value;
     });
@@ -572,6 +583,93 @@ describe("AOT string escape summaries", () => {
     });
 
     expect(summarize([graph]).summaryOf("label")!.returnsBuffer).toBe(false);
+  });
+});
+
+describe("AOT summaries of the text a callee writes", () => {
+  const OWNER_OFFSET = 24;
+  const FIELD = "value";
+
+  function summarize(graphs: readonly CFGFunction[]) {
+    return summarizeStringEscapes(
+      graphs.map((graph) => ({
+        graph,
+        types: new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
+      })),
+      callReachability(graphs),
+    );
+  }
+
+  function writingInto(name: string, target: "parameter" | "own"): CFGFunction {
+    const graph = new CFGFunction(name);
+    graph.declaredSignature = { params: ["int", "string"], returns: "int" };
+    const owner = graph.addParameter(0);
+    const text = graph.addParameter(1);
+    const block = graph.addBlock();
+    const held = target === "parameter" ? owner : block.addNode(irNewObject());
+    const store = irStoreText(held, OWNER_OFFSET, text, TEXT_STORAGE_BYTES);
+    store.props.propName = FIELD;
+    block.addNode(store);
+    const zero = block.addNode(irConstant(0));
+    block.addNode(irReturn(zero));
+    graph.rebuildUses();
+    return graph;
+  }
+
+  it("names the parameter whose text a callee rewrites", () => {
+    const summary = summarize([writingInto("fill", "parameter")]).summaryOf("fill")!;
+
+    expect([...summary.writesTextThrough]).toEqual([0]);
+    expect(summary.writesReachableText).toBe(false);
+  });
+
+  it("names no parameter for a callee that only writes text it allocated itself", () => {
+    const summary = summarize([writingInto("build", "own")]).summaryOf("build")!;
+
+    expect([...summary.writesTextThrough]).toEqual([]);
+    expect(summary.writesReachableText).toBe(false);
+  });
+
+  it("carries the write back through a caller that forwards the same object", () => {
+    const callee = writingInto("fill", "parameter");
+    const caller = new CFGFunction("forward");
+    caller.declaredSignature = { params: ["int", "string"], returns: "int" };
+    const owner = caller.addParameter(0);
+    const text = caller.addParameter(1);
+    const block = caller.addBlock();
+    block.addNode(irCallKnownFunction({ name: "fill" } as never, [owner, text]));
+    block.addNode(irReturn(block.addNode(irConstant(0))));
+    caller.rebuildUses();
+
+    expect([...summarize([callee, caller]).summaryOf("forward")!.writesTextThrough]).toEqual([0]);
+  });
+
+  it("stops carrying the write when the caller hands over an object of its own", () => {
+    const callee = writingInto("fill", "parameter");
+    const caller = new CFGFunction("forward");
+    caller.declaredSignature = { params: ["int", "string"], returns: "int" };
+    caller.addParameter(0);
+    const text = caller.addParameter(1);
+    const block = caller.addBlock();
+    const made = block.addNode(irNewObject());
+    block.addNode(irCallKnownFunction({ name: "fill" } as never, [made, text]));
+    block.addNode(irReturn(block.addNode(irConstant(0))));
+    caller.rebuildUses();
+    const summary = summarize([callee, caller]).summaryOf("forward")!;
+
+    expect([...summary.writesTextThrough]).toEqual([]);
+    expect(summary.writesReachableText).toBe(false);
+  });
+
+  it("names the field a module rewrites the text of", () => {
+    const model = summarize([writingInto("fill", "parameter")]);
+
+    expect(model.rewritesField(FIELD)).toBe(true);
+    expect(model.rewritesField("untouched")).toBe(false);
+  });
+
+  it("does not count a field only written on an object the function just built", () => {
+    expect(summarize([writingInto("build", "own")]).rewritesField(FIELD)).toBe(false);
   });
 });
 

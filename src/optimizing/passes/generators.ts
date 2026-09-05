@@ -10,6 +10,7 @@ import {
   type CFGInstruction,
 } from "../ir/index.js";
 import { fieldDeclaredType } from "../metadata/call-signatures.js";
+import { heldTypeNameOf } from "./object-literal-shapes.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { disconnect } from "../ir/cfg-edit.js";
 import { inferTypes } from "../analyses/type-inference.js";
@@ -83,9 +84,11 @@ function yieldedValues(graph: CFGFunction): readonly CFGInstruction[] {
   return values;
 }
 
+const NUMERIC_YIELDS: ReadonlySet<string> = new Set<string>(["int", "float"]);
+
 function joinedNames(carried: string, found: string): string | null {
   if (carried === found) return carried;
-  const numeric = carried !== "string" && found !== "string";
+  const numeric = NUMERIC_YIELDS.has(carried) && NUMERIC_YIELDS.has(found);
   return numeric ? "float" : null;
 }
 
@@ -99,9 +102,9 @@ function namedYield(
   const classes = graph.classes;
   if (classes === null) return null;
   const declared = fieldDeclaredType(value, classes, types);
-  if (declared !== null) return YIELDABLE.has(declared) ? declared : null;
+  if (declared !== null && YIELDABLE.has(declared)) return declared;
   if (value.type === IR_GENERIC_DIV) return "float";
-  if (!ARITHMETIC.has(value.type)) return null;
+  if (!ARITHMETIC.has(value.type)) return heldTypeNameOf(value, graph, classes, types);
   let carried: string | null = null;
   for (const input of value.inputs) {
     const named = namedYield(input, graph, types);

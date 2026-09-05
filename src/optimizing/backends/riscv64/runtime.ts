@@ -219,6 +219,24 @@ function charAt(builder: MachineRoutineBuilder): void {
     .ret();
 }
 
+function charFromCode(builder: MachineRoutineBuilder): void {
+  const r = (name: string) => builder.read(name, WORD);
+  const w = (name: string) => builder.write(name, WORD);
+  builder
+    .emit("li", w("t0"), imm(2))
+    .to("blt", "empty", r("a1"), r("t0"))
+    .emit("andi", w("t1"), r("a2"), imm(0xff))
+    .to("beqz", "empty", r("t1"))
+    .emit("sb", r("t1"), mem(1, { base: r("a0") }))
+    .emit("sb", r("zero"), mem(1, { base: r("a0"), displacement: 1 }))
+    .ret()
+    .at("empty")
+    .to("blez", "done", r("a1"))
+    .emit("sb", r("zero"), mem(1, { base: r("a0") }))
+    .at("done")
+    .ret();
+}
+
 function int32ToString(builder: MachineRoutineBuilder): void {
   const r = (name: string) => builder.read(name, WORD);
   const w = (name: string) => builder.write(name, WORD);
@@ -543,6 +561,7 @@ export function riscvRuntimeRoutines(
     [RISCV_RUNTIME_SYMBOLS.stringSet, copy(false)],
     [RISCV_RUNTIME_SYMBOLS.stringAppend, copy(true)],
     [RISCV_RUNTIME_SYMBOLS.charAt, charAt],
+    [RISCV_RUNTIME_SYMBOLS.charFromCode, charFromCode],
     [RISCV_RUNTIME_SYMBOLS.int32ToString, int32ToString],
     [RISCV_RUNTIME_SYMBOLS.stringLength, stringLength],
     [RISCV_RUNTIME_SYMBOLS.stringCompare, stringCompare],

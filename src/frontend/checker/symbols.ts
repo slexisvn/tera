@@ -4,9 +4,12 @@ import { lowerToSemanticProgram } from "./semantic-lowering.js";
 import type { ClassFieldNode, ClassMemberNode, FunctionNode, SemanticNode } from "./semantic-ast.js";
 import { builtinMethod, createTypeEnv, signatureType, type Binding } from "./type-system.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
+import { splitTopLevel } from "../../core/type-text.js";
 import type { SyntaxPlugin } from "../parser/extensions.js";
 
 const SYNTHETIC_LINE = 0;
+const UNION_SEPARATOR = "|";
+const MEMBER_SEPARATOR = ",";
 
 export type SymbolPosition = { line: number; character: number };
 
@@ -558,7 +561,7 @@ function genericType(typeName: string): { name: string; args: string[] } | null 
   const type = typeName.trim();
   const match = type.match(/^([A-Za-z_$][\w$]*)\s*<(.+)>$/);
   if (!match) return null;
-  return { name: match[1], args: splitTopLevel(match[2]).map((arg) => arg.trim()) };
+  return { name: match[1], args: splitTopLevel(match[2], MEMBER_SEPARATOR).map((arg) => arg.trim()) };
 }
 
 function typeParamsFor(owner: string): string[] {
@@ -615,53 +618,25 @@ function unionTypeNames(types: string[]): string {
   for (const type of types) {
     for (const part of splitUnionTopLevel(type)) out.add(part);
   }
-  return [...out].join(" | ");
+  return [...out].join(` ${UNION_SEPARATOR} `);
 }
 
 function splitUnionTopLevel(source: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let i = 0; i < source.length; i++) {
-    const ch = source[i];
-    if (ch === "{" || ch === "[" || ch === "(" || ch === "<") depth++;
-    else if (ch === "}" || ch === "]" || ch === ")" || ch === ">") depth--;
-    else if (ch === "|" && depth === 0) {
-      out.push(source.slice(start, i).trim());
-      start = i + 1;
-    }
-  }
-  out.push(source.slice(start).trim());
-  return out.filter(Boolean);
+  return splitTopLevel(source, UNION_SEPARATOR)
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
 function objectTypeMembers(typeName: string): SourceSymbol[] | null {
   const type = typeName.trim();
   if (!type.startsWith("{") || !type.endsWith("}")) return null;
   const out: SourceSymbol[] = [];
-  for (const part of splitTopLevel(type.slice(1, -1))) {
+  for (const part of splitTopLevel(type.slice(1, -1), MEMBER_SEPARATOR)) {
     const colon = part.indexOf(":");
     if (colon <= 0) continue;
     const name = part.slice(0, colon).trim().replace(/\?$/, "");
     if (isIdentifier(name)) out.push({ name, kind: "field", line: 0, column: 0, typeName: part.slice(colon + 1).trim() });
   }
-  return out;
-}
-
-function splitTopLevel(source: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let i = 0; i < source.length; i++) {
-    const ch = source[i];
-    if (ch === "{" || ch === "[" || ch === "(" || ch === "<") depth++;
-    else if (ch === "}" || ch === "]" || ch === ")" || ch === ">") depth--;
-    else if (ch === "," && depth === 0) {
-      out.push(source.slice(start, i));
-      start = i + 1;
-    }
-  }
-  out.push(source.slice(start));
   return out;
 }
 

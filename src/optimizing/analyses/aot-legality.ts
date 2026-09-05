@@ -278,6 +278,13 @@ function privateStorage(origin: CFGInstruction): boolean {
   return origin.type === IR_LOAD_TEXT && holdsOwnText(origin.inputs[0]);
 }
 
+function namesAnotherField(store: CFGInstruction, origin: CFGInstruction): boolean {
+  const stored = store.props.propName;
+  const read = origin.props.propName;
+  if (typeof stored === "string" && typeof read === "string") return stored !== read;
+  return store.props.offset !== origin.props.offset;
+}
+
 function writesElsewhere(
   store: CFGInstruction,
   origin: CFGInstruction,
@@ -287,7 +294,8 @@ function writesElsewhere(
   if (written === undefined) return false;
   const borrowed = origin.type === IR_LOAD_TEXT ? origin.inputs[0] : null;
   if (borrowed === null || borrowed === undefined) return allocated(written);
-  if (written === borrowed) return store.props.offset !== origin.props.offset;
+  if (namesAnotherField(store, origin)) return true;
+  if (written === borrowed) return false;
   if (allocated(written) && allocated(borrowed)) return true;
   return !aliasing.mayAlias(written, borrowed);
 }
@@ -391,8 +399,9 @@ const MEMBER_REASONS: ReadonlyMap<string, string> = new Map<string, string>([
   ],
   [
     "split",
-    "split compiles when its separator is one spelled-out character; pass a literal " +
-      "such as \",\", or keep this part interpreted",
+    "split compiles when its separator is text; this target stores text as bytes, so a " +
+      "separator spelled out with characters beyond ASCII has no code unit to match; " +
+      "keep this part interpreted",
   ],
   [
     "splice",
@@ -446,6 +455,8 @@ export interface AotStringBuffer {
 export interface StringEscapeSummary {
   readonly retains: ReadonlySet<number>;
   readonly returnsBuffer: boolean;
+  readonly writesTextThrough: ReadonlySet<number>;
+  readonly writesReachableText: boolean;
 }
 
 export interface StringEscapeModel {
@@ -454,6 +465,7 @@ export interface StringEscapeModel {
   reenters(callee: string, owner: string): boolean;
   storesText(callee: string): boolean;
   producesText(callee: string): boolean;
+  rewritesField(field: string): boolean;
   readonly throwsBuffer: boolean;
 }
 
@@ -558,10 +570,17 @@ export class StringBufferRules {
     return node.inputs[0] === value;
   }
 
-  copiesString(node: CFGInstruction, value: CFGInstruction): boolean {
+  copiesString(node: CFGInstruction, value: CFGInstruction, settled: boolean): boolean {
     if (node.type === IR_STORE_TEXT) return node.inputs[1] === value;
     if (node.type !== IR_STORE_ELEMENT && node.type !== IR_GENERIC_SET_INDEX) return false;
-    return node.inputs[2] === value && heapElementScalarOf(node) === SCALAR_TEXT;
+    if (node.inputs[2] !== value) return false;
+    return settled || heapElementScalarOf(node) === SCALAR_TEXT;
+  }
+
+  settledText(origin: CFGInstruction): boolean {
+    if (origin.type !== IR_LOAD_TEXT || this.model === null) return false;
+    const field = origin.props.propName;
+    return typeof field === "string" && !this.model.rewritesField(field);
   }
 
   lendsString(node: CFGInstruction, value: CFGInstruction): boolean {
@@ -571,7 +590,7 @@ export class StringBufferRules {
     return node.inputs.every((input, index) => input !== value || !summary.retains.has(index));
   }
 
-  walk(seed: CFGInstruction): StringBufferWalk {
+  walk(seed: CFGInstruction, settled = false): StringBufferWalk {
     const aliases = new Set<CFGInstruction>([seed]);
     const pending: CFGInstruction[] = [seed];
     let phis = 0;
@@ -594,7 +613,7 @@ export class StringBufferRules {
           continue;
         }
         if (this.buildsString(use) || this.readsString(use)) continue;
-        if (this.copiesString(use, value) || this.lendsString(use, value)) continue;
+        if (this.copiesString(use, value, settled) || this.lendsString(use, value)) continue;
         if (this.looksUpWithString(use, value)) continue;
         if (forwardsPendingThrow(use)) continue;
         escape ??= use;
@@ -614,7 +633,85 @@ export interface StringEscapeUnit {
   readonly types: TypeInference;
 }
 
-const NO_ESCAPES: StringEscapeSummary = { retains: new Set(), returnsBuffer: false };
+const NO_ESCAPES: StringEscapeSummary = {
+  retains: new Set(),
+  returnsBuffer: false,
+  writesTextThrough: new Set(),
+  writesReachableText: false,
+};
+
+interface TextReach {
+  readonly writesTextThrough: ReadonlySet<number>;
+  readonly writesReachableText: boolean;
+}
+
+const ALLOCATES_LOCALLY: ReadonlySet<string> = new Set<string>([IR_NEW_OBJECT, IR_NEW_ARRAY]);
+
+const FORWARDS_BASE: ReadonlySet<string> = new Set<string>([
+  IR_LOAD_FIELD,
+  IR_LOAD_ELEMENT,
+  IR_PHI,
+]);
+
+function parameterReached(
+  base: CFGInstruction | undefined,
+  found: Set<number>,
+  seen: Set<CFGInstruction>,
+): boolean {
+  if (base === undefined || seen.has(base)) return true;
+  seen.add(base);
+  if (ALLOCATES_LOCALLY.has(base.type)) return true;
+  if (base.type === IR_PARAMETER) {
+    found.add(Number(base.props.index));
+    return true;
+  }
+  if (!FORWARDS_BASE.has(base.type)) return false;
+  const sources = base.type === IR_PHI ? base.inputs : base.inputs.slice(0, 1);
+  return sources.every((source) => parameterReached(source, found, seen));
+}
+
+function rewrittenTextFields(units: readonly StringEscapeUnit[]): ReadonlySet<string> {
+  const rewritten = new Set<string>();
+  for (const unit of units) {
+    for (const block of unit.graph.blocks) {
+      for (const node of block.nodes) {
+        if (node.type !== IR_STORE_TEXT) continue;
+        const field = node.props.propName;
+        if (typeof field !== "string") continue;
+        const base = node.inputs[0];
+        if (base !== undefined && ALLOCATES_LOCALLY.has(base.type)) continue;
+        rewritten.add(field);
+      }
+    }
+  }
+  return rewritten;
+}
+
+function textReachOf(graph: CFGFunction, model: StringEscapeModel): TextReach {
+  const writesTextThrough = new Set<number>();
+  let writesReachableText = false;
+  for (const block of graph.blocks) {
+    for (const node of block.nodes) {
+      if (node.type === IR_STORE_TEXT) {
+        if (!parameterReached(node.inputs[0], writesTextThrough, new Set())) {
+          writesReachableText = true;
+        }
+        continue;
+      }
+      const callee = calleeSymbolName(node);
+      const summary = callee === null ? null : model.summaryOf(callee);
+      if (summary === null) continue;
+      writesReachableText ||= summary.writesReachableText;
+      const first = node.type === IR_CALL_KNOWN_FUNCTION ? 0 : 1;
+      for (const index of summary.writesTextThrough) {
+        if (!parameterReached(node.inputs[first + index], writesTextThrough, new Set())) {
+          writesReachableText = true;
+        }
+      }
+    }
+  }
+  return { writesTextThrough, writesReachableText };
+}
 
 function summarizeUnit(unit: StringEscapeUnit, model: StringEscapeModel): StringEscapeSummary {
   const rules = new StringBufferRules(unit.types, model);
@@ -632,16 +729,23 @@ function summarizeUnit(unit: StringEscapeUnit, model: StringEscapeModel): String
     if (walk.escape !== null) retains.add(index);
     if (walk.returned) returnsBuffer = true;
   });
-  return { retains, returnsBuffer };
+  const reach = textReachOf(unit.graph, model);
+  return { retains, returnsBuffer, ...reach };
+}
+
+function sameIndices(left: ReadonlySet<number>, right: ReadonlySet<number>): boolean {
+  if (left.size !== right.size) return false;
+  for (const index of right) {
+    if (!left.has(index)) return false;
+  }
+  return true;
 }
 
 function sameSummary(left: StringEscapeSummary, right: StringEscapeSummary): boolean {
   if (left.returnsBuffer !== right.returnsBuffer) return false;
-  if (left.retains.size !== right.retains.size) return false;
-  for (const index of right.retains) {
-    if (!left.retains.has(index)) return false;
-  }
-  return true;
+  if (left.writesReachableText !== right.writesReachableText) return false;
+  if (!sameIndices(left.writesTextThrough, right.writesTextThrough)) return false;
+  return sameIndices(left.retains, right.retains);
 }
 
 export function summarizeStringEscapes(
@@ -665,6 +769,7 @@ export function summarizeStringEscapes(
 
   const writers = new Set<string>();
   const producers = new Set<string>();
+  const rewritten = rewrittenTextFields(units);
   let throwsBuffer = false;
   for (const unit of units) {
     const rules = new StringBufferRules(unit.types, null);
@@ -692,6 +797,7 @@ export function summarizeStringEscapes(
       writesText.set(callee, writes);
       return writes;
     },
+    rewritesField: (field) => rewritten.has(field),
     producesText: (callee) => {
       const cached = buildsText.get(callee);
       if (cached !== undefined) return cached;
@@ -961,7 +1067,7 @@ class LegalityAnalyzer implements AotLegality {
   }
 
   private bindBorrowedAliases(origin: CFGInstruction): boolean {
-    const walk = this.rules.walk(origin);
+    const walk = this.rules.walk(origin, this.rules.settledText(origin));
     if (walk.escape !== null) {
       this.fail(this.escapeReason(origin, walk.escape));
       return false;
@@ -1134,7 +1240,27 @@ class LegalityAnalyzer implements AotLegality {
     }
     const owner = calleeSymbolName(origin);
     if (owner !== null && model.refills(callee, owner)) return `a call to ${callee}`;
-    return model.storesText(callee) ? `a call to ${callee}` : null;
+    if (!this.writesTextReaching(node, origin, model)) return null;
+    return `a call to ${callee}`;
+  }
+
+  private writesTextReaching(
+    node: CFGInstruction,
+    origin: CFGInstruction,
+    model: StringEscapeModel,
+  ): boolean {
+    const callee = calleeSymbolName(node)!;
+    const summary = model.summaryOf(callee);
+    if (summary === null) return model.storesText(callee);
+    if (summary.writesReachableText) return true;
+    const held = origin.type === IR_LOAD_TEXT ? origin.inputs[0] : undefined;
+    if (held === undefined) return summary.writesTextThrough.size > 0;
+    const first = node.type === IR_CALL_KNOWN_FUNCTION ? 0 : 1;
+    for (const index of summary.writesTextThrough) {
+      const argument = node.inputs[first + index];
+      if (argument !== undefined && this.aliasing.mayAlias(argument, held)) return true;
+    }
+    return false;
   }
 
   private borrowedName(origin: CFGInstruction): string {
@@ -1434,9 +1560,7 @@ class LegalityAnalyzer implements AotLegality {
     const scalar = this.require(node, node.type);
     if (scalar === null || scalar === SCALAR_VOID) return;
     if (typeof value === "boolean") return;
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      this.fail(`unsupported constant ${String(value)}`);
-    }
+    if (typeof value !== "number") this.fail(`unsupported constant ${String(value)}`);
   }
 
   private checkBlocks(): void {

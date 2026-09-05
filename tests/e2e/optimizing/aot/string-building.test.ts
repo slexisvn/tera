@@ -213,3 +213,86 @@ describe("AOT strings carried through a loop from more than one source", () => {
     ),
   );
 });
+
+describe("a string read from a field kept alongside one that is built", () => {
+  itRunsPe("formats a number in the same statement that reads a field", () => {
+    peAgrees(
+      src(
+        "type Line = { item: string, qty: int, unit: float }",
+        "fn money(v: float) -> string:",
+        '  return "$" + v.to_fixed(2)',
+        "lines: Line[] = [",
+        '  { item: "keyboard", qty: 2, unit: 49.99 },',
+        '  { item: "cable", qty: 4, unit: 7.25 },',
+        "]",
+        "total = 0.0",
+        "for l of lines:",
+        "  s = l.unit * l.qty",
+        "  total += s",
+        '  print(l.item, "x", l.qty, "=", money(s))',
+        'print("total:", money(total))',
+      ),
+    );
+  });
+
+  itRunsPe("reads one field while another field of the same object is written", () => {
+    peAgrees(
+      src(
+        "class Banner:",
+        "  public constructor(text: string):",
+        '    this.name = "banner"',
+        "    this.text = text",
+        "  public render(width: int) -> string:",
+        "    pad = width - this.text.length",
+        "    if pad < 0:",
+        "      pad = 0",
+        '    return "[" + this.text + " ".repeat(pad) + "]"',
+        "fn show(r: Banner, width: int):",
+        '  print(r.name, "->", r.render(width))',
+        'for it of [Banner("hello"), Banner("tera")]:',
+        "  show(it, 10)",
+      ),
+    );
+  });
+
+  itRunsPe("keeps a field string in an array when nothing ever rewrites that field", () => {
+    peAgrees(
+      src(
+        "type Edge = { src: string, to: string }",
+        "edges: Edge[] = [",
+        '  { src: "a", to: "b" },',
+        '  { src: "a", to: "c" },',
+        '  { src: "b", to: "d" },',
+        "]",
+        "fn neighbours(node: string) -> string[]:",
+        "  out: string[] = []",
+        "  for e of edges:",
+        "    if e.src == node:",
+        "      out.push(e.to)",
+        "  return out",
+        'print(neighbours("a").join(","))',
+        'print(neighbours("b").join(","))',
+        'print(neighbours("z").length)',
+      ),
+    );
+  });
+
+  itRunsPe("carries an awaited string into a second await", () => {
+    peAgrees(
+      src(
+        "async fn name_of(id: int) -> string:",
+        "  await sleep(1)",
+        "  return `user-${id}`",
+        "async fn score(n: string) -> int:",
+        "  await sleep(1)",
+        "  return n.length",
+        "async fn main():",
+        "  for id of [1, 2]:",
+        "    n = await name_of(id)",
+        "    s = await score(n)",
+        '    print(n, "scored", s)',
+        "main()",
+      ),
+    );
+  });
+});

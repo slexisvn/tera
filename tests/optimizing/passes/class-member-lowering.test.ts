@@ -3,16 +3,21 @@ import {
   CFGFunction,
   irBranch,
   irConstant,
+  irGenericCall,
   irGenericGetIndex,
+  irGenericGetProp,
   irGenericIn,
   irGenericSetProp,
   irJump,
+  irNewArray,
+  irNewObject,
   irNot,
   irReturn,
   resetIRNodeIds,
   IR_CONSTANT,
   IR_GENERIC_COMPARE,
   IR_GENERIC_GET_INDEX,
+  IR_GENERIC_GET_PROP,
   IR_GENERIC_IN,
   IR_GENERIC_SET_PROP,
   IR_INT32_OR,
@@ -29,11 +34,16 @@ import {
 } from "../../../src/optimizing/analyses/index.js";
 import {
   buildClassTable,
+  literalShapeSurface,
+  CLASS_ID_PROP,
+  INSTANCE_SIZE_PROP,
   ITERATOR_MEMBER,
+  VALUE_CLASS_PROP,
 } from "../../../src/optimizing/metadata/class-table.js";
 import type { ClassMemberSurface } from "../../../src/frontend/modules/interface.js";
 import { link } from "../../../src/optimizing/ir/cfg-edit.js";
 import { lowerClassMembers } from "../../../src/optimizing/passes/class-member-lowering.js";
+import { shapeArrayAllocations } from "../../../src/optimizing/passes/array-shapes.js";
 import { MAY_BE_ABSENT_PROP } from "../../../src/optimizing/types/scalar.js";
 
 beforeEach(() => resetIRNodeIds());
@@ -287,5 +297,65 @@ describe("an iterator hook a receiver does not need", () => {
     lower(graph);
 
     expect(writes(graph)).toBe(1);
+  });
+});
+
+const TAKEN_NAMED = (member: string) => `names what ${member} answers by the record the array holds`;
+const TAKEN_READ = (member: string) => `reads a field off what ${member} answers as a field, not by name`;
+
+describe("a record taken off the end or the front of an array", () => {
+  const FIELD = "salary";
+
+  function taking(member: string) {
+    const graph = new CFGFunction("takes");
+    graph.classes = buildClassTable([]);
+    const shape = graph.classes.defineSynthetic(
+      literalShapeSurface([{ name: FIELD, declaredType: "int" }]),
+    );
+    const block = graph.addBlock();
+    const record = block.addNode(irNewObject());
+    record.props[CLASS_ID_PROP] = shape.id;
+    record.props[INSTANCE_SIZE_PROP] = shape.size;
+    record.props[VALUE_CLASS_PROP] = shape.id;
+    block.addNode(irGenericSetProp(record, FIELD, block.addNode(irConstant(1))));
+    const array = block.addNode(irNewArray([record]));
+    const taken = block.addNode(
+      irGenericCall(block.addNode(irGenericGetProp(array, member)), [array]),
+    );
+    taken.props.isMethod = true;
+    const read = block.addNode(irGenericGetProp(taken, FIELD));
+    block.addNode(irReturn(read));
+    graph.rebuildUses();
+    shapeArrayAllocations(
+      graph,
+      new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
+    );
+    return { graph, shape, taken };
+  }
+
+  for (const member of ["pop", "shift"] as const) {
+    it(TAKEN_NAMED(member), () => {
+      const { graph, shape, taken } = taking(member);
+      lower(graph);
+
+      expect(taken.props[VALUE_CLASS_PROP]).toBe(shape.id);
+    });
+
+    it(TAKEN_READ(member), () => {
+      const { graph } = taking(member);
+
+      expect(lower(graph)).toBeGreaterThan(0);
+      expect(ofType(graph, IR_LOAD_FIELD)).toHaveLength(1);
+      expect(ofType(graph, IR_GENERIC_GET_PROP).map((node) => node.props.propName)).toEqual([
+        member,
+      ]);
+    });
+  }
+
+  it("leaves a member that answers something other than an element unnamed", () => {
+    const { graph, taken } = taking("join");
+    lower(graph);
+
+    expect(taken.props[VALUE_CLASS_PROP]).toBeUndefined();
   });
 });

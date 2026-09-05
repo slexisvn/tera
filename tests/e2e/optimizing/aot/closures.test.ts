@@ -115,3 +115,118 @@ describe("AOT closures", () => {
     );
   });
 });
+
+describe("handing a closure to a function that calls it", () => {
+  const APPLY = [
+    "fn apply_all(xs: int[], f: fn(int) -> int) -> int[]:",
+    "  out: int[] = []",
+    "  for x of xs:",
+    "    out.push(f(x))",
+    "  return out",
+  ];
+
+  itRunsPe("calls the closure through the parameter it arrived in", () => {
+    agrees(src(...ADDER, ...APPLY, "add5 = adder(5)", "print(apply_all([1, 2, 3], add5))"));
+  });
+
+  itRunsPe("keeps two closures from one maker apart across the handoff", () => {
+    agrees(
+      src(
+        ...ADDER,
+        ...APPLY,
+        "add1 = adder(1)",
+        "add100 = adder(100)",
+        "print(apply_all([1, 2], add1))",
+        "print(apply_all([1, 2], add100))",
+      ),
+    );
+  });
+
+  itRunsPe("takes a plain function through the same parameter", () => {
+    agrees(
+      src(
+        ...ADDER,
+        ...APPLY,
+        "fn double(x: int) -> int:",
+        "  return x * 2",
+        "add5 = adder(5)",
+        "print(apply_all([1, 2], add5))",
+        "print(apply_all([1, 2], double))",
+      ),
+    );
+  });
+
+  itRunsPe("composes two closures a caller handed over", () => {
+    agrees(
+      src(
+        ...ADDER,
+        "fn scaler(by: int) -> fn(int) -> int:",
+        "  fn scale(x: int) -> int:",
+        "    return by * x",
+        "  return scale",
+        "fn compose(f: fn(int) -> int, g: fn(int) -> int, v: int) -> int:",
+        "  return g(f(v))",
+        "print(compose(adder(5), scaler(3), 2))",
+      ),
+    );
+  });
+});
+
+describe("a closure that captures more than one value", () => {
+  itRunsPe("carries two numbers it captured", () => {
+    agrees(
+      src(
+        "fn make(base: int, step: int) -> fn(int) -> int:",
+        "  fn go(x: int) -> int:",
+        "    return base + step * x",
+        "  return go",
+        "h = make(1, 2)",
+        "print(h(7), h(0))",
+      ),
+    );
+  });
+
+  itRunsPe("keeps two makers with different captures apart", () => {
+    agrees(
+      src(
+        "fn make(base: int, step: int) -> fn(int) -> int:",
+        "  fn go(x: int) -> int:",
+        "    return base + step * x",
+        "  return go",
+        "a = make(1, 2)",
+        "b = make(100, 10)",
+        "print(a(3), b(3), a(0), b(0))",
+      ),
+    );
+  });
+
+  itRunsPe("captures two functions and calls both", () => {
+    agrees(
+      src(
+        "fn double(x: int) -> int:",
+        "  return x * 2",
+        "fn inc(x: int) -> int:",
+        "  return x + 1",
+        "fn compose(f: fn(int) -> int, g: fn(int) -> int) -> fn(int) -> int:",
+        "  fn both(x: int) -> int:",
+        "    return g(f(x))",
+        "  return both",
+        "h = compose(double, inc)",
+        "print(h(7), h(0))",
+      ),
+    );
+  });
+
+  itRunsPe("mixes a two-capture closure with a one-capture one", () => {
+    agrees(
+      src(
+        ...ADDER,
+        "fn make(base: int, step: int) -> fn(int) -> int:",
+        "  fn go(x: int) -> int:",
+        "    return base + step * x",
+        "  return go",
+        "print(adder(5)(1), make(1, 2)(7))",
+      ),
+    );
+  });
+});

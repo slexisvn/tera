@@ -257,6 +257,14 @@ describe("legalization phase order", () => {
     expect(at("type-narrowing-after-generators")).toBeGreaterThan(at("generator-iteration"));
   });
 
+  it("hands a fractional remainder over only after types say which one it is", () => {
+    expect(at("float-remainder")).toBeGreaterThan(at("type-narrowing"));
+  });
+
+  it("leaves a whole remainder by zero to fault before it rewrites any remainder", () => {
+    expect(at("float-remainder")).toBeGreaterThan(at("zero-divisor"));
+  });
+
   it("runs the split lowering to a fixpoint rather than once", () => {
     const graph = graphBranchingOnATaggedGlobal();
     const options = compilerOptions();

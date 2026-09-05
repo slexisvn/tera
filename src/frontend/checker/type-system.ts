@@ -821,10 +821,10 @@ function assignableUncached(actual: TypeName, expected: TypeName, env: TypeEnv, 
   if (expected === "Function") return actual === "Function" || parseFunctionType(actual) !== null;
   const expectedFn = parseFunctionType(expected);
   if (expectedFn) return functionAssignable(actual, expectedFn, env, memo);
-  const expectedUnion = splitTopLevel(expected, "|");
-  if (expectedUnion.length > 1) return expectedUnion.some((part) => assignable(actual, part.trim(), env, memo));
   const actualUnion = splitTopLevel(actual, "|");
   if (actualUnion.length > 1) return actualUnion.every((part) => assignable(part.trim(), expected, env, memo));
+  const expectedUnion = splitTopLevel(expected, "|");
+  if (expectedUnion.length > 1) return expectedUnion.some((part) => assignable(actual, part.trim(), env, memo));
   const expectedIntersection = splitTopLevel(expected, "&");
   if (expectedIntersection.length > 1) return expectedIntersection.every((part) => assignable(actual, part.trim(), env, memo));
   if (tupleAssignable(actual, expected, env, memo)) return true;

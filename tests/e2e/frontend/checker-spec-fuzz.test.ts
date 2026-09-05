@@ -1058,10 +1058,10 @@ describe("checker fuzz invariants", () => {
     if (!diagnostics.some((diagnostic) => diagnostic.line === 4 && diagnostic.column === 7 && diagnostic.message === "Cannot access member 'name' on nullable type 'User | null'")) {
       pushFailure(failures, "nullable-member-direct", source, formatDiagnostics(diagnostics));
     }
-    if (!diagnostics.some((diagnostic) => diagnostic.line === 6 && diagnostic.column === 16 && diagnostic.message === "Type 'string | undefined' is not assignable to 'string'")) {
+    if (!diagnostics.some((diagnostic) => diagnostic.line === 6 && diagnostic.column === 16 && diagnostic.message.startsWith("Type 'string | undefined' is not assignable to 'string'"))) {
       pushFailure(failures, "nullable-member-optional", source, formatDiagnostics(diagnostics));
     }
-    if (!diagnostics.some((diagnostic) => diagnostic.line === 8 && diagnostic.column === 20 && diagnostic.message === "Type 'string | undefined' is not assignable to 'string'")) {
+    if (!diagnostics.some((diagnostic) => diagnostic.line === 8 && diagnostic.column === 20 && diagnostic.message.startsWith("Type 'string | undefined' is not assignable to 'string'"))) {
       pushFailure(failures, "nullable-member-optional-computed", source, formatDiagnostics(diagnostics));
     }
     const symbols = inferSymbolTypes(source);

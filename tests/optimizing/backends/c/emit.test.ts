@@ -28,7 +28,11 @@ import {
 import { FLOAT64_MANTISSA_BITS } from "../../../../src/optimizing/target/float64.js";
 import { codeUnitArrayLiteral } from "../../../../src/optimizing/target/text-literal.js";
 import { link, connect, addPhi } from "../../../../src/optimizing/ir/cfg-edit.js";
-import { emitNumericFunction } from "../../../../src/optimizing/backends/c/emit.js";
+import {
+  cIdentifier,
+  emitNumericFunction,
+  C_RUNTIME_SUPPORT,
+} from "../../../../src/optimizing/backends/c/emit.js";
 import {
   builtinMethodCallMetadata,
   builtinMethodIntrinsicByName,
@@ -228,13 +232,16 @@ describe("emitNumericFunction bail conditions", () => {
     expect(expectBail(graph)).toContain("no terminator");
   });
 
-  it("bails on a constant with no machine representation", () => {
-    const graph = new CFGFunction("infinite");
-    const block = graph.addBlock();
-    const constant = irConstant(Number.POSITIVE_INFINITY);
-    block.addNode(constant);
-    block.addNode(irReturn(constant));
-    expect(expectBail(graph)).toContain("unsupported constant");
+  it("emits a constant that names no finite number", () => {
+    for (const value of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN]) {
+      const graph = new CFGFunction("infinite");
+      const block = graph.addBlock();
+      const constant = irConstant(value);
+      block.addNode(constant);
+      block.addNode(irReturn(constant));
+
+      expect(emitNumericFunction(graph).ok).toBe(true);
+    }
   });
 
   it("bails on an unsupported opcode and names it", () => {
@@ -600,5 +607,43 @@ describe("what the C backend emits for an absent number", () => {
     expect(testedAt).toBeGreaterThan(0);
     expect(decodedAt).toBeGreaterThan(0);
     expect(testedAt).toBeLessThan(decodedAt);
+  });
+});
+
+describe("the numbers C cannot spell as a literal", () => {
+  function returningConstant(value: number): string {
+    const graph = new CFGFunction("held");
+    graph.declaredSignature = { params: [], returns: "float" };
+    const block = graph.addBlock();
+    const constant = block.addNode(irConstant(value));
+    block.addNode(irReturn(constant));
+    return /const \w+ v0 = (.+);/.exec(compile(graph).source)![1]!;
+  }
+
+  it("divides by a runtime zero rather than spelling infinity", () => {
+    expect(returningConstant(Number.POSITIVE_INFINITY)).toBe("(1.0 / tera_zero)");
+    expect(returningConstant(Number.NEGATIVE_INFINITY)).toBe("(-1.0 / tera_zero)");
+  });
+
+  it("divides zero by that same zero for a value that is no number", () => {
+    expect(returningConstant(Number.NaN)).toBe("(0.0 / tera_zero)");
+  });
+
+  it("keeps the sign of a zero the program wrote as negative", () => {
+    expect(returningConstant(-0)).toBe("-0.0");
+  });
+
+  it("still spells a finite number as a literal", () => {
+    expect(returningConstant(2.5)).toBe("2.5");
+    expect(returningConstant(1e300)).toBe("1e+300");
+  });
+
+  it("declares that zero once, where the compiler cannot fold it away", () => {
+    expect(C_RUNTIME_SUPPORT.split("double tera_zero")).toHaveLength(2);
+    expect(C_RUNTIME_SUPPORT).toContain("static volatile double tera_zero = 0.0;");
+  });
+
+  it("keeps a program of its own from claiming that name", () => {
+    expect(cIdentifier("tera_zero")).not.toBe("tera_zero");
   });
 });

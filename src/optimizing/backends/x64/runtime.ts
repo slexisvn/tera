@@ -327,6 +327,37 @@ function charAt(abi: RuntimeAbi) {
   };
 }
 
+function charFromCode(abi: RuntimeAbi) {
+  const [destination, capacity, code] = x64IntegerArgumentNames(abi);
+  return (builder: MachineRoutineBuilder): void => {
+    builder
+      .emit("movq", builder.write("r10", 8), builder.read(destination!, 8))
+      .emit("movl", builder.write("r11", 4), builder.read(capacity!, 4))
+      .emit("movl", builder.write("rcx", 4), builder.read(code!, 4))
+      .emit("cmpl", builder.read("r11", 4), imm(2))
+      .to("jl", "empty")
+      .emit("movw", mem(TEXT_UNIT_BYTES, { base: builder.read("r10", 8) }), builder.read("rcx", 2))
+      .emit("testw", builder.read("rcx", 2), builder.read("rcx", 2))
+      .to("je", "done")
+      .emit(
+        "movw",
+        mem(TEXT_UNIT_BYTES, {
+          base: builder.read("r10", 8),
+          displacement: TEXT_UNIT_BYTES,
+        }),
+        imm(0),
+      )
+      .to("jmp", "done")
+      .at("empty")
+      .emit("testl", builder.read("r11", 4), builder.read("r11", 4))
+      .to("jle", "done")
+      .emit("movw", mem(TEXT_UNIT_BYTES, { base: builder.read("r10", 8) }), imm(0))
+      .at("done")
+      .emit("movq", builder.write("rax", 8), builder.read("r10", 8))
+      .ret();
+  };
+}
+
 function int32ToString(abi: RuntimeAbi) {
   const [destination, capacity, value] = x64IntegerArgumentNames(abi);
   return (builder: MachineRoutineBuilder): void => {
@@ -530,6 +561,7 @@ export function x64RuntimeRoutines(
     [X64_RUNTIME_SYMBOLS.stringSet, copy(abi, false)],
     [X64_RUNTIME_SYMBOLS.stringAppend, copy(abi, true)],
     [X64_RUNTIME_SYMBOLS.charAt, charAt(abi)],
+    [X64_RUNTIME_SYMBOLS.charFromCode, charFromCode(abi)],
     [X64_RUNTIME_SYMBOLS.int32ToString, int32ToString(abi)],
     [X64_RUNTIME_SYMBOLS.stringLength, stringLength(abi)],
     [X64_RUNTIME_SYMBOLS.stringCompare, stringCompare(abi)],

@@ -1147,3 +1147,33 @@ describe("Parser", () => {
     });
   });
 });
+
+describe("keywords as object property names", () => {
+  const keyed = (src) => parseExpr(src).properties.map((property) => property.key);
+
+  it("reads a keyword written as a key", () => {
+    expect(keyed('({ from: "a", to: "b" })')).toEqual(["from", "to"]);
+  });
+
+  it("reads every keyword a program might want as a field name", () => {
+    expect(keyed("({ class: 1, type: 2, in: 3, of: 4, default: 5, new: 6 })")).toEqual([
+      "class",
+      "type",
+      "in",
+      "of",
+      "default",
+      "new",
+    ]);
+  });
+
+  it("keeps a keyword key apart from the statement it spells", () => {
+    const object = parseExpr('({ if: 1, else: 2 })');
+
+    expect(object.type).toBe(NodeType.ObjectExpression);
+    expect(object.properties.map((property) => property.value.value)).toEqual([1, 2]);
+  });
+
+  it("still refuses a key that names nothing", () => {
+    expect(() => parse("({ +: 1 })")).toThrow(/property name/);
+  });
+});

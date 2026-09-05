@@ -159,6 +159,7 @@ import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
 import {
   AGGREGATE_CLOSE_TEXT,
   builtinIntrinsicByName,
+  CHAR_FROM_CODE_BUILTIN,
   NO_TERMINATOR,
   OBJECT_CLOSE_TEXT,
   OBJECT_OPEN_TEXT,
@@ -294,7 +295,11 @@ const C_PRINT_HELPERS = new Map<AotScalar, CBuiltinMethod>([
   ],
 ]);
 
-export const C_RUNTIME_SUPPORT = `#if defined(_WIN32)
+const ZERO_DIVISOR = "tera_zero";
+
+export const C_RUNTIME_SUPPORT = `static volatile double ${ZERO_DIVISOR} = 0.0;
+
+#if defined(_WIN32)
 void Sleep(unsigned long);
 unsigned long long GetTickCount64(void);
 void *VirtualAlloc(void *, size_t, unsigned long, unsigned long);
@@ -1106,6 +1111,22 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     },
   ],
   [
+    CHAR_FROM_CODE_BUILTIN,
+    {
+      helper: "tera_string_from_char_code",
+      definition: `static inline ${C_CHAR} *tera_string_from_char_code(${C_CHAR} *dst, int32_t cap, int32_t code) {
+  if (cap <= 0) return dst;
+  if (cap < 2) {
+    dst[0] = 0;
+    return dst;
+  }
+  dst[0] = (${C_CHAR})(code & 0xFFFF);
+  dst[dst[0] == 0 ? 0 : 1] = 0;
+  return dst;
+}`,
+    },
+  ],
+  [
     AOT_CHAR_AT,
     {
       helper: "tera_string_char_at",
@@ -1802,9 +1823,13 @@ const RESERVED_C_IDENTIFIERS = new Set<string>([
   ...C_HEAP_IDENTIFIERS,
   "tera_i32_neg",
   "tera_to_i32",
+  ZERO_DIVISOR,
 ]);
 
 function formatDouble(value: number): string {
+  if (Number.isNaN(value)) return `(0.0 / ${ZERO_DIVISOR})`;
+  if (value === Infinity) return `(1.0 / ${ZERO_DIVISOR})`;
+  if (value === -Infinity) return `(-1.0 / ${ZERO_DIVISOR})`;
   if (Object.is(value, -0)) return "-0.0";
   const text = String(value);
   return /[.eE]/.test(text) ? text : `${text}.0`;

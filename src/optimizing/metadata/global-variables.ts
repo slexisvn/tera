@@ -34,6 +34,7 @@ import {
 } from "./call-signatures.js";
 import { arrayElementType, arrayOfType } from "../../frontend/checker/type-system.js";
 import { constructedShapeOf } from "../passes/class-member-lowering.js";
+import { literalShapeNameOf } from "../passes/object-literal-shapes.js";
 import { TypeKind, type ArrayType } from "../types/lattice.js";
 import { latticeFromElementsKind } from "../types/elements.js";
 import type { TypeInference } from "../analyses/type-inference.js";
@@ -95,11 +96,16 @@ export function promoteRunOnceGlobals(
 
 function storedTypeName(
   value: CFGInstruction,
+  graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
 ): string | null {
   const type = types.typeOf(value);
-  return declaredTypeOf(type, classes) ?? constructedShapeOf(value, classes)?.name ?? null;
+  return (
+    declaredTypeOf(type, classes) ??
+    constructedShapeOf(value, classes)?.name ??
+    literalShapeNameOf(value, graph, classes, types)
+  );
 }
 
 function namesFunction(value: CFGInstruction | undefined): boolean {
@@ -163,7 +169,7 @@ function elementDemandsOf(
   const demands: string[] = [];
   for (const use of node.uses) {
     const held = pushedInto(use, node) ?? storedIntoElement(use, node);
-    const stored = held === null ? null : declaredTypeOf(types.typeOf(held), classes);
+    const stored = held === null ? null : storedTypeName(held, graph, classes, types);
     if (stored !== null) demands.push(stored);
     for (const [at, input] of use.inputs.entries()) {
       if (input !== node) continue;
@@ -210,6 +216,7 @@ function elementEvidenceOf(
   element: ArrayElementNaming | null,
   classes: ClassTable,
   demanded: readonly string[],
+  annotated: boolean,
 ): readonly string[] {
   const carried =
     array === null
@@ -219,7 +226,7 @@ function elementEvidenceOf(
   const found = carried === null ? [] : [carried];
   if (named !== null && named !== carried) found.push(named);
   if (found.length > 0 || demanded.length > 0) return [...found, ...demanded];
-  return element === null ? [] : [element.held];
+  return element === null || annotated ? [] : [element.held];
 }
 
 function annotatedGlobals(module: ModuleIR): ReadonlyMap<string, string | null> {
@@ -287,7 +294,7 @@ export function declareGlobalVariables(module: ModuleIR, classes: ClassTable): n
         const array = arrayTypeOf(value, types);
         const naming = arrayElementNamingOf(value, unit.graph, classes, types);
         if (array === null && naming === null) {
-          const held = storedTypeName(value, classes, types);
+          const held = storedTypeName(value, unit.graph, classes, types);
           if (held === null) continue;
           observe(stored, name, preferredTypeName(annotation, classes, [held]) ?? held);
           continue;
@@ -297,6 +304,7 @@ export function declareGlobalVariables(module: ModuleIR, classes: ClassTable): n
           naming,
           classes,
           demandedByName.get(name) ?? [],
+          annotation !== null,
         );
         if (evidence.length === 0 && annotation === null) continue;
         const element = preferredElementName(annotation, classes, evidence);

@@ -377,7 +377,7 @@ describe("string methods as compiled builtins", () => {
     ).not.toThrow();
   });
 
-  it("declines a split whose separator is not one spelled-out character", () => {
+  it("compiles a split whose separator only the running program knows", () => {
     expect(() =>
       nodeEngine({ typecheck: "off" }).compileAot(
         src(
@@ -394,7 +394,43 @@ describe("string methods as compiled builtins", () => {
           compilerOptions: KEEPS_CALLS,
         },
       ),
-    ).toThrow(/split/);
+    ).not.toThrow();
+  });
+
+  itRunsPe("splits on a separator of several characters the way the interpreter does", () => {
+    agrees(
+      src(
+        "fn show(parts: string[]):",
+        "  print(parts.length)",
+        '  print(parts.join("|"))',
+        'show("a. b. c".split(". "))',
+        'show("XXaXX".split("XX"))',
+        'show("aaa".split("aa"))',
+        'show("abc".split("abc"))',
+        'show("x".split("longer"))',
+        'show("--a--b--".split("--"))',
+        'show("a. b. c".split(". ", 2))',
+      ),
+    );
+  });
+
+  itRunsPe("splits on a separator it first reads at run time the way the interpreter does", () => {
+    agrees(
+      src(
+        "fn show(parts: string[]):",
+        "  print(parts.length)",
+        '  print(parts.join("|"))',
+        'one = ","',
+        'two = ", "',
+        'none = ""',
+        'show("a,b,c".split(one))',
+        'show("a, b, c".split(two))',
+        'show("abc".split(none))',
+        'show("".split(none))',
+        'show("".split(one))',
+        'show("a,b,c,d".split(one, 3))',
+      ),
+    );
   });
   itRunsPe("splits on a spelled-out separator the way the interpreter does", () => {
     agrees(
@@ -477,3 +513,42 @@ describe("string methods as compiled builtins", () => {
     );
   });
 });
+
+describe("building a character from its code", () => {
+  itRunsPe("spells one character the way the interpreter does", () => {
+    agrees(
+      src(
+        "print(String.fromCharCode(65))",
+        "print(String.fromCharCode(97, 98, 99))",
+        "print(String.fromCharCode(0x1EAF))",
+        "print(String.from_char_code(66))",
+      ),
+    );
+  });
+
+  itRunsPe("walks a cipher that rebuilds every letter", () => {
+    agrees(
+      src(
+        "fn shift_char(c: string, n: int) -> string:",
+        "  code = c.char_code_at(0)",
+        "  if code >= 97 && code <= 122:",
+        "    return String.fromCharCode((code - 97 + n) % 26 + 97)",
+        "  if code >= 65 && code <= 90:",
+        "    return String.fromCharCode((code - 65 + n) % 26 + 65)",
+        "  return c",
+        "fn encode(s: string, n: int) -> string:",
+        '  out = ""',
+        "  i = 0",
+        "  while i < s.length:",
+        "    out += shift_char(s[i], n)",
+        "    i += 1",
+        "  return out",
+        'msg = "Attack at Dawn, Zulu!"',
+        "enc = encode(msg, 3)",
+        "print(enc)",
+        "print(encode(enc, 23))",
+        "print(encode(enc, 23) == msg)",
+      ),
+    );
+  });
+})

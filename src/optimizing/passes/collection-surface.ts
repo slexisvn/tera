@@ -19,6 +19,7 @@ import {
   type CFGFunction,
   type CFGInstruction,
   calleeSymbolName,
+  calleeNameOf,
   genericCalleeName,
 } from "../ir/index.js";
 import { GraphEditor } from "../ir/editor.js";
@@ -28,6 +29,7 @@ import { nodeIdStamper } from "../ir/graph-edit.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import { producedTypeName } from "./array-shapes.js";
+import { isUnwritten } from "../types/signature.js";
 import { memberCallTargets } from "./class-member-lowering.js";
 
 import {
@@ -220,10 +222,29 @@ function producedValueKind(
   node: CFGInstruction,
   graph: CFGFunction,
   types: TypeInference,
+  answers: CallAnswers,
 ): ValueKind | null {
-  const produced = producedName(node, graph, types);
+  const produced = producedName(node, graph, types) ?? answers(node);
   if (produced === null) return null;
   return KIND_BY_NAME.get(produced) ?? programClass(produced, graph.classes);
+}
+
+export type CallAnswers = (call: CFGInstruction) => string | null;
+
+function answersFrom(returnOf: (name: string) => string | null | undefined): CallAnswers {
+  return (call) => {
+    const name = calleeNameOf(call);
+    const returns = name === null ? null : returnOf(name) ?? null;
+    return isUnwritten(returns) ? null : returns!;
+  };
+}
+
+function graphAnswers(graph: CFGFunction): CallAnswers {
+  return answersFrom((name) => graph.calleeSignatures?.get(name)?.returns);
+}
+
+function namedAnswers(byName: ReadonlyMap<string, CFGFunction>): CallAnswers {
+  return answersFrom((name) => byName.get(name)?.declaredSignature?.returns);
 }
 
 function valueKindOf(
@@ -231,6 +252,7 @@ function valueKindOf(
   aliases: ReadonlySet<CFGInstruction>,
   graph: CFGFunction,
   types: TypeInference,
+  answers: CallAnswers,
 ): ValueKind | null {
   const classes = graph.classes;
   const seen = new Set<CFGInstruction>();
@@ -245,7 +267,7 @@ function valueKindOf(
       kindOf(types.typeOf(node), VALUE_BY_KIND) ??
       classValueKind(node, types, classes) ??
       divided(node) ??
-      producedValueKind(node, graph, types);
+      producedValueKind(node, graph, types, answers);
     if (named !== null) {
       carried = widened(carried, named);
       if (carried === null) return null;
@@ -262,6 +284,7 @@ function collectionOf(
   kind: string,
   graph: CFGFunction,
   types: TypeInference,
+  answers: CallAnswers,
 ): string | null {
   let key: KeyKind | null = null;
   let value: ValueKind | null = null;
@@ -279,7 +302,7 @@ function collectionOf(
       if (member !== VALUED_MEMBER || kind !== MAP_GLOBAL) continue;
       const stored = use.inputs[VALUE_ARGUMENT];
       if (stored === undefined) return null;
-      const found = valueKindOf(stored, aliases, graph, types);
+      const found = valueKindOf(stored, aliases, graph, types, answers);
       if (found === null) return null;
       value = widened(value, found);
       if (value === null) return null;
@@ -323,7 +346,7 @@ export function lowerCollectionSurface(graph: CFGFunction, types: TypeInference)
       if (kind === null) continue;
       const aliases = aliasesOf(node);
       if (!heldWithin(aliases, kind)) continue;
-      const named = collectionOf(aliases, kind, graph, types);
+      const named = collectionOf(aliases, kind, graph, types, graphAnswers(graph));
       if (named === null) continue;
       const callee = stamp(irLoadGlobal(named));
       editor.insertBefore(node, callee);
@@ -628,6 +651,7 @@ function agreeOn(
   carried: CollectionFlavour,
   seed: CollectionSeed,
   unitOf: UnitLookup,
+  answers: CallAnswers,
 ): boolean {
   for (const alias of seed.aliases) {
     const owner = unitOf(alias);
@@ -644,7 +668,7 @@ function agreeOn(
       if (member !== VALUED_MEMBER || seed.kind !== MAP_GLOBAL) continue;
       const stored = use.inputs[VALUE_ARGUMENT];
       if (stored === undefined) return false;
-      const found = valueKindOf(stored, seed.aliases, owner.graph, owner.types);
+      const found = valueKindOf(stored, seed.aliases, owner.graph, owner.types, answers);
       if (found === null) return false;
       const widest = widened(carried.value, found);
       if (widest === null) return false;
@@ -710,7 +734,7 @@ export function shapeModuleCollections(
       carried = { key: null, value: null };
       flavours.set(seed.kind, carried);
     }
-    if (!agreeOn(carried, seed, unitOf)) return [];
+    if (!agreeOn(carried, seed, unitOf, namedAnswers(byName))) return [];
   }
 
   const named = new Map<string, string>();

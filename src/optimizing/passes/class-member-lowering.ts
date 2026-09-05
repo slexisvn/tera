@@ -36,6 +36,7 @@ import {
   irStoreField,
   irStoreText,
   genericCalleeName,
+  memberCalled,
 } from "../ir/index.js";
 import { addPhi, connect, link, splitBlockAfter } from "../ir/cfg-edit.js";
 import {
@@ -64,7 +65,7 @@ import {
   type ClassShape,
   type ClassTable,
 } from "../metadata/class-table.js";
-import { arrayElementShapeOf, producedTypeName } from "./array-shapes.js";
+import { arrayElementShapeOf, producedTypeName, TAKES_ELEMENT } from "./array-shapes.js";
 import { TypeKind } from "../types/lattice.js";
 import { DominatorTree } from "../analyses/dominance.js";
 import { nominalLatticeType, presentTypeName } from "../types/declared.js";
@@ -264,14 +265,27 @@ function carryCalleeResultClasses(
   return carried;
 }
 
+const TAKEN_RECEIVER = 1;
+
+function takenFrom(node: CFGInstruction): CFGInstruction | null {
+  for (const member of TAKES_ELEMENT) {
+    if (memberCalled(node, member) !== null) return node.inputs[TAKEN_RECEIVER] ?? null;
+  }
+  return null;
+}
+
 function elementShapeOf(
   node: CFGInstruction,
   graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
 ): ClassShape | null {
-  if (node.type !== IR_LOAD_ELEMENT && node.type !== IR_GENERIC_GET_INDEX) return null;
-  const element = arrayElementShapeOf(node.inputs[0], graph, classes, types);
+  const holder =
+    node.type === IR_LOAD_ELEMENT || node.type === IR_GENERIC_GET_INDEX
+      ? node.inputs[0] ?? null
+      : takenFrom(node);
+  if (holder === null) return null;
+  const element = arrayElementShapeOf(holder, graph, classes, types);
   if (element !== null) node.props[VALUE_CLASS_PROP] = element.id;
   return element;
 }

@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  builtinGlobalIntrinsicByName,
   builtinMethodCallMetadata,
   builtinMethodIntrinsicByName,
   builtinMethodIntrinsicFor,
   qualifiedMethodName,
   BUILTIN_METHOD_DECLARATIONS,
+  CHAR_FROM_CODE_BUILTIN,
+  PARSE_FLOAT_BUILTIN,
+  STRING_PRODUCING_BUILTINS,
+  STRING_TYPE,
 } from "../../../src/optimizing/metadata/builtin-methods.js";
 import {
   anyType,
@@ -164,5 +169,31 @@ describe("builtinMethodCallMetadata", () => {
     target.declaredSignature.params[0] = "mutated";
 
     expect(builtinMethodIntrinsicByName(CHAR_CODE_AT)!.signature.params[0]).toBe("string");
+  });
+});
+
+describe("the builtin that spells a character out of its code", () => {
+  it("is declared as a global the compiler can call by name", () => {
+    expect(builtinGlobalIntrinsicByName(CHAR_FROM_CODE_BUILTIN)).not.toBeNull();
+  });
+
+  it("takes one whole number and answers text", () => {
+    const intrinsic = builtinGlobalIntrinsicByName(CHAR_FROM_CODE_BUILTIN)!;
+
+    expect(intrinsic.signature).toMatchObject({ params: ["int"], returns: STRING_TYPE });
+  });
+});
+
+describe("which builtins are counted as producing text", () => {
+  it("counts a global builtin that answers text", () => {
+    expect(STRING_PRODUCING_BUILTINS.has(CHAR_FROM_CODE_BUILTIN)).toBe(true);
+  });
+
+  it("leaves out a global builtin that answers a number", () => {
+    expect(STRING_PRODUCING_BUILTINS.has(PARSE_FLOAT_BUILTIN)).toBe(false);
+  });
+
+  it("still counts the method builtins that answer text", () => {
+    expect(STRING_PRODUCING_BUILTINS.has(qualifiedMethodName("string", "slice"))).toBe(true);
   });
 });

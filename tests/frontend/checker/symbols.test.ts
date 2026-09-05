@@ -83,4 +83,35 @@ describe("buildSourceSymbolTable", () => {
       expect(parent).toMatchObject({ typeName: "Base", line: 0, column: 0 });
     });
   });
+
+  describe("structural types written with an arrow", () => {
+    const structural = tableOf("value = 1");
+    const memberNames = (type) => structural.membersOf(type).map((member) => member.name);
+
+    it("reads the field that follows a function-typed one", () => {
+      expect(memberNames("{ run: (int) -> int, n: int }")).toEqual(["run", "n"]);
+    });
+
+    it("reads both fields when the function-typed one comes last", () => {
+      expect(memberNames("{ n: int, run: (int) -> int }")).toEqual(["n", "run"]);
+    });
+
+    it("keeps a comma inside a generic field type out of the field split", () => {
+      expect(memberNames("{ index: Map<string, int>, n: int }")).toEqual(["index", "n"]);
+    });
+
+    it("types a field declared after a function-typed one", () => {
+      const field = structural.resolveField("{ run: (int) -> int, n: int }", "n");
+
+      expect(field?.typeName).toBe("int");
+    });
+
+    it("keeps the arms of a union apart when one holds a function-typed field", () => {
+      expect(memberNames("{ run: (int) -> int, a: int } | { a: int }")).toEqual(["a"]);
+    });
+
+    it("still answers only what every arm of a plain union shares", () => {
+      expect(memberNames("{ a: int, b: int } | { a: int }")).toEqual(["a"]);
+    });
+  });
 });

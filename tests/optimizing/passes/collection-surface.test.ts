@@ -455,3 +455,63 @@ describe("collections keyed by what a record field holds", () => {
     expect(constructedName(built)).toBe("Map");
   });
 });
+
+describe("shaping a map whose values a function answers", () => {
+  const ANSWERS = "answers";
+
+  function storingWhatACallAnswers(returns: string | null): readonly CFGFunction[] {
+    const answering = new CFGFunction(ANSWERS);
+    answering.declaredSignature = { params: [], returns: returns ?? "any" };
+    const answeringBlock = answering.addBlock();
+    answeringBlock.addNode(irReturn(answeringBlock.addNode(irConstant(0))));
+    answering.rebuildUses();
+
+    const graph = new CFGFunction("f");
+    graph.classes = buildClassTable([]);
+    const block = graph.addBlock();
+    const construction = block.addNode(irGenericCall(block.addNode(irLoadGlobal("Map")), []));
+    const answered = block.addNode(
+      irGenericCall(block.addNode(irLoadGlobal(ANSWERS)), []),
+    );
+    const call = block.addNode(
+      irGenericCall(block.addNode(irGenericGetProp(construction, "set")), [
+        construction,
+        block.addNode(irConstant(1)),
+        answered,
+      ]),
+    );
+    call.props.isMethod = true;
+    block.addNode(irReturn(construction));
+    graph.rebuildUses();
+
+    const units = [answering, graph].map((held) => ({
+      graph: held,
+      types: new AnalysisManager(held, createAnalysisRegistry()).get(typeInferenceAnalysisId),
+    }));
+    shapeModuleCollections(units);
+    return [graph];
+  }
+
+  const constructedIn = (graphs: readonly CFGFunction[]): string | null => {
+    for (const block of graphs[0]!.blocks) {
+      for (const node of block.nodes) {
+        if (node.type !== IR_GENERIC_CALL || node.props.isMethod === true) continue;
+        const callee = node.inputs[0];
+        if (callee?.type === IR_LOAD_GLOBAL) return String(callee.props.name);
+      }
+    }
+    return null;
+  };
+
+  it("takes the value type from what the called function is declared to answer", () => {
+    expect(constructedIn(storingWhatACallAnswers("int"))).toBe(mapClassName("int", "int"));
+  });
+
+  it("takes a text value type the same way", () => {
+    expect(constructedIn(storingWhatACallAnswers("string"))).toBe(mapClassName("int", "string"));
+  });
+
+  it("leaves the map generic when the called function says nothing about its answer", () => {
+    expect(constructedIn(storingWhatACallAnswers(null))).toBe("Map");
+  });
+});

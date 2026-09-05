@@ -104,6 +104,7 @@ import {
   OBJECT_OPEN_TEXT,
   PRINT_BUILTIN,
   printTerminatorOf,
+  CHAR_FROM_CODE_BUILTIN,
   qualifiedMethodName,
   THROW_BUILTIN,
 } from "../../metadata/builtin-methods.js";
@@ -337,6 +338,7 @@ const RUNTIME_BUILTINS = new Map<string, string>([
 
 const STRING_BUFFER_BUILTINS = new Map<string, string>([
   [AOT_CHAR_AT, X64_RUNTIME_SYMBOLS.charAt],
+  [CHAR_FROM_CODE_BUILTIN, X64_RUNTIME_SYMBOLS.charFromCode],
   [AOT_INT_TO_STRING, X64_RUNTIME_SYMBOLS.int32ToString],
   [AOT_FLOAT_TO_STRING, X64_RUNTIME_SYMBOLS.floatToString],
   [INPUT_BUILTIN, X64_RUNTIME_SYMBOLS.input],

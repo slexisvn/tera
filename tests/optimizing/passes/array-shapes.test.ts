@@ -340,6 +340,19 @@ describe("arrayModelOf over what an array method answers", () => {
     });
   }
 
+  it("names a subscript of text as text rather than as an array element", () => {
+    const graph = new CFGFunction("at");
+    graph.classes = table();
+    graph.declaredSignature = { params: ["string"], returns: "string" };
+    const held = graph.addParameter(0);
+    const block = graph.addBlock();
+    const read = block.addNode(irGenericGetIndex(held, block.addNode(irConstant(0))));
+    block.addNode(irReturn(read));
+    graph.rebuildUses();
+
+    expect(nameOf(graph, read)).toBe("string");
+  });
+
   it("names a member that answers something other than an element by its own answer", () => {
     const { graph, call } = answering("join");
 
@@ -495,6 +508,43 @@ describe("naming what an array holds when a contributor cannot be named", () => 
     const { graph, array } = fillingItselfFromItself(false);
 
     expect(() => elementNameOf(graph, array)).not.toThrow();
+  });
+
+  function recordsMovedWithinTheArray(): { graph: CFGFunction; array: CFGInstruction } {
+    const graph = new CFGFunction("sort");
+    graph.classes = table();
+    const block = graph.addBlock();
+    const shape = graph.classes.defineSynthetic(
+      literalShapeSurface([{ name: "salary", declaredType: "int" }]),
+    );
+    const record = (): CFGInstruction => {
+      const allocation = block.addNode(irNewObject());
+      allocation.props[CLASS_ID_PROP] = shape.id;
+      allocation.props[INSTANCE_SIZE_PROP] = shape.size;
+      allocation.props[VALUE_CLASS_PROP] = shape.id;
+      block.addNode(irGenericSetProp(allocation, "salary", block.addNode(irConstant(1))));
+      return allocation;
+    };
+    const array = block.addNode(irNewArray([record(), record()]));
+    const read = block.addNode(irGenericGetIndex(array, block.addNode(irConstant(1))));
+    block.addNode(irGenericSetIndex(array, block.addNode(irConstant(0)), read));
+    block.addNode(irReturn(array));
+    graph.rebuildUses();
+    return { graph, array };
+  }
+
+  it("keeps the record element an array of records names when one moves within it", () => {
+    const { graph, array } = recordsMovedWithinTheArray();
+
+    expect(elementNameOf(graph, array)).toBe(
+      graph.classes!.shapeOf("tera_literal$salary_int")?.name,
+    );
+  });
+
+  it("does not let an element read back out of the array widen what it holds", () => {
+    const { graph, array } = recordsMovedWithinTheArray();
+
+    expect(elementNamingOf(graph, array)?.guessed).toBe(false);
   });
 });
 

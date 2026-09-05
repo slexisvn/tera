@@ -4,6 +4,7 @@ import {
   irCallKnownFunction,
   irConstant,
   irGenericGetProp,
+  irLoadGlobal,
   irNewObject,
   irReturn,
   resetIRNodeIds,
@@ -226,5 +227,36 @@ describe("the signatures a module carries to every unit in it", () => {
     carryModuleSignatures(module);
 
     expect(declaredTypeNameOf(call, caller, caller.classes, types)).toBe(RETURNS);
+  });
+});
+
+describe("the declared type of a module variable a call reads", () => {
+  const VARIABLE = "queue";
+  const DECLARED = "string[]";
+
+  function reading(name: string, declared: string | null) {
+    const graph = new CFGFunction("reads");
+    graph.classes = buildClassTable([]);
+    if (declared !== null) graph.classes.declareGlobal(VARIABLE, declared);
+    const block = graph.addBlock();
+    const read = block.addNode(irLoadGlobal(name));
+    block.addNode(irReturn(read));
+    graph.rebuildUses();
+    const types = new AnalysisManager(graph, createAnalysisRegistry()).get(
+      typeInferenceAnalysisId,
+    );
+    return declaredTypeNameOf(read, graph, graph.classes, types);
+  }
+
+  it("names it by the type the module declared the variable with", () => {
+    expect(reading(VARIABLE, DECLARED)).toBe(DECLARED);
+  });
+
+  it("names nothing for a variable the module never declared", () => {
+    expect(reading("unheard", DECLARED)).toBeNull();
+  });
+
+  it("names nothing when no module variable was declared at all", () => {
+    expect(reading(VARIABLE, null)).toBeNull();
   });
 });

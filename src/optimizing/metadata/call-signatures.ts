@@ -140,6 +140,10 @@ export function declaredTypeNameOf(
   if (value.type === IR_PARAMETER) {
     return graph.declaredSignature?.params[Number(value.props.index)] ?? null;
   }
+  if (value.type === IR_LOAD_GLOBAL) {
+    const name = value.props.name;
+    return typeof name === "string" ? classes.globalOf(name)?.declaredType ?? null : null;
+  }
   return calleeSignatureOf(value, graph.calleeSignatures)?.returns ?? null;
 }
 

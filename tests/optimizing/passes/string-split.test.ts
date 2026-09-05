@@ -58,6 +58,7 @@ function loweredBody(...lines: string[]): string {
 }
 
 const branches = (text: string) => (text.match(/Branch /g) ?? []).length;
+const ROOM_FOR_THE_SEPARATOR = 1;
 
 describe("lowering a split into a scan of the text", () => {
   it("leaves no generic call for a backend to refuse", () => {
@@ -90,22 +91,30 @@ describe("lowering a split into a scan of the text", () => {
     expect(CALL_SITE.test(loweredBody('  return line.split("ộ", 2).length'))).toBe(false);
   });
 
-  it("leaves a separator of several characters to the interpreter", () => {
-    expect(CALL_SITE.test(loweredBody('  return line.split(", ", 2).length'))).toBe(true);
+  it("scans for a separator of several characters", () => {
+    expect(CALL_SITE.test(loweredBody('  return line.split(", ", 2).length'))).toBe(false);
   });
 
-  it("leaves a separator it cannot read at the call to the interpreter", () => {
+  it("matches every further character of a separator before it cuts", () => {
+    const beyond = "::";
+    const one = branches(loweredBody('  return line.split(",").length'));
+    const longer = branches(loweredBody(`  return line.split(",${beyond}").length`));
+
+    expect(longer).toBe(one + beyond.length + ROOM_FOR_THE_SEPARATOR);
+  });
+
+  it("scans for a separator it can only read once the program runs", () => {
     expect(
       CALL_SITE.test(
         lowered(
           src(
             "fn only(line: string, sep: string) -> int:",
-            '  return line.split(sep, 2).length',
+            "  return line.split(sep, 2).length",
             'print(only("a,b,c", ","))',
           ),
         ),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 
@@ -292,7 +301,11 @@ describe("which separators a target can be asked to scan for", () => {
     ).toBe(true);
   });
 
-  it("still leaves a separator of several code units to the interpreter", () => {
-    expect(lowersWith(", ", true)).toBe(0);
+  it("scans for a separator of several code units whichever way the target stores text", () => {
+    expect([lowersWith(", ", true), lowersWith(", ", false)]).toEqual([1, 1]);
+  });
+
+  it("still leaves a separator outside ASCII to the interpreter on a target storing bytes", () => {
+    expect(lowersWith(`${WIDE_SEPARATOR} `, false)).toBe(0);
   });
 });

@@ -13,6 +13,8 @@ import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
 import type { DeclaredSignature } from "../types/signature.js";
 import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
 import { functionSignatureOf, isUnwritten } from "../types/signature.js";
+import { carriesCapture } from "../metadata/closure-conversion.js";
+import { functionTargetOf } from "../metadata/module-functions.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
 
 export interface Specialization {
@@ -30,6 +32,7 @@ interface Handoff {
   readonly index: number;
   readonly name: string;
   readonly target: CFGFunction;
+  readonly captured: boolean;
 }
 
 function calledParametersOf(graph: CFGFunction): readonly number[] {
@@ -91,9 +94,27 @@ function bindCallees(graph: CFGFunction, handoffs: readonly Handoff[]): void {
     const parameter = graph.parameters[handoff.index]!;
     for (const use of [...parameter.uses]) {
       if (use.block === null) continue;
-      replaceCall(graph, use, handoff.target, use.inputs.slice(1));
+      const args = handoff.captured ? use.inputs.slice() : use.inputs.slice(1);
+      replaceCall(graph, use, handoff.target, args);
     }
   }
+}
+
+const CAPTURE_PARAMETER = 0;
+
+function retypeCaptures(graph: CFGFunction, handoffs: readonly Handoff[]): void {
+  const declared = graph.declaredSignature;
+  if (declared === null) return;
+  const params = [...declared.params];
+  let retyped = false;
+  for (const handoff of handoffs) {
+    if (!handoff.captured) continue;
+    const carried = handoff.target.declaredSignature?.params[CAPTURE_PARAMETER] ?? null;
+    if (carried === null) continue;
+    params[handoff.index] = carried;
+    retyped = true;
+  }
+  if (retyped) graph.declaredSignature = { ...declared, params };
 }
 
 function withoutParameters(graph: CFGFunction, dropped: ReadonlySet<number>): void {
@@ -139,8 +160,15 @@ class Specializer {
   }
 
   private handoffAt(site: CallSite, index: number): Handoff | null {
-    const target = this.functions.referenced(site.node.inputs[site.firstArgument + index]);
-    return target === null ? null : { index, name: target.name, target };
+    const argument = site.node.inputs[site.firstArgument + index];
+    const named = this.functions.referenced(argument);
+    if (named !== null) return { index, name: named.name, target: named, captured: false };
+    if (argument === undefined || !carriesCapture(argument)) return null;
+    const answered = functionTargetOf(argument);
+    const closure = answered === null ? null : this.functions.named(answered);
+    return closure === null
+      ? null
+      : { index, name: closure.name, target: closure, captured: true };
   }
 
   private callSitesOf(name: string): readonly CallSite[] {
@@ -186,12 +214,17 @@ class Specializer {
       if (written === null) continue;
       for (const chosen of handoffsByIndex) {
         const handoff = chosen.get(index)!;
+        if (handoff.captured) continue;
         if (!adoptWrittenTypes(handoff.target, written)) return;
         this.functions.unitOf(handoff.target)?.analyses?.invalidate(typeInferenceAnalysisId);
       }
     }
 
-    const dropped = new Set(indices);
+    const dropped = new Set(
+      indices.filter((index) =>
+        handoffsByIndex.every((chosen) => !chosen.get(index)!.captured),
+      ),
+    );
     const clones = new Map<string, CFGFunction>();
     sites.forEach((site, at) => {
       const chosen = handoffs[at]!;
@@ -200,6 +233,7 @@ class Specializer {
       if (clone === undefined) {
         clone = cloneGraph(graph, name).graph;
         bindCallees(clone, chosen);
+        retypeCaptures(clone, chosen);
         withoutParameters(clone, dropped);
         clones.set(name, clone);
         this.added.push(unitOf(clone));

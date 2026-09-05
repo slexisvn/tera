@@ -3,6 +3,8 @@ import {
   IR_GENERIC_GET_INDEX,
   IR_GENERIC_GET_PROP,
   IR_GENERIC_SET_INDEX,
+  IR_CALL_BUILTIN,
+  IR_CALL_KNOWN_FUNCTION,
   IR_ITERATOR_VALUE,
   IR_LOAD_ARRAY_LENGTH,
   IR_LOAD_ELEMENT,
@@ -60,6 +62,7 @@ import {
 } from "../types/declared.js";
 import { isUnwritten } from "../types/signature.js";
 import { arrayElementType, arrayOfType } from "../../frontend/checker/type-system.js";
+import { builtinIntrinsicByName, STRING_TYPE } from "../metadata/builtin-methods.js";
 import { latticeFromElementsKind } from "../types/elements.js";
 import {
   doubleType,
@@ -137,6 +140,10 @@ function aliasesOf(allocation: CFGInstruction): ReadonlySet<CFGInstruction> {
   return aliases;
 }
 
+function alreadyHeld(value: CFGInstruction, aliases: ReadonlySet<CFGInstruction>): boolean {
+  return READS_ELEMENT.has(value.type) && aliases.has(value.inputs[0]!);
+}
+
 function storedValues(allocation: CFGInstruction): CFGInstruction[] {
   const aliases = aliasesOf(allocation);
   const values = [...allocation.inputs];
@@ -144,11 +151,12 @@ function storedValues(allocation: CFGInstruction): CFGInstruction[] {
     for (const use of array.uses) {
       const pushed = pushedValue(use, array);
       if (pushed !== null) {
-        values.push(pushed);
+        if (!alreadyHeld(pushed, aliases)) values.push(pushed);
         continue;
       }
       if (!WRITES_ELEMENT.has(use.type) || !aliases.has(use.inputs[0]!)) continue;
-      values.push(use.inputs[2]!);
+      const stored = use.inputs[2]!;
+      if (!alreadyHeld(stored, aliases)) values.push(stored);
     }
   }
   return values;
@@ -190,7 +198,10 @@ export function producedTypeName(
   types: TypeInference,
 ): string | null {
   const source = iteratedArrayOf(value);
-  if (source !== null) return arrayElementNameOf(source, graph, classes, types);
+  if (source !== null) {
+    if (types.typeOf(source).kind === TypeKind.String) return STRING_TYPE;
+    return arrayElementNameOf(source, graph, classes, types);
+  }
   if (value.type === IR_GENERIC_GET_PROP) {
     const declared = readMemberType(value, graph, classes, types);
     if (declared !== null) return declared;
@@ -243,7 +254,21 @@ function builtinAnswerOf(
   return builtinOwnerMember(owner, member)?.signature.returns ?? null;
 }
 
-const TAKES_ELEMENT: ReadonlySet<string> = new Set<string>(["pop", "shift"]);
+export const TAKES_ELEMENT: ReadonlySet<string> = new Set<string>(["pop", "shift"]);
+
+function writtenTypeName(
+  value: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  if (value.type === IR_CALL_BUILTIN) {
+    const answered = builtinIntrinsicByName(String(value.props.name))?.signature.returns ?? null;
+    return isUnwritten(answered) ? null : answered;
+  }
+  const answered = declaredTypeNameOf(value, graph, classes, types);
+  return isUnwritten(answered) ? null : answered;
+}
 
 function answeredTypeName(
   value: CFGInstruction,
@@ -251,7 +276,9 @@ function answeredTypeName(
   classes: ClassTable,
   types: TypeInference,
 ): string | null {
-  if (value.type !== IR_GENERIC_CALL || value.props.isMethod !== true) return null;
+  if (value.type !== IR_GENERIC_CALL || value.props.isMethod !== true) {
+    return writtenTypeName(value, graph, classes, types);
+  }
   const callee = value.inputs[0];
   const receiver = value.inputs[1];
   if (callee?.type !== IR_GENERIC_GET_PROP || receiver === undefined) return null;
@@ -487,6 +514,13 @@ function declaredArrayTypeOf(
   return null;
 }
 
+function elementNameOfDeclared(declared: string, classes: ClassTable): string | null {
+  const suffixed = arrayElementType(declared);
+  if (suffixed !== null) return suffixed;
+  const shape = classes.shapeOf(declared);
+  return shape === null ? null : classes.arrayLayoutOf(shape)?.declaredType ?? null;
+}
+
 function demandedElementOf(
   allocation: CFGInstruction,
   graph: CFGFunction,
@@ -501,7 +535,7 @@ function demandedElementOf(
         const declared =
           declaredTypeAt(use, at, graph, classes, types) ??
           heldElementType(use, array, graph, classes, types, new Set<CFGInstruction>());
-        const element = declared === null ? null : arrayElementType(declared);
+        const element = declared === null ? null : elementNameOfDeclared(declared, classes);
         if (element === null) continue;
         const asked = nominalLatticeType(element, classes);
         if (demanded === null) demanded = asked;
@@ -524,7 +558,7 @@ function receivedElement(
     if (declaredTypeOf(carried, classes) !== null) return carried;
   }
   const declared = declaredArrayTypeOf(array, graph, classes, types);
-  const element = declared === null ? null : arrayElementType(declared);
+  const element = declared === null ? null : elementNameOfDeclared(declared, classes);
   return element === null ? null : nominalLatticeType(element, classes);
 }
 
@@ -607,7 +641,7 @@ export function arrayModelForDeclaredType(
   classes: ClassTable,
 ): ArrayModel | null {
   if (typeof declared !== "string") return null;
-  const element = arrayElementType(declared);
+  const element = elementNameOfDeclared(declared, classes);
   if (element === null) return null;
   const named = arrayElementType(element) === null ? undefined : element;
   return modelOf(classes.defineArray(nominalLatticeType(element, classes), named), classes);

@@ -81,6 +81,8 @@ import {
 } from "../passes/coroutines.js";
 import { generatorYieldType, splitGenerator } from "../passes/generators.js";
 import { lowerErrorSurface } from "../passes/error-surface.js";
+import { lowerIterators } from "../passes/iterator-lowering.js";
+import { LOWERED_PRELUDE_FUNCTIONS } from "../prelude/index.js";
 import { lowerGeneratorIteration } from "../passes/generator-iteration.js";
 import {
   CORO_SLEEP,
@@ -453,6 +455,21 @@ function rejectingGraphs(module: ModuleIR): ReadonlySet<string> {
   return names;
 }
 
+function unusedHelpers(
+  lowered: readonly { readonly graph: CFGFunction }[],
+): readonly string[] {
+  const called = new Set<string>();
+  for (const { graph } of lowered) {
+    for (const block of graph.blocks) {
+      for (const node of block.nodes) {
+        const name = calleeNameOf(node);
+        if (name !== null && name !== graph.name) called.add(name);
+      }
+    }
+  }
+  return [...LOWERED_PRELUDE_FUNCTIONS].filter((name) => !called.has(name));
+}
+
 function splitGenerators(
   module: ModuleIR,
   classes: ClassTable,
@@ -486,7 +503,11 @@ function splitGenerators(
         });
         continue;
       }
-      const rewrote = stampCalleeSignatures(graph, signatures) + lowerGeneratorIteration(graph);
+      const analyses =
+        unit.analyses ?? new AnalysisManager<CFGFunction>(graph, createAnalysisRegistry());
+      const stamped = stampCalleeSignatures(graph, signatures) + lowerGeneratorIteration(graph);
+      if (stamped > 0) analyses.invalidate(typeInferenceAnalysisId);
+      const rewrote = stamped + lowerIterators(graph, analyses.get(typeInferenceAnalysisId));
       if (rewrote > 0) unit.analyses?.invalidateAll();
       const resolved = generatorYieldType(graph);
       if (!("yields" in resolved)) {
@@ -802,6 +823,7 @@ export function compileModule(
   inlineLoweredCalls(lowered, module, opts, declined);
 
   skipped.push(...failures);
+  for (const helper of unusedHelpers(lowered)) declined.add(helper);
   const emitting = lowered.filter(({ graph }) => !declined.has(graph.name));
   const graphs = emitting.map((unit) => unit.graph);
   const reachability = callReachability(graphs);

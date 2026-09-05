@@ -523,7 +523,7 @@ export class TypeChecker {
       if (!checkedShape) this.checkExpression(node.value, scope, node.span.line, node.span.column, expected, expectedType);
       if (!checkedShape && !compatible(actual, declared, this.bound.env) && this.diagnostics.length === before) {
         const at = nodePosition(node.value, node.span.line, node.span.column);
-        this.add(at.line, at.column, `Type '${actual}' is not assignable to '${declared}'`);
+        this.add(at.line, at.column, `Type '${actual}' is not assignable to '${declared}'${this.remedyFor(actual, declared)}`);
       }
     } else if (previous?.declared) {
       this.checkAssignableValue(node.value, assignableType(previous), scope, node.span.line, node.span.column);
@@ -587,7 +587,7 @@ export class TypeChecker {
     if (this.isUnknownish(actualResolved)) return;
     if (!compatible(actualResolved, resolved, this.bound.env) && this.diagnostics.length === before) {
       const at = node.value ? nodePosition(node.value, node.span.line, node.span.column) : node.span;
-      this.add(at.line, at.column, `Type '${actual}' is not assignable to return type '${sig.returns}'`);
+      this.add(at.line, at.column, `Type '${actual}' is not assignable to return type '${sig.returns}'${this.remedyFor(actualResolved, resolved)}`);
     }
   }
 
@@ -847,7 +847,7 @@ export class TypeChecker {
     if (returns === null) return;
     const actual = inferExpression(body, this.bound, child, returned, returns);
     if (!compatible(actual, returns, this.bound.env)) {
-      this.add(at.line, at.column, `Type '${actual}' is not assignable to return type '${returns}'`);
+      this.add(at.line, at.column, `Type '${actual}' is not assignable to return type '${returns}'${this.remedyFor(actual, returns)}`);
       return;
     }
     adoptContextualSignature(node, [], returns);
@@ -1204,7 +1204,7 @@ export class TypeChecker {
       const param = instantiated.params.get(name);
       if (!param || this.isUnknownish(element)) continue;
       if (compatible(element, param.type, this.bound.env)) continue;
-      this.add(at.line, at.column, `Type '${element}' is not assignable to parameter '${name}: ${param.type}'`);
+      this.add(at.line, at.column, `Type '${element}' is not assignable to parameter '${name}: ${param.type}'${this.remedyFor(element, param.type)}`);
     }
   }
 
@@ -1226,7 +1226,7 @@ export class TypeChecker {
       }
       if (!compatible(actualType, field.type, this.bound.env) && this.diagnostics.length === before) {
         const at = nodePosition(actualField.value, line, column);
-        this.add(at.line, at.column, `Type '${actualType}' is not assignable to field '${name}: ${field.type}'`);
+        this.add(at.line, at.column, `Type '${actualType}' is not assignable to field '${name}: ${field.type}'${this.remedyFor(actualType, field.type)}`);
       }
     }
     return true;
@@ -1243,6 +1243,13 @@ export class TypeChecker {
 
   add(line: number, column: number, message: string): void {
     this.diagnostics.push(diagnostic(line, column, message, this.strict));
+  }
+
+  remedyFor(actual: TypeName, expected: TypeName): string {
+    const parts = unionParts(actual, this.bound.env);
+    const present = removeNullish(actual, this.bound.env);
+    if (parts.length < NAMES_BOTH || present === actual) return "";
+    return compatible(present, expected, this.bound.env) ? ` (${ABSENCE_ADVICE})` : "";
   }
 
   reportBuiltinRedeclaration(name: string, line: number, column: number, scope: Scope): boolean {
@@ -1276,7 +1283,7 @@ export class TypeChecker {
     if (this.isUnknownish(actual) || compatible(actual, expectedType, this.bound.env) || this.diagnostics.length !== before) return;
     if (this.checkUnionShape(expectedType, value, scope, line, column)) return;
     const at = nodePosition(value, line, column);
-    this.add(at.line, at.column, `Type '${actual}' is not assignable to ${target ?? `'${expectedType}'`}`);
+    this.add(at.line, at.column, `Type '${actual}' is not assignable to ${target ?? `'${expectedType}'`}${this.remedyFor(actual, expectedType)}`);
   }
 
   checkUnionShape(expectedType: TypeName, value: ASTNode, scope: Scope, line: number, column: number): boolean {
@@ -1391,6 +1398,8 @@ const NULL_TYPE = "null";
 const SEMANTIC_KIND = "kind";
 const AST_KIND = "type";
 const ADVICE_SEPARATOR = "->";
+const NAMES_BOTH = 2;
+const ABSENCE_ADVICE = "the value may be absent: guard it before use, or spell a fallback with ??";
 
 const INDEX_KEY_ADVICE: ReadonlyMap<string, string> = new Map<string, string>([
   [`float${ADVICE_SEPARATOR}int`, "a division answers a float: wrap it in Math.floor"],

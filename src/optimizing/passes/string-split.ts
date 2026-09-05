@@ -4,6 +4,7 @@ import {
   irConstant,
   irInt32Add,
   irInt32Compare,
+  irInt32Sub,
   irJump,
   irSelect,
   IR_CONSTANT,
@@ -36,14 +37,18 @@ const SPLIT_MEMBER = "split";
 const LENGTH_MEMBER = "length";
 const CHARACTER_AT = "char_code_at";
 const SLICE_MEMBER = "slice";
-const SINGLE_CHARACTER = 1;
-const EVERY_CHARACTER = -1;
 const FIRST_INDEX = 0;
 const STEP = 1;
 const EQUALS = "==";
+const NOT_EQUAL = "!=";
 const LESS_THAN = "<";
 const RECEIVER_AND_SEPARATOR = 2;
 const ORDERED_PAIR = 2;
+
+type Separator =
+  | { readonly kind: "every" }
+  | { readonly kind: "codes"; readonly codes: readonly number[] }
+  | { readonly kind: "value"; readonly text: CFGInstruction };
 
 interface Site {
   readonly graph: CFGFunction;
@@ -52,7 +57,7 @@ interface Site {
   readonly node: CFGInstruction;
   readonly callee: CFGInstruction;
   readonly subject: CFGInstruction;
-  readonly separator: number;
+  readonly separator: Separator;
   readonly kept: Kept | null;
   readonly model: ArrayModel;
 }
@@ -69,14 +74,29 @@ function keptFrom(limit: CFGInstruction | undefined, types: TypeInference): Kept
   return types.typeOf(limit).kind === TypeKind.Smi ? { counting: limit } : undefined;
 }
 
-function separatorCode(value: CFGInstruction | undefined, matchesAnyUnit: boolean): number | null {
-  if (value === undefined || value.type !== IR_CONSTANT) return null;
+function separatorOf(
+  value: CFGInstruction | undefined,
+  matchesAnyUnit: boolean,
+  types: TypeInference,
+): Separator | null {
+  if (value === undefined) return null;
+  if (value.type !== IR_CONSTANT) {
+    return types.typeOf(value).kind === TypeKind.String ? { kind: "value", text: value } : null;
+  }
   const text = value.props.value;
   if (typeof text !== "string") return null;
-  if (text.length === 0) return EVERY_CHARACTER;
-  if (text.length !== SINGLE_CHARACTER) return null;
-  const code = text.charCodeAt(0);
-  return matchesAnyUnit || isAsciiCharacterCode(code) ? code : null;
+  if (text.length === 0) return { kind: "every" };
+  const codes: number[] = [];
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (!matchesAnyUnit && !isAsciiCharacterCode(code)) return null;
+    codes.push(code);
+  }
+  return { kind: "codes", codes };
+}
+
+function within(site: Site, block: CFGBlock, node: CFGInstruction): CFGInstruction {
+  return placed(site, node, (added) => append(block, added, site.stamp));
 }
 
 function callBuiltin(
@@ -85,7 +105,7 @@ function callBuiltin(
   member: string,
   args: readonly CFGInstruction[],
 ): CFGInstruction {
-  return placed(site, callOf(site, member, args), (added) => append(block, added, site.stamp));
+  return within(site, block, callOf(site, member, args));
 }
 
 function callOf(
@@ -131,7 +151,7 @@ function siteOf(
   if (subject === undefined || types.typeOf(subject).kind !== TypeKind.String) return null;
   const given = node.inputs.slice(RECEIVER_AND_SEPARATOR);
   if (given.length === 0 || given.length > ORDERED_PAIR) return null;
-  const separator = separatorCode(given[0], storesCodeUnits(graph));
+  const separator = separatorOf(given[0], storesCodeUnits(graph), types);
   if (separator === null) return null;
   const kept = keptFrom(given[1], types);
   if (kept === undefined) return null;
@@ -195,9 +215,141 @@ function lowerCharacters(site: Site, bound: CFGInstruction | null): void {
   editor.removeIfDead(site.callee);
 }
 
+interface Plan {
+  readonly pieceStride: CFGInstruction;
+  readonly scanStride: CFGInstruction;
+  readonly tailGuard: CFGInstruction | null;
+  match(
+    body: CFGBlock,
+    cursor: CFGInstruction,
+    start: CFGInstruction,
+    onMatch: CFGBlock,
+    onMiss: CFGBlock,
+  ): void;
+}
+
+function branchTo(
+  site: Site,
+  from: CFGBlock,
+  test: CFGInstruction,
+  taken: CFGBlock,
+  missed: CFGBlock,
+): void {
+  append(from, irBranch(test, taken, missed), site.stamp);
+  link(from, taken);
+  link(from, missed);
+}
+
+function unitsPlan(site: Site, length: CFGInstruction, codes: readonly number[]): Plan {
+  const width = ahead(site, irConstant(codes.length));
+  const past = ahead(site, irInt32Sub(length, width));
+  const limit =
+    codes.length === STEP ? null : ahead(site, irInt32Add(past, ahead(site, irConstant(STEP))));
+  return {
+    pieceStride: width,
+    scanStride: width,
+    tailGuard: null,
+    match(body, cursor, _start, onMatch, onMiss) {
+      let from = body;
+      if (limit !== null) {
+        const room = within(site, from, irInt32Compare(LESS_THAN, cursor, limit));
+        const scan = site.graph.addBlock();
+        branchTo(site, from, room, scan, onMiss);
+        from = scan;
+      }
+      for (let index = 0; index < codes.length; index += 1) {
+        const at =
+          index === FIRST_INDEX
+            ? cursor
+            : within(site, from, irInt32Add(cursor, within(site, from, irConstant(index))));
+        const unit = bytewise(callBuiltin(site, from, CHARACTER_AT, [site.subject, at]));
+        const wanted = within(site, from, irConstant(codes[index]!));
+        const hit = within(site, from, irInt32Compare(EQUALS, unit, wanted));
+        const next = index + STEP === codes.length ? onMatch : site.graph.addBlock();
+        branchTo(site, from, hit, next, onMiss);
+        from = next;
+      }
+    },
+  };
+}
+
+function textPlan(site: Site, length: CFGInstruction, text: CFGInstruction): Plan {
+  const { graph, stamp } = site;
+  const width = bytewise(ahead(site, callOf(site, LENGTH_MEMBER, [text])));
+  const one = ahead(site, irConstant(STEP));
+  const origin = ahead(site, irConstant(FIRST_INDEX));
+  const limit = ahead(site, irInt32Add(ahead(site, irInt32Sub(length, width)), one));
+  const vacant = ahead(site, irInt32Compare(LESS_THAN, width, one));
+  const spanned = ahead(site, irInt32Add(length, width));
+  return {
+    pieceStride: width,
+    scanStride: ahead(site, irSelect(vacant, one, width)),
+    tailGuard: ahead(site, irInt32Compare(NOT_EQUAL, spanned, origin)),
+    match(body, cursor, start, onMatch, onMiss) {
+      const scan = graph.addBlock();
+      const compare = graph.addBlock();
+      const step = graph.addBlock();
+      const whole = graph.addBlock();
+      const boundary = graph.addBlock();
+      branchTo(site, body, within(site, body, irInt32Compare(LESS_THAN, cursor, limit)), scan, onMiss);
+
+      const taken = stamp(addPhi(scan, [origin]));
+      branchTo(site, scan, within(site, scan, irInt32Compare(LESS_THAN, taken, width)), compare, whole);
+
+      const here = within(site, compare, irInt32Add(cursor, taken));
+      const unit = bytewise(callBuiltin(site, compare, CHARACTER_AT, [site.subject, here]));
+      const wanted = bytewise(callBuiltin(site, compare, CHARACTER_AT, [text, taken]));
+      branchTo(site, compare, within(site, compare, irInt32Compare(EQUALS, unit, wanted)), step, onMiss);
+
+      const advanced = within(site, step, irInt32Add(taken, one));
+      advanced.props.noOverflow = true;
+      append(step, irJump(scan), stamp);
+      link(step, scan);
+      taken.addInput(advanced);
+
+      branchTo(site, whole, vacant, boundary, onMatch);
+      branchTo(
+        site,
+        boundary,
+        within(site, boundary, irInt32Compare(EQUALS, cursor, start)),
+        onMiss,
+        onMatch,
+      );
+    },
+  };
+}
+
+type Gate = (block: CFGBlock) => CFGInstruction;
+
+function gatesOf(
+  site: Site,
+  plan: Plan,
+  kept: CFGInstruction | null,
+  bound: CFGInstruction | null,
+): Gate[] {
+  const gates: Gate[] = [];
+  const { tailGuard } = plan;
+  if (tailGuard !== null) gates.push(() => tailGuard);
+  if (kept !== null) {
+    gates.push((block) => within(site, block, irInt32Compare(LESS_THAN, kept, bound!)));
+  }
+  return gates;
+}
+
+function planFor(
+  site: Site,
+  length: CFGInstruction,
+  separator: Exclude<Separator, { kind: "every" }>,
+): Plan {
+  return separator.kind === "codes"
+    ? unitsPlan(site, length, separator.codes)
+    : textPlan(site, length, separator.text);
+}
+
 function lowerSite(site: Site): void {
   const bound = keptBound(site);
-  if (site.separator === EVERY_CHARACTER) {
+  const separator = site.separator;
+  if (separator.kind === "every") {
     lowerCharacters(site, bound);
     return;
   }
@@ -205,8 +357,8 @@ function lowerSite(site: Site): void {
   const parts = emptyArray(editor, node, model, stamp);
   const length = bytewise(ahead(site, callOf(site, LENGTH_MEMBER, [subject])));
   const origin = ahead(site, irConstant(FIRST_INDEX));
-  const wanted = ahead(site, irConstant(site.separator));
   const step = ahead(site, irConstant(STEP));
+  const plan = planFor(site, length, separator);
 
   const entry = node.block!;
   const after = splitBlockBefore(graph, entry, node);
@@ -235,16 +387,12 @@ function lowerSite(site: Site): void {
     link(scanning, tail);
   }
 
-  const character = bytewise(callBuiltin(site, body, CHARACTER_AT, [subject, cursor]));
-  const hit = append(body, irInt32Compare(EQUALS, character, wanted), stamp);
-  append(body, irBranch(hit, cut, skip), stamp);
-  link(body, cut);
-  link(body, skip);
+  plan.match(body, cursor, start, cut, skip);
 
   const piece = bytewise(callBuiltin(site, cut, SLICE_MEMBER, [subject, start, cursor]));
   const cutJump = append(cut, irJump(advance), stamp);
   pushElement(editor, cutJump, parts, piece, model, stamp);
-  const resumed = stamp(irInt32Add(cursor, step));
+  const resumed = stamp(irInt32Add(cursor, plan.pieceStride));
   resumed.props.noOverflow = true;
   editor.insertBefore(cutJump, resumed);
   const taken = kept === null ? null : stamp(irInt32Add(kept, step));
@@ -255,10 +403,17 @@ function lowerSite(site: Site): void {
   append(skip, irJump(advance), stamp);
 
   const carried = stamp(addPhi(advance));
+  const strode = stamp(addPhi(advance));
   const counted = kept === null ? null : stamp(addPhi(advance));
-  connect(cut, advance, counted === null ? [resumed] : [resumed, taken!]);
-  connect(skip, advance, counted === null ? [start] : [start, kept!]);
-  const next = append(advance, irInt32Add(cursor, step), stamp);
+  const cutArgs = [resumed, plan.scanStride];
+  const skipArgs = [start, step];
+  if (counted !== null) {
+    cutArgs.push(taken!);
+    skipArgs.push(kept!);
+  }
+  connect(cut, advance, cutArgs);
+  connect(skip, advance, skipArgs);
+  const next = append(advance, irInt32Add(cursor, strode), stamp);
   next.props.noOverflow = true;
   append(advance, irJump(header), stamp);
   link(advance, header);
@@ -266,12 +421,11 @@ function lowerSite(site: Site): void {
   start.addInput(carried);
   if (kept !== null) kept.addInput(counted!);
 
-  const tailed = kept === null ? tail : graph.addBlock();
-  if (kept !== null) {
-    const room = append(tail, irInt32Compare(LESS_THAN, kept, bound!), stamp);
-    append(tail, irBranch(room, tailed, after), stamp);
-    link(tail, tailed);
-    link(tail, after);
+  let tailed = tail;
+  for (const gate of gatesOf(site, plan, kept, bound)) {
+    const opened = graph.addBlock();
+    branchTo(site, tailed, gate(tailed), opened, after);
+    tailed = opened;
   }
   const last = bytewise(callBuiltin(site, tailed, SLICE_MEMBER, [subject, start, length]));
   const tailJump = append(tailed, irJump(after), stamp);
