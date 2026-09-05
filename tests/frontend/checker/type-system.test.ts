@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrayElementType, arrayOfType, compatible, type TypeEnv } from "../../../src/frontend/checker/type-system.js";
+import { arrayElementType, arrayOfType, compatible, parseFunctionType, type TypeEnv } from "../../../src/frontend/checker/type-system.js";
 
 describe("arrayOfType", () => {
   it("suffixes a name that already reads as one element", () => {
@@ -65,5 +65,45 @@ describe("compatible", () => {
   it("keeps one member assignable into a union that lists it", () => {
     expect(compatible("Node", "Node | null", env())).toBe(true);
     expect(compatible("null", "Node | null", env())).toBe(true);
+  });
+});
+
+describe("parseFunctionType", () => {
+  const named = (type: string): Array<[string, string]> => {
+    const signature = parseFunctionType(type)!;
+    return signature.positional.map((name) => [name, signature.params.get(name)!.type]);
+  };
+
+  it("names a parameter declared beside a function-typed one", () => {
+    expect(named("(cb: (int) -> int, n: int) -> int")).toEqual([
+      ["cb", "(int) -> int"],
+      ["n", "int"],
+    ]);
+  });
+
+  it("gives a stand-in name to an undeclared function-typed parameter", () => {
+    expect(named("((int) -> int, int) -> int")).toEqual([
+      ["arg0", "(int) -> int"],
+      ["arg1", "int"],
+    ]);
+  });
+
+  it("keeps an object type holding a function-typed field as one parameter", () => {
+    expect(named("(o: { run: (int) -> int, a: int }) -> int")).toEqual([
+      ["o", "{run: (int) -> int, a: int}"],
+    ]);
+  });
+
+  it("keeps a comma inside a generic parameter type out of the parameter split", () => {
+    expect(named("(m: Map<string, int>, n: int) -> int")).toEqual([
+      ["m", "Map<string, int>"],
+      ["n", "int"],
+    ]);
+  });
+
+  it("reads a parameter whose type is itself a function answering a function", () => {
+    expect(named("(cb: (a: int) -> (b: int) -> int) -> int")).toEqual([
+      ["cb", "(a: int) -> (b: int) -> int"],
+    ]);
   });
 });

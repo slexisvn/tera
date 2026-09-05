@@ -424,24 +424,8 @@ function parseFunctionParam(
 }
 
 function topLevelColon(source: string): number {
-  let depth = 0;
-  let quote = "";
-  for (let i = 0; i < source.length; i++) {
-    const ch = source[i];
-    if (quote) {
-      if (ch === "\\") i++;
-      else if (ch === quote) quote = "";
-      continue;
-    }
-    if (ch === "\"" || ch === "'") {
-      quote = ch;
-      continue;
-    }
-    if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
-    else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth--;
-    else if (ch === ":" && depth === 0) return i;
-  }
-  return -1;
+  const parts = splitTopLevel(source, ":");
+  return parts.length > 1 ? parts[0].length : -1;
 }
 
 export function signatureType(sig: Signature): TypeName {
