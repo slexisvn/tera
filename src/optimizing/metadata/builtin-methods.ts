@@ -115,6 +115,8 @@ export const NO_TERMINATOR = 0;
 
 export const PRINT_TERMINATOR_PROP = "printTerminator";
 
+export const WHOLE_TEXT_PROP = "wholeText";
+
 export function printTerminatorOf(node: ir.CFGInstruction, index: number, arity: number): number {
   const explicit = node.props[PRINT_TERMINATOR_PROP];
   return typeof explicit === "number" ? explicit : printTerminatorAt(index, arity);

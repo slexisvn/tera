@@ -30,7 +30,7 @@ import {
   type ArrayModel,
 } from "./array-shapes.js";
 import { append, type Stamp } from "./guards.js";
-import { isAsciiCharacterCode, BYTEWISE_PROP } from "../analyses/wide-text.js";
+import { isAsciiCharacterCode, storesCodeUnits, BYTEWISE_PROP } from "../analyses/wide-text.js";
 
 const SPLIT_MEMBER = "split";
 const LENGTH_MEMBER = "length";
@@ -69,14 +69,14 @@ function keptFrom(limit: CFGInstruction | undefined, types: TypeInference): Kept
   return types.typeOf(limit).kind === TypeKind.Smi ? { counting: limit } : undefined;
 }
 
-function separatorCode(value: CFGInstruction | undefined): number | null {
+function separatorCode(value: CFGInstruction | undefined, matchesAnyUnit: boolean): number | null {
   if (value === undefined || value.type !== IR_CONSTANT) return null;
   const text = value.props.value;
   if (typeof text !== "string") return null;
   if (text.length === 0) return EVERY_CHARACTER;
   if (text.length !== SINGLE_CHARACTER) return null;
-  const code = text.codePointAt(0)!;
-  return isAsciiCharacterCode(code) ? code : null;
+  const code = text.charCodeAt(0);
+  return matchesAnyUnit || isAsciiCharacterCode(code) ? code : null;
 }
 
 function callBuiltin(
@@ -131,7 +131,7 @@ function siteOf(
   if (subject === undefined || types.typeOf(subject).kind !== TypeKind.String) return null;
   const given = node.inputs.slice(RECEIVER_AND_SEPARATOR);
   if (given.length === 0 || given.length > ORDERED_PAIR) return null;
-  const separator = separatorCode(given[0]);
+  const separator = separatorCode(given[0], storesCodeUnits(graph));
   if (separator === null) return null;
   const kept = keptFrom(given[1], types);
   if (kept === undefined) return null;

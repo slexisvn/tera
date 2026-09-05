@@ -106,6 +106,8 @@ import { nativeArgumentScalar, nativeReturnScalar } from "../../machine/signatur
 import { RISCV_FPR, RISCV_GPR, RISCV_STACK_SCRATCH } from "./registers.js";
 import { RISCV_RUNTIME_SYMBOLS } from "./runtime-symbols.js";
 import {
+  PROBE_LINK_REGISTER,
+  PROBE_SIZE_REGISTER,
   ROOT_COUNT_REGISTER,
   ROOT_ENTRY_BYTES,
   ROOT_FRAME_REGISTER,
@@ -409,6 +411,20 @@ export class RiscvLowering extends MachineLoweringBase<RiscvTargetModel> {
       instruction("srli", [def(cursor, 8), use(cursor, 8), imm(ROOT_SLOT_SHIFT)]),
       instruction("lla", [def(table, 8), contextAddress()]),
       instruction("sd", [use(cursor, 8), contextField(use(table, 8), "rootCount")]),
+    ];
+  }
+
+  protected callStackProbe(bytes: number): readonly MachineInstruction[] {
+    const link = this.physical(PROBE_LINK_REGISTER);
+    const returnAddress = this.target.abi.savedOnCall[0]!;
+    return [
+      instruction("mv", [def(link, 8), use(returnAddress, 8)]),
+      instruction("li", [def(this.physical(PROBE_SIZE_REGISTER), 8), imm(bytes)]),
+      instruction("call", [sym(RISCV_RUNTIME_SYMBOLS.probeStack)], {
+        call: true,
+        implicitFrom: 1,
+      }),
+      instruction("mv", [def(returnAddress, 8), use(link, 8)]),
     ];
   }
 

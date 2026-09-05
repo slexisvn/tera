@@ -137,7 +137,7 @@ describe("AOT static typing", () => {
     const program = compile(FIRST_CODE);
 
     expect(program.skipped).toEqual([]);
-    expect(cSource(program)).toContain("int32_t first_code(const char *p0)");
+    expect(cSource(program)).toContain("int32_t first_code(const tera_char *p0)");
   });
 
   itNative(
@@ -149,7 +149,7 @@ describe("AOT static typing", () => {
     const program = compile(CODE_AT);
 
     expect(program.skipped).toEqual([]);
-    expect(cSource(program)).toContain("tera_string_char_code_at(const char *value, int32_t index)");
+    expect(cSource(program)).toContain("tera_string_char_code_at(const tera_char *value, int32_t index)");
     expect(cSource(program)).toContain("= tera_string_char_code_at(p0, p1);");
   });
 
@@ -171,7 +171,7 @@ describe("AOT static typing", () => {
     const program = compile(SIZE);
 
     expect(program.skipped).toEqual([]);
-    expect(cSource(program)).toContain("tera_string_length(const char *value)");
+    expect(cSource(program)).toContain("tera_string_length(const tera_char *value)");
     expect(cSource(program)).toContain("= tera_string_length(p0);");
   });
 

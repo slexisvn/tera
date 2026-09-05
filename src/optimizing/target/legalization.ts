@@ -32,6 +32,7 @@ import { lowerJsonSurface } from "../passes/json-surface.js";
 import { lowerMathSurface } from "../passes/math-surface.js";
 import { lowerGlobalVariables } from "../passes/global-variable-lowering.js";
 import { lowerStringSplit } from "../passes/string-split.js";
+import { lowerParseNumbers } from "../passes/parse-number-surface.js";
 import { lowerIterators } from "../passes/iterator-lowering.js";
 import { lowerNamedArguments } from "../passes/named-argument-lowering.js";
 import { shapeObjectLiterals } from "../passes/object-literal-shapes.js";
@@ -193,6 +194,15 @@ export function targetLegalizationPipeline(
         changed: lowerGlobalBuiltins(graph, analyses.get(typeInferenceAnalysisId)) > 0,
       }),
     },
+    ...(tagged
+      ? []
+      : [
+          {
+            name: "parse-number-surface",
+            preserves: preservesControlFlow,
+            run: (graph: CFGFunction) => ({ changed: lowerParseNumbers(graph) > 0 }),
+          } as TransformPass<CFGFunction>,
+        ]),
     {
       name: "element-types",
       preserves: preservesControlFlow,

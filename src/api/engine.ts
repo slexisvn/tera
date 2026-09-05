@@ -36,6 +36,7 @@ import { collectionRequestsAcross, collectionRequestsIn } from "../optimizing/pr
 import { jsonPrelude, type JsonShapeSurface } from "../optimizing/prelude/json.js";
 import { jsonShapesAcross, rewriteJsonParses } from "../optimizing/prelude/json-requests.js";
 import { errorPrelude } from "../optimizing/prelude/errors.js";
+import { parseNumberPrelude } from "../optimizing/prelude/parse-number.js";
 import { fixedTextPrelude, rewriteFixedTexts } from "../optimizing/prelude/fixed-text.js";
 import { textMethodPrelude, rewriteTextMethods } from "../optimizing/prelude/text-methods.js";
 import {
@@ -466,11 +467,20 @@ function adoptSourcePreludes(roots: readonly ASTNode[]): void {
   for (const prelude of SOURCE_PRELUDES) prelude.adopt(roots);
 }
 
+function preludeText(
+  roots: readonly ASTNode[],
+  entry: readonly ASTNode[],
+  collections: string,
+  json: string,
+): string {
+  const numbers = parseNumberPrelude(roots, json.length > 0);
+  return `${numbers}${collections}${errorPrelude(roots)}${json}${sourcePreludes(entry)}`;
+}
+
 function preludeFor(graph: ModuleGraph): string {
   const collections = mentionsCollections(graph) ? collectionPreludeFor(graph) : "";
-  const errors = errorPrelude(moduleRoots(graph));
   const json = jsonPrelude(jsonShapesFor(graph));
-  return `${collections}${errors}${json}${sourcePreludes([graph.entry.ast])}`;
+  return preludeText(moduleRoots(graph), [graph.entry.ast], collections, json);
 }
 
 function adoptPreludeCalls(graph: ModuleGraph): void {
@@ -984,7 +994,7 @@ export class Engine {
     const grown = referencesCollections(probed)
       ? collectionPrelude(collectionRequestsIn(parsed))
       : "";
-    const prelude = `${grown}${errorPrelude([parsed])}${jsonPrelude(shapes)}${sourcePreludes([parsed])}`;
+    const prelude = preludeText([parsed], [parsed], grown, jsonPrelude(shapes));
     const compiled =
       prelude.length === 0
         ? probed

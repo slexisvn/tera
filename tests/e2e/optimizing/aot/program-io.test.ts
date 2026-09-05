@@ -88,8 +88,8 @@ describe("print and input as compiled builtins", () => {
     const program = compile(src('a = input("a: ")', 'b = input("b: ")', "print(a)", "print(b)"));
 
     expect(program.skipped).toEqual([]);
-    expect(cSource(program)).toContain("static char sb0[");
-    expect(cSource(program)).toContain("static char sb1[");
+    expect(cSource(program)).toContain("static tera_char sb0[");
+    expect(cSource(program)).toContain("static tera_char sb1[");
   });
 
   itNative("keeps two reads apart in generated C", () => {

@@ -1,4 +1,27 @@
-import { byteEscapedLiteral } from "../../target/text-literal.js";
+import {
+  byteEscapedLiteral,
+  codeUnitArrayLiteral,
+  codeUnitCapacity,
+} from "../../target/text-literal.js";
+import {
+  BMP_UNITS,
+  CARRIAGE_RETURN,
+  LEAD_SURROGATE,
+  LINE_FEED,
+  SURROGATE_BITS,
+  SURROGATE_LIMIT,
+  SURROGATE_PAYLOAD_MASK,
+  SURROGATE_UNITS,
+  SUPPLEMENTARY_BASE,
+  TEXT_STREAM_BYTES,
+  TEXT_TERMINATOR_UNITS,
+  TRAIL_SURROGATE,
+  UTF8_MOST_BYTES,
+  UTF8_SEQUENCES,
+  UTF8_TAIL_BITS,
+  UTF8_TAIL_MARK,
+  UTF8_TAIL_MASK,
+} from "../../target/unicode.js";
 import {
   type CFGBlock,
   type CFGFunction,
@@ -139,8 +162,6 @@ import {
   NO_TERMINATOR,
   OBJECT_CLOSE_TEXT,
   OBJECT_OPEN_TEXT,
-  PARSE_FLOAT_BUILTIN,
-  PARSE_INT_BUILTIN,
   builtinParameterAt,
   INPUT_BUILTIN,
   PRINT_BUILTIN,
@@ -152,6 +173,7 @@ import {
   WAIT_BUILTIN,
 } from "../../metadata/builtin-methods.js";
 import {
+  isReferenceScalar,
   isStorableScalar,
   SCALAR_FLOAT64,
   SCALAR_POINTER,
@@ -195,6 +217,8 @@ import {
   immutableDeclarationOf,
   prototypeOf,
   C_CODE,
+  C_ANY_POINTER,
+  C_CHAR,
   C_CODE_TYPEDEF,
   C_STRING,
   type CScalarType,
@@ -229,6 +253,7 @@ const C_WAIT = "tera_pause";
 const MILLIS_PER_SECOND = 1000;
 const NANOS_PER_MILLI = 1000000;
 
+export const C_TEXT_WRITER = "tera_put_utf8";
 const C_STRING_SET = "tera_str_set";
 const C_STRING_APPEND = "tera_str_append";
 const C_STRING_BUFFER_PREFIX = "sb";
@@ -239,8 +264,9 @@ const C_PRINT_HELPERS = new Map<AotScalar, CBuiltinMethod>([
     SCALAR_STRING,
     {
       helper: "tera_print_str",
-      definition: `static inline void tera_print_str(const char *value, int32_t terminator) {
-  printf("%s", value == 0 ? "${NULL_TEXT}" : value);
+      definition: `static inline void tera_print_str(const ${C_CHAR} *value, int32_t terminator) {
+  if (value == 0) fputs("${NULL_TEXT}", stdout);
+  else ${C_TEXT_WRITER}(value);
   if (terminator) printf("%c", terminator);
 }`,
     },
@@ -260,8 +286,8 @@ const C_PRINT_HELPERS = new Map<AotScalar, CBuiltinMethod>([
     {
       helper: "tera_print_f64",
       definition: `static inline void tera_print_f64(double value, int32_t terminator) {
-  char text[${FLOAT64_DECIMAL_BYTES}];
-  printf("%s", tera_f64_to_str(text, ${FLOAT64_DECIMAL_BYTES}, value));
+  ${C_CHAR} text[${FLOAT64_DECIMAL_BYTES}];
+  ${C_TEXT_WRITER}(tera_f64_to_str(text, ${FLOAT64_DECIMAL_BYTES}, value));
   if (terminator) printf("%c", terminator);
 }`,
     },
@@ -350,24 +376,24 @@ static void tera_text_overflow(void) {
   exit(${TERA_EXIT_UNCAUGHT_THROW});
 }
 
-static inline char *tera_str_copy(char *dst, int32_t cap, const char *src, size_t at) {
+static inline ${C_CHAR} *tera_str_copy(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, size_t at) {
   if (cap <= 0) return dst;
   size_t limit = (size_t)cap - 1u;
-  while (at < limit && *src != '\\0') dst[at++] = *src++;
-  if (*src != '\\0') tera_text_overflow();
-  dst[at] = '\\0';
+  while (at < limit && *src != 0) dst[at++] = *src++;
+  if (*src != 0) tera_text_overflow();
+  dst[at] = 0;
   return dst;
 }
 
-static inline char *${C_STRING_SET}(char *dst, int32_t cap, const char *src) {
+static inline ${C_CHAR} *${C_STRING_SET}(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src) {
   return tera_str_copy(dst, cap, src, 0);
 }
 
-static inline char *${C_STRING_APPEND}(char *dst, int32_t cap, const char *src) {
+static inline ${C_CHAR} *${C_STRING_APPEND}(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src) {
   if (cap <= 0) return dst;
   size_t at = 0;
   size_t limit = (size_t)cap - 1u;
-  while (at < limit && dst[at] != '\\0') at++;
+  while (at < limit && dst[at] != 0) at++;
   return tera_str_copy(dst, cap, src, at);
 }`;
 
@@ -458,25 +484,25 @@ static void tera_bn_add(tera_bn *dst, const tera_bn *a, const tera_bn *b) {
   if (carry != 0) dst->limb[dst->len++] = (uint32_t)carry;
 }
 
-static size_t tera_str_put(char *dst, size_t at, const char *text) {
+static size_t tera_str_put(${C_CHAR} *dst, size_t at, const ${C_CHAR} *text) {
   while (*text != '\\0') dst[at++] = *text++;
   return at;
 }
 
-static size_t tera_exponent_put(char *dst, size_t at, int32_t exponent) {
-  char reversed[${FLOAT64_EXPONENT_DIGITS}];
+static size_t tera_exponent_put(${C_CHAR} *dst, size_t at, int32_t exponent) {
+  ${C_CHAR} reversed[${FLOAT64_EXPONENT_DIGITS}];
   int32_t count = 0;
   uint32_t magnitude = exponent < 0 ? 0u - (uint32_t)exponent : (uint32_t)exponent;
   dst[at++] = exponent < 0 ? '-' : '+';
   do {
-    reversed[count++] = (char)('0' + (magnitude % 10u));
+    reversed[count++] = (${C_CHAR})('0' + (magnitude % 10u));
     magnitude /= 10u;
   } while (magnitude != 0u);
   while (count > 0) dst[at++] = reversed[--count];
   return at;
 }
 
-static char *tera_f64_to_str(char *dst, int32_t cap, double value) {
+static ${C_CHAR} *tera_f64_to_str(${C_CHAR} *dst, int32_t cap, double value) {
   if (cap < ${FLOAT64_DECIMAL_BYTES}) {
     if (cap > 0) dst[0] = '\\0';
     return dst;
@@ -485,7 +511,7 @@ static char *tera_f64_to_str(char *dst, int32_t cap, double value) {
   memcpy(&bits, &value, sizeof bits);
 ${ABSENCE_VALUES.map(
   (absence) => `  if (bits == ${absence.bits}ull) {
-    dst[tera_str_put(dst, 0, "${absence.text}")] = '\\0';
+    dst[tera_str_put(dst, 0, ${cTextLiteral(absence.text)})] = '\\0';
     return dst;
   }`,
 ).join("\n")}
@@ -494,7 +520,7 @@ ${ABSENCE_VALUES.map(
   uint64_t mantissa = bits & 0x${FLOAT64_MANTISSA_MASK.toString(16)}ull;
   size_t at = 0;
   if (biased == 0x${FLOAT64_EXPONENT_MASK.toString(16)}) {
-    at = tera_str_put(dst, at, mantissa != 0 ? "NaN" : (negative ? "-Infinity" : "Infinity"));
+    at = tera_str_put(dst, at, mantissa != 0 ? ${cTextLiteral("NaN")} : (negative ? ${cTextLiteral("-Infinity")} : ${cTextLiteral("Infinity")}));
     dst[at] = '\\0';
     return dst;
   }
@@ -539,7 +565,7 @@ ${ABSENCE_VALUES.map(
     decimal--;
   }
 
-  char digits[${FLOAT64_SIGNIFICANT_DIGITS}];
+  ${C_CHAR} digits[${FLOAT64_SIGNIFICANT_DIGITS}];
   int32_t count = 0;
   while (count < ${FLOAT64_SIGNIFICANT_DIGITS}) {
     tera_bn_mul(&r, 10);
@@ -555,7 +581,7 @@ ${ABSENCE_VALUES.map(
     tera_bn_add(&scratch, &r, &plus);
     int32_t high = tera_bn_above(&scratch, &s, inclusive);
     if (!low && !high) {
-      digits[count++] = (char)('0' + digit);
+      digits[count++] = (${C_CHAR})('0' + digit);
       continue;
     }
     if (low && high) {
@@ -564,7 +590,7 @@ ${ABSENCE_VALUES.map(
       int32_t tie = tera_bn_cmp(&scratch, &s);
       high = tie > 0 || (tie == 0 && (digit & 1) != 0);
     }
-    digits[count++] = (char)('0' + digit + (high ? 1 : 0));
+    digits[count++] = (${C_CHAR})('0' + digit + (high ? 1 : 0));
     break;
   }
 
@@ -594,31 +620,118 @@ ${ABSENCE_VALUES.map(
   return dst;
 }`;
 
-const C_STRING_SUPPORT = `static inline int32_t tera_text_size(const char *value) {
-  return (int32_t)strlen(value);
+const C_UTF8_LIMITS = "tera_utf8_limit";
+const C_UTF8_MARKS = "tera_utf8_mark";
+const C_UTF8_PAYLOADS = "tera_utf8_payload";
+const C_UTF8_TAILS = "tail";
+
+const cUnsigned = (value: number): string => `0x${value.toString(16)}u`;
+
+const cUnsignedList = (values: readonly number[]): string =>
+  values.map(cUnsigned).join(", ");
+
+const C_UTF8_TABLES = [
+  `static const uint32_t ${C_UTF8_LIMITS}[] = ` +
+    `{${cUnsignedList(UTF8_SEQUENCES.map((sequence) => sequence.limit))}};`,
+  `static const uint32_t ${C_UTF8_MARKS}[] = ` +
+    `{${cUnsignedList(UTF8_SEQUENCES.map((sequence) => sequence.mark))}};`,
+  `static const uint32_t ${C_UTF8_PAYLOADS}[] = ` +
+    `{${cUnsignedList(UTF8_SEQUENCES.map((sequence) => sequence.leadMask))}};`,
+].join(String.fromCharCode(10));
+
+
+export const C_TEXT_STREAM_SUPPORT = `static inline int32_t tera_is_lead(${C_CHAR} unit) {
+  return unit >= ${cUnsigned(LEAD_SURROGATE)} && unit < ${cUnsigned(TRAIL_SURROGATE)};
 }
 
-static inline char *tera_text_copy(char *dst, int32_t cap, const char *src, int32_t from, int32_t count) {
+static inline int32_t tera_is_trail(${C_CHAR} unit) {
+  return unit >= ${cUnsigned(TRAIL_SURROGATE)} && unit < ${cUnsigned(SURROGATE_LIMIT)};
+}
+
+${C_UTF8_TABLES}
+
+static void tera_put_utf8_to(const ${C_CHAR} *value, FILE *stream) {
+  for (int32_t at = 0; value[at] != 0; at++) {
+    uint32_t code = value[at];
+    if (tera_is_lead(value[at]) && tera_is_trail(value[at + 1])) {
+      code = ${cUnsigned(SUPPLEMENTARY_BASE)} + ((code - ${cUnsigned(LEAD_SURROGATE)}) << ${SURROGATE_BITS}) + (value[at + 1] - ${cUnsigned(TRAIL_SURROGATE)});
+      at++;
+    }
+    int32_t ${C_UTF8_TAILS} = 0;
+    while (${C_UTF8_TAILS} + 1 < ${UTF8_MOST_BYTES} && code >= ${C_UTF8_LIMITS}[${C_UTF8_TAILS}]) ${C_UTF8_TAILS}++;
+    fputc((int)(${C_UTF8_MARKS}[${C_UTF8_TAILS}] | (code >> (${UTF8_TAIL_BITS} * ${C_UTF8_TAILS}))), stream);
+    while (${C_UTF8_TAILS} > 0) {
+      fputc((int)(${cUnsigned(UTF8_TAIL_MARK)} | ((code >> (${UTF8_TAIL_BITS} * --${C_UTF8_TAILS})) & ${cUnsigned(UTF8_TAIL_MASK)})), stream);
+    }
+  }
+}
+
+static inline void ${C_TEXT_WRITER}(const ${C_CHAR} *value) {
+  tera_put_utf8_to(value, stdout);
+}
+
+static int32_t tera_take_utf8(const unsigned char *bytes, int32_t size, ${C_CHAR} *dst, int32_t cap) {
+  int32_t at = 0;
+  int32_t out = 0;
+  while (at < size) {
+    uint32_t code = bytes[at];
+    int32_t ${C_UTF8_TAILS} = ${UTF8_MOST_BYTES - 1};
+    while (${C_UTF8_TAILS} > 0 && code < ${C_UTF8_MARKS}[${C_UTF8_TAILS}]) ${C_UTF8_TAILS}--;
+    if (at + ${C_UTF8_TAILS} + 1 > size) break;
+    code &= ${C_UTF8_PAYLOADS}[${C_UTF8_TAILS}];
+    for (int32_t more = 1; more <= ${C_UTF8_TAILS}; more++) {
+      code = (code << ${UTF8_TAIL_BITS}) | (bytes[at + more] & ${cUnsigned(UTF8_TAIL_MASK)});
+    }
+    at += ${C_UTF8_TAILS} + 1;
+    if (code >= ${cUnsigned(SUPPLEMENTARY_BASE)}) {
+      if (out + ${SURROGATE_UNITS + TEXT_TERMINATOR_UNITS} > cap) break;
+      code -= ${cUnsigned(SUPPLEMENTARY_BASE)};
+      dst[out++] = (${C_CHAR})(${cUnsigned(LEAD_SURROGATE)} + (code >> ${SURROGATE_BITS}));
+      dst[out++] = (${C_CHAR})(${cUnsigned(TRAIL_SURROGATE)} + (code & ${cUnsigned(SURROGATE_PAYLOAD_MASK)}));
+    } else {
+      if (out + ${BMP_UNITS + TEXT_TERMINATOR_UNITS} > cap) break;
+      dst[out++] = (${C_CHAR})code;
+    }
+  }
+  if (cap > 0) dst[out] = 0;
+  return out;
+}`;
+
+const C_STRING_SUPPORT = `static inline int32_t tera_text_size(const ${C_CHAR} *value) {
+  int32_t at = 0;
+  while (value[at] != 0) at++;
+  return at;
+}
+
+${C_TEXT_STREAM_SUPPORT}
+
+static inline ${C_CHAR} *tera_text_copy(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, int32_t from, int32_t count) {
   int32_t at = 0;
   if (cap <= 0) return dst;
   while (at < count && at + 1 < cap) {
     dst[at] = src[from + at];
     at++;
   }
-  dst[at] = '\\0';
+  dst[at] = 0;
   return dst;
 }
 
-static inline int32_t tera_text_match(const char *value, int32_t at, const char *needle) {
+static inline int32_t tera_text_compare(const ${C_CHAR} *left, const ${C_CHAR} *right) {
+  int32_t at = 0;
+  while (left[at] != 0 && left[at] == right[at]) at++;
+  return (int32_t)left[at] - (int32_t)right[at];
+}
+
+static inline int32_t tera_text_match(const ${C_CHAR} *value, int32_t at, const ${C_CHAR} *needle) {
   int32_t index = 0;
-  while (needle[index] != '\\0') {
+  while (needle[index] != 0) {
     if (value[at + index] != needle[index]) return 0;
     index++;
   }
   return 1;
 }
 
-static inline int32_t tera_text_find(const char *value, const char *needle, int32_t from) {
+static inline int32_t tera_text_find(const ${C_CHAR} *value, const ${C_CHAR} *needle, int32_t from) {
   int32_t size = tera_text_size(value);
   int32_t width = tera_text_size(needle);
   for (int32_t start = from; start + width <= size; start++) {
@@ -627,7 +740,7 @@ static inline int32_t tera_text_find(const char *value, const char *needle, int3
   return -1;
 }
 
-static inline int32_t tera_text_blank(char value) {
+static inline int32_t tera_text_blank(${C_CHAR} value) {
   return value == ' ' || value == '\\t' || value == '\\n' || value == '\\r' || value == '\\v' || value == '\\f';
 }
 
@@ -639,20 +752,20 @@ static inline int32_t tera_text_bound(int32_t index, int32_t size) {
   return index > size ? size : index;
 }
 
-static inline char *tera_string_case(char *dst, int32_t cap, const char *src, int32_t upper) {
+static inline ${C_CHAR} *tera_string_case(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, int32_t upper) {
   int32_t at = 0;
   if (cap <= 0) return dst;
-  while (src[at] != '\\0' && at + 1 < cap) {
-    char value = src[at];
-    if (upper) dst[at] = (value >= 'a' && value <= 'z') ? (char)(value - 32) : value;
-    else dst[at] = (value >= 'A' && value <= 'Z') ? (char)(value + 32) : value;
+  while (src[at] != 0 && at + 1 < cap) {
+    ${C_CHAR} value = src[at];
+    if (upper) dst[at] = (value >= 'a' && value <= 'z') ? (${C_CHAR})(value - 32) : value;
+    else dst[at] = (value >= 'A' && value <= 'Z') ? (${C_CHAR})(value + 32) : value;
     at++;
   }
-  dst[at] = '\\0';
+  dst[at] = 0;
   return dst;
 }
 
-static inline char *tera_string_trim_range(char *dst, int32_t cap, const char *src, int32_t lead, int32_t trail) {
+static inline ${C_CHAR} *tera_string_trim_range(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, int32_t lead, int32_t trail) {
   int32_t start = 0;
   int32_t end = tera_text_size(src);
   if (lead) while (start < end && tera_text_blank(src[start])) start++;
@@ -660,28 +773,15 @@ static inline char *tera_string_trim_range(char *dst, int32_t cap, const char *s
   return tera_text_copy(dst, cap, src, start, end - start);
 }
 
-static inline double tera_text_number(const char *text, int32_t integral) {
-  const char *at = text;
-  char *stop = 0;
-  double value;
-  while (tera_text_blank(*at)) at++;
-  if (!integral) {
-    value = strtod(at, &stop);
-    return stop == at ? (0.0 / 0.0) : value;
-  }
-  value = (double)strtol(at, &stop, 10);
-  return stop == at ? (0.0 / 0.0) : value;
-}
-
-static inline int32_t tera_text_put(char *dst, int32_t cap, int32_t at, const char *text) {
-  for (int32_t k = 0; text[k] != '\\0'; k++) {
+static inline int32_t tera_text_put(${C_CHAR} *dst, int32_t cap, int32_t at, const ${C_CHAR} *text) {
+  for (int32_t k = 0; text[k] != 0; k++) {
     if (at + 1 >= cap) tera_text_overflow();
     dst[at++] = text[k];
   }
   return at;
 }
 
-static inline int32_t tera_text_fill(char *dst, int32_t cap, int32_t at, const char *pad, int32_t count) {
+static inline int32_t tera_text_fill(${C_CHAR} *dst, int32_t cap, int32_t at, const ${C_CHAR} *pad, int32_t count) {
   int32_t width = tera_text_size(pad);
   if (width == 0) return at;
   for (int32_t k = 0; k < count; k++) {
@@ -691,7 +791,7 @@ static inline int32_t tera_text_fill(char *dst, int32_t cap, int32_t at, const c
   return at;
 }
 
-static inline char *tera_text_pad(char *dst, int32_t cap, const char *src, int32_t width, const char *pad, int32_t leading) {
+static inline ${C_CHAR} *tera_text_pad(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, int32_t width, const ${C_CHAR} *pad, int32_t leading) {
   int32_t size = tera_text_size(src);
   int32_t missing = width > size ? width - size : 0;
   int32_t at = 0;
@@ -699,11 +799,11 @@ static inline char *tera_text_pad(char *dst, int32_t cap, const char *src, int32
   if (leading) at = tera_text_fill(dst, cap, at, pad, missing);
   at = tera_text_put(dst, cap, at, src);
   if (!leading) at = tera_text_fill(dst, cap, at, pad, missing);
-  dst[at] = '\\0';
+  dst[at] = 0;
   return dst;
 }
 
-static inline char *tera_string_replace_gaps(char *dst, int32_t cap, const char *src, const char *fresh, int32_t all) {
+static inline ${C_CHAR} *tera_string_replace_gaps(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, const ${C_CHAR} *fresh, int32_t all) {
   int32_t size = tera_text_size(src);
   int32_t at = all ? 0 : tera_text_put(dst, cap, 0, fresh);
   for (int32_t index = 0; index < size; index++) {
@@ -711,11 +811,11 @@ static inline char *tera_string_replace_gaps(char *dst, int32_t cap, const char 
     if (at + 1 >= cap) tera_text_overflow();
     dst[at++] = src[index];
   }
-  dst[at] = '\\0';
+  dst[at] = 0;
   return dst;
 }
 
-static inline char *tera_string_replace_range(char *dst, int32_t cap, const char *src, const char *old, const char *fresh, int32_t all) {
+static inline ${C_CHAR} *tera_string_replace_range(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, const ${C_CHAR} *old, const ${C_CHAR} *fresh, int32_t all) {
   int32_t at = 0;
   int32_t index = 0;
   int32_t size = tera_text_size(src);
@@ -734,7 +834,7 @@ static inline char *tera_string_replace_range(char *dst, int32_t cap, const char
     dst[at++] = src[index];
     index++;
   }
-  dst[at] = '\\0';
+  dst[at] = 0;
   return dst;
 }`;
 
@@ -838,28 +938,10 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     },
   ],
   [
-    PARSE_INT_BUILTIN,
-    {
-      helper: "tera_parse_int",
-      definition: `static inline double tera_parse_int(const char *text) {
-  return tera_text_number(text, 1);
-}`,
-    },
-  ],
-  [
-    PARSE_FLOAT_BUILTIN,
-    {
-      helper: "tera_parse_float",
-      definition: `static inline double tera_parse_float(const char *text) {
-  return tera_text_number(text, 0);
-}`,
-    },
-  ],
-  [
     qualifiedMethodName("string", "to_upper_case"),
     {
       helper: "tera_string_upper",
-      definition: `static inline char *tera_string_upper(char *dst, int32_t cap, const char *src) {
+      definition: `static inline ${C_CHAR} *tera_string_upper(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src) {
   return tera_string_case(dst, cap, src, 1);
 }`,
     },
@@ -868,7 +950,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "to_lower_case"),
     {
       helper: "tera_string_lower",
-      definition: `static inline char *tera_string_lower(char *dst, int32_t cap, const char *src) {
+      definition: `static inline ${C_CHAR} *tera_string_lower(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src) {
   return tera_string_case(dst, cap, src, 0);
 }`,
     },
@@ -877,7 +959,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "trim"),
     {
       helper: "tera_string_trim",
-      definition: `static inline char *tera_string_trim(char *dst, int32_t cap, const char *src) {
+      definition: `static inline ${C_CHAR} *tera_string_trim(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src) {
   return tera_string_trim_range(dst, cap, src, 1, 1);
 }`,
     },
@@ -886,7 +968,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "trim_start"),
     {
       helper: "tera_string_trim_start",
-      definition: `static inline char *tera_string_trim_start(char *dst, int32_t cap, const char *src) {
+      definition: `static inline ${C_CHAR} *tera_string_trim_start(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src) {
   return tera_string_trim_range(dst, cap, src, 1, 0);
 }`,
     },
@@ -895,7 +977,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "trim_end"),
     {
       helper: "tera_string_trim_end",
-      definition: `static inline char *tera_string_trim_end(char *dst, int32_t cap, const char *src) {
+      definition: `static inline ${C_CHAR} *tera_string_trim_end(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src) {
   return tera_string_trim_range(dst, cap, src, 0, 1);
 }`,
     },
@@ -904,7 +986,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "slice"),
     {
       helper: "tera_string_slice",
-      definition: `static inline char *tera_string_slice(char *dst, int32_t cap, const char *src, int32_t start, int32_t end) {
+      definition: `static inline ${C_CHAR} *tera_string_slice(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, int32_t start, int32_t end) {
   int32_t size = tera_text_size(src);
   int32_t from = tera_text_bound(start, size);
   int32_t to = tera_text_bound(end, size);
@@ -916,7 +998,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "pad_start"),
     {
       helper: "tera_string_pad_start",
-      definition: `static inline char *tera_string_pad_start(char *dst, int32_t cap, const char *src, int32_t width, const char *pad) {
+      definition: `static inline ${C_CHAR} *tera_string_pad_start(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, int32_t width, const ${C_CHAR} *pad) {
   return tera_text_pad(dst, cap, src, width, pad, 1);
 }`,
     },
@@ -925,7 +1007,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "pad_end"),
     {
       helper: "tera_string_pad_end",
-      definition: `static inline char *tera_string_pad_end(char *dst, int32_t cap, const char *src, int32_t width, const char *pad) {
+      definition: `static inline ${C_CHAR} *tera_string_pad_end(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, int32_t width, const ${C_CHAR} *pad) {
   return tera_text_pad(dst, cap, src, width, pad, 0);
 }`,
     },
@@ -934,7 +1016,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "repeat"),
     {
       helper: "tera_string_repeat",
-      definition: `static inline char *tera_string_repeat(char *dst, int32_t cap, const char *src, int32_t times) {
+      definition: `static inline ${C_CHAR} *tera_string_repeat(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, int32_t times) {
   int32_t at = 0;
   int32_t size = tera_text_size(src);
   if (cap <= 0) return dst;
@@ -953,7 +1035,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "replace"),
     {
       helper: "tera_string_replace",
-      definition: `static inline char *tera_string_replace(char *dst, int32_t cap, const char *src, const char *old, const char *fresh) {
+      definition: `static inline ${C_CHAR} *tera_string_replace(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, const ${C_CHAR} *old, const ${C_CHAR} *fresh) {
   return tera_string_replace_range(dst, cap, src, old, fresh, 0);
 }`,
     },
@@ -962,7 +1044,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "replace_all"),
     {
       helper: "tera_string_replace_all",
-      definition: `static inline char *tera_string_replace_all(char *dst, int32_t cap, const char *src, const char *old, const char *fresh) {
+      definition: `static inline ${C_CHAR} *tera_string_replace_all(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, const ${C_CHAR} *old, const ${C_CHAR} *fresh) {
   return tera_string_replace_range(dst, cap, src, old, fresh, 1);
 }`,
     },
@@ -971,7 +1053,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "index_of"),
     {
       helper: "tera_string_index_of",
-      definition: `static inline int32_t tera_string_index_of(const char *value, const char *needle) {
+      definition: `static inline int32_t tera_string_index_of(const ${C_CHAR} *value, const ${C_CHAR} *needle) {
   return tera_text_find(value, needle, 0);
 }`,
     },
@@ -980,7 +1062,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "includes"),
     {
       helper: "tera_string_includes",
-      definition: `static inline int32_t tera_string_includes(const char *value, const char *needle) {
+      definition: `static inline int32_t tera_string_includes(const ${C_CHAR} *value, const ${C_CHAR} *needle) {
   return tera_text_find(value, needle, 0) >= 0;
 }`,
     },
@@ -989,7 +1071,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "starts_with"),
     {
       helper: "tera_string_starts_with",
-      definition: `static inline int32_t tera_string_starts_with(const char *value, const char *prefix) {
+      definition: `static inline int32_t tera_string_starts_with(const ${C_CHAR} *value, const ${C_CHAR} *prefix) {
   return tera_text_size(prefix) <= tera_text_size(value) && tera_text_match(value, 0, prefix);
 }`,
     },
@@ -998,7 +1080,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "ends_with"),
     {
       helper: "tera_string_ends_with",
-      definition: `static inline int32_t tera_string_ends_with(const char *value, const char *suffix) {
+      definition: `static inline int32_t tera_string_ends_with(const ${C_CHAR} *value, const ${C_CHAR} *suffix) {
   int32_t size = tera_text_size(value);
   int32_t width = tera_text_size(suffix);
   return width <= size && tera_text_match(value, size - width, suffix);
@@ -1009,8 +1091,8 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "char_code_at"),
     {
       helper: "tera_string_char_code_at",
-      definition: `static inline int32_t tera_string_char_code_at(const char *value, int32_t index) {
-  return index < 0 ? 0 : (int32_t)(unsigned char)value[index];
+      definition: `static inline int32_t tera_string_char_code_at(const ${C_CHAR} *value, int32_t index) {
+  return index < 0 ? 0 : (int32_t)value[index];
 }`,
     },
   ],
@@ -1018,8 +1100,8 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     qualifiedMethodName("string", "length"),
     {
       helper: "tera_string_length",
-      definition: `static inline int32_t tera_string_length(const char *value) {
-  return (int32_t)strlen(value);
+      definition: `static inline int32_t tera_string_length(const ${C_CHAR} *value) {
+  return tera_text_size(value);
 }`,
     },
   ],
@@ -1027,7 +1109,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     AOT_CHAR_AT,
     {
       helper: "tera_string_char_at",
-      definition: `static inline char *tera_string_char_at(char *dst, int32_t cap, const char *src, int32_t index) {
+      definition: `static inline ${C_CHAR} *tera_string_char_at(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *src, int32_t index) {
   if (cap <= 0) return dst;
   if (cap < 2 || index < 0) {
     dst[0] = '\\0';
@@ -1053,7 +1135,7 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     AOT_INT_TO_STRING,
     {
       helper: "tera_i32_to_str",
-      definition: `static inline char *tera_i32_to_str(char *dst, int32_t cap, int32_t value) {
+      definition: `static inline ${C_CHAR} *tera_i32_to_str(${C_CHAR} *dst, int32_t cap, int32_t value) {
   if (cap <= 0) return dst;
   if (cap < ${INT32_DECIMAL_BYTES}) {
     dst[0] = '\\0';
@@ -1064,12 +1146,12 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
   if (value < 0) dst[at++] = '-';
   size_t start = at;
   do {
-    dst[at++] = (char)('0' + (magnitude % 10u));
+    dst[at++] = (${C_CHAR})('0' + (magnitude % 10u));
     magnitude /= 10u;
   } while (magnitude != 0u);
   dst[at] = '\\0';
   for (size_t last = at - 1; start < last; start++, last--) {
-    char swap = dst[start];
+    ${C_CHAR} swap = dst[start];
     dst[start] = dst[last];
     dst[last] = swap;
   }
@@ -1081,8 +1163,10 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     THROW_BUILTIN,
     {
       helper: "tera_throw",
-      definition: `static inline void tera_throw(const char *message) {
-  fprintf(stderr, "%s%s\\n", ${cStringLiteral(TERA_UNCAUGHT_PREFIX)}, message);
+      definition: `static inline void tera_throw(const ${C_CHAR} *message) {
+  fputs(${cStringLiteral(TERA_UNCAUGHT_PREFIX)}, stderr);
+  tera_put_utf8_to(message, stderr);
+  fputc(10, stderr);
   exit(${TERA_EXIT_UNCAUGHT_THROW});
 }`,
     },
@@ -1124,16 +1208,18 @@ const C_BUILTIN_METHODS = new Map<string, CBuiltinMethod>([
     INPUT_BUILTIN,
     {
       helper: "tera_input",
-      definition: `static inline char *tera_input(char *dst, int32_t cap, const char *prompt) {
+      definition: `static inline ${C_CHAR} *tera_input(${C_CHAR} *dst, int32_t cap, const ${C_CHAR} *prompt) {
   if (cap <= 0) return dst;
-  fputs(prompt, stdout);
+  ${C_TEXT_WRITER}(prompt);
   fflush(stdout);
-  if (fgets(dst, cap, stdin) == NULL) {
-    dst[0] = '\\0';
+  unsigned char line[${TEXT_STREAM_BYTES}];
+  if (fgets((char *)line, ${TEXT_STREAM_BYTES}, stdin) == NULL) {
+    dst[0] = 0;
     return dst;
   }
-  size_t used = strlen(dst);
-  while (used > 0 && (dst[used - 1] == '\\n' || dst[used - 1] == '\\r')) dst[--used] = '\\0';
+  int32_t used = (int32_t)strlen((char *)line);
+  while (used > 0 && (line[used - 1] == ${LINE_FEED} || line[used - 1] == ${CARRIAGE_RETURN})) used--;
+  tera_take_utf8(line, used, dst, cap);
   return dst;
 }`,
     },
@@ -1732,6 +1818,10 @@ function cStringLiteral(value: string): string {
   return byteEscapedLiteral(value);
 }
 
+function cTextLiteral(value: string): string {
+  return `(const ${C_CHAR}[])${codeUnitArrayLiteral(value)}`;
+}
+
 interface CBuiltinMethod {
   readonly helper: string;
   readonly definition: string;
@@ -1882,7 +1972,9 @@ class CFunctionEmitter {
     for (const buffer of this.legality.stringBuffers) {
       const name = `${C_STRING_BUFFER_PREFIX}${sequence++}`;
       this.bufferNames.set(buffer, name);
-      this.constantDeclarations.push(`static char ${name}[${buffer.capacity}];`);
+      this.constantDeclarations.push(
+        `static ${C_CHAR} ${name}[${codeUnitCapacity(buffer.capacity)}];`,
+      );
     }
   }
 
@@ -1904,7 +1996,7 @@ class CFunctionEmitter {
   }
 
   private bufferCapacityOf(node: CFGInstruction): number {
-    return this.bufferOf(node).capacity;
+    return codeUnitCapacity(this.bufferOf(node).capacity);
   }
 
   private emitStringConcat(ctx: EmitContext): void {
@@ -1924,7 +2016,7 @@ class CFunctionEmitter {
       const name = this.nameOf(constant);
       if (typeof value === "string") {
         this.constantDeclarations.push(
-          `${declarationOf(C_STRING, name)} = ${cStringLiteral(value)};`,
+          `static const ${C_CHAR} ${name}[] = ${codeUnitArrayLiteral(value)};`,
         );
         continue;
       }
@@ -1938,12 +2030,11 @@ class CFunctionEmitter {
       }
       const absence = absenceValueOf(value);
       if (absence !== null) {
-        const absent =
-          this.legality.scalarOf(constant) === SCALAR_FLOAT64
-            ? cAbsentNumber(absence)
-            : "0";
+        const scalar = this.legality.scalarOf(constant);
+        const holds = scalar === SCALAR_FLOAT64;
+        const type = isReferenceScalar(scalar) ? C_ANY_POINTER : this.typeNameOf(constant);
         this.constantDeclarations.push(
-          `${declarationOf(this.typeNameOf(constant), name)} = ${absent};`,
+          `${declarationOf(type, name)} = ${holds ? cAbsentNumber(absence) : "0"};`,
         );
         continue;
       }
@@ -2188,7 +2279,7 @@ class CFunctionEmitter {
   }
 
   private textAddress(node: CFGInstruction): string {
-    return `(char *)(${this.nameOf(node.inputs[0]!)} + ${fieldOffsetOf(node)})`;
+    return `(${C_CHAR} *)(${this.nameOf(node.inputs[0]!)} + ${fieldOffsetOf(node)})`;
   }
 
   private emitLoadText(ctx: EmitContext): void {
@@ -2198,14 +2289,14 @@ class CFunctionEmitter {
   private emitStoreText(ctx: EmitContext): void {
     const value = this.nameOf(ctx.node.inputs[1]!);
     ctx.emit(
-      `${C_STRING_SET}(${this.textAddress(ctx.node)}, ${textCapacityOf(ctx.node)}, ${value});`,
+      `${C_STRING_SET}(${this.textAddress(ctx.node)}, ${codeUnitCapacity(textCapacityOf(ctx.node))}, ${value});`,
     );
   }
 
   private asScalar(value: CFGInstruction, scalar: AotScalar): string {
     if (scalar === SCALAR_INT32) return this.asInt32(value);
     if (scalar === SCALAR_FLOAT64) return this.asDouble(value);
-    return this.nameOf(value);
+    return this.asReference(value, scalar);
   }
 
   private elementAccess(node: CFGInstruction, scalar: AotScalar | null): string {
@@ -2219,7 +2310,7 @@ class CFunctionEmitter {
     const array = this.nameOf(node.inputs[0]!);
     const index = this.asInt32(node.inputs[1]!);
     const stride = scalarWidth(SCALAR_TEXT);
-    return `(char *)(${array} + ${fieldOffsetOf(node)} + (size_t)(${index}) * ${stride})`;
+    return `(${C_CHAR} *)(${array} + ${fieldOffsetOf(node)} + (size_t)(${index}) * ${stride})`;
   }
 
   private emitLoadElement(ctx: EmitContext): void {
@@ -2237,7 +2328,7 @@ class CFunctionEmitter {
     if (scalar === SCALAR_TEXT) {
       const address = this.elementTextAddress(ctx.node);
       ctx.emit(
-        `${C_STRING_SET}(${address}, ${scalarWidth(SCALAR_TEXT)}, ${this.nameOf(value)});`,
+        `${C_STRING_SET}(${address}, ${codeUnitCapacity(scalarWidth(SCALAR_TEXT))}, ${this.nameOf(value)});`,
       );
       return;
     }
@@ -2302,7 +2393,7 @@ class CFunctionEmitter {
       );
       return;
     }
-    this.define(ctx, `strcmp(${left}, ${right}) ${operator} 0`);
+    this.define(ctx, `tera_text_compare(${left}, ${right}) ${operator} 0`);
   }
 
   private emitReturn(ctx: EmitContext): void {
@@ -2320,9 +2411,14 @@ class CFunctionEmitter {
 
   private returnedValue(value: CFGInstruction): string {
     const scalar = this.legality.returnScalar;
-    if (scalar === SCALAR_INT32) return this.asInt32(value);
-    if (scalar === SCALAR_FLOAT64) return this.asDouble(value);
-    return this.nameOf(value);
+    return this.asScalar(value, scalar);
+  }
+
+  private asReference(value: CFGInstruction, scalar: AotScalar): string {
+    const name = this.nameOf(value);
+    const held = this.legality.scalarOf(value);
+    if (held === scalar || !isReferenceScalar(scalar) || !isReferenceScalar(held)) return name;
+    return `(${cTypeOf(scalar)})${name}`;
   }
 
   private emitJump(ctx: EmitContext): void {

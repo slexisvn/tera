@@ -5,6 +5,7 @@ import {
   type ASTNode,
 } from "../../frontend/ast/index.js";
 import { BUILTIN_NAMESPACE } from "../metadata/builtin-methods.js";
+import { float, POWER_STEPS } from "./spelling.js";
 
 interface Transcendental {
   readonly member: string;
@@ -17,8 +18,6 @@ interface Helper {
   readonly name: string;
   readonly source: () => readonly string[];
 }
-
-const POWER_STEPS: readonly number[] = [512, 256, 128, 64, 32, 16, 8, 4, 2, 1];
 
 const MANTISSA_WORD_BITS = 20;
 const MANTISSA_WORD_SCALE = 2 ** MANTISSA_WORD_BITS;
@@ -38,11 +37,6 @@ function wordDouble(word: number): number {
   bits.setUint32(0, word >>> 0);
   bits.setUint32(4, 0);
   return bits.getFloat64(0);
-}
-
-function float(value: number): string {
-  const spelled = String(value).replace("e+", "e");
-  return spelled.includes(".") || spelled.includes("e") ? spelled : `${spelled}.0`;
 }
 
 function negated(value: number): string {

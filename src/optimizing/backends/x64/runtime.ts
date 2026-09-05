@@ -1,4 +1,5 @@
 import type { NativeRuntimeRoutine } from "../../target/artifact.js";
+import { TEXT_UNIT_BYTES, TEXT_UNIT_SHIFT } from "../../types/scalar.js";
 import type { RuntimeAbi } from "../../target/abi.js";
 import type { RegisterFile } from "../../target/registers.js";
 import {
@@ -218,12 +219,12 @@ function charCodeAt(abi: RuntimeAbi) {
       .to("js", "zero")
       .emit("movslq", builder.write("rax", 8), builder.read("rax", 4))
       .emit(
-        "movzbl",
+        "movzwl",
         builder.write("rax", 4),
-        mem(1, {
+        mem(TEXT_UNIT_BYTES, {
           base: builder.read(text!, 8),
           index: builder.read("rax", 8),
-          scale: 1,
+          scale: TEXT_UNIT_BYTES,
         }),
       )
       .ret()
@@ -249,9 +250,9 @@ function copy(abi: RuntimeAbi, append: boolean) {
         .at("seek")
         .emit("testl", builder.read("r11", 4), builder.read("r11", 4))
         .to("jle", "overflow")
-        .emit("cmpb", mem(1, { base: builder.read("r9", 8) }), imm(0))
+        .emit("cmpw", mem(TEXT_UNIT_BYTES, { base: builder.read("r9", 8) }), imm(0))
         .to("je", "copy")
-        .emit("incq", builder.write("r9", 8))
+        .emit("addq", builder.write("r9", 8), imm(TEXT_UNIT_BYTES))
         .emit("decl", builder.write("r11", 4))
         .to("jmp", "seek");
     }
@@ -259,22 +260,22 @@ function copy(abi: RuntimeAbi, append: boolean) {
       .at("copy")
       .emit("testl", builder.read("r11", 4), builder.read("r11", 4))
       .to("jle", "overflow")
-      .emit("movzbl", builder.write("rcx", 4), mem(1, { base: builder.read("rax", 8) }))
-      .emit("testb", builder.read("rcx", 1), builder.read("rcx", 1))
+      .emit("movzwl", builder.write("rcx", 4), mem(TEXT_UNIT_BYTES, { base: builder.read("rax", 8) }))
+      .emit("testw", builder.read("rcx", 2), builder.read("rcx", 2))
       .to("je", "terminate")
-      .emit("movb", mem(1, { base: builder.read("r9", 8) }), builder.read("rcx", 1))
-      .emit("incq", builder.write("r9", 8))
-      .emit("incq", builder.write("rax", 8))
+      .emit("movw", mem(TEXT_UNIT_BYTES, { base: builder.read("r9", 8) }), builder.read("rcx", 2))
+      .emit("addq", builder.write("r9", 8), imm(TEXT_UNIT_BYTES))
+      .emit("addq", builder.write("rax", 8), imm(TEXT_UNIT_BYTES))
       .emit("decl", builder.write("r11", 4))
       .to("jmp", "copy")
       .at("overflow")
-      .emit("movzbl", builder.write("rcx", 4), mem(1, { base: builder.read("rax", 8) }))
-      .emit("testb", builder.read("rcx", 1), builder.read("rcx", 1))
+      .emit("movzwl", builder.write("rcx", 4), mem(TEXT_UNIT_BYTES, { base: builder.read("rax", 8) }))
+      .emit("testw", builder.read("rcx", 2), builder.read("rcx", 2))
       .to("je", "terminate");
     reportTextOverflow(builder, abi);
     builder
       .at("terminate")
-      .emit("movb", mem(1, { base: builder.read("r9", 8) }), imm(0))
+      .emit("movw", mem(TEXT_UNIT_BYTES, { base: builder.read("r9", 8) }), imm(0))
       .at("done")
       .emit("movq", builder.write("rax", 8), builder.read("r10", 8))
       .ret();
@@ -297,26 +298,29 @@ function charAt(abi: RuntimeAbi) {
       .at("walk")
       .emit("testq", builder.read("rcx", 8), builder.read("rcx", 8))
       .to("je", "at")
-      .emit("cmpb", mem(1, { base: builder.read("rax", 8) }), imm(0))
+      .emit("cmpw", mem(TEXT_UNIT_BYTES, { base: builder.read("rax", 8) }), imm(0))
       .to("je", "empty")
-      .emit("incq", builder.write("rax", 8))
+      .emit("addq", builder.write("rax", 8), imm(TEXT_UNIT_BYTES))
       .emit("decq", builder.write("rcx", 8))
       .to("jmp", "walk")
       .at("at")
-      .emit("movzbl", builder.write("rcx", 4), mem(1, { base: builder.read("rax", 8) }))
-      .emit("testb", builder.read("rcx", 1), builder.read("rcx", 1))
+      .emit("movzwl", builder.write("rcx", 4), mem(TEXT_UNIT_BYTES, { base: builder.read("rax", 8) }))
+      .emit("testw", builder.read("rcx", 2), builder.read("rcx", 2))
       .to("je", "empty")
-      .emit("movb", mem(1, { base: builder.read("r10", 8) }), builder.read("rcx", 1))
+      .emit("movw", mem(TEXT_UNIT_BYTES, { base: builder.read("r10", 8) }), builder.read("rcx", 2))
       .emit(
-        "movb",
-        mem(1, { base: builder.read("r10", 8), displacement: 1 }),
+        "movw",
+        mem(TEXT_UNIT_BYTES, {
+          base: builder.read("r10", 8),
+          displacement: TEXT_UNIT_BYTES,
+        }),
         imm(0),
       )
       .to("jmp", "done")
       .at("empty")
       .emit("testl", builder.read("r11", 4), builder.read("r11", 4))
       .to("jle", "done")
-      .emit("movb", mem(1, { base: builder.read("r10", 8) }), imm(0))
+      .emit("movw", mem(TEXT_UNIT_BYTES, { base: builder.read("r10", 8) }), imm(0))
       .at("done")
       .emit("movq", builder.write("rax", 8), builder.read("r10", 8))
       .ret();
@@ -335,8 +339,8 @@ function int32ToString(abi: RuntimeAbi) {
       .emit("movq", builder.write("r9", 8), builder.read("r10", 8))
       .emit("testl", builder.read("rax", 4), builder.read("rax", 4))
       .to("jns", "magnitude")
-      .emit("movb", mem(1, { base: builder.read("r9", 8) }), imm(MINUS_SIGN))
-      .emit("incq", builder.write("r9", 8))
+      .emit("movw", mem(TEXT_UNIT_BYTES, { base: builder.read("r9", 8) }), imm(MINUS_SIGN))
+      .emit("addq", builder.write("r9", 8), imm(TEXT_UNIT_BYTES))
       .emit("movslq", builder.write("rax", 8), builder.read("rax", 4))
       .emit("negq", builder.write("rax", 8))
       .to("jmp", "digits")
@@ -349,30 +353,30 @@ function int32ToString(abi: RuntimeAbi) {
       .emit("xorl", builder.write("rdx", 4), builder.read("rdx", 4))
       .emit("divq", builder.read("rcx", 8))
       .emit("addl", builder.write("rdx", 4), imm(DIGIT_ZERO))
-      .emit("movb", mem(1, { base: builder.read("r9", 8) }), builder.read("rdx", 1))
-      .emit("incq", builder.write("r9", 8))
+      .emit("movw", mem(TEXT_UNIT_BYTES, { base: builder.read("r9", 8) }), builder.read("rdx", 2))
+      .emit("addq", builder.write("r9", 8), imm(TEXT_UNIT_BYTES))
       .emit("testq", builder.read("rax", 8), builder.read("rax", 8))
       .to("jne", "divide")
-      .emit("movb", mem(1, { base: builder.read("r9", 8) }), imm(0))
+      .emit("movw", mem(TEXT_UNIT_BYTES, { base: builder.read("r9", 8) }), imm(0))
       .emit(
         "leaq",
         builder.write("rcx", 8),
-        mem(8, { base: builder.read("r9", 8), displacement: -1 }),
+        mem(8, { base: builder.read("r9", 8), displacement: -TEXT_UNIT_BYTES }),
       )
       .at("reverse")
       .emit("cmpq", builder.read("rcx", 8), builder.read("r8", 8))
       .to("jbe", "done")
-      .emit("movzbl", builder.write("rax", 4), mem(1, { base: builder.read("r8", 8) }))
-      .emit("movzbl", builder.write("rdx", 4), mem(1, { base: builder.read("rcx", 8) }))
-      .emit("movb", mem(1, { base: builder.read("r8", 8) }), builder.read("rdx", 1))
-      .emit("movb", mem(1, { base: builder.read("rcx", 8) }), builder.read("rax", 1))
-      .emit("incq", builder.write("r8", 8))
-      .emit("decq", builder.write("rcx", 8))
+      .emit("movzwl", builder.write("rax", 4), mem(TEXT_UNIT_BYTES, { base: builder.read("r8", 8) }))
+      .emit("movzwl", builder.write("rdx", 4), mem(TEXT_UNIT_BYTES, { base: builder.read("rcx", 8) }))
+      .emit("movw", mem(TEXT_UNIT_BYTES, { base: builder.read("r8", 8) }), builder.read("rdx", 2))
+      .emit("movw", mem(TEXT_UNIT_BYTES, { base: builder.read("rcx", 8) }), builder.read("rax", 2))
+      .emit("addq", builder.write("r8", 8), imm(TEXT_UNIT_BYTES))
+      .emit("subq", builder.write("rcx", 8), imm(TEXT_UNIT_BYTES))
       .to("jmp", "reverse")
       .at("empty")
       .emit("testl", builder.read("r11", 4), builder.read("r11", 4))
       .to("jle", "done")
-      .emit("movb", mem(1, { base: builder.read("r10", 8) }), imm(0))
+      .emit("movw", mem(TEXT_UNIT_BYTES, { base: builder.read("r10", 8) }), imm(0))
       .at("done")
       .emit("movq", builder.write("rax", 8), builder.read("r10", 8))
       .ret();
@@ -386,14 +390,14 @@ function stringCompare(abi: RuntimeAbi) {
       .emit("movq", builder.write("r10", 8), builder.read(left!, 8))
       .emit("movq", builder.write("r11", 8), builder.read(right!, 8))
       .at("scan")
-      .emit("movzbl", builder.write("rax", 4), mem(1, { base: builder.read("r10", 8) }))
-      .emit("movzbl", builder.write("rcx", 4), mem(1, { base: builder.read("r11", 8) }))
+      .emit("movzwl", builder.write("rax", 4), mem(TEXT_UNIT_BYTES, { base: builder.read("r10", 8) }))
+      .emit("movzwl", builder.write("rcx", 4), mem(TEXT_UNIT_BYTES, { base: builder.read("r11", 8) }))
       .emit("cmpl", builder.read("rax", 4), builder.read("rcx", 4))
       .to("jne", "differ")
       .emit("testl", builder.read("rax", 4), builder.read("rax", 4))
       .to("je", "same")
-      .emit("incq", builder.write("r10", 8))
-      .emit("incq", builder.write("r11", 8))
+      .emit("addq", builder.write("r10", 8), imm(TEXT_UNIT_BYTES))
+      .emit("addq", builder.write("r11", 8), imm(TEXT_UNIT_BYTES))
       .to("jmp", "scan")
       .at("differ")
       .emit("subl", builder.write("rax", 4), builder.read("rcx", 4))
@@ -410,12 +414,13 @@ function stringLength(abi: RuntimeAbi) {
     builder
       .emit("movq", builder.write("rax", 8), builder.read(text!, 8))
       .at("scan")
-      .emit("cmpb", mem(1, { base: builder.read("rax", 8) }), imm(0))
+      .emit("cmpw", mem(TEXT_UNIT_BYTES, { base: builder.read("rax", 8) }), imm(0))
       .to("je", "done")
-      .emit("incq", builder.write("rax", 8))
+      .emit("addq", builder.write("rax", 8), imm(TEXT_UNIT_BYTES))
       .to("jmp", "scan")
       .at("done")
       .emit("subq", builder.write("rax", 8), builder.read(text!, 8))
+      .emit("shrq", builder.write("rax", 8), imm(TEXT_UNIT_SHIFT))
       .ret();
   };
 }

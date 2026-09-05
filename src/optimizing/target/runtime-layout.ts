@@ -241,6 +241,7 @@ export const TERA_COLLECT_SYMBOL = "tera_collect";
 export const TERA_MINOR_SYMBOL = "tera_minor";
 export const TERA_BARRIER_SYMBOL = "tera_write_barrier";
 export const TERA_ENTER_ROOTS_SYMBOL = "tera_enter_roots";
+export const TERA_PROBE_STACK_SYMBOL = "tera_probe_stack";
 export const TERA_RESERVE_SYMBOL = "tera_reserve";
 export const TERA_GROW_SYMBOL = "tera_grow";
 

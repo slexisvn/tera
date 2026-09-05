@@ -117,11 +117,32 @@ const SSE_BINARY: readonly (readonly [string, number, number, OpcodeEffect])[] =
   ["andnpd", 0x66, 0x55, FLOAT_ARITHMETIC],
 ];
 
-const WIDTHS: readonly (readonly [string, boolean, boolean])[] = [
-  ["b", false, true],
-  ["l", false, false],
-  ["q", true, false],
+const OPERAND_SIZE_PREFIX = 0x66;
+
+interface Width {
+  readonly suffix: string;
+  readonly rexW: boolean;
+  readonly byteForm: boolean;
+  readonly immediateBytes: number;
+  readonly mandatory?: number;
+}
+
+const WIDTHS: readonly Width[] = [
+  { suffix: "b", rexW: false, byteForm: true, immediateBytes: 1 },
+  {
+    suffix: "w",
+    rexW: false,
+    byteForm: false,
+    immediateBytes: 2,
+    mandatory: OPERAND_SIZE_PREFIX,
+  },
+  { suffix: "l", rexW: false, byteForm: false, immediateBytes: 4 },
+  { suffix: "q", rexW: true, byteForm: false, immediateBytes: 4 },
 ];
+
+function sized(form: OpcodeForm, width: Width): OpcodeForm {
+  return width.mandatory === undefined ? form : { ...form, mandatory: width.mandatory };
+}
 
 function put(table: Map<string, OpcodeGroup>, name: string, group: OpcodeGroup): void {
   table.set(name, { ...table.get(name), ...group });
@@ -129,25 +150,28 @@ function put(table: Map<string, OpcodeGroup>, name: string, group: OpcodeGroup):
 
 function addArithmetic(table: Map<string, OpcodeGroup>): void {
   for (const [name, base, extension] of ARITHMETIC) {
-    for (const [suffix, rexW, byteForm] of WIDTHS) {
+    for (const width of WIDTHS) {
+      const { suffix, rexW, byteForm, immediateBytes } = width;
       put(table, `${name}${suffix}`, {
         effect: WRITES_FLAGS,
-        mr: { bytes: [base + (byteForm ? 0 : 1)], rexW },
-        rm: { bytes: [base + (byteForm ? 2 : 3)], rexW },
-        mi: {
-          bytes: [byteForm ? 0x80 : 0x81],
-          rexW,
-          extension,
-          immediateBytes: byteForm ? 1 : 4,
-        },
-        ai: {
-          bytes: [base + (byteForm ? 4 : 5)],
-          rexW,
-          immediateBytes: byteForm ? 1 : 4,
-        },
+        mr: sized({ bytes: [base + (byteForm ? 0 : 1)], rexW }, width),
+        rm: sized({ bytes: [base + (byteForm ? 2 : 3)], rexW }, width),
+        mi: sized(
+          { bytes: [byteForm ? 0x80 : 0x81], rexW, extension, immediateBytes },
+          width,
+        ),
+        ai: sized(
+          { bytes: [base + (byteForm ? 4 : 5)], rexW, immediateBytes },
+          width,
+        ),
         ...(byteForm
           ? {}
-          : { mi8: { bytes: [0x83], rexW, extension, immediateBytes: 1 } }),
+          : {
+              mi8: sized(
+                { bytes: [0x83], rexW, extension, immediateBytes: 1 },
+                width,
+              ),
+            }),
       });
     }
   }
@@ -155,17 +179,16 @@ function addArithmetic(table: Map<string, OpcodeGroup>): void {
 
 function addShifts(table: Map<string, OpcodeGroup>): void {
   for (const [name, extension] of SHIFTS) {
-    for (const [suffix, rexW, byteForm] of WIDTHS) {
+    for (const width of WIDTHS) {
+      const { suffix, rexW, byteForm } = width;
       put(table, `${name}${suffix}`, {
         effect: WRITES_FLAGS,
-        mi: {
-          bytes: [byteForm ? 0xc0 : 0xc1],
-          rexW,
-          extension,
-          immediateBytes: 1,
-        },
-        m1: { bytes: [byteForm ? 0xd0 : 0xd1], rexW, extension },
-        mc: { bytes: [byteForm ? 0xd2 : 0xd3], rexW, extension },
+        mi: sized(
+          { bytes: [byteForm ? 0xc0 : 0xc1], rexW, extension, immediateBytes: 1 },
+          width,
+        ),
+        m1: sized({ bytes: [byteForm ? 0xd0 : 0xd1], rexW, extension }, width),
+        mc: sized({ bytes: [byteForm ? 0xd2 : 0xd3], rexW, extension }, width),
       });
     }
   }
@@ -173,51 +196,48 @@ function addShifts(table: Map<string, OpcodeGroup>): void {
 
 function addUnary(table: Map<string, OpcodeGroup>): void {
   for (const [name, extension, effect] of UNARY) {
-    for (const [suffix, rexW, byteForm] of WIDTHS) {
-      put(table, `${name}${suffix}`, {
+    for (const width of WIDTHS) {
+      put(table, `${name}${width.suffix}`, {
         effect,
-        m: { bytes: [byteForm ? 0xf6 : 0xf7], rexW, extension },
+        m: sized(
+          { bytes: [width.byteForm ? 0xf6 : 0xf7], rexW: width.rexW, extension },
+          width,
+        ),
       });
     }
   }
-  for (const [suffix, rexW, byteForm] of WIDTHS) {
+  for (const width of WIDTHS) {
+    const { suffix, rexW, byteForm } = width;
     put(table, `inc${suffix}`, {
       effect: WRITES_FLAGS,
-      m: { bytes: [byteForm ? 0xfe : 0xff], rexW, extension: 0 },
+      m: sized({ bytes: [byteForm ? 0xfe : 0xff], rexW, extension: 0 }, width),
     });
     put(table, `dec${suffix}`, {
       effect: WRITES_FLAGS,
-      m: { bytes: [byteForm ? 0xfe : 0xff], rexW, extension: 1 },
+      m: sized({ bytes: [byteForm ? 0xfe : 0xff], rexW, extension: 1 }, width),
     });
   }
 }
 
 function addMoves(table: Map<string, OpcodeGroup>): void {
-  for (const [suffix, rexW, byteForm] of WIDTHS) {
+  for (const width of WIDTHS) {
+    const { suffix, rexW, byteForm, immediateBytes } = width;
     put(table, `mov${suffix}`, {
-      mr: { bytes: [byteForm ? 0x88 : 0x89], rexW },
-      rm: { bytes: [byteForm ? 0x8a : 0x8b], rexW },
-      mi: {
-        bytes: [byteForm ? 0xc6 : 0xc7],
-        rexW,
-        extension: 0,
-        immediateBytes: byteForm ? 1 : 4,
-      },
+      mr: sized({ bytes: [byteForm ? 0x88 : 0x89], rexW }, width),
+      rm: sized({ bytes: [byteForm ? 0x8a : 0x8b], rexW }, width),
+      mi: sized(
+        { bytes: [byteForm ? 0xc6 : 0xc7], rexW, extension: 0, immediateBytes },
+        width,
+      ),
     });
     put(table, `test${suffix}`, {
       effect: WRITES_FLAGS,
-      mr: { bytes: [byteForm ? 0x84 : 0x85], rexW },
-      mi: {
-        bytes: [byteForm ? 0xf6 : 0xf7],
-        rexW,
-        extension: 0,
-        immediateBytes: byteForm ? 1 : 4,
-      },
-      ai: {
-        bytes: [byteForm ? 0xa8 : 0xa9],
-        rexW,
-        immediateBytes: byteForm ? 1 : 4,
-      },
+      mr: sized({ bytes: [byteForm ? 0x84 : 0x85], rexW }, width),
+      mi: sized(
+        { bytes: [byteForm ? 0xf6 : 0xf7], rexW, extension: 0, immediateBytes },
+        width,
+      ),
+      ai: sized({ bytes: [byteForm ? 0xa8 : 0xa9], rexW, immediateBytes }, width),
     });
   }
   put(table, "movabsq", {

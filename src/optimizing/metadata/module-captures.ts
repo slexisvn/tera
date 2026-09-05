@@ -17,6 +17,7 @@ import { superClassBindingOwner } from "../../core/class-member.js";
 import type { ClassTable } from "./class-table.js";
 import type { ModuleIR } from "../compilation-unit.js";
 import { cellKey } from "../../runtime/intrinsics/global-cells.js";
+import { DECLARED_TYPE_PROP } from "../passes/global-promotion.js";
 
 const LOCAL_CAPTURE: ContextSlotSource = "local";
 const UPVALUE_CAPTURE: ContextSlotSource = "upvalue";
@@ -44,14 +45,20 @@ function creatorsIn(module: ModuleIR): Creators {
 
 type NameFilter = (name: string | null) => string | null;
 
-function scopedName(
+interface ModuleVariable {
+  readonly name: string;
+  readonly declaredType: string | null;
+}
+
+function scopedVariable(
   scope: RegisterCompiledFunction,
   slot: number,
   fallback: string | null,
   isVariable: NameFilter,
-): string | null {
+): ModuleVariable | null {
   const held = isVariable(scope.localNames[slot] ?? fallback);
-  return held === null ? null : cellKey(scope.moduleSpec, held);
+  if (held === null) return null;
+  return { name: cellKey(scope.moduleSpec, held), declaredType: scope.localTypes[slot] ?? null };
 }
 
 function moduleVariableOf(
@@ -60,7 +67,7 @@ function moduleVariableOf(
   creators: Creators,
   scopes: ReadonlySet<RegisterCompiledFunction>,
   isVariable: NameFilter,
-): string | null {
+): ModuleVariable | null {
   const upvalue = fn.upvalues[index];
   const creator = creators.get(fn);
   if (upvalue === undefined || creator === undefined || upvalue.outerSlot === undefined) {
@@ -70,7 +77,7 @@ function moduleVariableOf(
     return moduleVariableOf(creator, upvalue.outerSlot, creators, scopes, isVariable);
   }
   if (upvalue.outerType !== LOCAL_CAPTURE || !scopes.has(creator)) return null;
-  return scopedName(creator, upvalue.outerSlot, upvalue.name ?? null, isVariable);
+  return scopedVariable(creator, upvalue.outerSlot, upvalue.name ?? null, isVariable);
 }
 
 function isUndefinedConstant(value: CFGInstruction | undefined): boolean {
@@ -79,7 +86,7 @@ function isUndefinedConstant(value: CFGInstruction | undefined): boolean {
 
 function rewrite(
   graph: CFGFunction,
-  nameOf: (node: CFGInstruction) => string | null,
+  variableOf: (node: CFGInstruction) => ModuleVariable | null,
 ): number {
   const editor = new GraphEditor(graph);
   const stamp = nodeIdStamper(graph);
@@ -87,8 +94,8 @@ function rewrite(
   for (const block of graph.blocks) {
     for (const node of [...block.nodes]) {
       if (node.type !== IR_LOAD_CONTEXT_SLOT && node.type !== IR_STORE_CONTEXT_SLOT) continue;
-      const name = nameOf(node);
-      if (name === null) continue;
+      const variable = variableOf(node);
+      if (variable === null) continue;
       if (node.type === IR_STORE_CONTEXT_SLOT && isUndefinedConstant(node.inputs[0])) {
         editor.remove(node);
         rewritten += 1;
@@ -96,9 +103,12 @@ function rewrite(
       }
       const replacement = stamp(
         node.type === IR_LOAD_CONTEXT_SLOT
-          ? irLoadGlobal(name)
-          : irStoreGlobal(name, node.inputs[0]!),
+          ? irLoadGlobal(variable.name)
+          : irStoreGlobal(variable.name, node.inputs[0]!),
       );
+      if (variable.declaredType !== null) {
+        replacement.props[DECLARED_TYPE_PROP] = variable.declaredType;
+      }
       replacement.frameState = node.frameState;
       editor.insertBefore(node, replacement);
       editor.replaceAllUses(node, replacement);
@@ -171,7 +181,7 @@ export function lowerModuleCaptures(module: ModuleIR, entryName: string): number
     if (compiled === null || !scopes.has(compiled)) continue;
     const changed = rewrite(unit.graph, (node) =>
       sourceOf(node) === LOCAL_CAPTURE
-        ? scopedName(compiled, slotOf(node), null, isVariable)
+        ? scopedVariable(compiled, slotOf(node), null, isVariable)
         : null,
     );
     if (changed > 0) unit.analyses?.invalidateAll();

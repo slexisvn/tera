@@ -3,6 +3,12 @@ import { nodeEngine } from "../../../helpers/engine.js";
 import { createX64Backend } from "../../../../src/optimizing/backends/x64/backend.js";
 import type { AotProgram } from "../../../../src/optimizing/drivers/aot.js";
 import { hostBackendId } from "../../../../src/optimizing/backends/host.js";
+import { x64Target } from "../../../../src/optimizing/backends/x64/target.js";
+import {
+  C_CHAR,
+  C_NARROW_TEXT_UNIT,
+  C_WIDE_TEXT_UNIT,
+} from "../../../../src/optimizing/target/c-types.js";
 
 const HOST_TARGET = hostBackendId()!;
 const CONFIGURED_TARGET = "x64-configured";
@@ -144,6 +150,17 @@ describe("x64 assembly", () => {
 
     expect(header).toContain("#include <stdint.h>");
     expect(header).toContain("double add(int32_t p0, double p1);");
+  });
+
+  it("names the character type after the code unit it stores a character in", () => {
+    const header = fileOf(
+      programWith(src("fn add(a: int, b: float) -> float:", "  return a + b")),
+      ".h",
+    );
+
+    expect(x64Target().capabilities.has("utf16-text")).toBe(true);
+    expect(header).toContain(`typedef ${C_WIDE_TEXT_UNIT} ${C_CHAR};`);
+    expect(header).not.toContain(`typedef ${C_NARROW_TEXT_UNIT} ${C_CHAR};`);
   });
 
   it("emits a runtime routine only when a function references it", () => {

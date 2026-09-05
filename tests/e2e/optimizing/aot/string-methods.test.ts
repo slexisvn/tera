@@ -5,6 +5,8 @@ import { cSource, itNative } from "../../../helpers/c-executor.js";
 import { cCalls, cText } from "../../../helpers/aot-agreement.js";
 import { TERA_TEXT_OVERFLOW } from "../../../../src/optimizing/target/faults.js";
 import { compilerOptions } from "../../../../src/optimizing/options.js";
+import { TEXT_STORAGE_BYTES } from "../../../../src/optimizing/types/scalar.js";
+import { characterCapacity } from "../../../../src/optimizing/target/text-literal.js";
 
 const KEEPS_CALLS = compilerOptions("speed", { inlineBudget: 0 });
 
@@ -276,6 +278,28 @@ describe("string methods as compiled builtins", () => {
   for (const [body, expected] of TEXT_RESULTS) {
     itNative(`keeps the C backend in lockstep on ${body}`, returns.text(body, "f", [], expected));
   }
+
+  const boxing = (characters: number) =>
+    src(
+      "class Box:",
+      "  public constructor(t: string):",
+      "    this.text = t",
+      "  public size() -> int:",
+      "    return this.text.length",
+      `b = Box("x".repeat(${characters}))`,
+      "print(b.size())",
+    );
+
+  itRunsPe("fills a field with every character it holds", () => {
+    agrees(boxing(characterCapacity(TEXT_STORAGE_BYTES)));
+  });
+
+  itRunsPe("says so instead of overrunning the field a string is kept in", () => {
+    const run = runPe(image(boxing(characterCapacity(TEXT_STORAGE_BYTES) + 1)));
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(TERA_TEXT_OVERFLOW);
+  });
 
   itRunsPe("says so instead of truncating a string past the buffer capacity", () => {
     const run = runPe(image(src('print("ab".repeat(100000).length)')));

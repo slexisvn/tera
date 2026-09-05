@@ -394,6 +394,7 @@ export class RegisterCompiledFunction {
   constants: RegisterConstant[];
   _constantIndex: Map<RegisterConstant, number>;
   localNames: Array<string | undefined>;
+  localTypes: Array<string | undefined>;
   localBindingKinds: Array<LocalBindingKind | undefined>;
   uninitializedLocalSlots: Set<number>;
   localCount: number;
@@ -470,6 +471,7 @@ export class RegisterCompiledFunction {
     this.constants = [];
     this._constantIndex = new Map();
     this.localNames = [];
+    this.localTypes = [];
     this.localBindingKinds = [];
     this.uninitializedLocalSlots = new Set();
     this.localCount = 0;
@@ -543,6 +545,10 @@ export class RegisterCompiledFunction {
       this.localCount = slot + 1;
     }
     return slot;
+  }
+
+  setLocalType(slot: number, declaredType: string): void {
+    this.localTypes[slot] = declaredType;
   }
 
   setLocalBindingKind(slot: number, kind: LocalBindingKind): void {

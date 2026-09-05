@@ -26,6 +26,7 @@ import {
   absenceValueOf,
 } from "../../../../src/optimizing/metadata/printed-values.js";
 import { FLOAT64_MANTISSA_BITS } from "../../../../src/optimizing/target/float64.js";
+import { codeUnitArrayLiteral } from "../../../../src/optimizing/target/text-literal.js";
 import { link, connect, addPhi } from "../../../../src/optimizing/ir/cfg-edit.js";
 import { emitNumericFunction } from "../../../../src/optimizing/backends/c/emit.js";
 import {
@@ -292,14 +293,14 @@ describe("emitNumericFunction builtin methods", () => {
     const result = compile(codeAtGraph("code_at"));
 
     expect(result.translationUnitPreamble).toContain(
-      "static inline int32_t tera_string_char_code_at(const char *value, int32_t index)",
+      "static inline int32_t tera_string_char_code_at(const tera_char *value, int32_t index)",
     );
   });
 
   it("takes the parameter types from the declared signature", () => {
     const result = compile(codeAtGraph("code_at"));
 
-    expect(result.prototype).toContain("int32_t code_at(const char *p0, int32_t p1)");
+    expect(result.prototype).toContain("int32_t code_at(const tera_char *p0, int32_t p1)");
   });
 
   function padGraph(name: string, builtinName: string): CFGFunction {
@@ -325,7 +326,7 @@ describe("emitNumericFunction builtin methods", () => {
 
     expect(result.source).toContain("tera_string_pad_start(");
     expect(result.translationUnitPreamble).toContain(
-      "static inline char *tera_string_pad_start(char *dst, int32_t cap, const char *src, int32_t width, const char *pad)",
+      "static inline tera_char *tera_string_pad_start(tera_char *dst, int32_t cap, const tera_char *src, int32_t width, const tera_char *pad)",
     );
   });
 
@@ -334,7 +335,7 @@ describe("emitNumericFunction builtin methods", () => {
 
     expect(result.source).toContain("tera_string_pad_end(");
     expect(result.translationUnitPreamble).toContain(
-      "static inline char *tera_string_pad_end(char *dst, int32_t cap, const char *src, int32_t width, const char *pad)",
+      "static inline tera_char *tera_string_pad_end(tera_char *dst, int32_t cap, const tera_char *src, int32_t width, const tera_char *pad)",
     );
   });
 
@@ -524,7 +525,7 @@ describe("what emitNumericFunction reports about a function it lowered", () => {
   });
 });
 
-const FLOAT_TEXT_OPENING = "static char *tera_f64_to_str";
+const FLOAT_TEXT_OPENING = "static tera_char *tera_f64_to_str";
 const ABSENT_TEST_OPENING = "static inline int32_t tera_f64_absent";
 const ABSENT_HELD: readonly unknown[] = [null, undefined];
 
@@ -583,7 +584,7 @@ describe("what the C backend emits for an absent number", () => {
 
     for (const absence of ABSENCE_VALUES) {
       expect(text).toContain(`if (bits == ${absence.bits}ull) {`);
-      expect(text).toContain(`"${absence.text}"`);
+      expect(text).toContain(codeUnitArrayLiteral(absence.text));
     }
   });
 

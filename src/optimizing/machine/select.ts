@@ -13,10 +13,7 @@ import { rootSlotsOf } from "../analyses/aot-legality.js";
 import type { AotLegality } from "../analyses/aot-legality.js";
 import { SCALAR_POINTER, type AotScalar } from "../types/scalar.js";
 import { argumentLocations, outgoingArgumentBytes } from "../target/abi.js";
-import {
-  TERA_ENTER_ROOTS_SYMBOL,
-  TERA_ROOT_ENTRY_BYTES,
-} from "../target/runtime-layout.js";
+import { TERA_ROOT_ENTRY_BYTES } from "../target/runtime-layout.js";
 import type { RegisterClassId } from "../target/registers.js";
 import { BackendLoweringError } from "../target/errors.js";
 import {
@@ -140,7 +137,6 @@ class Selector {
     this.fn.roots = this.rootSlots.size;
     this.fn.rootFrame = this.fn.createSlot(TERA_ROOT_ENTRY_BYTES, TERA_ROOT_ENTRY_BYTES);
     this.fn.hasCalls = true;
-    this.fn.externals.add(TERA_ENTER_ROOTS_SYMBOL);
   }
 
   private emitRoot(value: CFGInstruction): void {

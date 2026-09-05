@@ -46,6 +46,7 @@ import {
   wideTextReason,
 } from "../../../src/optimizing/analyses/wide-text.js";
 import { callReachability } from "../../../src/optimizing/metadata/call-graph.js";
+import { characterCapacity } from "../../../src/optimizing/target/text-literal.js";
 import { BUFFER_ELEMENTS_OFFSET, buildClassTable } from "../../../src/optimizing/metadata/class-table.js";
 import { AnalysisManager } from "../../../src/optimizing/infra/analysis-manager.js";
 import { pointsToAnalysisId } from "../../../src/optimizing/analyses/points-to.js";
@@ -202,24 +203,26 @@ describe("AOT legality values", () => {
     expect(reasonOf(graph)).toContain("unsupported constant");
   });
 
-  it("rejects a string constant longer than the storage a compiled string has", () => {
+  function answering(text: string): CFGFunction {
     const graph = new CFGFunction("long");
     graph.declaredSignature = { params: [], returns: "string" };
     const block = graph.addBlock();
-    const value = irConstant("x".repeat(graph.textBufferBytes));
+    const value = irConstant(text);
     block.addNode(value);
     block.addNode(irReturn(value));
-    expect(reasonOf(graph)).toContain(`longer than the ${graph.textBufferBytes - 1} bytes`);
+    return graph;
+  }
+
+  const BUFFER_CHARACTERS = characterCapacity(new CFGFunction("size").textBufferBytes);
+
+  it("rejects a string constant longer than the storage a compiled string has", () => {
+    expect(reasonOf(answering("x".repeat(BUFFER_CHARACTERS + 1)))).toContain(
+      `longer than the ${BUFFER_CHARACTERS} characters`,
+    );
   });
 
   it("accepts a string constant that fills the storage exactly", () => {
-    const graph = new CFGFunction("full");
-    graph.declaredSignature = { params: [], returns: "string" };
-    const block = graph.addBlock();
-    const value = irConstant("x".repeat(graph.textBufferBytes - 1));
-    block.addNode(value);
-    block.addNode(irReturn(value));
-    expect(analyze(graph).ok).toBe(true);
+    expect(analyze(answering("x".repeat(BUFFER_CHARACTERS))).ok).toBe(true);
   });
 
   it("accepts a string constant outside ASCII", () => {
@@ -232,14 +235,11 @@ describe("AOT legality values", () => {
     expect(analyze(graph).ok).toBe(true);
   });
 
-  it("measures a string constant outside ASCII by the bytes it takes", () => {
-    const graph = new CFGFunction("wide");
-    graph.declaredSignature = { params: [], returns: "string" };
-    const block = graph.addBlock();
-    const value = irConstant("é".repeat(graph.textBufferBytes / 2));
-    block.addNode(value);
-    block.addNode(irReturn(value));
-    expect(reasonOf(graph)).toContain("bytes a compiled string holds");
+  it("gives a string constant outside ASCII the same room as an ASCII one", () => {
+    expect(analyze(answering("é".repeat(BUFFER_CHARACTERS))).ok).toBe(true);
+    expect(reasonOf(answering("é".repeat(BUFFER_CHARACTERS + 1)))).toContain(
+      `longer than the ${BUFFER_CHARACTERS} characters`,
+    );
   });
 });
 
@@ -677,22 +677,24 @@ describe("AOT legality text stores", () => {
     return graph;
   }
 
+  const FIELD_CHARACTERS = characterCapacity(FIELD_CAPACITY);
+
   it("admits a constant that fits the storage the field holds", () => {
-    expect(analyze(storing("x".repeat(FIELD_CAPACITY - 1))).ok).toBe(true);
+    expect(analyze(storing("x".repeat(FIELD_CHARACTERS))).ok).toBe(true);
   });
 
   it("rejects a constant one character past what the field holds", () => {
-    expect(reasonOf(storing("x".repeat(FIELD_CAPACITY)))).toContain(
-      `stores a string of ${FIELD_CAPACITY} characters in name, which holds ${FIELD_CAPACITY - 1}`,
+    expect(reasonOf(storing("x".repeat(FIELD_CHARACTERS + 1)))).toContain(
+      `stores a string of ${FIELD_CHARACTERS + 1} characters in name, which holds ${FIELD_CHARACTERS}`,
     );
   });
 
   it("names the field a too-long constant would not fit", () => {
-    expect(reasonOf(storing("x".repeat(FIELD_CAPACITY + 10)))).toContain("in name");
+    expect(reasonOf(storing("x".repeat(FIELD_CHARACTERS + 10)))).toContain("in name");
   });
 
   it("says nothing about --text-size for a store the field bounds", () => {
-    expect(reasonOf(storing("x".repeat(FIELD_CAPACITY)))).not.toContain("--text-size");
+    expect(reasonOf(storing("x".repeat(FIELD_CHARACTERS + 1)))).not.toContain("--text-size");
   });
 });
 

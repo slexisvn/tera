@@ -3,6 +3,12 @@ import { nodeEngine } from "../../../helpers/engine.js";
 import type { AotProgram } from "../../../../src/optimizing/drivers/aot.js";
 import { ABSENCE_VALUES } from "../../../../src/optimizing/metadata/printed-values.js";
 import { FLOAT64_EXPONENT_MASK } from "../../../../src/optimizing/target/float64.js";
+import {
+  C_CHAR,
+  C_NARROW_TEXT_UNIT,
+  C_WIDE_TEXT_UNIT,
+} from "../../../../src/optimizing/target/c-types.js";
+import { riscvTarget } from "../../../../src/optimizing/backends/riscv64/target.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
@@ -117,6 +123,14 @@ describe("riscv64 assembly", () => {
 
     expect(header).toContain("#include <stdint.h>");
     expect(header).toContain("double add(int32_t p0, double p1);");
+  });
+
+  it("names the character type after the byte it stores a character in", () => {
+    const header = headerOf(src("fn add(a: int, b: float) -> float:", "  return a + b"));
+
+    expect(riscvTarget().capabilities.has("utf16-text")).toBe(false);
+    expect(header).toContain(`typedef ${C_NARROW_TEXT_UNIT} ${C_CHAR};`);
+    expect(header).not.toContain(C_WIDE_TEXT_UNIT);
   });
 
   it("emits the runtime routine only when a function references it", () => {

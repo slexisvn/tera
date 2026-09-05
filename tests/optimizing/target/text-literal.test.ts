@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { byteEscapedLiteral } from "../../../src/optimizing/target/text-literal.js";
+import {
+  byteEscapedLiteral,
+  characterCapacity,
+  codeUnitByteLength,
+  codeUnitCapacity,
+} from "../../../src/optimizing/target/text-literal.js";
 
 const encoder = new TextEncoder();
 const spelled = (value: string) => byteEscapedLiteral(value);
@@ -48,5 +53,24 @@ describe("byteEscapedLiteral", () => {
 
   it("keeps a bare empty string a bare empty literal", () => {
     expect(spelled("")).toBe('""');
+  });
+});
+
+describe("characterCapacity", () => {
+  it("fits one fewer character than the code units the bytes hold", () => {
+    expect(codeUnitCapacity(1024)).toBe(512);
+    expect(characterCapacity(1024)).toBe(511);
+  });
+
+  it("answers exactly the text that spells back into those bytes", () => {
+    const bytes = 1024;
+
+    expect(codeUnitByteLength("x".repeat(characterCapacity(bytes)))).toBe(bytes);
+    expect(codeUnitByteLength("x".repeat(characterCapacity(bytes) + 1))).toBeGreaterThan(bytes);
+  });
+
+  it("holds nothing at all when the bytes cannot carry a terminator", () => {
+    expect(characterCapacity(0)).toBe(-1);
+    expect(characterCapacity(2)).toBe(0);
   });
 });

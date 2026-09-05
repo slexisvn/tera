@@ -3,6 +3,7 @@ import {
   TERA_ARRAY_RESERVE_SYMBOL,
   TERA_COLLECT_SYMBOL,
   TERA_ENTER_ROOTS_SYMBOL,
+  TERA_PROBE_STACK_SYMBOL,
   TERA_GROW_SYMBOL,
   TERA_RESERVE_SYMBOL,
 } from "../../target/runtime-layout.js";
@@ -40,6 +41,7 @@ export const RISCV_RUNTIME_SYMBOLS = {
   arrayReserve: TERA_ARRAY_RESERVE_SYMBOL,
   collect: TERA_COLLECT_SYMBOL,
   enterRoots: TERA_ENTER_ROOTS_SYMBOL,
+  probeStack: TERA_PROBE_STACK_SYMBOL,
   reserve: TERA_RESERVE_SYMBOL,
   grow: TERA_GROW_SYMBOL,
   markPass: "tera_rv64_mark_pass",

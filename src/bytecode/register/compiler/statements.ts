@@ -282,6 +282,7 @@ export const statementMethods: StatementMethodMap = {
     if (!resolved) {
       this.func.setLocalBindingKind(slot, kind);
     }
+    if (typeof node.declaredType === "string") this.func.setLocalType(slot, node.declaredType);
 
     if (node.type === NodeType.VarDeclaration && node.init === null) {
       return;

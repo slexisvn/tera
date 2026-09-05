@@ -134,4 +134,78 @@ describe("AOT module-level variables", () => {
       ),
     );
   });
+
+  itRunsPe("keeps the fractions a function writes into a module array it also reads", () => {
+    agrees(
+      src(
+        "b: float[] = [0.0, 0.0]",
+        "fn r(x: float) -> int:",
+        "  b[0] = x",
+        "  b[1] = b[0] + 1.0",
+        "  return 0",
+        "fn show(x: float) -> void:",
+        "  n: int = r(x)",
+        "  print(n, b[0], b[1])",
+        "show(1.0)",
+        "show(0.5)",
+      ),
+    );
+  });
+
+  itRunsPe("keeps the fractions a function writes into a module array it was handed", () => {
+    agrees(
+      src(
+        "b: float[] = [0.0, 0.0]",
+        "fn r(x: float, a: float[]) -> int:",
+        "  a[0] = x",
+        "  a[1] = a[0] + 1.0",
+        "  return 0",
+        "fn show(x: float) -> void:",
+        "  n: int = r(x, b)",
+        "  print(n, b[0], b[1])",
+        "show(1.0)",
+        "show(0.5)",
+      ),
+    );
+  });
+
+  itRunsPe("keeps the fractions of a module array a function answered with", () => {
+    agrees(
+      src(
+        "fn makeFloats() -> float[]:",
+        "  return [0.5, 1.5]",
+        "b = makeFloats()",
+        "fn set(n: int) -> int:",
+        "  b[0] = n",
+        "  return 0",
+        "print(set(3), b[0], b[1])",
+      ),
+    );
+  });
+
+  itRunsPe("keeps the fractions a module array was declared to hold when no store names them", () => {
+    agrees(
+      src(
+        "b: float[] = [0.0]",
+        "fn store(x: float) -> int:",
+        "  b[0] = b[0] + x",
+        "  return 0",
+        "store(0.5)",
+        "store(0.25)",
+        "print(b[0])",
+      ),
+    );
+  });
+
+  itRunsPe("keeps the fractions a module array starts with when a function stores whole numbers", () => {
+    agrees(
+      src(
+        "b: float[] = [1.5, 2.5]",
+        "fn r(n: int) -> int:",
+        "  b[0] = n",
+        "  return 0",
+        "print(r(3), b[0], b[1])",
+      ),
+    );
+  });
 });

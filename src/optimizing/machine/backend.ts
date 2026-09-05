@@ -12,7 +12,12 @@ import {
   type NativeRuntimeRoutine,
 } from "../target/artifact.js";
 import { BackendLoweringError } from "../target/errors.js";
-import { prototypeOf } from "../target/c-types.js";
+import {
+  cTypedefs,
+  C_NARROW_TEXT_UNIT,
+  C_WIDE_TEXT_UNIT,
+  prototypeOf,
+} from "../target/c-types.js";
 import { moduleInitTable } from "../target/symbols.js";
 import { targetLegalizationPipeline } from "../target/legalization.js";
 import type { MachineTargetModel } from "../target/model.js";
@@ -368,8 +373,13 @@ export function createNativeBackend(options: NativeBackendOptions): AotBackend {
         .map((part) => part.prototype)
         .join("\n");
       const initTable = moduleInitTable(linkOptions.moduleInits ?? []);
+      const typedefs = cTypedefs(
+        options.lowering.target.capabilities.has("utf16-text")
+          ? C_WIDE_TEXT_UNIT
+          : C_NARROW_TEXT_UNIT,
+      );
       const header =
-        `#ifndef ${guard}\n#define ${guard}\n\n${headerPreamble}\n\n` +
+        `#ifndef ${guard}\n#define ${guard}\n\n${headerPreamble}\n\n${typedefs}\n\n` +
         (prototypes.length > 0 ? `${prototypes}\n\n` : "") +
         (initTable.length > 0 ? `${initTable}\n\n` : "") +
         `#endif\n`;

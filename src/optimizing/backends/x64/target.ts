@@ -77,6 +77,7 @@ export function x64Target(options: X64TargetOptions = {}): X64TargetModel {
       "float-text",
       "select-integer",
       "generational-heap",
+      "utf16-text",
       ...(io.now === undefined || io.wait === undefined
         ? []
         : (["timers"] as const)),

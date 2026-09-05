@@ -1,9 +1,16 @@
 import type { MachineDatum } from "./ir.js";
-import { byteEscapedLiteral } from "../target/text-literal.js";
+import {
+  byteEscapedLiteral,
+  codeUnitByteLength,
+  codeUnitBytes,
+  codeUnitList,
+  terminatedCodeUnits,
+} from "../target/text-literal.js";
 
 export type MachineDataItem =
   | { readonly kind: "integer"; readonly value: bigint; readonly size: number }
   | { readonly kind: "ascii"; readonly text: string; readonly terminated: boolean }
+  | { readonly kind: "utf16"; readonly text: string }
   | { readonly kind: "zero"; readonly size: number };
 
 export interface DataSectionDirectives {
@@ -28,6 +35,10 @@ export function asciiData(text: string, terminated = true): MachineDataItem {
   return { kind: "ascii", text, terminated };
 }
 
+export function utf16Data(text: string): MachineDataItem {
+  return { kind: "utf16", text };
+}
+
 export function zeroData(size: number): MachineDataItem {
   return { kind: "zero", size };
 }
@@ -39,11 +50,13 @@ export function zeroFilledBuffer(bytes: number): readonly MachineDataItem[] {
 export function dataItemSize(item: MachineDataItem): number {
   if (item.kind === "integer") return item.size;
   if (item.kind === "zero") return item.size;
+  if (item.kind === "utf16") return codeUnitByteLength(item.text);
   return encoder.encode(item.text).length + (item.terminated ? 1 : 0);
 }
 
 export function dataItemBytes(item: MachineDataItem): number[] {
   if (item.kind === "zero") return new Array<number>(item.size).fill(0);
+  if (item.kind === "utf16") return [...codeUnitBytes(item.text)];
   if (item.kind === "ascii") {
     const bytes = [...encoder.encode(item.text)];
     if (item.terminated) bytes.push(0);
@@ -70,6 +83,9 @@ export function dataItemText(item: MachineDataItem): string {
   if (item.kind === "zero") return `\t.zero ${item.size}`;
   if (item.kind === "ascii") {
     return `\t${item.terminated ? ".asciz" : ".ascii"} ${byteEscapedLiteral(item.text)}`;
+  }
+  if (item.kind === "utf16") {
+    return `\t.short ${codeUnitList(terminatedCodeUnits(item.text))}`;
   }
   const directive = INTEGER_DIRECTIVES.get(item.size);
   if (directive === undefined) throw new Error(`no data directive for ${item.size} bytes`);

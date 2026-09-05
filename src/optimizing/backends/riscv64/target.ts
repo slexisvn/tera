@@ -45,7 +45,7 @@ export function riscvTarget(): RiscvTargetModel {
     registers,
     integerClass: registers.classOf(RISCV_GPR),
     floatClass: registers.classOf(RISCV_FPR),
-    runtime: riscvRuntimeRoutines(registers),
+    runtime: riscvRuntimeRoutines(registers, built.abi),
     locationOf: (scalar) => {
       const location = LOCATIONS.get(scalar);
       if (location === undefined) throw new Error(`no riscv64 location for ${scalar}`);

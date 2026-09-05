@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { cSource } from "../../../helpers/c-executor.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
+import { codeUnitArrayLiteral } from "../../../../src/optimizing/target/text-literal.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
@@ -71,7 +72,7 @@ describe("AOT typeof", () => {
   it("answers typeof without leaving a call in the emitted code", () => {
     const source = src("fn kind(n: int) -> string:", "  return typeof n", "print(kind(1))");
 
-    expect(emitted(source)).toContain('"number"');
+    expect(emitted(source)).toContain(codeUnitArrayLiteral("number"));
   });
 });
 

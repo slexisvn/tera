@@ -68,7 +68,13 @@ import { ABSENCE_VALUES, absenceValueOf } from "../../metadata/printed-values.js
 const ABSENT_REFERENCE = 0;
 import { isReferenceScalar } from "../../types/scalar.js";
 import { isPendingThrowReturn } from "../../builder/throw-recovery.js";
-import { asciiData, integerData, zeroFilledBuffer } from "../../machine/data.js";
+import {
+  integerData,
+  utf16Data,
+  zeroFilledBuffer,
+} from "../../machine/data.js";
+import { TEXT_UNIT_BYTES } from "../../types/scalar.js";
+import { codeUnitCapacity } from "../../target/text-literal.js";
 import type { FrameLayout, SavedRegister } from "../../machine/frame.js";
 import { latticeFromDeclaredType } from "../../types/declared.js";
 import type { DeclaredSignature } from "../../types/signature.js";
@@ -96,8 +102,6 @@ import {
   NO_TERMINATOR,
   OBJECT_CLOSE_TEXT,
   OBJECT_OPEN_TEXT,
-  PARSE_FLOAT_BUILTIN,
-  PARSE_INT_BUILTIN,
   PRINT_BUILTIN,
   printTerminatorOf,
   qualifiedMethodName,
@@ -149,6 +153,7 @@ import {
 } from "../../target/integer.js";
 import {
   contextField,
+  PROBE_SIZE_REGISTER,
   ROOT_COUNT_REGISTER,
   ROOT_ENTRY_BYTES,
   ROOT_FRAME_REGISTER,
@@ -326,8 +331,6 @@ const RUNTIME_BUILTINS = new Map<string, string>([
   [qualifiedMethodName("string", "includes"), X64_RUNTIME_SYMBOLS.stringIncludes],
   [qualifiedMethodName("string", "starts_with"), X64_RUNTIME_SYMBOLS.stringStartsWith],
   [qualifiedMethodName("string", "ends_with"), X64_RUNTIME_SYMBOLS.stringEndsWith],
-  [PARSE_INT_BUILTIN, X64_RUNTIME_SYMBOLS.parseInt],
-  [PARSE_FLOAT_BUILTIN, X64_RUNTIME_SYMBOLS.parseFloat],
   [CLOCK_BUILTIN, X64_RUNTIME_SYMBOLS.clock],
   [WAIT_BUILTIN, X64_RUNTIME_SYMBOLS.pause],
 ]);
@@ -407,8 +410,8 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
       const text = String(value);
       const datum = ctx.data.intern(
         `string:${text}`,
-        1,
-        [asciiData(text)],
+        TEXT_UNIT_BYTES,
+        [utf16Data(text)],
         ".LS",
       );
       const destination = ctx.temp(scalar);
@@ -518,6 +521,16 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
       instruction("subq", [def(cursor, 8), use(table, 8)]),
       instruction("shrq", [def(cursor, 8), imm(ROOT_SLOT_SHIFT)]),
       instruction("movq", [contextField("rootCount"), use(cursor, 8)]),
+    ];
+  }
+
+  protected callStackProbe(bytes: number): readonly MachineInstruction[] {
+    return [
+      instruction("movl", [def(this.physical(PROBE_SIZE_REGISTER), 4), imm(bytes)]),
+      instruction("call", [sym(X64_RUNTIME_SYMBOLS.probeStack)], {
+        call: true,
+        implicitFrom: 1,
+      }),
     ];
   }
 
@@ -1302,7 +1315,11 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
   protected selectStoreText(ctx: SelectionContext): void {
     const value = this.coerce(ctx, ctx.node.inputs[1]!, SCALAR_STRING);
     const destination = this.textAddress(ctx, ctx.tempIn(X64_GPR, POINTER_WIDTH));
-    const capacity = this.loadNumber(ctx, textCapacityOf(ctx.node), SCALAR_INT32);
+    const capacity = this.loadNumber(
+      ctx,
+      codeUnitCapacity(textCapacityOf(ctx.node)),
+      SCALAR_INT32,
+    );
     ctx.external(X64_RUNTIME_SYMBOLS.stringSet);
     ctx.emitCall(X64_RUNTIME_SYMBOLS.stringSet, [destination, capacity, value], null);
   }
@@ -1369,7 +1386,11 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
     if (heapElementScalarOf(ctx.node) === SCALAR_TEXT) {
       const value = this.coerce(ctx, ctx.node.inputs[2]!, SCALAR_STRING);
       const destination = this.elementTextAddress(ctx, ctx.tempIn(X64_GPR, POINTER_WIDTH));
-      const capacity = this.loadNumber(ctx, scalarWidth(SCALAR_TEXT), SCALAR_INT32);
+      const capacity = this.loadNumber(
+        ctx,
+        codeUnitCapacity(scalarWidth(SCALAR_TEXT)),
+        SCALAR_INT32,
+      );
       ctx.external(X64_RUNTIME_SYMBOLS.stringSet);
       ctx.emitCall(X64_RUNTIME_SYMBOLS.stringSet, [destination, capacity, value], null);
       return;
@@ -1419,7 +1440,7 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
   protected bufferAddress(ctx: SelectionContext, buffer: AotStringBuffer): VirtualRegister {
     const datum = ctx.data.intern(
       `string-buffer:${buffer.producer.id}`,
-      1,
+      TEXT_UNIT_BYTES,
       zeroFilledBuffer(buffer.capacity),
       ".LB",
       true,
@@ -1436,7 +1457,11 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
     destination: VirtualRegister,
     operands: readonly VirtualRegister[],
   ): VirtualRegister {
-    const capacity = this.loadNumber(ctx, buffer.capacity, SCALAR_INT32);
+    const capacity = this.loadNumber(
+      ctx,
+      codeUnitCapacity(buffer.capacity),
+      SCALAR_INT32,
+    );
     const result = ctx.tempIn(X64_GPR, 8);
     ctx.external(symbol);
     ctx.emitCall(symbol, [destination, capacity, ...operands], result);

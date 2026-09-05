@@ -372,7 +372,7 @@ function literalFieldNamesOf(shape: ClassShape): readonly string[] | null {
   return isLiteralShapeName(shape.name) ? [...shape.fields.keys()] : null;
 }
 
-function joinedFieldType(classes: ClassTable, held: readonly string[]): string | null {
+export function joinedTypeName(classes: ClassTable, held: readonly string[]): string | null {
   const first = held[0];
   if (first === undefined) return null;
   if (held.every((entry) => entry === first)) return first;
@@ -381,6 +381,20 @@ function joinedFieldType(classes: ClassTable, held: readonly string[]): string |
     joined = joinTypes(joined, latticeFromDeclaredType(entry, builtinTypeEnv(), classes));
   }
   return joined === null ? null : heldTypeOf(joined, classes);
+}
+
+export function canonicalTypeName(classes: ClassTable, declared: string): string | null {
+  return heldTypeOf(latticeFromDeclaredType(declared, builtinTypeEnv(), classes), classes);
+}
+
+export function holdsEveryTypeName(
+  classes: ClassTable,
+  declared: string,
+  held: readonly string[],
+): boolean {
+  if (held.every((entry) => entry === declared)) return true;
+  const canonical = canonicalTypeName(classes, declared);
+  return canonical !== null && joinedTypeName(classes, [declared, ...held]) === canonical;
 }
 
 export function joinedLiteralShape(
@@ -400,7 +414,7 @@ export function joinedLiteralShape(
   }
   const fields: LiteralField[] = [];
   for (const name of names) {
-    const declaredType = joinedFieldType(classes, held.get(name)!);
+    const declaredType = joinedTypeName(classes, held.get(name)!);
     if (declaredType === null) return null;
     fields.push({ name, declaredType });
   }

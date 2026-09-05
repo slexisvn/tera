@@ -61,6 +61,9 @@ const NURSERY_SHIFT = Math.log2(CLASS_HEADER_BYTES);
 export const ROOT_FRAME_REGISTER = "r10";
 export const ROOT_COUNT_REGISTER = "r11";
 const ROOT_SCRATCH = "rax";
+export const PROBE_SIZE_REGISTER = "r11";
+const PROBE_LIMIT_REGISTER = "r10";
+const PROBE_CURSOR_REGISTER = "rax";
 
 function reader(builder: MachineRoutineBuilder) {
   return (name: string, width = POINTER_BYTES): RegisterOperand =>
@@ -1034,6 +1037,27 @@ function grow(abi: RuntimeAbi, io: PlatformIo) {
   };
 }
 
+function probeStack(abi: RuntimeAbi) {
+  return (builder: MachineRoutineBuilder): void => {
+    const r = reader(builder);
+    const w = writer(builder);
+    const pointer = abi.stackPointer.name;
+    builder
+      .emit("movq", w(PROBE_LIMIT_REGISTER, POINTER_BYTES), r(pointer))
+      .emit("subq", w(PROBE_LIMIT_REGISTER, POINTER_BYTES), r(PROBE_SIZE_REGISTER))
+      .emit("movq", w(PROBE_CURSOR_REGISTER, POINTER_BYTES), r(pointer))
+      .at("step")
+      .emit("subq", w(PROBE_CURSOR_REGISTER, POINTER_BYTES), imm(abi.stackProbeBytes))
+      .emit("cmpq", r(PROBE_LIMIT_REGISTER), r(PROBE_CURSOR_REGISTER))
+      .to("jae", "bottom")
+      .emit("movq", at(PROBE_CURSOR_REGISTER, 0, builder, POINTER_BYTES), imm(0))
+      .to("jmp", "step")
+      .at("bottom")
+      .emit("movq", at(PROBE_LIMIT_REGISTER, 0, builder, POINTER_BYTES), imm(0))
+      .ret();
+  };
+}
+
 function enterRoots(io: PlatformIo) {
   return (builder: MachineRoutineBuilder): void => {
     const r = reader(builder);
@@ -1083,6 +1107,7 @@ export function x64HeapRoutines(
   io: PlatformIo,
 ): ReadonlyMap<string, (builder: MachineRoutineBuilder) => void> {
   return new Map([
+    [X64_RUNTIME_SYMBOLS.probeStack, probeStack(abi)],
     [X64_RUNTIME_SYMBOLS.allocate, allocate(abi, io)],
     [X64_RUNTIME_SYMBOLS.arrayReserve, arrayReserve(abi)],
     [X64_RUNTIME_SYMBOLS.markPass, markPass],

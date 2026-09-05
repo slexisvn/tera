@@ -16,6 +16,8 @@ import { nodeIdStamper } from "../ir/graph-edit.js";
 import { isUnwritten, type DeclaredSignature } from "../types/signature.js";
 import type { ClassShape, ClassTable } from "../metadata/class-table.js";
 import {
+  carryModuleSignatures,
+  moduleSignatures,
   stampCalleeSignatures,
 } from "../metadata/call-signatures.js";
 import { callsBuiltin, THROW_BUILTIN } from "../metadata/builtin-methods.js";
@@ -36,6 +38,7 @@ import {
   markReentrantFunctions,
 } from "../metadata/call-graph.js";
 import { inlineKnownCalls } from "../passes/inlining.js";
+import { markNumberTextBytewise } from "../passes/parse-number-surface.js";
 import { remarks } from "../infra/pass-remarks.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
 import { inferredReturnName } from "../analyses/returned-type.js";
@@ -272,15 +275,6 @@ function nameCalleeConstants(module: ModuleIR): void {
       }
     }
   }
-}
-
-function moduleSignatures(module: ModuleIR): Map<string, DeclaredSignature> {
-  const signatures = new Map<string, DeclaredSignature>();
-  for (const unit of module.units) {
-    const declared = unit.graph.declaredSignature;
-    if (declared !== null) signatures.set(unit.graph.name, declared);
-  }
-  return signatures;
 }
 
 function suspendingCallees(module: ModuleIR, timers: boolean): ReadonlySet<string> {
@@ -698,6 +692,7 @@ export function compileModule(
     }
   });
   requireDeclaredParameters(module);
+  stage("module-signatures", () => carryModuleSignatures(module));
   if (classes !== null) stage("declare-global-variables", () => declareGlobalVariables(module, classes));
 
   const sleeping = classes === null ? [] : sleepers(module);
@@ -751,6 +746,7 @@ export function compileModule(
     try {
       graph.calleeSignatures = signatures;
       graph.emits = backend.emits;
+      graph.capabilities = backend.target.capabilities;
       graph.textBufferBytes = opts.textBufferBytes;
       cfgPassManager(analyses, opts).run(graph, backend.loweringPipeline(opts));
       if (stampCalleeSignatures(graph, signatures) > 0) {
@@ -776,6 +772,7 @@ export function compileModule(
     return name === null ? null : settled.get(name) ?? null;
   };
 
+  stage("number-text-bytes", () => markNumberTextBytewise(module));
   stage("module-inlining", () => inlineModuleCalls(module, opts, declined));
 
   for (const unit of module.units) {
@@ -836,6 +833,7 @@ export function compileModule(
         isText: (value: CFGInstruction) => aotScalarOf(types.typeOf(value)) === SCALAR_STRING,
       };
     }),
+    backend.target.capabilities.has("utf16-text"),
   );
   for (const { graph, analyses } of emitting) {
     graph.stringEscapes = escapes;

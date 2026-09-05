@@ -1,5 +1,9 @@
 import { TERA_HEAP_MINIMUM_BYTES } from "../optimizing/target/runtime-layout.js";
-import { TEXT_BUFFER_MINIMUM_BYTES } from "../optimizing/types/scalar.js";
+import {
+  DEFAULT_TEXT_BUFFER_BYTES,
+  TEXT_BUFFER_MINIMUM_BYTES,
+} from "../optimizing/types/scalar.js";
+import { characterCapacity } from "../optimizing/target/text-literal.js";
 import {
   engineDefaults,
   sourceDefaults,
@@ -70,6 +74,13 @@ const BYTE_SUFFIXES = new Map<string, number>([
   ["m", 1 << 20],
   ["g", 1 << 30],
 ]);
+
+function sizeText(bytes: number): string {
+  for (const [suffix, scale] of [...BYTE_SUFFIXES].reverse()) {
+    if (bytes >= scale && bytes % scale === 0) return `${bytes / scale}${suffix}`;
+  }
+  return String(bytes);
+}
 
 function parseBytes(name: string, value: string, minimum: number): number {
   const match = /^(\d+)([kmg]?)b?$/i.exec(value.trim());
@@ -386,7 +397,10 @@ export const COMPILE_COMMAND: CommandSpec<CompileConfig> = {
       name: "text-size",
       value: "bytes",
       group: "Output",
-      summary: "space each produced string may take (default: 16k)",
+      summary:
+        "bytes each produced string may take, two to a character " +
+        `(default: ${sizeText(DEFAULT_TEXT_BUFFER_BYTES)}, ` +
+        `${characterCapacity(DEFAULT_TEXT_BUFFER_BYTES)} characters)`,
       apply: (config, value) => (config.textBytes = parseBytes("text-size", value, TEXT_BUFFER_MINIMUM_BYTES)),
     },
     {

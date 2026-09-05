@@ -352,6 +352,16 @@ describe("RegisterBytecodeCompiler", () => {
       expect(func.localBindingKinds[cIdx]).toBe("const");
     });
 
+    it("records the declared type a declaration was written with", () => {
+      const annotated = LetDeclaration("b", Literal(2, "number"));
+      annotated.declaredType = "float[]";
+      const func = compiler.compile(
+        Program([annotated, LetDeclaration("c", Literal(3, "number"))]),
+      );
+      expect(func.localTypes[func.localNames.indexOf("b")]).toBe("float[]");
+      expect(func.localTypes[func.localNames.indexOf("c")]).toBeUndefined();
+    });
+
     it("script-scope var uses global cells not locals", () => {
       const func = compiler.compile(
         Program([

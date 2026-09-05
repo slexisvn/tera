@@ -27,6 +27,7 @@ import {
   STRING_TYPE,
 } from "../../../src/optimizing/metadata/builtin-methods.js";
 import { BYTEWISE_PROP } from "../../../src/optimizing/analyses/wide-text.js";
+import { capabilitySet } from "../../../src/optimizing/target/capabilities.js";
 import { lowerStringSplit } from "../../../src/optimizing/passes/string-split.js";
 
 beforeEach(() => resetIRNodeIds());
@@ -85,8 +86,8 @@ describe("lowering a split into a scan of the text", () => {
     expect(limited).toBe(plain);
   });
 
-  it("leaves a separator outside ASCII to the interpreter", () => {
-    expect(CALL_SITE.test(loweredBody('  return line.split("ộ", 2).length'))).toBe(true);
+  it("scans for a separator outside ASCII on a target that stores code units", () => {
+    expect(CALL_SITE.test(loweredBody('  return line.split("ộ", 2).length'))).toBe(false);
   });
 
   it("leaves a separator of several characters to the interpreter", () => {
@@ -255,5 +256,43 @@ describe("how a split's own text reads count their characters", () => {
       [],
       [LENGTH_CALL, SLICE_CALL],
     ]);
+  });
+});
+
+describe("which separators a target can be asked to scan for", () => {
+  const WIDE_SEPARATOR = "ộ";
+
+  function lowersWith(separator: string, storesCodeUnits: boolean): number {
+    const graph = splitting(separator, null);
+    if (storesCodeUnits) graph.capabilities = capabilitySet("utf16-text");
+    return lowerings(graph);
+  }
+
+  it("scans for a separator outside ASCII where a character is one code unit", () => {
+    expect(lowersWith(WIDE_SEPARATOR, true)).toBe(1);
+  });
+
+  it("leaves that separator to the interpreter where a character is several bytes", () => {
+    expect(lowersWith(WIDE_SEPARATOR, false)).toBe(0);
+  });
+
+  it("scans for a separator inside ASCII whichever way the target stores text", () => {
+    expect([lowersWith(SEPARATOR, true), lowersWith(SEPARATOR, false)]).toEqual([1, 1]);
+  });
+
+  it("compares a separator outside ASCII against the code unit the scan reads", () => {
+    const graph = splitting(WIDE_SEPARATOR, null);
+    graph.capabilities = capabilitySet("utf16-text");
+    lowerings(graph);
+
+    expect(
+      nodesOf(graph).some(
+        (node) => node.props.value === WIDE_SEPARATOR.charCodeAt(0),
+      ),
+    ).toBe(true);
+  });
+
+  it("still leaves a separator of several code units to the interpreter", () => {
+    expect(lowersWith(", ", true)).toBe(0);
   });
 });

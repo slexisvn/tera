@@ -12,12 +12,30 @@ import { AnalysisManager } from "../infra/analysis-manager.js";
 import { createAnalysisRegistry } from "../analyses/index.js";
 import { typeInferenceAnalysisId } from "../analyses/type-inference.js";
 import { compiledFunctionConstant } from "../ir/compiled-function.js";
-import { globalNameOf, promoteAssignedGlobals } from "../passes/global-promotion.js";
-import { declaredTypeOf, type ClassTable } from "./class-table.js";
-import { arrayElementNameOf } from "../passes/array-shapes.js";
-import { arrayOfType } from "../../frontend/checker/type-system.js";
+import {
+  declaredGlobalTypeOf,
+  globalNameOf,
+  promoteAssignedGlobals,
+} from "../passes/global-promotion.js";
+import {
+  declaredTypeOf,
+  holdsEveryTypeName,
+  joinedTypeName,
+  type ClassTable,
+} from "./class-table.js";
+import {
+  arrayElementNamingOf,
+  type ArrayElementNaming,
+} from "../passes/array-shapes.js";
+import {
+  declaredSignaturesOf,
+  declaredTypeAt,
+  type CalleeSignatures,
+} from "./call-signatures.js";
+import { arrayElementType, arrayOfType } from "../../frontend/checker/type-system.js";
 import { constructedShapeOf } from "../passes/class-member-lowering.js";
-import { TypeKind } from "../types/lattice.js";
+import { TypeKind, type ArrayType } from "../types/lattice.js";
+import { latticeFromElementsKind } from "../types/elements.js";
 import type { TypeInference } from "../analyses/type-inference.js";
 import type { CompilationUnit, ModuleIR } from "../compilation-unit.js";
 
@@ -77,16 +95,11 @@ export function promoteRunOnceGlobals(
 
 function storedTypeName(
   value: CFGInstruction,
-  graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
 ): string | null {
   const type = types.typeOf(value);
-  if (type.kind !== TypeKind.Array) {
-    return declaredTypeOf(type, classes) ?? constructedShapeOf(value, classes)?.name ?? null;
-  }
-  const element = arrayElementNameOf(value, graph, classes, types);
-  return element === null ? null : arrayOfType(element);
+  return declaredTypeOf(type, classes) ?? constructedShapeOf(value, classes)?.name ?? null;
 }
 
 function namesFunction(value: CFGInstruction | undefined): boolean {
@@ -140,12 +153,35 @@ function typesByUnit(module: ModuleIR): Map<CompilationUnit, TypeInference> {
   return inferred;
 }
 
+function elementDemandsOf(
+  node: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+  signatureOf: CalleeSignatures,
+): readonly string[] {
+  const demands: string[] = [];
+  for (const use of node.uses) {
+    const held = pushedInto(use, node) ?? storedIntoElement(use, node);
+    const stored = held === null ? null : declaredTypeOf(types.typeOf(held), classes);
+    if (stored !== null) demands.push(stored);
+    for (const [at, input] of use.inputs.entries()) {
+      if (input !== node) continue;
+      const declared = declaredTypeAt(use, at, graph, classes, types, signatureOf);
+      const element = declared === null ? null : arrayElementType(declared);
+      if (element !== null) demands.push(element);
+    }
+  }
+  return demands;
+}
+
 function demandedElements(
   module: ModuleIR,
   classes: ClassTable,
   inferred: ReadonlyMap<CompilationUnit, TypeInference>,
-): Map<string, string | null> {
-  const demanded = new Map<string, string | null>();
+): Map<string, string[]> {
+  const signatureOf = declaredSignaturesOf(module);
+  const demanded = new Map<string, string[]>();
   for (const unit of module.units) {
     const types = inferred.get(unit)!;
     for (const block of unit.graph.blocks) {
@@ -153,17 +189,80 @@ function demandedElements(
         if (node.type !== IR_LOAD_GLOBAL) continue;
         const name = globalNameOf(node);
         if (name === null) continue;
-        for (const use of node.uses) {
-          const held = pushedInto(use, node) ?? storedIntoElement(use, node);
-          if (held === null) continue;
-          const named = declaredTypeOf(types.typeOf(held), classes);
-          const carried = demanded.get(name);
-          demanded.set(name, carried === undefined || carried === named ? named : null);
-        }
+        const found = elementDemandsOf(node, unit.graph, classes, types, signatureOf);
+        if (found.length === 0) continue;
+        const carried = demanded.get(name);
+        if (carried === undefined) demanded.set(name, [...found]);
+        else carried.push(...found);
       }
     }
   }
   return demanded;
+}
+
+function arrayTypeOf(value: CFGInstruction, types: TypeInference): ArrayType | null {
+  const type = types.typeOf(value);
+  return type.kind === TypeKind.Array ? type : null;
+}
+
+function elementEvidenceOf(
+  array: ArrayType | null,
+  element: ArrayElementNaming | null,
+  classes: ClassTable,
+  demanded: readonly string[],
+): readonly string[] {
+  const carried =
+    array === null
+      ? null
+      : declaredTypeOf(latticeFromElementsKind(array.elementsKind), classes);
+  const named = element === null || element.guessed ? null : element.held;
+  const found = carried === null ? [] : [carried];
+  if (named !== null && named !== carried) found.push(named);
+  if (found.length > 0 || demanded.length > 0) return [...found, ...demanded];
+  return element === null ? [] : [element.held];
+}
+
+function annotatedGlobals(module: ModuleIR): ReadonlyMap<string, string | null> {
+  const annotated = new Map<string, string | null>();
+  for (const unit of module.units) {
+    for (const block of unit.graph.blocks) {
+      for (const node of block.nodes) {
+        const name = globalNameOf(node);
+        const declared = declaredGlobalTypeOf(node);
+        if (name === null || declared === null) continue;
+        const carried = annotated.get(name);
+        annotated.set(name, carried === undefined || carried === declared ? declared : null);
+      }
+    }
+  }
+  return annotated;
+}
+
+function preferredTypeName(
+  annotation: string | null,
+  classes: ClassTable,
+  evidence: readonly string[],
+): string | null {
+  if (annotation !== null && holdsEveryTypeName(classes, annotation, evidence)) return annotation;
+  return joinedTypeName(classes, evidence);
+}
+
+function preferredElementName(
+  annotation: string | null,
+  classes: ClassTable,
+  evidence: readonly string[],
+): string | null {
+  return preferredTypeName(
+    annotation === null ? null : arrayElementType(annotation),
+    classes,
+    evidence,
+  );
+}
+
+function observe(stored: Map<string, Set<string>>, name: string, declared: string): void {
+  const observed = stored.get(name);
+  if (observed === undefined) stored.set(name, new Set<string>([declared]));
+  else observed.add(declared);
 }
 
 export function declareGlobalVariables(module: ModuleIR, classes: ClassTable): number {
@@ -171,6 +270,7 @@ export function declareGlobalVariables(module: ModuleIR, classes: ClassTable): n
   const rejected = new Set<string>();
   const inferred = typesByUnit(module);
   const demandedByName = demandedElements(module, classes, inferred);
+  const annotatedByName = annotatedGlobals(module);
   for (const unit of module.units) {
     const types = inferred.get(unit)!;
     for (const block of unit.graph.blocks) {
@@ -183,19 +283,28 @@ export function declareGlobalVariables(module: ModuleIR, classes: ClassTable): n
           rejected.add(name);
           continue;
         }
-        const held = storedTypeName(value, unit.graph, classes, types);
-        const demanded =
-          held !== null && types.typeOf(value).kind === TypeKind.Array
-            ? demandedByName.get(name) ?? null
-            : null;
-        const declared = demanded === null ? held : arrayOfType(demanded);
-        if (declared === null) continue;
-        let observed = stored.get(name);
-        if (observed === undefined) {
-          observed = new Set<string>();
-          stored.set(name, observed);
+        const annotation = annotatedByName.get(name) ?? null;
+        const array = arrayTypeOf(value, types);
+        const naming = arrayElementNamingOf(value, unit.graph, classes, types);
+        if (array === null && naming === null) {
+          const held = storedTypeName(value, classes, types);
+          if (held === null) continue;
+          observe(stored, name, preferredTypeName(annotation, classes, [held]) ?? held);
+          continue;
         }
-        observed.add(declared);
+        const evidence = elementEvidenceOf(
+          array,
+          naming,
+          classes,
+          demandedByName.get(name) ?? [],
+        );
+        if (evidence.length === 0 && annotation === null) continue;
+        const element = preferredElementName(annotation, classes, evidence);
+        if (element === null) {
+          rejected.add(name);
+          continue;
+        }
+        observe(stored, name, arrayOfType(element));
       }
     }
   }

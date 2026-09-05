@@ -324,13 +324,24 @@ function answersUnnamed(
   );
 }
 
+export interface KnownElement<Held> {
+  readonly held: Held;
+  readonly guessed: boolean;
+}
+
+export type ArrayElementNaming = KnownElement<string>;
+
+function known<Held>(held: Held): KnownElement<Held> {
+  return { held, guessed: false };
+}
+
 function inferredElementOf(
   array: ArrayType,
   values: readonly CFGInstruction[],
   graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
-): LatticeType | null {
+): KnownElement<LatticeType> | null {
   const carried = latticeFromElementsKind(array.elementsKind);
   let joined: LatticeType = carried.kind === TypeKind.Any ? neverType() : carried;
   let absent = false;
@@ -341,8 +352,10 @@ function inferredElementOf(
     if (!absent && isStorableScalar(aotScalarOf(stored)) === null) return null;
     joined = joinTypes(joined, stored)!;
   }
-  if (heldTypeOf(joined, classes) !== null) return joined;
-  return absent ? null : sharedClass(values, classes, types) ?? doubleType();
+  if (heldTypeOf(joined, classes) !== null) return known(joined);
+  if (absent) return null;
+  const shared = sharedClass(values, classes, types);
+  return shared === null ? { held: doubleType(), guessed: true } : known(shared);
 }
 
 function holdsEvery(
@@ -365,15 +378,16 @@ function elementTypeOf(
   graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
-): LatticeType | null {
+): KnownElement<LatticeType> | null {
   const array = types.typeOf(allocation);
   if (array.kind !== TypeKind.Array) return null;
   const values = storedValues(allocation);
   const inferred = inferredElementOf(array, values, graph, classes, types);
   if (inferred === null) return null;
   const demanded = demandedElementOf(allocation, graph, classes, types);
-  if (demanded === null || aotScalarOf(demanded) === aotScalarOf(inferred)) return inferred;
-  return holdsEvery(values, demanded, graph, classes, types) ? demanded : inferred;
+  if (demanded === null) return inferred;
+  if (aotScalarOf(demanded) === aotScalarOf(inferred.held)) return known(inferred.held);
+  return holdsEvery(values, demanded, graph, classes, types) ? known(demanded) : inferred;
 }
 
 function fits(value: AotScalar, element: AotScalar): boolean {
@@ -606,11 +620,14 @@ function literalElementNameOf(
   graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
-): string | null {
+): ArrayElementNaming | null {
   const element = elementTypeOf(array, graph, classes, types);
   if (element === null) return null;
-  if (element.kind === TypeKind.Array) return heldArrayNameOf(array, graph, classes, types);
-  return heldTypeOf(element, classes);
+  const name =
+    element.held.kind === TypeKind.Array
+      ? heldArrayNameOf(array, graph, classes, types)
+      : heldTypeOf(element.held, classes);
+  return name === null ? null : { held: name, guessed: element.guessed };
 }
 
 function heldArrayNameOf(
@@ -628,23 +645,32 @@ function heldArrayNameOf(
   return shared === null ? null : arrayOfType(shared);
 }
 
-export function arrayElementNameOf(
+export function arrayElementNamingOf(
   array: CFGInstruction | undefined,
   graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
-): string | null {
+): ArrayElementNaming | null {
   if (array === undefined || naming.has(array)) return null;
   naming.add(array);
   try {
     const model = arrayModelOf(array, graph, classes, types);
-    if (model !== null) return model.declaredType;
+    if (model !== null) return known(model.declaredType);
     return array.type === IR_NEW_ARRAY
       ? literalElementNameOf(array, graph, classes, types)
       : null;
   } finally {
     naming.delete(array);
   }
+}
+
+export function arrayElementNameOf(
+  array: CFGInstruction | undefined,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): string | null {
+  return arrayElementNamingOf(array, graph, classes, types)?.held ?? null;
 }
 
 export function arrayElementShapeOf(
@@ -736,7 +762,7 @@ function allocate(
   const carried = elementTypeOf(node, graph, classes, types);
   if (carried === null) return false;
   const named = nestedElementNameOf(declaredArrayTypeOf(node, graph, classes, types));
-  const model = modelOf(classes.defineArray(carried, named ?? undefined), classes);
+  const model = modelOf(classes.defineArray(carried.held, named ?? undefined), classes);
   if (model === null) return false;
   adoptElementShape(storedValues(node), model.elementShape, classes);
   for (const value of node.inputs) {

@@ -1,4 +1,8 @@
-import type { CallingConvention, RuntimeAbi } from "../../target/abi.js";
+import {
+  STACK_GUARD_GRANULE_BYTES,
+  type CallingConvention,
+  type RuntimeAbi,
+} from "../../target/abi.js";
 import type { RegisterFile } from "../../target/registers.js";
 import {
   RISCV_CALLEE_SAVED,
@@ -41,6 +45,7 @@ export function riscvAbi(): RiscvAbi {
       pointerWidthBytes: 8,
       stackAlignmentBytes: 16,
       entryStackAdjustBytes: 0,
+      stackProbeBytes: STACK_GUARD_GRANULE_BYTES,
       framePointer: registers.register("s0"),
       stackPointer: registers.register("sp"),
       savedOnCall: registers.select(["ra"]),

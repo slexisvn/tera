@@ -6,11 +6,14 @@ import { join } from "node:path";
 import { it } from "vitest";
 import type { AotProgram } from "../../src/optimizing/drivers/aot.js";
 import { cCompiler } from "./c-executor.js";
-import { BINARY, build } from "./c-toolchain.js";
+import { BINARY, TEXT_WRITER, TEXT_WRITER_SOURCE, build } from "./c-toolchain.js";
+import { codeUnitArrayLiteral } from "../../src/optimizing/target/text-literal.js";
+import { C_CHAR, C_STRING } from "../../src/optimizing/target/c-types.js";
 
 export type NativeArgument = number | string;
 
-const PROTOTYPE = /^(int32_t|double|const char \*)\s*(\w+)\s*\(([^)]*)\);$/gm;
+const PROTOTYPE = /^(int32_t|double|const tera_char \*)\s*(\w+)\s*\(([^)]*)\);$/gm;
+const RESULT_MARK = 1;
 
 export const itAssembles = it.skipIf(cCompiler === null);
 
@@ -36,7 +39,7 @@ function parameterTypes(params: string): string[] {
   if (trimmed.length === 0 || trimmed === "void") return [];
   return trimmed.split(",").map((param) => {
     const text = param.trim();
-    if (text.startsWith("const char *")) return "const char *";
+    if (text.startsWith(C_STRING)) return C_STRING;
     const match = text.match(/^(int32_t|double)\s+\w+$/);
     if (!match) throw new Error(`unsupported parameter: ${param}`);
     return match[1]!;
@@ -44,9 +47,9 @@ function parameterTypes(params: string): string[] {
 }
 
 function literal(type: string, value: NativeArgument): string {
-  if (type === "const char *") {
+  if (type === C_STRING) {
     if (typeof value !== "string") throw new Error(`expected a string argument, got ${value}`);
-    return JSON.stringify(value);
+    return `(const ${C_CHAR}[])${codeUnitArrayLiteral(value)}`;
   }
   if (typeof value !== "number") throw new Error(`expected a numeric argument, got ${value}`);
   if (type === "int32_t") return `(int32_t)${Math.trunc(value)}`;
@@ -79,12 +82,14 @@ function mainSource(
 ): string {
   const { call, returns } = callExpression(header, symbol, args);
   const print =
-    returns === "const char *"
-      ? `printf("%s", ${call});`
+    returns === C_STRING
+      ? `${TEXT_WRITER}(${call});`
       : `printf("%.17g\\n", (double)${call});`;
   return [
     "#include <stdio.h>",
     '#include "program.h"',
+    "",
+    ...TEXT_WRITER_SOURCE,
     "",
     "int main(void) {",
     `  ${print}`,
@@ -150,15 +155,25 @@ export function runNativeStringFunction(
 
 export type NativeCall = { readonly symbol: string; readonly args: readonly NativeArgument[] };
 
-const RESULT_SEPARATOR = "\\1";
-const RESULT_BYTE = "\u0001";
+const RESULT_BYTE = String.fromCharCode(RESULT_MARK);
 
 function batchMain(header: string, calls: readonly NativeCall[]): string {
-  const prints = calls.map((entry) => {
+  const prints = calls.flatMap((entry) => {
     const { call } = callExpression(header, entry.symbol, entry.args);
-    return `  printf("%s${RESULT_SEPARATOR}", ${call});`;
+    return [`  ${TEXT_WRITER}(${call});`, `  putchar(${RESULT_MARK});`];
   });
-  return ["#include <stdio.h>", '#include "program.h"', "", "int main(void) {", ...prints, "  return 0;", "}", ""].join("\n");
+  return [
+    "#include <stdio.h>",
+    '#include "program.h"',
+    "",
+    ...TEXT_WRITER_SOURCE,
+    "",
+    "int main(void) {",
+    ...prints,
+    "  return 0;",
+    "}",
+    "",
+  ].join("\n");
 }
 
 export function runNativeStringBatch(

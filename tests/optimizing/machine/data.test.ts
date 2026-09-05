@@ -5,8 +5,10 @@ import {
   dataItemSize,
   dataItemText,
   machineDataText,
+  utf16Data,
   type MachineDataItem,
 } from "../../../src/optimizing/machine/data.js";
+import { TEXT_UNIT_BYTES } from "../../../src/optimizing/types/scalar.js";
 import type { MachineDatum } from "../../../src/optimizing/machine/ir.js";
 
 const DELETE_BYTE = 0x7f;
@@ -75,6 +77,50 @@ describe("machineDataText escaping", () => {
     });
 
     expect(text).toContain('\t.asciz "Xin ch\\303\\240o"');
+    expect(text).not.toContain(NON_ASCII_TEXT);
+  });
+});
+
+const SUPPLEMENTARY_TEXT = "done ✅ 🚀";
+
+function shortsOf(text: string): number[] {
+  const spelled = text.slice(text.indexOf(" ") + 1);
+  return spelled.split(", ").map((unit) => Number.parseInt(unit, 16));
+}
+
+describe("dataItemText for text held as code units", () => {
+  it("keeps a character outside ASCII as one unit rather than its UTF-8 bytes", () => {
+    expect(shortsOf(dataItemText(utf16Data("à")))).toEqual(["à".charCodeAt(0), 0]);
+    expect(dataItemBytes(asciiData("à", false))).toEqual([0xc3, 0xa0]);
+  });
+
+  it("spells a supplementary character as the surrogate pair it is stored as", () => {
+    const rocket = "🚀";
+
+    expect(shortsOf(dataItemText(utf16Data(rocket)))).toEqual([0xd83d, 0xde80, 0]);
+  });
+
+  it("lays every unit out low byte first and terminates the run", () => {
+    expect(dataItemBytes(utf16Data("hà"))).toEqual([0x68, 0x00, 0xe0, 0x00, 0x00, 0x00]);
+  });
+
+  it("sizes the datum by the units it holds and the terminator", () => {
+    for (const text of ["", "abc", SUPPLEMENTARY_TEXT]) {
+      const item = utf16Data(text);
+
+      expect(dataItemSize(item)).toBe((text.length + 1) * TEXT_UNIT_BYTES);
+      expect(dataItemBytes(item)).toHaveLength(dataItemSize(item));
+      expect(shortsOf(dataItemText(item))).toHaveLength(text.length + 1);
+    }
+  });
+
+  it("carries the units into the section it lays the datum out in", () => {
+    const text = machineDataText([datum([utf16Data(NON_ASCII_TEXT)])], {
+      readOnly: READ_ONLY_SECTION,
+      writable: WRITABLE_SECTION,
+    });
+
+    expect(text).toContain("\t.short ");
     expect(text).not.toContain(NON_ASCII_TEXT);
   });
 });

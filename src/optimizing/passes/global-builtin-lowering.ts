@@ -21,6 +21,7 @@ import {
   NUMBER_BUILTIN,
   PARSE_FLOAT_BUILTIN,
   STRING_BUILTIN,
+  WHOLE_TEXT_PROP,
   TO_STRING_MEMBER,
   type BuiltinIntrinsic,
 } from "../metadata/builtin-methods.js";
@@ -71,7 +72,14 @@ function parseLowering(
   }
   const intrinsic = builtinGlobalIntrinsicByName(PARSE_FLOAT_BUILTIN);
   if (intrinsic === null) return null;
-  return { node, callee: node.inputs[0]!, operands: [value], defaults: 0, intrinsic };
+  return {
+    node,
+    callee: node.inputs[0]!,
+    operands: [value],
+    defaults: 0,
+    intrinsic,
+    wholeText: true,
+  };
 }
 
 function alreadyNumeric(
@@ -163,6 +171,7 @@ type Lowering = {
   readonly operands: readonly CFGInstruction[];
   readonly defaults: number;
   readonly intrinsic: BuiltinIntrinsic;
+  readonly wholeText?: boolean;
 };
 
 function loweringFor(node: CFGInstruction): Lowering | null {
@@ -179,7 +188,7 @@ function loweringFor(node: CFGInstruction): Lowering | null {
 type Stamp = (node: CFGInstruction) => CFGInstruction;
 
 function applyLowering(editor: GraphEditor, lowering: Lowering, stamp: Stamp): void {
-  const { node, callee, operands, defaults, intrinsic } = lowering;
+  const { node, callee, operands, defaults, intrinsic, wholeText } = lowering;
   const arguments_ = [...operands];
   for (let index = 0; index < defaults; index++) {
     const omitted = stamp(irConstant(OMITTED_STRING));
@@ -189,6 +198,7 @@ function applyLowering(editor: GraphEditor, lowering: Lowering, stamp: Stamp): v
   const replacement = stamp(
     irCallBuiltin(intrinsic.qualifiedName, arguments_, builtinMethodCallMetadata(intrinsic)),
   );
+  if (wholeText === true) replacement.props[WHOLE_TEXT_PROP] = true;
   if (irRequiresFrameState(replacement)) replacement.frameState = node.frameState;
   editor.insertBefore(node, replacement);
   editor.replaceAllUses(node, replacement);

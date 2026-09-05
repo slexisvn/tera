@@ -1,3 +1,4 @@
+import type { RuntimeAbi } from "../../target/abi.js";
 import type { NativeRuntimeRoutine } from "../../target/artifact.js";
 import type { RegisterFile } from "../../target/registers.js";
 import {
@@ -527,6 +528,7 @@ export function riscvProgramEntry(
 
 export function riscvRuntimeRoutines(
   registers: RegisterFile,
+  abi: RuntimeAbi,
 ): ReadonlyMap<string, NativeRuntimeRoutine> {
   const definitions: readonly (readonly [
     string,
@@ -553,7 +555,7 @@ export function riscvRuntimeRoutines(
     [RISCV_RUNTIME_SYMBOLS.throwError, throwError],
     [RISCV_RUNTIME_SYMBOLS.printFloat, printFloat],
     ...riscvFloatTextRoutines(),
-    ...riscvHeapRoutines(),
+    ...riscvHeapRoutines(abi),
   ];
   return new Map(
     definitions.map(([symbol, define]) => [

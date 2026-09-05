@@ -96,6 +96,7 @@ export abstract class MachineLoweringBase<TTarget extends MachineTargetModel>
   ): readonly MachineInstruction[];
 
   protected abstract adjustStack(delta: number): MachineInstruction[];
+  protected abstract callStackProbe(bytes: number): readonly MachineInstruction[];
   protected abstract frameSlotAccess(saved: SavedRegister, store: boolean): MachineInstruction;
   protected abstract enterRoots(frame: FrameLayout): readonly MachineInstruction[];
   protected abstract leaveRoots(frame: FrameLayout): readonly MachineInstruction[];
@@ -213,6 +214,12 @@ export abstract class MachineLoweringBase<TTarget extends MachineTargetModel>
     });
   }
 
+  protected probeStack(frameSize: number): readonly MachineInstruction[] {
+    const abi = this.target.abi;
+    if (frameSize + abi.pointerWidthBytes <= abi.stackProbeBytes) return [];
+    return this.callStackProbe(frameSize);
+  }
+
   prologue(frame: FrameLayout): readonly MachineInstruction[] {
     const establishing = [
       ...this.adjustStack(-frame.frameSize),
@@ -221,7 +228,7 @@ export abstract class MachineLoweringBase<TTarget extends MachineTargetModel>
     for (const node of establishing) {
       (node.flags as { prologue?: boolean }).prologue = true;
     }
-    return [...establishing, ...this.enterRoots(frame)];
+    return [...this.probeStack(frame.frameSize), ...establishing, ...this.enterRoots(frame)];
   }
 
   epilogue(frame: FrameLayout): readonly MachineInstruction[] {

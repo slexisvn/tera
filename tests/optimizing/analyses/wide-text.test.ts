@@ -3,6 +3,7 @@ import {
   CFGFunction,
   irCallBuiltin,
   irConstant,
+  irCallKnownFunction,
   irGenericAdd,
   irLoadField,
   irReturn,
@@ -19,6 +20,7 @@ import {
   BYTEWISE_PROP,
 } from "../../../src/optimizing/analyses/wide-text.js";
 import { INPUT_BUILTIN } from "../../../src/optimizing/metadata/builtin-methods.js";
+import { PARSE_FLOAT_FUNCTION } from "../../../src/optimizing/prelude/parse-number.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -170,6 +172,23 @@ describe("the values that may hold text outside ASCII", () => {
     expect(model.escapes).toBe(true);
     expect(model.reason).toBe("holds");
   });
+
+  for (const [callee, escapes] of [
+    [PARSE_FLOAT_FUNCTION, false],
+    ["width", true],
+  ] as const) {
+    it(`${escapes ? "reports" : "reports no"} escape for text handed to ${callee}`, () => {
+      let answered: CFGInstruction | null = null;
+      const graph = graphHolding((_graph, add) => {
+        const typed = add(irCallBuiltin(INPUT_BUILTIN, [add(irConstant("? "))]));
+        answered = add(irCallKnownFunction({ name: callee } as never, [typed]));
+        add(irReturn(answered));
+      });
+      const isText = (value: CFGInstruction) => value !== answered;
+
+      expect(summarizeWideText([{ graph, isText }]).escapes).toBe(escapes);
+    });
+  }
 
   it("treats the text a program reads from outside itself as wide", () => {
     let typed: CFGInstruction | null = null;

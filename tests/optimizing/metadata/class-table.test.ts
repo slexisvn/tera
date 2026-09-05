@@ -6,6 +6,7 @@ import type {
 import {
   buildClassTable,
   callableOf,
+  canonicalTypeName,
   carriesMember,
   type ClassShape,
   type ClassTable,
@@ -13,7 +14,9 @@ import {
   constructorFieldDisagreement,
   descendsFrom,
   ITERATOR_MEMBER,
+  holdsEveryTypeName,
   joinedLiteralShape,
+  joinedTypeName,
   literalShapeSurface,
   sameFieldLayout,
   STEP_MEMBER,
@@ -684,5 +687,60 @@ describe("stepsItself", () => {
 
   it("fails for a shape that hands out an iterator but cannot step", () => {
     expect(stepsItself(ranger([hookAnswering(RANGER, "method")]))).toBe(false);
+  });
+});
+
+describe("naming the type a set of declared names join into", () => {
+  const classes = (): ClassTable => buildClassTable([]);
+
+  it("keeps a name every contributor agrees on", () => {
+    expect(joinedTypeName(classes(), ["int", "int"])).toBe("int");
+  });
+
+  it("widens a whole number and a fraction into the fraction", () => {
+    expect(joinedTypeName(classes(), ["int", "float"])).toBe("float");
+  });
+
+  it("answers nothing for names that hold nothing in common", () => {
+    expect(joinedTypeName(classes(), ["string", "int"])).toBeNull();
+  });
+
+  it("answers nothing when there is nothing to join", () => {
+    expect(joinedTypeName(classes(), [])).toBeNull();
+  });
+
+  it("reduces a declared name to the one the lattice answers for it", () => {
+    const table = classes();
+
+    expect(canonicalTypeName(table, "int")).toBe("int");
+    expect(canonicalTypeName(table, "int | null")).toBe("int | null");
+  });
+});
+
+describe("deciding whether a declared type holds everything stored in it", () => {
+  const classes = (): ClassTable => buildClassTable([]);
+
+  it("holds names that are the declared one", () => {
+    expect(holdsEveryTypeName(classes(), "int", ["int", "int"])).toBe(true);
+  });
+
+  it("holds a narrower number in a wider one", () => {
+    expect(holdsEveryTypeName(classes(), "float", ["int", "float"])).toBe(true);
+  });
+
+  it("refuses a wider number in a narrower one", () => {
+    expect(holdsEveryTypeName(classes(), "int", ["float"])).toBe(false);
+  });
+
+  it("refuses a name that shares nothing with the declared type", () => {
+    expect(holdsEveryTypeName(classes(), "string", ["int"])).toBe(false);
+  });
+
+  it("holds a value in a type that admits an absence beside it", () => {
+    expect(holdsEveryTypeName(classes(), "int | null", ["int"])).toBe(true);
+  });
+
+  it("holds when nothing was stored at all", () => {
+    expect(holdsEveryTypeName(classes(), "int", [])).toBe(true);
   });
 });

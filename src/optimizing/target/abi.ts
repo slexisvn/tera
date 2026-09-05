@@ -12,11 +12,14 @@ export interface CallingConvention {
   readonly stackArgumentSlotBytes: number;
 }
 
+export const STACK_GUARD_GRANULE_BYTES = 1 << 12;
+
 export interface RuntimeAbi {
   readonly name: string;
   readonly pointerWidthBytes: number;
   readonly stackAlignmentBytes: number;
   readonly entryStackAdjustBytes: number;
+  readonly stackProbeBytes: number;
   readonly framePointer: PhysicalRegister;
   readonly stackPointer: PhysicalRegister;
   readonly savedOnCall: readonly PhysicalRegister[];

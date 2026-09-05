@@ -15,10 +15,18 @@ import { DominatorTree } from "../analyses/dominance.js";
 
 type Stamp = (node: CFGInstruction) => CFGInstruction;
 
+export const DECLARED_TYPE_PROP = "declaredType";
+
 export function globalNameOf(node: CFGInstruction): string | null {
   if (node.type !== IR_LOAD_GLOBAL && node.type !== IR_STORE_GLOBAL) return null;
   const name = node.props.name;
   return typeof name === "string" ? name : null;
+}
+
+export function declaredGlobalTypeOf(node: CFGInstruction): string | null {
+  if (globalNameOf(node) === null) return null;
+  const declared = node.props[DECLARED_TYPE_PROP];
+  return typeof declared === "string" ? declared : null;
 }
 
 function assignedBlocks(

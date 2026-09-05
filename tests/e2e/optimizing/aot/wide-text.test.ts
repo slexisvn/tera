@@ -4,6 +4,8 @@ import { itRunsPe } from "../../../helpers/pe-runner.js";
 import { itNative } from "../../../helpers/c-executor.js";
 import { cAgreement, peAgrees } from "../../../helpers/aot-agreement.js";
 import { compilerOptions } from "../../../../src/optimizing/options.js";
+import { TEXT_BUFFER_MINIMUM_BYTES } from "../../../../src/optimizing/types/scalar.js";
+import { characterCapacity } from "../../../../src/optimizing/target/text-literal.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
@@ -64,6 +66,22 @@ const AGREEING: readonly (readonly [string, string])[] = [
     src('line = "Hà Nội,Huế,Đà Nẵng"', 'for p of line.split(","):', "  print(p)"),
   ],
   [
+    "splits it on a separator outside ASCII",
+    src('line = "Hà Nộiộ Huếộ Đà Nẵng"', 'for p of line.split("ộ"):', "  print(p)"),
+  ],
+  [
+    "splits it on a separator outside ASCII keeping only some pieces",
+    src('line = "Hà Nộiộ Huếộ Đà Nẵng"', 'for p of line.split("ộ", 2):', "  print(p)"),
+  ],
+  [
+    "splits it into its characters",
+    src('for p of "Huế".split(""):', "  print(p)"),
+  ],
+  [
+    "splits it into its characters keeping only some",
+    src('for p of "Huế".split("", 2):', "  print(p)"),
+  ],
+  [
     "splits it on a separator inside ASCII keeping only some pieces",
     src('line = "Hà Nội,Huế,Đà Nẵng"', 'for p of line.split(",", 2):', "  print(p)"),
   ],
@@ -83,86 +101,36 @@ const AGREEING: readonly (readonly [string, string])[] = [
       "print(`Tổng: ${tong.to_fixed(0)} đồng`)",
     ),
   ],
-];
-
-const REFUSED: readonly (readonly [string, string, string])[] = [
   [
-    "counting the characters of text outside ASCII",
+    "counts its characters",
     src('c = "Hà Nội"', "print(c.length)"),
-    "string.length counts characters",
   ],
   [
-    "taking a character out of it by position",
+    "takes a character out of it by position",
     src('c = "Huế"', "print(c.char_at(1))"),
-    "string.char_at counts characters",
   ],
   [
-    "slicing it by position",
+    "slices it by position",
     src('c = "Huế"', "print(c.slice(0, 2))"),
-    "string.slice counts characters",
   ],
   [
-    "asking where a substring sits inside it",
+    "asks where a substring sits inside it",
     src('c = "Hà Nội"', 'print(c.index_of("Nội"))'),
-    "string.index_of counts characters",
   ],
   [
-    "changing its case",
-    src('c = "Huế"', "print(c.to_upper_case())"),
-    "string.to_upper_case counts characters",
-  ],
-  [
-    "trimming it",
-    src('c = "  Huế  "', "print(c.trim())"),
-    "string.trim counts characters",
-  ],
-  [
-    "padding it to a width",
+    "pads it to a width",
     src('c = "Huế"', 'print(c.pad_start(8, "."))'),
-    "string.pad_start counts characters",
   ],
   [
-    "splitting it into single characters",
-    src('for ch of "Hà".split(""):', "  print(ch)"),
-    "counts characters",
-  ],
-  [
-    "splitting on a separator outside ASCII",
-    src('for p of "aộb".split("ộ"):', "  print(p)"),
-    "split compiles when its separator is one spelled-out character",
-  ],
-  [
-    "splitting on a separator outside ASCII with a count of pieces",
-    src('for p of "aộb".split("ộ", 2):', "  print(p)"),
-    "split compiles when its separator is one spelled-out character",
-  ],
-  [
-    "splitting it into a counted run of single characters",
-    src('for ch of "Hà".split("", 2):', "  print(ch)"),
-    "counts characters",
-  ],
-  [
-    "ordering it against other text",
-    src('a = "Huế"', 'b = "Hà"', "print(a < b)"),
-    "ordering text with < counts characters",
-  ],
-  [
-    "asking where a substring last sits inside it",
+    "asks where a substring last sits inside it",
     src('c = "Hà Nội Hà"', 'print(c.last_index_of("Hà"))'),
-    "string.length counts characters",
   ],
   [
-    "counting the characters of a line the program read",
-    src('name = input("? ")', "print(name.length)"),
-    "string.length counts characters",
+    "orders it against other text",
+    src('a = "Huế"', 'b = "Hà"', "print(a < b, b < a)"),
   ],
   [
-    "indexing into a line the program read",
-    src('name = input("? ")', "print(name.char_at(0))"),
-    "string.char_at counts characters",
-  ],
-  [
-    "measuring text a function was handed once some escaped the module",
+    "measures text a function was handed once some escaped the module",
     src(
       "fn measure(s: string) -> int:",
       "  return s.length",
@@ -170,7 +138,19 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
       "for c of cities:",
       "  print(measure(c))",
     ),
-    "string.length counts characters",
+  ],
+];
+
+const REFUSED: readonly (readonly [string, string, string])[] = [
+  [
+    "changing its case",
+    src('c = "Huế"', "print(c.to_upper_case())"),
+    "string.to_upper_case maps characters the way Unicode says",
+  ],
+  [
+    "trimming it",
+    src('c = "  Huế  "', "print(c.trim())"),
+    "string.trim maps characters the way Unicode says",
   ],
 ];
 
@@ -200,19 +180,31 @@ describe("what a compiled program refuses to do with text outside ASCII", () => 
     ).toBe("");
   });
 
+  it("counts the characters of a line the program read", () => {
+    expect(refusal(src('name = input("? ")', "print(name.length, name.char_at(0))"))).toBe("");
+  });
+
   it("still counts the characters of ASCII text in a program that also holds wide text", () => {
     expect(refusal(src('print("Chào")', 'code = "ab"', "print(code.length)"))).toBe("");
   });
 
-  it("measures a constant against the bytes it takes, not the characters", () => {
-    const wide = "é".repeat(200);
-    const program = nodeEngine({ typecheck: "off" }).compileAot(`print("${wide}")\n`, {
-      backend: "x64-windows",
-      format: "assembly",
-      compilerOptions: compilerOptions("speed", { textBufferBytes: 256 }),
-    });
-    expect(program.skipped.map((one) => one.reason).join(" | ")).toContain(
-      "bytes a compiled string holds",
+  it("measures a constant in the characters the buffer holds, not its bytes", () => {
+    const room = characterCapacity(TEXT_BUFFER_MINIMUM_BYTES);
+    const refusalFor = (wide: string) =>
+      nodeEngine({ typecheck: "off" })
+        .compileAot(`print("${wide}")\n`, {
+          backend: "x64-windows",
+          format: "assembly",
+          compilerOptions: compilerOptions("speed", {
+            textBufferBytes: TEXT_BUFFER_MINIMUM_BYTES,
+          }),
+        })
+        .skipped.map((one) => one.reason)
+        .join(" | ");
+
+    expect(refusalFor("é".repeat(room))).toBe("");
+    expect(refusalFor("é".repeat(room + 1))).toContain(
+      `longer than the ${room} characters a compiled string holds`,
     );
   });
 });

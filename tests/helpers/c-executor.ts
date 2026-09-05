@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, inject, it } from "vitest";
 import { removeDirectory } from "./workspace.js";
-import { BINARY, INCLUDES, build } from "./c-toolchain.js";
+import { BINARY, INCLUDES, TEXT_WRITER, TEXT_WRITER_SOURCE, build } from "./c-toolchain.js";
+import { codeUnitArrayLiteral } from "../../src/optimizing/target/text-literal.js";
+import { C_STRING } from "../../src/optimizing/target/c-types.js";
 import { cIdentifier } from "../../src/optimizing/backends/c/emit.js";
 import { PROGRAM_ENTRY_NAME } from "../../src/optimizing/target/program-entry.js";
 import type { AotProgram } from "../../src/optimizing/drivers/aot.js";
@@ -19,17 +21,18 @@ export interface CProgramRun {
 export const cCompiler = inject("cCompiler");
 export const itNative = it.skipIf(cCompiler === null);
 
-const DEFINITION = /^(int32_t|double|void|tera_fn|const char \*|unsigned char \*)\s*(\w+)\s*\(([^)]*)\)\s*\{/gm;
-const POINTER_PARAMETER = /^(const char|unsigned char) \*\w*$/;
+const DEFINITION = /^(int32_t|double|void|tera_fn|const tera_char \*|unsigned char \*)\s*(\w+)\s*\(([^)]*)\)\s*\{/gm;
+const POINTER_PARAMETER = /^(const tera_char|unsigned char) \*\w*$/;
 const VALUE_PARAMETER = /^(int32_t|double|tera_fn)\s+\w+$/;
 const LOCAL_INCLUDE = /^#include\s+"[^"]*"\s*$/gm;
 const TOKEN = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[A-Za-z_]\w*/g;
 const NEWLINE = /\r\n/g;
+const NOT_A_NUMBER = /^-?nan(\([^)]*\))?$/i;
 const UNIT_SUFFIX = "_u";
 const RUN_TIMEOUT_MS = 30_000;
 const UNSELECTED_STATUS = 97;
 const BATCH_SIZE = 64;
-const TEXT_RETURN = "const char *";
+const TEXT_RETURN = C_STRING;
 
 interface Definition {
   readonly returns: string;
@@ -116,7 +119,7 @@ function parameterTypes(params: string): string[] {
 function literal(type: string, value: CArgument): string {
   if (type === TEXT_RETURN) {
     if (typeof value !== "string") throw new Error(`expected a string argument, got ${value}`);
-    return JSON.stringify(value);
+    return `(${TEXT_RETURN.replace(" *", "[]")})${codeUnitArrayLiteral(value)}`;
   }
   if (typeof value !== "number") throw new Error(`expected a numeric argument, got ${value}`);
   if (type === "int32_t") return `(int32_t)${Math.trunc(value)}`;
@@ -172,7 +175,7 @@ function callCase(unit: Unit, symbol: string, args: readonly CArgument[]): Case 
   const call = `${definition.name}(${types.map((type, index) => literal(type, args[index]!)).join(", ")})`;
   const print =
     definition.returns === TEXT_RETURN
-      ? `printf("%s", ${call});`
+      ? `${TEXT_WRITER}(${call});`
       : `printf("%.17g\\n", (double)${call});`;
   return { declaration: prototypeOf(definition), statements: [print, "return 0;"] };
 }
@@ -184,6 +187,7 @@ function dispatchMain(selected: ReadonlyMap<number, Case>): string {
   }
   return [
     ...INCLUDES,
+    ...TEXT_WRITER_SOURCE,
     ...[...selected.values()].map((entry) => entry.declaration),
     "int main(int argc, char **argv) {",
     "  switch (argc > 1 ? atoi(argv[1]) : -1) {",
@@ -289,8 +293,9 @@ function textOf(symbol: string, result: CaseResult): string {
 
 function numberOf(symbol: string, result: CaseResult): number {
   const stdout = textOf(symbol, result);
-  const value = Number(stdout.trim());
-  if (Number.isNaN(value) && stdout.trim() !== "nan") {
+  const printed = stdout.trim();
+  const value = Number(printed);
+  if (Number.isNaN(value) && !NOT_A_NUMBER.test(printed)) {
     throw new Error(`unexpected output for ${symbol}: ${stdout}`);
   }
   return value;

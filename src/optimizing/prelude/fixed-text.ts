@@ -6,6 +6,7 @@ import {
   NodeType,
   type ASTNode,
 } from "../../frontend/ast/index.js";
+import { float } from "./spelling.js";
 
 export const FIXED_TEXT_MEMBER = "to_fixed";
 export const FIXED_TEXT_FUNCTION = "_fixed_text";
@@ -46,11 +47,6 @@ const RANGE_FAULT = `toFixed() digits argument must be between 0 and ${MOST_DIGI
 const NOT_A_NUMBER_TEXT = "NaN";
 const INFINITY_TEXT = "Infinity";
 const NEGATIVE_INFINITY_TEXT = `-${INFINITY_TEXT}`;
-
-function float(value: number): string {
-  const spelled = String(value).replace("e+", "e");
-  return spelled.includes(".") || spelled.includes("e") ? spelled : `${spelled}.0`;
-}
 
 function textClass(): readonly string[] {
   return [

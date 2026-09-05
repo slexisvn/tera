@@ -16,6 +16,7 @@ import {
 import { TypeKind } from "../types/lattice.js";
 import type { DeclaredDefault, DeclaredSignature } from "../types/signature.js";
 import type { TypeInference } from "../analyses/type-inference.js";
+import type { ModuleIR } from "../compilation-unit.js";
 import type { ClassShape, ClassTable } from "./class-table.js";
 import { FIELD_TYPE_PROP, VALUE_CLASS_PROP } from "./class-table.js";
 
@@ -27,6 +28,40 @@ interface CallTarget {
 export function calleeDeclaredSignature(node: CFGInstruction): DeclaredSignature | null {
   const target = node.props.target as CallTarget | undefined;
   return target?.declaredSignature ?? null;
+}
+
+export function moduleSignatures(module: ModuleIR): Map<string, DeclaredSignature> {
+  const signatures = new Map<string, DeclaredSignature>();
+  for (const unit of module.units) {
+    const declared = unit.graph.declaredSignature;
+    if (declared !== null) signatures.set(unit.graph.name, declared);
+  }
+  return signatures;
+}
+
+function calleeSignatureOf(
+  call: CFGInstruction,
+  signatures: ReadonlyMap<string, DeclaredSignature> | null,
+): DeclaredSignature | null {
+  const name = calleeNameOf(call);
+  const declared = name === null || signatures === null ? undefined : signatures.get(name);
+  return declared ?? calleeDeclaredSignature(call);
+}
+
+export function declaredSignaturesOf(module: ModuleIR): CalleeSignatures {
+  const signatures = moduleSignatures(module);
+  return (call) => calleeSignatureOf(call, signatures);
+}
+
+export function carryModuleSignatures(module: ModuleIR): number {
+  const signatures = moduleSignatures(module);
+  let carried = 0;
+  for (const unit of module.units) {
+    if (unit.graph.calleeSignatures !== null) continue;
+    unit.graph.calleeSignatures = signatures;
+    carried += 1;
+  }
+  return carried;
 }
 
 export function stampCalleeSignatures(
@@ -105,7 +140,7 @@ export function declaredTypeNameOf(
   if (value.type === IR_PARAMETER) {
     return graph.declaredSignature?.params[Number(value.props.index)] ?? null;
   }
-  return calleeDeclaredSignature(value)?.returns ?? null;
+  return calleeSignatureOf(value, graph.calleeSignatures)?.returns ?? null;
 }
 
 function parameterIndexOf(call: CFGInstruction, at: number): number {

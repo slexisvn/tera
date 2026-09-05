@@ -41,6 +41,7 @@ import {
 } from "../../../src/optimizing/types/scalar.js";
 import {
   arrayElementNameOf,
+  arrayElementNamingOf,
   arrayModelForDeclaredType,
   arrayModelOf,
   producedTypeName,
@@ -62,6 +63,9 @@ const modelOf = (graph: CFGFunction, value: CFGInstruction) =>
 
 const elementNameOf = (graph: CFGFunction, array: CFGInstruction) =>
   arrayElementNameOf(array, graph, graph.classes!, inferred(graph));
+
+const elementNamingOf = (graph: CFGFunction, array: CFGInstruction) =>
+  arrayElementNamingOf(array, graph, graph.classes!, inferred(graph));
 
 describe("arrayModelForDeclaredType", () => {
   it("carries an int array's element as a scalar with no element shape", () => {
@@ -570,5 +574,25 @@ describe("naming what an array literal holds", () => {
     stampElementTypes(graph, inferred(graph));
 
     expect(read.props[FIELD_TYPE_PROP]).toBe("int");
+  });
+
+  it("says it knows the element it read off what the literal holds", () => {
+    const { graph, array } = literal([1, 2]);
+
+    expect(elementNamingOf(graph, array)).toEqual({ held: "int", guessed: false });
+  });
+
+  it("says it only guessed the element of a literal that holds nothing", () => {
+    const { graph, array } = literal([]);
+
+    expect(elementNamingOf(graph, array)).toEqual({ held: "float", guessed: true });
+  });
+
+  it("hands the same name out either way to callers that want only the name", () => {
+    for (const values of [[1, 2], []]) {
+      const { graph, array } = literal(values);
+
+      expect(elementNameOf(graph, array)).toBe(elementNamingOf(graph, array)?.held);
+    }
   });
 });

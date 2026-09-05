@@ -14,17 +14,21 @@ import {
   IR_STORE_FIELD,
   IR_STORE_GLOBAL,
   IR_STORE_TEXT,
+  calleeNameOf,
   type CFGFunction,
   type CFGInstruction,
 } from "../ir/index.js";
+import { NUMBER_TEXT_READERS } from "../prelude/parse-number.js";
 import {
   builtinMethodIntrinsicByName,
   callsBuiltin,
   INPUT_BUILTIN,
   STRING_TYPE,
 } from "../metadata/builtin-methods.js";
+import { ASCII_LIMIT } from "../target/unicode.js";
 
-const ASCII_LIMIT = 0x7f;
+export const BYTEWISE_PROP = "bytewise";
+
 const encoder = new TextEncoder();
 
 export function utf8ByteLength(value: string): number {
@@ -70,9 +74,10 @@ const LEAVES_FOR_THE_HEAP: ReadonlySet<string> = new Set<string>([
 export interface WideTextModel {
   readonly escapes: boolean;
   readonly reason: string | null;
+  readonly exact: boolean;
 }
 
-export const NARROW_TEXT: WideTextModel = { escapes: false, reason: null };
+export const NARROW_TEXT: WideTextModel = { escapes: false, reason: null, exact: false };
 
 function spellsWideText(graph: CFGFunction): boolean {
   for (const block of graph.blocks) {
@@ -110,6 +115,12 @@ export function wideValuesIn(
   return wide;
 }
 
+function readsTextBytewise(node: CFGInstruction): boolean {
+  if (node.props[BYTEWISE_PROP] === true) return true;
+  const callee = calleeNameOf(node);
+  return callee !== null && NUMBER_TEXT_READERS.has(callee);
+}
+
 function letsTextEscape(
   graph: CFGFunction,
   wide: ReadonlySet<CFGInstruction>,
@@ -117,6 +128,7 @@ function letsTextEscape(
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
       if (!LEAVES_FOR_THE_HEAP.has(node.type)) continue;
+      if (readsTextBytewise(node)) continue;
       if (node.inputs.some((input) => wide.has(input))) return true;
     }
   }
@@ -128,7 +140,10 @@ export interface WideTextUnit {
   readonly isText: (value: CFGInstruction) => boolean;
 }
 
-export function summarizeWideText(units: readonly WideTextUnit[]): WideTextModel {
+export function summarizeWideText(
+  units: readonly WideTextUnit[],
+  exact = false,
+): WideTextModel {
   if (!units.some(({ graph }) => spellsWideText(graph))) return NARROW_TEXT;
 
   let escapes = false;
@@ -139,10 +154,10 @@ export function summarizeWideText(units: readonly WideTextUnit[]): WideTextModel
     escaping = graph.name;
     break;
   }
-  return { escapes, reason: escaping };
+  return { escapes, reason: escaping, exact };
 }
 
-export const COUNTS_CHARACTERS: ReadonlySet<string> = new Set<string>([
+const INDEXES_CHARACTERS: ReadonlySet<string> = new Set<string>([
   "length",
   "char_at",
   "char_code_at",
@@ -150,6 +165,9 @@ export const COUNTS_CHARACTERS: ReadonlySet<string> = new Set<string>([
   "index_of",
   "pad_start",
   "pad_end",
+]);
+
+const MAPS_UNICODE: ReadonlySet<string> = new Set<string>([
   "to_upper_case",
   "to_lower_case",
   "trim",
@@ -157,18 +175,41 @@ export const COUNTS_CHARACTERS: ReadonlySet<string> = new Set<string>([
   "trim_end",
 ]);
 
-export const BYTEWISE_PROP = "bytewise";
+const COUNTS_CHARACTERS: ReadonlySet<string> = new Set<string>([
+  ...INDEXES_CHARACTERS,
+  ...MAPS_UNICODE,
+]);
+
+function stringMemberOf(node: CFGInstruction): string | null {
+  if (node.type !== IR_CALL_BUILTIN || node.props[BYTEWISE_PROP] === true) return null;
+  const intrinsic = builtinMethodIntrinsicByName(String(node.props.name));
+  if (intrinsic === null || intrinsic.owner !== STRING_TYPE) return null;
+  return intrinsic.name;
+}
 
 export function countsCharacters(node: CFGInstruction): boolean {
-  if (node.type !== IR_CALL_BUILTIN || node.props[BYTEWISE_PROP] === true) return false;
-  const intrinsic = builtinMethodIntrinsicByName(String(node.props.name));
-  return (
-    intrinsic !== null && intrinsic.owner === STRING_TYPE && COUNTS_CHARACTERS.has(intrinsic.name)
-  );
+  const member = stringMemberOf(node);
+  return member !== null && COUNTS_CHARACTERS.has(member);
+}
+
+export function mapsUnicode(node: CFGInstruction): boolean {
+  const member = stringMemberOf(node);
+  return member !== null && MAPS_UNICODE.has(member);
 }
 
 export function isAsciiCharacterCode(code: number): boolean {
-  return code <= ASCII_LIMIT;
+  return code < ASCII_LIMIT;
+}
+
+export function storesCodeUnits(graph: CFGFunction): boolean {
+  return graph.capabilities?.has("utf16-text") === true;
+}
+
+export function unicodeTableReason(what: string): string {
+  return (
+    `${what} maps characters the way Unicode says, and this text holds some outside ASCII; ` +
+    `the compiled runtime carries no case or whitespace tables, so keep this part interpreted`
+  );
 }
 
 export function wideTextReason(what: string): string {

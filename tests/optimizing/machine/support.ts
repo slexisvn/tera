@@ -2,7 +2,10 @@ import { expect } from "vitest";
 import { capabilitySet } from "../../../src/optimizing/target/capabilities.js";
 import { proveOrGeneric } from "../../../src/optimizing/target/speculation.js";
 import { RegisterFile } from "../../../src/optimizing/target/registers.js";
-import type { RuntimeAbi } from "../../../src/optimizing/target/abi.js";
+import {
+  STACK_GUARD_GRANULE_BYTES,
+  type RuntimeAbi,
+} from "../../../src/optimizing/target/abi.js";
 import type { MachineTargetModel } from "../../../src/optimizing/target/model.js";
 import {
   SCALAR_FLOAT64,
@@ -59,6 +62,7 @@ export function testTarget(options: TestTargetOptions = {}): MachineTargetModel 
     pointerWidthBytes: 8,
     stackAlignmentBytes: 16,
     entryStackAdjustBytes: 0,
+    stackProbeBytes: STACK_GUARD_GRANULE_BYTES,
     framePointer: registers.register("fp"),
     stackPointer: registers.register("sp"),
     savedOnCall: [],

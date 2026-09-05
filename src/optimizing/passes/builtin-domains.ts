@@ -15,6 +15,7 @@ import {
   type BuiltinMethodIntrinsic,
 } from "../metadata/builtin-methods.js";
 import { faultOutsideRange, measuredAlready, type Stamp } from "./guards.js";
+import { BYTEWISE_PROP } from "../analyses/wide-text.js";
 
 const RECEIVER = 0;
 const FIRST_ARGUMENT = 1;
@@ -60,11 +61,13 @@ function measure(
   stamp: Stamp,
 ): CFGInstruction {
   const receiver = node.inputs[RECEIVER]!;
+  const counting = node.props[BYTEWISE_PROP] === true;
   const reused = measuredAlready(node, intrinsic.qualifiedName, receiver, reaching);
-  if (reused !== null) return reused;
+  if (reused !== null && (reused.props[BYTEWISE_PROP] === true) === counting) return reused;
   const call = stamp(
     irCallBuiltin(intrinsic.qualifiedName, [receiver], builtinMethodCallMetadata(intrinsic)),
   );
+  if (counting) call.props[BYTEWISE_PROP] = true;
   if (irRequiresFrameState(call)) call.frameState = node.frameState;
   editor.insertBefore(node, call);
   return call;

@@ -57,9 +57,11 @@ import {
   calleeSymbolName,
 } from "../ir/index.js";
 import { compiledFunctionConstant } from "../ir/compiled-function.js";
+import { characterCapacity } from "../target/text-literal.js";
 import {
   countsCharacters,
-  utf8ByteLength,
+  mapsUnicode,
+  unicodeTableReason,
   wideTextReason,
   wideValuesIn,
   NARROW_TEXT,
@@ -905,6 +907,10 @@ class LegalityAnalyzer implements AotLegality {
     return null;
   }
 
+  private countsCodeUnits(): boolean {
+    return (this.graph.wideText ?? NARROW_TEXT).exact;
+  }
+
   private holdsWideText(value: CFGInstruction): boolean {
     if (this.wideText === null) {
       const model = this.graph.wideText ?? NARROW_TEXT;
@@ -1351,13 +1357,13 @@ class LegalityAnalyzer implements AotLegality {
     const stored = node.inputs[1];
     if (!isConstantText(stored)) return false;
     const text = String(stored!.props.value);
-    const capacity = textCapacityOf(node);
-    if (text.length < capacity) return false;
+    const room = characterCapacity(textCapacityOf(node));
+    if (text.length <= room) return false;
     const field = node.props.propName;
     const where = typeof field === "string" ? field : "a field";
     this.fail(
       `${this.graph.name} stores a string of ${text.length} characters in ${where}, which ` +
-        `holds ${capacity - 1}; shorten it, or keep this part interpreted`,
+        `holds ${room}; shorten it, or keep this part interpreted`,
     );
     return true;
   }
@@ -1380,10 +1386,11 @@ class LegalityAnalyzer implements AotLegality {
   private checkConstant(node: CFGInstruction): void {
     const value = node.props.value;
     if (typeof value === "string") {
-      if (utf8ByteLength(value) >= this.graph.textBufferBytes) {
+      const room = characterCapacity(this.graph.textBufferBytes);
+      if (value.length > room) {
         this.fail(
-          `string constant is longer than the ${this.graph.textBufferBytes - 1} bytes a ` +
-            `compiled string holds; raise it with --text-size, or keep this part interpreted`,
+          `string constant is longer than the ${room} characters a compiled string holds; ` +
+            `raise it with --text-size, or keep this part interpreted`,
         );
       } else {
         this.scalars.set(node, SCALAR_STRING);
@@ -1599,6 +1606,7 @@ class LegalityAnalyzer implements AotLegality {
     if (strings) {
       if (
         !EQUALITY_OPERATORS.has(String(node.props.op)) &&
+        !this.countsCodeUnits() &&
         node.inputs.some((input) => this.holdsWideText(input))
       ) {
         this.fail(wideTextReason(`ordering text with ${String(node.props.op)}`));
@@ -1628,8 +1636,10 @@ class LegalityAnalyzer implements AotLegality {
       this.fail(`unsupported builtin ${name}`);
       return;
     }
-    if (countsCharacters(node) && node.inputs.some((input) => this.holdsWideText(input))) {
-      this.fail(wideTextReason(name));
+    const exact = this.countsCodeUnits();
+    const counts = exact ? mapsUnicode(node) : countsCharacters(node);
+    if (counts && node.inputs.some((input) => this.holdsWideText(input))) {
+      this.fail(exact ? unicodeTableReason(name) : wideTextReason(name));
       return;
     }
     if (!builtinAcceptsArity(intrinsic, node.inputs.length)) {

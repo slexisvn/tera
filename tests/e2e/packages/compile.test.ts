@@ -6,6 +6,12 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { main } from "../../../src/cli/main.js";
 import { hostBackendId } from "../../../src/optimizing/backends/host.js";
+import {
+  codeUnitList,
+  codeUnitsOf,
+} from "../../../src/optimizing/target/text-literal.js";
+
+const spelled = (text: string) => codeUnitList(codeUnitsOf(text));
 
 const FIXTURE = fileURLToPath(new URL("./fixture", import.meta.url));
 const ENTRY = path.join(FIXTURE, "src", "main.tera");
@@ -47,8 +53,8 @@ describe("tera compile", () => {
         .readdirSync(directory)
         .map((name) => fs.readFileSync(path.join(directory, name), "utf8"))
         .join("\n");
-      expect(emitted).toContain("GET ");
-      expect(emitted).toContain("{body: ");
+      expect(emitted).toContain(spelled("GET "));
+      expect(emitted).toContain(spelled("{body: "));
     });
   });
 });

@@ -82,6 +82,26 @@ const CASES: readonly (readonly [string, MachineInstruction])[] = [
   ],
   ["byte condition set", instruction("setne", [def(reg("rsi"), 1)])],
   ["byte zero extension", instruction("movzbl", [def(reg("rsi"), 4), use(reg("rsi"), 1)])],
+  ["word zero extension", instruction("movzwl", [def(reg("rsi"), 4), use(reg("rsi"), 2)])],
+  [
+    "word store through a scaled index",
+    instruction("movw", [
+      mem(2, { base: use(reg("r10"), 8), index: use(reg("rdx"), 8), scale: 2 }),
+      use(reg("rcx"), 2),
+    ]),
+  ],
+  [
+    "word store of an immediate",
+    instruction("movw", [mem(2, { base: use(reg("r9"), 8) }), imm(0)]),
+  ],
+  [
+    "word compare against a terminator",
+    instruction("cmpw", [mem(2, { base: use(reg("rax"), 8) }), imm(0)]),
+  ],
+  [
+    "word register test",
+    instruction("testw", [use(reg("rcx"), 2), use(reg("rcx"), 2)]),
+  ],
   [
     "shift by immediate",
     instruction("sarl", [def(reg("rdx"), 4), use(reg("rdx"), 4), imm(3)], { tied: true }),

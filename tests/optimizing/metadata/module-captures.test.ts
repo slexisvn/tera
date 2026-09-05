@@ -16,6 +16,7 @@ import { createCompilationUnit, createModuleIR } from "../../../src/optimizing/c
 import { RegisterCompiledFunction } from "../../../src/bytecode/register/ops/bytecode.js";
 import { lowerModuleCaptures } from "../../../src/optimizing/metadata/module-captures.js";
 import { cellKey } from "../../../src/runtime/intrinsics/global-cells.js";
+import { DECLARED_TYPE_PROP } from "../../../src/optimizing/passes/global-promotion.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -24,6 +25,7 @@ const IMPORTED = "helper";
 const IMPORTED_SPEC = "./lib.tera";
 const VARIABLE = "total";
 const SLOT = 0;
+const DECLARED = "float[]";
 
 function compiledFunction(name: string, moduleSpec: string | null): RegisterCompiledFunction {
   const compiled = new RegisterCompiledFunction(name, 0);
@@ -57,6 +59,21 @@ function upvalueGraph(name: string): CFGFunction {
   return graph;
 }
 
+function writingGraph(name: string, source: "local" | "upvalue"): CFGFunction {
+  const graph = new CFGFunction(name);
+  const block = graph.addBlock();
+  block.addNode(irStoreContextSlot(SLOT, block.addNode(irConstant(1)), source));
+  block.addNode(irReturn(block.addNode(irConstant(0))));
+  graph.rebuildUses();
+  return graph;
+}
+
+function annotatedFunction(name: string, moduleSpec: string | null): RegisterCompiledFunction {
+  const compiled = compiledFunction(name, moduleSpec);
+  compiled.localTypes = [DECLARED];
+  return compiled;
+}
+
 function nodesOf(graph: CFGFunction): CFGInstruction[] {
   return graph.blocks.flatMap((block) => block.nodes);
 }
@@ -65,6 +82,12 @@ function globalNamesIn(graph: CFGFunction, type: string): unknown[] {
   return nodesOf(graph)
     .filter((node) => node.type === type)
     .map((node) => node.props.name);
+}
+
+function declaredTypesIn(graph: CFGFunction, type: string): unknown[] {
+  return nodesOf(graph)
+    .filter((node) => node.type === type)
+    .map((node) => node.props[DECLARED_TYPE_PROP]);
 }
 
 function moduleOf(
@@ -186,5 +209,40 @@ describe("lowerModuleCaptures over a function that captures its module", () => {
 
     expect(nodesOf(nestedGraph).some((node) => node.type === IR_LOAD_CONTEXT_SLOT)).toBe(true);
     expect(globalNamesIn(nestedGraph, IR_LOAD_GLOBAL)).toEqual([]);
+  });
+});
+
+describe("lowerModuleCaptures and the type a module variable was declared with", () => {
+  it("carries the declared type of the entry's own slot onto the global store", () => {
+    const graph = writingGraph(ENTRY, "local");
+    const module = moduleOf([{ graph, compiled: annotatedFunction(ENTRY, null) }]);
+
+    lowerModuleCaptures(module, ENTRY);
+
+    expect(declaredTypesIn(graph, IR_STORE_GLOBAL)).toEqual([DECLARED]);
+  });
+
+  it("carries it onto a store from a function that captured the variable", () => {
+    const nestedGraph = writingGraph("counted", "upvalue");
+    const scope = annotatedFunction(ENTRY, null);
+    const nested = compiledFunction("counted", null);
+    nest(scope, nested, "local");
+    const module = moduleOf([
+      { graph: readingGraph(ENTRY), compiled: scope },
+      { graph: nestedGraph, compiled: nested },
+    ]);
+
+    lowerModuleCaptures(module, ENTRY);
+
+    expect(declaredTypesIn(nestedGraph, IR_STORE_GLOBAL)).toEqual([DECLARED]);
+  });
+
+  it("leaves the store bare when the variable was written with no type", () => {
+    const graph = writingGraph(ENTRY, "local");
+    const module = moduleOf([{ graph, compiled: compiledFunction(ENTRY, null) }]);
+
+    lowerModuleCaptures(module, ENTRY);
+
+    expect(declaredTypesIn(graph, IR_STORE_GLOBAL)).toEqual([undefined]);
   });
 });

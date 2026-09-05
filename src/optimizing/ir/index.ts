@@ -6,6 +6,7 @@ import type { StringEscapeModel } from "../analyses/aot-legality.js";
 import type { WideTextModel } from "../analyses/wide-text.js";
 import type { AotScalar } from "../types/scalar.js";
 import { DEFAULT_TEXT_BUFFER_BYTES } from "../types/scalar.js";
+import type { CapabilitySet } from "../target/capabilities.js";
 import { DEFAULT_COMPILER_OPTIONS, type GraphInliningPolicy } from "../options.js";
 import * as ops from "./operations.js";
 import { canDeoptimize, isTerminator } from "./operations.js";
@@ -263,6 +264,7 @@ export class CFGFunction {
   classOwner: string | null;
   calleeSignatures: ReadonlyMap<string, DeclaredSignature> | null;
   emits: ReadonlySet<string> | null;
+  capabilities: CapabilitySet | null;
   stringEscapes: StringEscapeModel | null;
   wideText: WideTextModel | null;
   textBufferBytes: number;
@@ -297,6 +299,7 @@ export class CFGFunction {
     this.classOwner = null;
     this.calleeSignatures = null;
     this.emits = null;
+    this.capabilities = null;
     this.stringEscapes = null;
     this.wideText = null;
     this.textBufferBytes = DEFAULT_TEXT_BUFFER_BYTES;

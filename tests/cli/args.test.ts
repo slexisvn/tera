@@ -3,6 +3,11 @@ import { parseArgs, CliUsageError } from "../../src/cli/args.js";
 import { commandHelp, generalHelp, helpFor } from "../../src/cli/help.js";
 import { COMMANDS, commandNamed } from "../../src/cli/spec.js";
 import type { CompileConfig, RunConfig } from "../../src/cli/config.js";
+import {
+  DEFAULT_TEXT_BUFFER_BYTES,
+  TEXT_BUFFER_MINIMUM_BYTES,
+} from "../../src/optimizing/types/scalar.js";
+import { characterCapacity } from "../../src/optimizing/target/text-literal.js";
 
 function runConfig(argv: readonly string[]): RunConfig {
   const config = parseArgs(argv);
@@ -133,8 +138,19 @@ describe("compile defaults", () => {
   });
 
   it("bounds the string size by its own floor, not the heap's", () => {
-    expect(compileConfig(["compile", "a.tera", "--text-size=256"]).textBytes).toBe(256);
-    expect(() => parseArgs(["compile", "a.tera", "--text-size=8"])).toThrow(/at least 256 bytes/);
+    const floor = String(TEXT_BUFFER_MINIMUM_BYTES);
+    expect(compileConfig(["compile", "a.tera", `--text-size=${floor}`]).textBytes).toBe(
+      TEXT_BUFFER_MINIMUM_BYTES,
+    );
+    expect(() => parseArgs(["compile", "a.tera", "--text-size=8"])).toThrow(
+      new RegExp(`at least ${floor} bytes`),
+    );
+  });
+
+  it("says how many characters the string size buys", () => {
+    expect(commandHelp(commandNamed("compile")!)).toContain(
+      `${characterCapacity(DEFAULT_TEXT_BUFFER_BYTES)} characters`,
+    );
   });
 
   it("still holds the heap to its own floor", () => {

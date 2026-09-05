@@ -10,6 +10,7 @@ export const cTarget: TargetModel = {
     "select-integer",
     "select-float",
     "generational-heap",
+    "utf16-text",
     "timers",
   ),
   speculation: proveOrGeneric,

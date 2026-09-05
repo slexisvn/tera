@@ -1,3 +1,4 @@
+import { TEXT_UNIT_BYTES } from "../../types/scalar.js";
 import { asciiData, INT32_DECIMAL_BYTES, zeroFilledBuffer } from "../../machine/data.js";
 import { imm, mem, type MemoryOperand, type RegisterOperand } from "../../machine/ir.js";
 import type { MachineRoutineBuilder } from "../../machine/routine.js";
@@ -480,8 +481,8 @@ function copyText(context: DriverContext, key: string, text: string, block: stri
     .emit("movzbl", w("rax"), mem(1, { base: r("r8") }))
     .emit("testl", r("rax", 4), r("rax", 4))
     .to("je", `${block}.done`)
-    .emit("movb", mem(1, { base: r(CURSOR) }), r("rax", 1))
-    .emit("incq", w(CURSOR, 8))
+    .emit("movw", mem(TEXT_UNIT_BYTES, { base: r(CURSOR) }), r("rax", 2))
+    .emit("addq", w(CURSOR, 8), imm(TEXT_UNIT_BYTES))
     .emit("incq", w("r8", 8))
     .to("jmp", block)
     .at(`${block}.done`);
@@ -511,8 +512,8 @@ function copyDigits(
     .emit("cmpq", r("r9"), r(to))
     .to("jge", `${block}.done`)
     .emit("movzbl", w("rax"), mem(1, { base: r("r8"), index: r("r9"), scale: 1 }))
-    .emit("movb", mem(1, { base: r(CURSOR) }), r("rax", 1))
-    .emit("incq", w(CURSOR, 8))
+    .emit("movw", mem(TEXT_UNIT_BYTES, { base: r(CURSOR) }), r("rax", 2))
+    .emit("addq", w(CURSOR, 8), imm(TEXT_UNIT_BYTES))
     .emit("incq", w("r9", 8))
     .to("jmp", block)
     .at(`${block}.done`);
@@ -520,8 +521,8 @@ function copyDigits(
 
 function writeByte(context: DriverContext, value: number): void {
   context.builder
-    .emit("movb", mem(1, { base: context.r(CURSOR) }), imm(value))
-    .emit("incq", context.w(CURSOR, 8));
+    .emit("movw", mem(TEXT_UNIT_BYTES, { base: context.r(CURSOR) }), imm(value))
+    .emit("addq", context.w(CURSOR, 8), imm(TEXT_UNIT_BYTES));
 }
 
 function padWith(context: DriverContext, value: number, count: string, block: string): void {
@@ -560,7 +561,7 @@ function emitDecode(context: DriverContext, abi: RuntimeAbi): void {
     .to("jge", "decode")
     .emit("testl", r(capacity, 4), r(capacity, 4))
     .to("jle", "return")
-    .emit("movb", mem(1, { base: r(CURSOR) }), imm(TERMINATOR))
+    .emit("movw", mem(TEXT_UNIT_BYTES, { base: r(CURSOR) }), imm(TERMINATOR))
     .to("jmp", "return")
     .at("decode")
     .emit("movq", w(DIGIT, 8), r(value));
@@ -828,8 +829,8 @@ function emitFormat(context: DriverContext): void {
   digitsAddress(context, "r8");
   builder
     .emit("movzbl", w("rax"), mem(1, { base: r("r8") }))
-    .emit("movb", mem(1, { base: r(CURSOR) }), r("rax", 1))
-    .emit("incq", w(CURSOR, 8))
+    .emit("movw", mem(TEXT_UNIT_BYTES, { base: r(CURSOR) }), r("rax", 2))
+    .emit("addq", w(CURSOR, 8), imm(TEXT_UNIT_BYTES))
     .emit("cmpq", r(COUNT), imm(1))
     .to("jle", "mark");
   writeByte(context, DECIMAL_POINT);
@@ -845,7 +846,7 @@ function emitFormat(context: DriverContext): void {
   emitExponentDigits(context);
   builder.at("terminate");
   builder
-    .emit("movb", mem(1, { base: r(CURSOR) }), imm(TERMINATOR))
+    .emit("movw", mem(TEXT_UNIT_BYTES, { base: r(CURSOR) }), imm(TERMINATOR))
     .at("return")
     .emit("movq", w("rax", 8), context.state(STATE_DESTINATION, 8));
   const frame = shadowBytes(context.abi);
@@ -860,8 +861,8 @@ function emitExponentDigits(context: DriverContext): void {
   const { builder, r, w } = context;
   const scratch = builder.data(
     EXPONENT_KEY,
-    1,
-    zeroFilledBuffer(INT32_DECIMAL_BYTES),
+    TEXT_UNIT_BYTES,
+    zeroFilledBuffer(INT32_DECIMAL_BYTES * TEXT_UNIT_BYTES),
     true,
   );
   const names = x64IntegerArgumentNames(context.abi);
@@ -872,12 +873,12 @@ function emitExponentDigits(context: DriverContext): void {
     .callSymbol(X64_RUNTIME_SYMBOLS.int32ToString)
     .emit("movq", w("r8", 8), r("rax"))
     .at("magnitude.copy")
-    .emit("movzbl", w("rax"), mem(1, { base: r("r8") }))
+    .emit("movzwl", w("rax"), mem(TEXT_UNIT_BYTES, { base: r("r8") }))
     .emit("testl", r("rax", 4), r("rax", 4))
     .to("je", "terminate")
-    .emit("movb", mem(1, { base: r(CURSOR) }), r("rax", 1))
-    .emit("incq", w(CURSOR, 8))
-    .emit("incq", w("r8", 8))
+    .emit("movw", mem(TEXT_UNIT_BYTES, { base: r(CURSOR) }), r("rax", 2))
+    .emit("addq", w(CURSOR, 8), imm(TEXT_UNIT_BYTES))
+    .emit("addq", w("r8", 8), imm(TEXT_UNIT_BYTES))
     .to("jmp", "magnitude.copy");
 }
 

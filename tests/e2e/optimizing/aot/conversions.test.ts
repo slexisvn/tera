@@ -1,4 +1,14 @@
 import { describe, expect, it } from "vitest";
+import {
+  NUMBER_BUILTIN,
+  PARSE_FLOAT_BUILTIN,
+  PARSE_INT_BUILTIN,
+} from "../../../../src/optimizing/metadata/builtin-methods.js";
+import {
+  NUMBER_OF_FUNCTION,
+  PARSE_FLOAT_FUNCTION,
+  PARSE_INT_FUNCTION,
+} from "../../../../src/optimizing/prelude/parse-number.js";
 import { nodeEngine } from "../../../helpers/engine.js";
 import { itRunsPe, runPe } from "../../../helpers/pe-runner.js";
 import { cSource, itNative, runCFunction } from "../../../helpers/c-executor.js";
@@ -46,6 +56,21 @@ const TEXTS: readonly string[] = [
   "abc",
   "",
 ];
+
+const READERS: readonly (readonly [string, string])[] = [
+  [PARSE_INT_BUILTIN, PARSE_INT_FUNCTION],
+  [PARSE_FLOAT_BUILTIN, PARSE_FLOAT_FUNCTION],
+  [NUMBER_BUILTIN, NUMBER_OF_FUNCTION],
+];
+
+function readingSource(conversion: string): string {
+  const program = nodeEngine({ typecheck: "off" }).compileAot(
+    src("fn f(t: string) -> float:", `  return ${conversion}(t)`, ""),
+  );
+
+  expect(program.skipped).toEqual([]);
+  return cSource(program);
+}
 
 const NUMERIC_TEXTS: readonly string[] = [
   "2.5",
@@ -114,25 +139,28 @@ describe("string to number conversions", () => {
       ),
     ));
 
-  itNative("routes each conversion through its own C helper", () => {
-    const program = nodeEngine({ typecheck: "off" }).compileAot(
-      src(
-        "fn f(a: string, b: string) -> float:",
-        "  return parse_int(a) + parse_float(b)",
-        "",
-      ),
-    );
+  it("gives every conversion its own prelude reader", () => {
+    const emitted = READERS.map(([conversion]) => readingSource(conversion));
 
-    expect(program.skipped).toEqual([]);
-    expect(cSource(program)).toContain("tera_parse_int(");
-    expect(cSource(program)).toContain("tera_parse_float(");
+    for (const [, reader] of READERS) {
+      for (const source of emitted) expect(source).toContain(`${reader}(`);
+    }
+    expect(new Set(emitted).size).toBe(READERS.length);
   });
 
   itNative("keeps the C backend in lockstep on one case per conversion", () => {
     const program = nodeEngine({ typecheck: "off" }).compileAot(
-      src("fn f() -> float:", '  return parse_int("40") + parse_float("2.5")', ""),
+      src("fn f() -> float:", '  return parse_int("40") + parse_float("2.5") + Number("1.5")', ""),
     );
 
-    expect(runCFunction(cSource(program), "f", [])).toBe(42.5);
+    expect(runCFunction(cSource(program), "f", [])).toBe(44);
+  });
+
+  itNative("answers each conversion apart on one text the three read differently", () => {
+    const answers = READERS.map(([conversion]) =>
+      runCFunction(readingSource(conversion), "f", ["3.7x"]),
+    );
+
+    expect(answers).toEqual([3, 3.7, Number.NaN]);
   });
 });

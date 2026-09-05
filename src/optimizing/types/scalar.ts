@@ -18,11 +18,17 @@ export type AotScalar =
   | typeof SCALAR_CODE
   | typeof SCALAR_VOID;
 
+export const TEXT_UNIT_SHIFT = 1;
+
+export const TEXT_UNIT_BYTES = 1 << TEXT_UNIT_SHIFT;
+
 export const TEXT_STORAGE_BYTES = 1024;
 
 export const DEFAULT_TEXT_BUFFER_BYTES = 1 << 14;
 
-export const TEXT_BUFFER_MINIMUM_BYTES = 1 << 8;
+const TEXT_BUFFER_MINIMUM_UNITS = 1 << 8;
+
+export const TEXT_BUFFER_MINIMUM_BYTES = TEXT_BUFFER_MINIMUM_UNITS * TEXT_UNIT_BYTES;
 
 export const VALUE_SCALAR_PROP = "valueScalar";
 

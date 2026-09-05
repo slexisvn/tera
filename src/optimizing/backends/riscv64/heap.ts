@@ -38,6 +38,7 @@ import {
   TERA_POINTER_BYTES,
   type TeraContextField,
 } from "../../target/runtime-layout.js";
+import type { RuntimeAbi } from "../../target/abi.js";
 import { TERA_EXIT_HEAP_EXHAUSTED } from "../../target/faults.js";
 import {
   MMAP_ERROR_LIMIT,
@@ -59,6 +60,11 @@ const LINUX_MAP_FLAGS = RISCV64_LINUX_SYSCALLS.mapFlags;
 
 export const ROOT_FRAME_REGISTER = "t5";
 export const ROOT_COUNT_REGISTER = "t6";
+export const PROBE_LINK_REGISTER = "t1";
+export const PROBE_SIZE_REGISTER = "t2";
+const PROBE_STEP_REGISTER = "t0";
+const PROBE_LIMIT_REGISTER = "t3";
+const PROBE_CURSOR_REGISTER = "t4";
 export const ROOT_ENTRY_BYTES = TERA_ROOT_ENTRY_BYTES;
 export const ROOT_SLOT_SHIFT = TERA_ROOT_SLOT_SHIFT;
 
@@ -518,6 +524,26 @@ function grow(builder: MachineRoutineBuilder): void {
     .ret();
 }
 
+function probeStack(abi: RuntimeAbi) {
+  return (builder: MachineRoutineBuilder): void => {
+    const r = reader(builder);
+    const w = writer(builder);
+    const pointer = abi.stackPointer.name;
+    builder
+      .emit("sub", w(PROBE_LIMIT_REGISTER), r(pointer), r(PROBE_SIZE_REGISTER))
+      .emit("mv", w(PROBE_CURSOR_REGISTER), r(pointer))
+      .emit("li", w(PROBE_STEP_REGISTER), imm(abi.stackProbeBytes))
+      .at("step")
+      .emit("sub", w(PROBE_CURSOR_REGISTER), r(PROBE_CURSOR_REGISTER), r(PROBE_STEP_REGISTER))
+      .to("bgeu", "bottom", r(PROBE_LIMIT_REGISTER), r(PROBE_CURSOR_REGISTER))
+      .emit("sd", r("zero"), mem(WORD, { base: r(PROBE_CURSOR_REGISTER) }))
+      .to("j", "step")
+      .at("bottom")
+      .emit("sd", r("zero"), mem(WORD, { base: r(PROBE_LIMIT_REGISTER) }))
+      .ret();
+  };
+}
+
 function enterRoots(builder: MachineRoutineBuilder): void {
   const r = reader(builder);
   const w = writer(builder);
@@ -607,11 +633,11 @@ function arrayReserve(builder: MachineRoutineBuilder): void {
     .ret();
 }
 
-export function riscvHeapRoutines(): ReadonlyMap<
-  string,
-  (builder: MachineRoutineBuilder) => void
-> {
+export function riscvHeapRoutines(
+  abi: RuntimeAbi,
+): ReadonlyMap<string, (builder: MachineRoutineBuilder) => void> {
   return new Map([
+    [RISCV_RUNTIME_SYMBOLS.probeStack, probeStack(abi)],
     [RISCV_RUNTIME_SYMBOLS.allocate, allocate],
     [RISCV_RUNTIME_SYMBOLS.arrayReserve, arrayReserve],
     [RISCV_RUNTIME_SYMBOLS.markPass, markPass],

@@ -7,6 +7,7 @@ export type Capability =
   | "select-integer"
   | "select-float"
   | "generational-heap"
+  | "utf16-text"
   | "timers";
 
 export type CapabilitySet = ReadonlySet<Capability>;

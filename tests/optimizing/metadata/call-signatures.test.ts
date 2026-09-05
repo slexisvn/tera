@@ -21,9 +21,13 @@ import {
   VALUE_CLASS_PROP,
 } from "../../../src/optimizing/metadata/class-table.js";
 import {
+  carryModuleSignatures,
+  declaredSignaturesOf,
   declaredTypeNameOf,
   fieldDeclaredType,
+  moduleSignatures,
 } from "../../../src/optimizing/metadata/call-signatures.js";
+import { moduleFromGraphs } from "../../../src/optimizing/compilation-unit.js";
 import type { TypeInference } from "../../../src/optimizing/analyses/type-inference.js";
 
 beforeEach(() => resetIRNodeIds());
@@ -139,5 +143,88 @@ describe("declaredTypeNameOf", () => {
     const held = fixed.block.addNode(irConstant(1));
 
     expect(nameOf(held, fixed)).toBeNull();
+  });
+});
+
+describe("the signatures a module carries to every unit in it", () => {
+  const CALLEE = "makeFloats";
+  const RETURNS = "float[]";
+
+  function moduleOf(declared: boolean) {
+    const callee = new CFGFunction(CALLEE);
+    if (declared) callee.declaredSignature = { params: ["int"], returns: RETURNS };
+    callee.addBlock();
+    const caller = new CFGFunction("main");
+    caller.declaredSignature = { params: [], returns: "int" };
+    caller.addBlock();
+    return { module: moduleFromGraphs([caller, callee]), caller, callee };
+  }
+
+  it("collects the signature of every unit that declares one", () => {
+    const { module } = moduleOf(true);
+
+    expect(new Set(moduleSignatures(module).keys())).toEqual(new Set([CALLEE, "main"]));
+    expect(moduleSignatures(module).get(CALLEE)?.returns).toBe(RETURNS);
+  });
+
+  it("leaves out a unit that declares nothing", () => {
+    const { module } = moduleOf(false);
+
+    expect(moduleSignatures(module).has(CALLEE)).toBe(false);
+    expect(moduleSignatures(module).has("main")).toBe(true);
+  });
+
+  it("hands the collected signatures to the units that have none", () => {
+    const { module, caller, callee } = moduleOf(true);
+
+    expect(carryModuleSignatures(module)).toBe(2);
+    expect(caller.calleeSignatures?.get(CALLEE)?.returns).toBe(RETURNS);
+    expect(callee.calleeSignatures?.get(CALLEE)?.returns).toBe(RETURNS);
+  });
+
+  it("leaves a unit that already carries signatures alone", () => {
+    const { module, caller } = moduleOf(true);
+    const carried = new Map([[CALLEE, { params: [], returns: "int" }]]);
+    caller.calleeSignatures = carried;
+
+    expect(carryModuleSignatures(module)).toBe(1);
+    expect(caller.calleeSignatures).toBe(carried);
+  });
+
+  it("resolves a call by name when its callee constant declares nothing", () => {
+    const { module, caller } = moduleOf(true);
+    const block = caller.blocks[0]!;
+    const call = block.addNode(irCallKnownFunction({ name: CALLEE }, []));
+    caller.rebuildUses();
+
+    expect(declaredSignaturesOf(module)(call)?.returns).toBe(RETURNS);
+  });
+
+  it("keeps the signature the call itself carries when the module names none", () => {
+    const { module, caller } = moduleOf(false);
+    const block = caller.blocks[0]!;
+    const call = block.addNode(
+      irCallKnownFunction({ name: CALLEE, declaredSignature: { params: [], returns: "int" } }, []),
+    );
+    caller.rebuildUses();
+
+    expect(declaredSignaturesOf(module)(call)?.returns).toBe("int");
+  });
+
+  it("reads a call's declared type off the signatures its graph was handed", () => {
+    const { module, caller } = moduleOf(true);
+    const block = caller.blocks[0]!;
+    const call = block.addNode(irCallKnownFunction({ name: CALLEE }, []));
+    caller.classes = buildClassTable([]);
+    caller.rebuildUses();
+    const types = new AnalysisManager(caller, createAnalysisRegistry()).get(
+      typeInferenceAnalysisId,
+    );
+
+    expect(declaredTypeNameOf(call, caller, caller.classes, types)).toBeNull();
+
+    carryModuleSignatures(module);
+
+    expect(declaredTypeNameOf(call, caller, caller.classes, types)).toBe(RETURNS);
   });
 });

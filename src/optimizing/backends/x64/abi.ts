@@ -1,4 +1,8 @@
-import type { CallingConvention, RuntimeAbi } from "../../target/abi.js";
+import {
+  STACK_GUARD_GRANULE_BYTES,
+  type CallingConvention,
+  type RuntimeAbi,
+} from "../../target/abi.js";
 import { allocationOrder } from "../../target/registers.js";
 import type { PhysicalRegister, RegisterFile } from "../../target/registers.js";
 import { X64_FPR, X64_GPR, x64RegisterFile } from "./registers.js";
@@ -102,6 +106,7 @@ export function x64Abi(name: X64AbiName): X64Abi {
       pointerWidthBytes: 8,
       stackAlignmentBytes: 16,
       entryStackAdjustBytes: 8,
+      stackProbeBytes: STACK_GUARD_GRANULE_BYTES,
       framePointer: registers.register("rbp"),
       stackPointer: registers.register("rsp"),
       savedOnCall: [],
