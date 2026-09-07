@@ -79,6 +79,7 @@ import {
 import {
   absenceValueOf,
   declaredAbsenceText,
+  BITS_COMPARISON,
   NULL_TEXT,
   type AbsenceValue,
 } from "../metadata/printed-values.js";
@@ -242,7 +243,7 @@ function keepsString(use: CFGInstruction): string {
     const callee = calleeSymbolName(use);
     return callee === null ? "passes it to a function" : `passes it to ${callee}`;
   }
-  return `keeps it in ${use.type}`;
+  return "holds on to it";
 }
 
 function allocated(value: CFGInstruction | undefined): boolean {
@@ -832,6 +833,7 @@ export interface AotLegality {
   readonly stringBuffers: readonly AotStringBuffer[];
   scalarOf(value: CFGInstruction): AotScalar;
   absenceComparesAsNumber(node: CFGInstruction): boolean;
+  comparesBits(node: CFGInstruction): boolean;
   comparesReferences(node: CFGInstruction): boolean;
   stringBufferOf(value: CFGInstruction): AotStringBuffer | null;
   codeSignatureOf(value: CFGInstruction | undefined): DeclaredSignature | null;
@@ -1704,6 +1706,14 @@ class LegalityAnalyzer implements AotLegality {
     return node.inputs.every((input) => this.comparedScalarOf(input) === SCALAR_POINTER);
   }
 
+  comparesBits(node: CFGInstruction): boolean {
+    if (String(node.props.op) !== BITS_COMPARISON) return false;
+    return node.inputs.every((input) => {
+      const scalar = this.comparedScalarOf(input);
+      return scalar !== null && isNumericScalar(scalar);
+    });
+  }
+
   comparesAbsentNumber(node: CFGInstruction): boolean {
     if (!EQUALITY_OPERATORS.has(String(node.props.op))) return false;
     if (!node.inputs.some((input) => isAbsenceConstant(input))) return false;
@@ -1720,6 +1730,10 @@ class LegalityAnalyzer implements AotLegality {
   }
 
   private checkStringCompare(node: CFGInstruction): boolean {
+    if (this.comparesBits(node)) {
+      this.scalars.set(node, SCALAR_INT32);
+      return true;
+    }
     if (this.comparesAbsentReference(node)) {
       this.scalars.set(node, SCALAR_INT32);
       return true;

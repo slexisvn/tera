@@ -21,6 +21,8 @@ import {
   typeofName,
   nullableObjectType,
   nullableStringType,
+  nullableNumericType,
+  heldNumericType,
 } from "../../../src/optimizing/types/lattice.js";
 import { mkBool, mkSmi, typeOf } from "../../../src/core/value/index.js";
 
@@ -282,5 +284,26 @@ describe("typeofName", () => {
 
   it("keeps a nullable object because null is named the same", () => {
     expect(typeofName(nullableObjectType(3))).toBe(typeofName(objectType(3)));
+  });
+});
+
+describe("heldNumericType", () => {
+  it("holds an integer that admits absence in a float", () => {
+    expect(heldNumericType(nullableNumericType(smiType())).kind).toBe(TypeKind.Double);
+  });
+
+  it("keeps the absence the integer admitted", () => {
+    expect(heldNumericType(nullableNumericType(smiType()))).toEqual(
+      nullableNumericType(doubleType()),
+    );
+  });
+
+  it("leaves an integer that is always present alone", () => {
+    expect(heldNumericType(smiType())).toEqual(smiType());
+  });
+
+  it("leaves a non-numeric that admits absence alone", () => {
+    expect(heldNumericType(nullableStringType())).toEqual(nullableStringType());
+    expect(heldNumericType(nullishType())).toEqual(nullishType());
   });
 });

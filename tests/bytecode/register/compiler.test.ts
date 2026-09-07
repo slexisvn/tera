@@ -32,6 +32,8 @@ import {
   TemplateLiteral,
   ArrowFunctionExpression,
   FunctionExpression,
+  ForOfStatement,
+  LabeledStatement,
 } from "../../../src/frontend/ast/index.js";
 
 function ops(func) {
@@ -557,6 +559,97 @@ describe("RegisterBytecodeCompiler", () => {
         ]),
       );
       expect(ops(func)).toContain(bytecode.ROP_JUMP);
+    });
+
+    function jumpIndices(func) {
+      return ops(func)
+        .map((op, idx) => (op === bytecode.ROP_JUMP ? idx : -1))
+        .filter((idx) => idx >= 0);
+    }
+
+    function innerLoopOver(iterable, body) {
+      return ForOfStatement({ kind: "id", name: "v" }, Identifier(iterable), BlockStatement([body]));
+    }
+
+    it("backpatches labeled continue in a while loop to the outer loop latch", () => {
+      const func = compiler.compile(
+        Program([
+          LabeledStatement(
+            "outer",
+            WhileStatement(
+              Identifier("cond"),
+              BlockStatement([innerLoopOver("inner", ContinueStatement("outer"))]),
+            ),
+          ),
+        ]),
+      );
+
+      const jumps = jumpIndices(func);
+      const labeledContinue = jumps[0];
+      const outerLatch = jumps[jumps.length - 1];
+
+      expect(insAt(func, outerLatch).operands[0]).toBe(0);
+      expect(insAt(func, labeledContinue).operands[0]).toBe(outerLatch);
+    });
+
+    it("backpatches labeled continue in a for loop to the outer loop latch", () => {
+      const func = compiler.compile(
+        Program([
+          LabeledStatement(
+            "outer",
+            ForOfStatement(
+              { kind: "id", name: "r" },
+              Identifier("rows"),
+              BlockStatement([innerLoopOver("r", ContinueStatement("outer"))]),
+            ),
+          ),
+        ]),
+      );
+
+      const jumps = jumpIndices(func);
+      const labeledContinue = jumps[0];
+      const outerLatch = jumps[jumps.length - 1];
+      const outerLoopStart = insAt(func, outerLatch).operands[0];
+
+      expect(outerLoopStart).toBeGreaterThan(0);
+      expect(outerLoopStart).toBeLessThan(labeledContinue);
+      expect(insAt(func, labeledContinue).operands[0]).toBe(outerLatch);
+    });
+
+    it("sends labeled continue past the inner loop rather than to the inner latch", () => {
+      const func = compiler.compile(
+        Program([
+          LabeledStatement(
+            "outer",
+            WhileStatement(
+              Identifier("cond"),
+              BlockStatement([innerLoopOver("inner", ContinueStatement("outer"))]),
+            ),
+          ),
+        ]),
+      );
+
+      const jumps = jumpIndices(func);
+      const [labeledContinue, innerLatch] = jumps;
+
+      expect(insAt(func, labeledContinue).operands[0]).toBeGreaterThan(innerLatch);
+    });
+
+    it("rejects a labeled continue whose label does not name a loop", () => {
+      expect(() =>
+        compiler.compile(
+          Program([
+            LabeledStatement(
+              "lbl",
+              IfStatement(
+                Identifier("cond"),
+                BlockStatement([ContinueStatement("lbl")]),
+                null,
+              ),
+            ),
+          ]),
+        ),
+      ).toThrow("Label 'lbl' does not name a loop");
     });
   });
 

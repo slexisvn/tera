@@ -64,6 +64,7 @@ import { isUnwritten } from "../types/signature.js";
 import { arrayElementType, arrayOfType } from "../../frontend/checker/type-system.js";
 import { builtinIntrinsicByName, STRING_TYPE } from "../metadata/builtin-methods.js";
 import { latticeFromElementsKind } from "../types/elements.js";
+import { TAKES_ONE_ELEMENT } from "../../core/indexing.js";
 import {
   doubleType,
   joinTypes,
@@ -191,22 +192,32 @@ function readMemberType(
   return isUnwritten(answered) ? null : answered!;
 }
 
+export function producedTypeNaming(
+  value: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): ArrayElementNaming | null {
+  const source = iteratedArrayOf(value);
+  if (source !== null) {
+    if (types.typeOf(source).kind === TypeKind.String) return known(STRING_TYPE);
+    return arrayElementNamingOf(source, graph, classes, types);
+  }
+  if (value.type === IR_GENERIC_GET_PROP) {
+    const declared = readMemberType(value, graph, classes, types);
+    if (declared !== null) return known(declared);
+  }
+  const answered = answeredTypeName(value, graph, classes, types);
+  return answered === null ? null : known(answered);
+}
+
 export function producedTypeName(
   value: CFGInstruction,
   graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
 ): string | null {
-  const source = iteratedArrayOf(value);
-  if (source !== null) {
-    if (types.typeOf(source).kind === TypeKind.String) return STRING_TYPE;
-    return arrayElementNameOf(source, graph, classes, types);
-  }
-  if (value.type === IR_GENERIC_GET_PROP) {
-    const declared = readMemberType(value, graph, classes, types);
-    if (declared !== null) return declared;
-  }
-  return answeredTypeName(value, graph, classes, types);
+  return producedTypeNaming(value, graph, classes, types)?.held ?? null;
 }
 
 function producedType(
@@ -254,8 +265,6 @@ function builtinAnswerOf(
   return builtinOwnerMember(owner, member)?.signature.returns ?? null;
 }
 
-export const TAKES_ELEMENT: ReadonlySet<string> = new Set<string>(["pop", "shift"]);
-
 function writtenTypeName(
   value: CFGInstruction,
   graph: CFGFunction,
@@ -284,7 +293,7 @@ function answeredTypeName(
   if (callee?.type !== IR_GENERIC_GET_PROP || receiver === undefined) return null;
   const member = callee.props.propName;
   if (typeof member !== "string") return null;
-  if (TAKES_ELEMENT.has(member)) {
+  if (TAKES_ONE_ELEMENT.has(member)) {
     const taken = arrayElementNameOf(receiver, graph, classes, types);
     if (taken !== null) return taken;
   }
@@ -546,20 +555,29 @@ function demandedElementOf(
   return demanded;
 }
 
+function declaredElement(
+  array: CFGInstruction,
+  graph: CFGFunction,
+  classes: ClassTable,
+  types: TypeInference,
+): LatticeType | null {
+  const declared = declaredArrayTypeOf(array, graph, classes, types);
+  const element = declared === null ? null : elementNameOfDeclared(declared, classes);
+  return element === null ? null : nominalLatticeType(element, classes);
+}
+
 function receivedElement(
   array: CFGInstruction,
   graph: CFGFunction,
   classes: ClassTable,
   types: TypeInference,
 ): LatticeType | null {
+  const named = declaredElement(array, graph, classes, types);
   const type = types.typeOf(array);
-  if (type.kind === TypeKind.Array) {
-    const carried = latticeFromElementsKind(type.elementsKind);
-    if (declaredTypeOf(carried, classes) !== null) return carried;
-  }
-  const declared = declaredArrayTypeOf(array, graph, classes, types);
-  const element = declared === null ? null : elementNameOfDeclared(declared, classes);
-  return element === null ? null : nominalLatticeType(element, classes);
+  if (type.kind !== TypeKind.Array) return named;
+  const packed = latticeFromElementsKind(type.elementsKind);
+  if (declaredTypeOf(packed, classes) === null) return named;
+  return named !== null && aotScalarOf(named) === aotScalarOf(packed) ? named : packed;
 }
 
 function receivedArray(
@@ -607,15 +625,14 @@ function mergedArray(
   if (array.type !== IR_PHI || merging.has(array)) return null;
   merging.add(array);
   try {
-    let found: ArrayModel | null = null;
+    let found: string | null = null;
     for (const input of array.inputs) {
       if (merging.has(input)) continue;
-      const held = arrayModelOf(input, graph, classes, types);
-      if (held === null) return null;
-      if (found !== null && found.shape.id !== held.shape.id) return null;
-      found = held;
+      const held = arrayElementNamingOf(input, graph, classes, types);
+      if (held === null || held.guessed || (found !== null && found !== held.held)) return null;
+      found = held.held;
     }
-    return found;
+    return found === null ? null : arrayModelForDeclaredType(arrayOfType(found), classes);
   } finally {
     merging.delete(array);
   }

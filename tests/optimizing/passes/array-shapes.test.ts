@@ -375,6 +375,54 @@ describe("arrayModelOf over what an array method answers", () => {
   });
 });
 
+describe("arrayModelOf over an array a function received", () => {
+  function received(declared: string): { graph: CFGFunction; xs: CFGInstruction } {
+    const graph = new CFGFunction("spell");
+    graph.declaredSignature = { params: [declared], returns: null };
+    graph.classes = table();
+    const xs = graph.addParameter(0);
+    const block = graph.addBlock();
+    const callee = block.addNode(irGenericGetProp(xs, "length"));
+    block.addNode(irReturn(block.addNode(irGenericCall(callee, [xs]))));
+    graph.rebuildUses();
+    return { graph, xs };
+  }
+
+  it("keeps the absence its element admits, which the packing cannot carry", () => {
+    const { graph, xs } = received("(int | null)[]");
+
+    expect(modelOf(graph, xs)?.declaredType).toBe("int | null");
+  });
+
+  it("keeps an absent float element apart from a plain one", () => {
+    const maybe = received("(float | null)[]");
+    const plain = received("float[]");
+
+    expect(modelOf(maybe.graph, maybe.xs)?.declaredType).toBe("float | null");
+    expect(modelOf(plain.graph, plain.xs)?.declaredType).toBe("float");
+  });
+
+  it("gives it the same shape the declared type would have minted", () => {
+    const { graph, xs } = received("(int | null)[]");
+    const declared = arrayModelForDeclaredType("(int | null)[]", graph.classes!)!;
+
+    expect(modelOf(graph, xs)?.shape.name).toBe(declared.shape.name);
+  });
+
+  it("still lays an element that admits an absence out as a double", () => {
+    const { graph, xs } = received("(int | null)[]");
+
+    expect(modelOf(graph, xs)?.element).toBe(SCALAR_FLOAT64);
+  });
+
+  it("leaves a plain int element packed as an int", () => {
+    const { graph, xs } = received("int[]");
+
+    expect(modelOf(graph, xs)?.declaredType).toBe("int");
+    expect(modelOf(graph, xs)?.element).toBe(SCALAR_INT32);
+  });
+});
+
 describe("arrayModelOf over arrays joined at a control-flow merge", () => {
   function allocated(graph: CFGFunction, block: CFGBlock, declared: string): CFGInstruction {
     const model = arrayModelForDeclaredType(declared, graph.classes!)!;
@@ -443,6 +491,102 @@ describe("arrayModelOf over arrays joined at a control-flow merge", () => {
 
   it("answers the seeded arm rather than recursing on a phi that feeds itself", () => {
     const { graph, merged } = carriedAroundALoop();
+
+    expect(modelOf(graph, merged)?.declaredType).toBe("int");
+  });
+
+  function joiningLiterals(
+    left: readonly number[],
+    right: readonly number[],
+  ): { graph: CFGFunction; merged: CFGInstruction } {
+    const graph = new CFGFunction("merge");
+    graph.classes = table();
+    const entry = graph.addBlock();
+    const taken = graph.addBlock();
+    const untaken = graph.addBlock();
+    const join = graph.addBlock();
+    entry.addNode(irBranch(entry.addNode(irConstant(true)), taken, untaken));
+    link(entry, taken);
+    link(entry, untaken);
+    const held = (block: CFGBlock, values: readonly number[]) =>
+      block.addNode(irNewArray(values.map((value) => block.addNode(irConstant(value)))));
+    const first = held(taken, left);
+    taken.addNode(irJump(join));
+    link(taken, join);
+    const second = held(untaken, right);
+    untaken.addNode(irJump(join));
+    link(untaken, join);
+    const merged = addPhi(join, [first, second]);
+    join.addNode(irReturn(merged));
+    graph.rebuildUses();
+    return { graph, merged };
+  }
+
+  function refilledAroundALoop(): { graph: CFGFunction; merged: CFGInstruction } {
+    const graph = new CFGFunction("refill");
+    graph.classes = table();
+    const entry = graph.addBlock();
+    const header = graph.addBlock();
+    const latch = graph.addBlock();
+    const exit = graph.addBlock();
+    const seed = entry.addNode(irNewArray([]));
+    entry.addNode(irJump(header));
+    link(entry, header);
+    const merged = addPhi(header, [seed]);
+    header.addNode(irBranch(header.addNode(irConstant(true)), latch, exit));
+    link(header, latch);
+    link(header, exit);
+    const push = latch.addNode(
+      irGenericCall(latch.addNode(irGenericGetProp(merged, "push")), [
+        merged,
+        latch.addNode(irConstant(5)),
+      ]),
+    );
+    push.props.isMethod = true;
+    const refilled = latch.addNode(irNewArray([]));
+    latch.addNode(irJump(header));
+    link(latch, header);
+    merged.addInput(refilled);
+    exit.addNode(irReturn(merged));
+    graph.rebuildUses();
+    return { graph, merged };
+  }
+
+  it("answers nothing when two literal arms hold elements that disagree", () => {
+    const graph = new CFGFunction("mixed");
+    graph.classes = table();
+    const entry = graph.addBlock();
+    const taken = graph.addBlock();
+    const untaken = graph.addBlock();
+    const join = graph.addBlock();
+    entry.addNode(irBranch(entry.addNode(irConstant(true)), taken, untaken));
+    link(entry, taken);
+    link(entry, untaken);
+    const first = taken.addNode(irNewArray([taken.addNode(irConstant(1))]));
+    taken.addNode(irJump(join));
+    link(taken, join);
+    const second = untaken.addNode(irNewArray([untaken.addNode(irConstant("a"))]));
+    untaken.addNode(irJump(join));
+    link(untaken, join);
+    const merged = addPhi(join, [first, second]);
+    join.addNode(irReturn(merged));
+    graph.rebuildUses();
+
+    expect(modelOf(graph, merged)).toBeNull();
+  });
+
+  it("takes an element an arm only guessed as no evidence at all", () => {
+    const { graph, merged } = joiningLiterals([1.5], []);
+
+    expect(elementNamingOf(graph, graph.blocks[2]!.nodes[0]!)).toEqual({
+      held: "float",
+      guessed: true,
+    });
+    expect(modelOf(graph, merged)).toBeNull();
+  });
+
+  it("names the element a refilled loop variable holds from what is pushed onto it", () => {
+    const { graph, merged } = refilledAroundALoop();
 
     expect(modelOf(graph, merged)?.declaredType).toBe("int");
   });

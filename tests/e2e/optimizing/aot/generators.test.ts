@@ -403,4 +403,43 @@ describe("a generator that yields whole arrays", () => {
       ),
     );
   });
+
+  itRunsPe("yields the batch it refills after every yield", () => {
+    agrees(
+      src(
+        "fn* pages(items: int[], size: int):",
+        "  batch: int[] = []",
+        "  for item of items:",
+        "    batch.push(item)",
+        "    if batch.length == size:",
+        "      yield batch",
+        "      batch = []",
+        "  if batch.length > 0:",
+        "    yield batch",
+        "source: int[] = []",
+        "for i of range(1, 11):",
+        "  source.push(i)",
+        "for page of pages(source, 4):",
+        "  print(page.length, page[0])",
+      ),
+    );
+  });
+
+  itRunsPe("refills a batch of text the same way", () => {
+    agrees(
+      src(
+        "fn* groups(lines: string[]):",
+        "  batch: string[] = []",
+        "  for line of lines:",
+        "    batch.push(line)",
+        "    if batch.length == 2:",
+        "      yield batch",
+        "      batch = []",
+        "  if batch.length > 0:",
+        "    yield batch",
+        'for group of groups(["a", "bb", "ccc", "dddd", "eeeee"]):',
+        "  print(group.length, group[0])",
+      ),
+    );
+  });
 });

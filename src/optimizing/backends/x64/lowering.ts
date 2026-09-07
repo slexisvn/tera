@@ -194,6 +194,8 @@ function scaleOf(node: CFGInstruction | undefined): number | null {
   return ADDRESS_SCALES.has(held) ? held : null;
 }
 
+const EQUAL_CONDITION = "e";
+
 const INT_CONDITIONS = new Map<string, string>([
   ["<", "l"],
   ["<=", "le"],
@@ -619,6 +621,15 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
       );
     }
     return flag;
+  }
+
+  private selectBitsCompare(ctx: SelectionContext): void {
+    const left = this.bitsOf(ctx, ctx.node.inputs[0]!);
+    const right = this.bitsOf(ctx, ctx.node.inputs[1]!);
+    ctx.emit(instruction("cmpq", [use(left, 8), use(right, 8)]));
+    const result = this.destination(ctx, SCALAR_INT32);
+    this.emitSetCondition(ctx, EQUAL_CONDITION, result);
+    this.produce(ctx, result, SCALAR_INT32);
   }
 
   private selectAbsenceCompare(ctx: SelectionContext): void {
@@ -1092,6 +1103,10 @@ export class X64Lowering extends MachineLoweringBase<X64TargetModel> {
   }
 
   protected selectStringCompare(ctx: SelectionContext): void {
+    if (ctx.legality.comparesBits(ctx.node)) {
+      this.selectBitsCompare(ctx);
+      return;
+    }
     if (ctx.node.inputs.every((input) => ctx.scalarOf(input) === SCALAR_POINTER)) {
       this.selectReferenceCompare(ctx);
       return;

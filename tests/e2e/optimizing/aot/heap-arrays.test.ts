@@ -268,5 +268,23 @@ describe("AOT array spread", () => {
       ["a: int[] = [1, 2]", "b = [0, ...a, 9]", "print(b.length)", "print(b[3])"],
       "4\n9\n",
     ));
-});
 
+  itNative("keeps every batch a loop refilled and handed over", prints(
+      [
+        "fn chunk(items: int[], size: int) -> int[][]:",
+        "  out: int[][] = []",
+        "  batch: int[] = []",
+        "  for item of items:",
+        "    batch.push(item)",
+        "    if batch.length == size:",
+        "      out.push(batch)",
+        "      batch = []",
+        "  if batch.length > 0:",
+        "    out.push(batch)",
+        "  return out",
+        "for page of chunk([1, 2, 3, 4, 5, 6, 7], 3):",
+        "  print(page.length, page[0])",
+      ],
+      "3 1\n3 4\n1 7\n",
+    ));
+});

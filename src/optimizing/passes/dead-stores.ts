@@ -3,27 +3,17 @@ import { type ModRef } from "../analyses/mod-ref.js";
 import { type PointsToResult } from "../analyses/points-to.js";
 import {
   basesMayAlias,
-  fieldOf,
   fieldsOverlap,
-  locationKey,
+  isExternallyVisible,
+  memoryLocationOf,
   partitionKey,
-  type Field,
-  type Partition,
+  type MemoryLocation,
 } from "../analyses/heap-model.js";
 import { runSnapshotDataflow } from "../infra/snapshot-dataflow.js";
 import { detachNode } from "../ir/graph-edit.js";
 
 type StoreNode = ir.CFGInstruction;
 type StoreGraph = ir.CFGFunction;
-
-type MemoryLocation = {
-  readonly key: string;
-  readonly baseKey: string;
-  readonly base: StoreNode | null;
-  readonly partition: Partition;
-  readonly field: Field;
-  readonly visible: boolean;
-};
 
 type LocationUniverse = {
   readonly byKey: Map<string, MemoryLocation>;
@@ -80,12 +70,15 @@ function rewriteBlock(
   for (let index = block.nodes.length - 1; index >= 0; index--) {
     const node = block.nodes[index]!;
     if (ir.isTrackedStore(node.type)) {
-      const location = memoryLocation(node, pointsTo);
-      if (location && !hasLiveAlias(state, location, universe, pointsTo)) {
+      const location = memoryLocationOf(node, pointsTo);
+      if (
+        location?.identity != null &&
+        !hasLiveAlias(state, location, universe, pointsTo)
+      ) {
         dead.add(node);
         eliminated++;
       }
-      if (location) removeAliases(state, location, universe, pointsTo);
+      if (location) overwriteCell(state, location);
       continue;
     }
     transferNode(state, node, universe, pointsTo, modRef);
@@ -107,13 +100,13 @@ function transferNode(
   modRef: ModRef,
 ): void {
   if (ir.isTrackedLoad(node.type)) {
-    const location = memoryLocation(node, pointsTo);
+    const location = memoryLocationOf(node, pointsTo);
     if (location) addAliases(state, location, universe, pointsTo, true);
     return;
   }
   if (ir.isTrackedStore(node.type)) {
-    const location = memoryLocation(node, pointsTo);
-    if (location) removeAliases(state, location, universe, pointsTo);
+    const location = memoryLocationOf(node, pointsTo);
+    if (location) overwriteCell(state, location);
     return;
   }
   if (node.type === ir.IR_RETURN) {
@@ -121,7 +114,7 @@ function transferNode(
     return;
   }
   if (ir.isOpaquePropertyAccess(node.type)) {
-    const location = memoryLocation(node, pointsTo);
+    const location = memoryLocationOf(node, pointsTo);
     if (location) addAliases(state, location, universe, pointsTo, true);
   }
   if (modRef.killsEverything(node)) {
@@ -144,55 +137,20 @@ function buildUniverse(
   for (const block of graph.blocks) {
     for (const node of block.nodes) {
       if (!ir.isTrackedLoad(node.type) && !ir.isTrackedStore(node.type)) continue;
-      const location = memoryLocation(node, pointsTo);
-      if (!location || byKey.has(location.key)) continue;
-      byKey.set(location.key, location);
+      const location = memoryLocationOf(node, pointsTo);
+      const identity = location?.identity;
+      if (!location || identity == null || byKey.has(identity)) continue;
+      byKey.set(identity, location);
       let keys = byBase.get(location.baseKey);
       if (!keys) {
         keys = new Set();
         byBase.set(location.baseKey, keys);
       }
-      keys.add(location.key);
-      if (location.visible) visibleKeys.add(location.key);
+      keys.add(identity);
+      if (isExternallyVisible(location, pointsTo)) visibleKeys.add(identity);
     }
   }
   return { byKey, byBase, visibleKeys };
-}
-
-function memoryLocation(
-  node: StoreNode,
-  pointsTo: PointsToResult,
-): MemoryLocation | null {
-  if (node.type === ir.IR_LOAD_GLOBAL || node.type === ir.IR_STORE_GLOBAL) {
-    if (typeof node.props.name !== "string") return null;
-    const partition: Partition = { kind: "global", name: node.props.name };
-    const field: Field = { kind: "anyIndex" };
-    const baseKey = partitionKey(partition);
-    return {
-      key: locationKey(partition, field),
-      baseKey,
-      base: null,
-      partition,
-      field,
-      visible: true,
-    };
-  }
-  const base = node.inputs[0];
-  const field = fieldOf(node);
-  if (!base || !field) return null;
-  const partition = pointsTo.partitionOf(base);
-  const baseKey = partitionKey(partition);
-  const location = {
-    key: locationKey(partition, field),
-    baseKey,
-    base,
-    partition,
-    field,
-  };
-  return {
-    ...location,
-    visible: isExternallyVisible(location, pointsTo),
-  };
 }
 
 function addAliases(
@@ -215,21 +173,16 @@ function addBaseAliases(
   const location: MemoryLocation = {
     key: "",
     baseKey: partitionKey(partition),
+    identity: null,
     base,
     partition,
     field: { kind: "anyIndex" },
-    visible: isExternallyVisible({ base, partition }, pointsTo),
   };
   addAliases(state, location, universe, pointsTo, false);
 }
 
-function removeAliases(
-  state: LiveState,
-  location: MemoryLocation,
-  universe: LocationUniverse,
-  pointsTo: PointsToResult,
-): void {
-  for (const key of aliasKeys(location, universe, pointsTo, true)) state.live.delete(key);
+function overwriteCell(state: LiveState, location: MemoryLocation): void {
+  if (location.identity !== null) state.live.delete(location.identity);
 }
 
 function hasLiveAlias(
@@ -280,14 +233,6 @@ function candidateBaseKeys(
   }
   visibleBaseKeys.add(location.baseKey);
   return visibleBaseKeys;
-}
-
-function isExternallyVisible(
-  location: Pick<MemoryLocation, "base" | "partition">,
-  pointsTo: PointsToResult,
-): boolean {
-  if (location.base === null) return true;
-  return location.partition.kind !== "alloc" || pointsTo.escapes(location.base);
 }
 
 function cloneState(state: LiveState): LiveState {

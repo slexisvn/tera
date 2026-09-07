@@ -1,0 +1,24 @@
+class Series:
+  public constructor(name: string, values: float[]):
+    this.name = name
+    this.values = values
+
+  public mean() -> float:
+    total = 0.0
+    i = 0
+    while i < this.values.length:
+      total += this.values[i]
+      i += 1
+    return total / this.values.length
+
+  public label() -> string:
+    return this.name + " mean=" + this.mean().to_fixed(2)
+
+fn report(s: Series) -> string:
+  return s.label()
+
+latency = Series("latency", [12.5, 9.0, 31.25, 7.75, 18.0])
+throughput = Series("throughput", [880.0, 913.5, 902.25, 897.0])
+
+print(report(latency))
+print(report(throughput))

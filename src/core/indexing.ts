@@ -38,18 +38,25 @@ const COMPLEMENT: ReadonlyMap<string, string> = new Map<string, string>([
   ["loose!=", "loose=="],
 ]);
 
-const PROVES_SOME: ReadonlyMap<string, (bound: number) => boolean> = new Map([
-  [">", (bound: number) => bound >= 0],
-  [">=", (bound: number) => bound >= 1],
-  ["==", (bound: number) => bound >= 1],
-  ["===", (bound: number) => bound >= 1],
-  ["loose==", (bound: number) => bound >= 1],
-  ["!=", (bound: number) => bound === 0],
-  ["!==", (bound: number) => bound === 0],
-  ["loose!=", (bound: number) => bound === 0],
+const NO_COUNT = 0;
+const ONE_COUNT = 1;
+
+const PROVEN_COUNT: ReadonlyMap<string, (bound: number) => number> = new Map([
+  [">", (bound: number) => bound + ONE_COUNT],
+  [">=", (bound: number) => bound],
+  ["==", (bound: number) => bound],
+  ["===", (bound: number) => bound],
+  ["loose==", (bound: number) => bound],
+  ["!=", (bound: number) => (bound === NO_COUNT ? ONE_COUNT : NO_COUNT)],
+  ["!==", (bound: number) => (bound === NO_COUNT ? ONE_COUNT : NO_COUNT)],
+  ["loose!=", (bound: number) => (bound === NO_COUNT ? ONE_COUNT : NO_COUNT)],
 ]);
 
-export function countProvesSome(op: string, bound: number, negated = false): boolean {
+export function provenCount(op: string, bound: number, negated = false): number {
   const read = negated ? COMPLEMENT.get(op) : op;
-  return read === undefined ? false : PROVES_SOME.get(read)?.(bound) === true;
+  const proven = read === undefined ? NO_COUNT : PROVEN_COUNT.get(read)?.(bound) ?? NO_COUNT;
+  return Math.max(NO_COUNT, proven);
 }
+
+export const TAKES_ONE_ELEMENT: ReadonlySet<string> = new Set<string>(["pop", "shift"]);
+export const ADDS_ONE_ELEMENT: ReadonlySet<string> = new Set<string>(["push", "unshift"]);

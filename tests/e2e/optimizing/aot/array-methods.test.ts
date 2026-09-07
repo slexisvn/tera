@@ -770,3 +770,162 @@ describe("taking a record off the end or the front of an array", () => {
     );
   });
 });
+
+const ABSENT_JOINS: readonly (readonly [string, string])[] = [
+  [
+    "joins an absent element as nothing",
+    src("xs: (int | null)[] = [1, null, 3]", 'print(xs.join(","))'),
+  ],
+  [
+    "joins an absent element with the default separator",
+    src("xs: (int | null)[] = [1, null, 3]", "print(xs.join())"),
+  ],
+  [
+    "joins an absent element with no separator at all",
+    src("xs: (int | null)[] = [1, null, 3]", 'print(xs.join(""))'),
+  ],
+  [
+    "joins an absence sitting at the front",
+    src("xs: (int | null)[] = [null, 2]", 'print(xs.join(","))'),
+  ],
+  [
+    "joins an absence sitting at the end",
+    src("xs: (int | null)[] = [2, null]", 'print(xs.join(","))'),
+  ],
+  [
+    "joins an array of nothing but absences",
+    src("xs: (int | null)[] = [1, null]", "xs[0] = null", 'print(xs.join("|"))'),
+  ],
+  [
+    "joins an absent float",
+    src("xs: (float | null)[] = [1.5, null, 2.25]", 'print(xs.join(","))'),
+  ],
+  [
+    "joins an element that is unset rather than null",
+    src("xs: (int | undefined)[] = [4, undefined, 6]", 'print(xs.join(","))'),
+  ],
+  [
+    "joins an absence inside a larger piece of text",
+    src("xs: (int | null)[] = [5, null]", 'print("<" + xs.join(",") + ">")'),
+  ],
+  [
+    "joins an array that reached the call as a parameter",
+    src(
+      "fn spell(xs: (int | null)[]) -> string:",
+      '  return xs.join(",")',
+      "vals: (int | null)[] = [1, null, 3]",
+      "print(spell(vals))",
+    ),
+  ],
+  [
+    "joins an array a class holds",
+    src(
+      "class Bag:",
+      "  public constructor(items: (int | null)[]):",
+      "    this.items = items",
+      "vals: (int | null)[] = [1, null, 3]",
+      'print(Bag(vals).items.join(","))',
+    ),
+  ],
+  [
+    "joins an array whose absence a loop put there",
+    src(
+      "xs: (int | null)[] = [0, null]",
+      "for i of range(4):",
+      "  if i % 2 == 0:",
+      "    xs.push(i)",
+      "  else:",
+      "    xs.push(null)",
+      'print(xs.join(","))',
+    ),
+  ],
+  [
+    "still joins a float that is not absent at all",
+    src("xs: float[] = [1.5, 2.5]", 'print(xs.join(","))'),
+  ],
+  [
+    "still joins a float that is not a number",
+    src("xs: float[] = [1.5, 0.0]", "xs[1] = 0.0 / 0.0", 'print(xs.join(","))'),
+  ],
+];
+
+describe("joining an array whose elements may be absent", () => {
+  for (const [name, source] of ABSENT_JOINS) {
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
+  }
+});
+
+const ABSENT_SEARCHES: readonly (readonly [string, string])[] = [
+  [
+    "finds an absence by its own value",
+    src("xs: (int | null)[] = [1, null, 3]", 'print(xs.index_of(null), xs.includes(null))'),
+  ],
+  [
+    "finds the last absence",
+    src("xs: (int | null)[] = [1, null, 3, null]", "print(xs.last_index_of(null))"),
+  ],
+  [
+    "still finds a present element beside an absent one",
+    src("xs: (int | null)[] = [1, null, 3]", 'print(xs.index_of(3), xs.includes(3))'),
+  ],
+  [
+    "reports a value no element holds",
+    src("xs: (int | null)[] = [1, null, 3]", 'print(xs.index_of(9), xs.includes(9))'),
+  ],
+  [
+    "finds an absent float",
+    src("xs: (float | null)[] = [1.5, null]", 'print(xs.index_of(null), xs.index_of(1.5))'),
+  ],
+  [
+    "finds an element that is unset rather than null",
+    src("xs: (int | undefined)[] = [1, undefined, 3]", 'print(xs.index_of(undefined))'),
+  ],
+  [
+    "tells the two absences apart",
+    src(
+      "xs: (int | null | undefined)[] = [1, null, undefined]",
+      'print(xs.index_of(null), xs.index_of(undefined))',
+    ),
+  ],
+  [
+    "does not match an absence against the other flavour",
+    src("xs: (int | null)[] = [1, null]", "print(xs.index_of(undefined))"),
+  ],
+  [
+    "does not match an absence against a plain number",
+    src("xs: int[] = [1, 2]", "print(xs.index_of(null))"),
+  ],
+  [
+    "leaves a number that is not a number unmatched, the way strict equality does",
+    src("xs: float[] = [1.5, 0.0]", "xs[1] = 0.0 / 0.0", "print(xs.index_of(0.0 / 0.0))"),
+  ],
+  [
+    "searches for an absence it read out of another array",
+    src(
+      "xs: (int | null)[] = [1, null, 3]",
+      "ys: (int | null)[] = [null, 7]",
+      "print(xs.index_of(ys[0]), xs.index_of(ys[1]))",
+    ),
+  ],
+  [
+    "searches for an absence a variable holds",
+    src("xs: (int | null)[] = [1, null]", "n: int | null = null", "print(xs.index_of(n))"),
+  ],
+  [
+    "searches an array that reached the call as a parameter",
+    src(
+      "fn seek(xs: (int | null)[]) -> int:",
+      "  return xs.index_of(null)",
+      "vals: (int | null)[] = [1, null, 3]",
+      "print(seek(vals))",
+    ),
+  ],
+];
+
+describe("searching an array whose elements may be absent", () => {
+  for (const [name, source] of ABSENT_SEARCHES) {
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
+  }
+});

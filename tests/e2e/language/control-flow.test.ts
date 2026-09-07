@@ -182,6 +182,87 @@ describe("Tera control flow", () => {
     expect(run(source)).toBe(4);
   });
 
+  describe("labeled continue", () => {
+    const PRINT_BUDGET = 32;
+
+    const printed = (source: string) => {
+      const out: string[] = [];
+      new Engine({
+        output: (text: unknown) => {
+          if (out.length >= PRINT_BUDGET) {
+            throw new Error(`printed over ${PRINT_BUDGET} lines without terminating`);
+          }
+          out.push(String(text));
+        },
+      }).runNative(source);
+      return out.join(" ");
+    };
+
+    it("resumes the labeled for-of from inside a nested loop", () => {
+      const source = [
+        "rows = [[1, 2, 0], [3, 0, 4], [5, 6, 7]]",
+        "outer: for r of rows:",
+        "  for v of r:",
+        "    if v == 0:",
+        "      continue outer",
+        "    print(v)",
+      ].join("\n");
+      expect(printed(source)).toBe("1 2 3 5 6 7");
+    });
+
+    it("resumes the labeled while from inside a nested loop", () => {
+      const source = [
+        "i = 0",
+        "outer: while i < 3:",
+        "  i = i + 1",
+        "  for v of [1, 2]:",
+        "    if v == 2:",
+        "      continue outer",
+        "    print(v * i)",
+      ].join("\n");
+      expect(printed(source)).toBe("1 2 3");
+    });
+
+    it("resumes the labeled loop written as an indentation block", () => {
+      const source = [
+        "outer:",
+        "  for i of [1, 2, 3]:",
+        "    for j of [1, 2]:",
+        "      if j == 2:",
+        "        continue outer",
+        "      print(i)",
+      ].join("\n");
+      expect(printed(source)).toBe("1 2 3");
+    });
+
+    it("runs the loop's update before resuming a labeled for", () => {
+      const source = [
+        "outer: for (i = 0; i < 4; i = i + 1):",
+        "  for j of [1, 2]:",
+        "    if j == 2:",
+        "      continue outer",
+        "    print(i)",
+      ].join("\n");
+      expect(printed(source)).toBe("0 1 2 3");
+    });
+
+    it("keeps unlabeled continue bound to the innermost loop", () => {
+      const source = [
+        "outer: for r of [[1, 0], [2, 0]]:",
+        "  for v of r:",
+        "    if v == 0:",
+        "      continue",
+        "    print(v)",
+      ].join("\n");
+      expect(printed(source)).toBe("1 2");
+    });
+
+    it("rejects a labeled continue whose label does not name a loop", () => {
+      const source = ["lbl: if true:", "  continue lbl"].join("\n");
+      expect(() => printed(source)).toThrow("Label 'lbl' does not name a loop");
+    });
+  });
+
   it("iterates user-defined objects with @@iterator and prototype next", () => {
     const out: unknown[] = [];
     const source = [

@@ -61,6 +61,7 @@ export function fieldsOverlap(left: Field, right: Field): boolean {
 export type MemoryLocation = {
   readonly key: string;
   readonly baseKey: string;
+  readonly identity: string | null;
   readonly base: ir.CFGInstruction | null;
   readonly partition: Partition;
   readonly field: Field;
@@ -70,15 +71,42 @@ type PartitionResolver = { partitionOf(value: ir.CFGInstruction): Partition };
 type AliasResolver = PartitionResolver & {
   mayAlias(a: ir.CFGInstruction, b: ir.CFGInstruction): boolean;
 };
+type EscapeResolver = { escapes(value: ir.CFGInstruction): boolean };
+
+function identityRootOf(value: ir.CFGInstruction): ir.CFGInstruction {
+  let root = value;
+  while (ir.forwardsPointerIdentity(root.type)) {
+    const source = root.inputs[0];
+    if (source === undefined) break;
+    root = source;
+  }
+  return root;
+}
+
+function cellKey(node: ir.CFGInstruction): string | null {
+  const access = ir.memoryAccessOf(node.type);
+  if (access === ir.ACCESS_SLOT) {
+    return typeof node.props.offset === "number" ? `slot:${node.props.offset}` : null;
+  }
+  if (access !== ir.ACCESS_ELEMENT) return null;
+  const index = node.inputs[1];
+  if (index === undefined) return null;
+  if (index.type === ir.IR_CONSTANT && typeof index.props.value === "number") {
+    return `index:${index.props.value}`;
+  }
+  return `index:v${identityRootOf(index).id}`;
+}
 
 function locationOf(
   base: ir.CFGInstruction | null,
   partition: Partition,
   field: Field,
+  identity: string | null,
 ): MemoryLocation {
   return {
     key: locationKey(partition, field),
     baseKey: partitionKey(partition),
+    identity,
     base,
     partition,
     field,
@@ -93,11 +121,26 @@ export function memoryLocationOf(
   if (!field) return null;
   if (ir.memoryAccessOf(node.type) === ir.ACCESS_GLOBAL) {
     if (typeof node.props.name !== "string") return null;
-    return locationOf(null, { kind: "global", name: node.props.name }, field);
+    const partition: Partition = { kind: "global", name: node.props.name };
+    return locationOf(null, partition, field, partitionKey(partition));
   }
   const base = node.inputs[0];
   if (!base) return null;
-  return locationOf(base, partitions.partitionOf(base), field);
+  const cell = cellKey(node);
+  return locationOf(
+    base,
+    partitions.partitionOf(base),
+    field,
+    cell === null ? null : `v${identityRootOf(base).id}|${cell}`,
+  );
+}
+
+export function isExternallyVisible(
+  location: Pick<MemoryLocation, "base" | "partition">,
+  escapes: EscapeResolver,
+): boolean {
+  if (location.base === null) return true;
+  return location.partition.kind !== "alloc" || escapes.escapes(location.base);
 }
 
 export function basesMayAlias(

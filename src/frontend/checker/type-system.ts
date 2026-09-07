@@ -27,7 +27,6 @@ export type Binding = {
   type: TypeName;
   optional: boolean;
   declared?: boolean;
-  filled?: boolean;
   widens?: TypeName;
   open?: boolean;
   visibility?: ClassVisibility;

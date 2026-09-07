@@ -1,3 +1,5 @@
+import type { ASTNode } from "../ast/index.js";
+import { provenTakes } from "./length-bounds.js";
 import type { SemanticNode, SemanticProgram } from "./semantic-ast.js";
 import {
   BUILTIN_SIGNATURES,
@@ -29,6 +31,7 @@ export type BoundProgram = {
   root: Scope;
   scopes: WeakMap<SemanticNode, Scope>;
   reserved: ReadonlySet<string>;
+  provenTakes: ReadonlySet<ASTNode>;
 };
 
 export type ExternalBuiltinParam = {
@@ -317,6 +320,7 @@ export function bindProgram(program: SemanticProgram, options: BindOptions = {})
     root,
     scopes: new WeakMap(),
     reserved,
+    provenTakes: provenTakes(program.body),
   };
   bindExternalTypes(bound, options);
   if (options.imports !== undefined) bindImportedSurface(bound, options.imports);

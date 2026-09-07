@@ -243,6 +243,23 @@ export function memberName(node: ASTNode): string {
   return typeof property.value === "string" ? property.value : "";
 }
 
+const RECEIVER_NAME = "this";
+
+export function dottedName(node: ASTNode): string | null {
+  if (node.type === NodeType.Identifier) return String(node.name);
+  if (node.type === NodeType.ThisExpression) return RECEIVER_NAME;
+  if (node.type !== NodeType.MemberExpression || node.computed === true) return null;
+  const object = dottedName(node.object as ASTNode);
+  if (!object) return null;
+  const property = typeof node.property === "string" ? node.property : String((node.property as ASTNode).name ?? "");
+  return property ? `${object}.${property}` : null;
+}
+
+export function subjectName(node: ASTNode): string | null {
+  if (node.type === NodeType.Identifier) return String(node.name);
+  return dottedName(node);
+}
+
 export function astChildren(node: ASTNode): ASTNode[] {
   const children: ASTNode[] = [];
   const hold = (value: unknown): void => {
@@ -476,8 +493,8 @@ export function SwitchCase(test: AnyNode, consequent: ASTNode[]): ASTNode {
   return { type: NodeType.SwitchCase, test, consequent };
 }
 
-export function BreakStatement(): ASTNode {
-  return { type: NodeType.BreakStatement };
+export function BreakStatement(label: string | null = null): ASTNode {
+  return { type: NodeType.BreakStatement, label };
 }
 
 export function TryStatement(block: ASTNode, handler: CatchHandlerNode | null, finalizer: AnyNode): ASTNode {
@@ -575,8 +592,8 @@ export function DoWhileStatement(test: ASTNode, body: ASTNode): ASTNode {
   return { type: NodeType.DoWhileStatement, test, body };
 }
 
-export function ContinueStatement(): ASTNode {
-  return { type: NodeType.ContinueStatement };
+export function ContinueStatement(label: string | null = null): ASTNode {
+  return { type: NodeType.ContinueStatement, label };
 }
 
 export function CompoundAssignmentExpression(op: string, target: ASTNode, value: ASTNode): ASTNode {

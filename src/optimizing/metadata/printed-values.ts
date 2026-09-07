@@ -10,8 +10,11 @@ import { aotScalarOf, isReferenceScalar } from "../types/scalar.js";
 export const BOOLEAN_TEXT: readonly [string, string] = ["false", "true"];
 
 export const ABSENCE_COMPARISON = "loose==";
+export const BITS_COMPARISON = "bits==";
 export const NULL_TEXT = "null";
 export const UNDEFINED_TEXT = "undefined";
+
+const ONE_NAME = 1;
 
 export interface AbsenceValue {
   readonly text: string;
@@ -34,7 +37,7 @@ export function declaredAbsenceText(source: string | null | undefined): string |
   if (source === null || source === undefined) return null;
   const parts = unionParts(cleanType(source), builtinTypeEnv());
   const named = ABSENCE_VALUES.filter((absence) => parts.includes(absence.text));
-  return named.length === 1 ? named[0]!.text : null;
+  return named.length === ONE_NAME ? named[0]!.text : null;
 }
 
 function joinedAbsenceText(

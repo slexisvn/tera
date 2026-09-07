@@ -1,6 +1,6 @@
 import * as ir from "../ir/index.js";
 import { builtinOwnerMember, declaredNameOf } from "../types/declared.js";
-import type { LatticeType } from "../types/lattice.js";
+import { heldNumericType, type LatticeType } from "../types/lattice.js";
 import type { DeclaredDefault, DeclaredSignature } from "../types/signature.js";
 import { INT32_MAX } from "../target/integer.js";
 
@@ -322,7 +322,7 @@ export function builtinMethodIntrinsicFor(
   receiver: LatticeType,
   name: string,
 ): BuiltinMethodIntrinsic | null {
-  const owner = declaredNameOf(receiver);
+  const owner = declaredNameOf(heldNumericType(receiver));
   return owner === null ? null : builtinMethodIntrinsicByName(qualifiedMethodName(owner, name));
 }
 

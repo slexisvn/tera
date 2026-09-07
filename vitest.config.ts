@@ -9,6 +9,7 @@ const shared = {
   testTimeout: 60000,
   isolate: false,
   globalSetup: "tests/helpers/global-setup.ts",
+  setupFiles: "tests/helpers/release-kept-objects.ts",
   maxWorkers: process.env.TERA_TEST_WORKERS ?? "40%",
 } as const;
 

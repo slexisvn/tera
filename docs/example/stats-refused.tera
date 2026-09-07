@@ -1,0 +1,20 @@
+class Series:
+  public constructor(name: string, values: float[]):
+    this.name = name
+    this.values = values
+  public mean() -> float:
+    total = 0.0
+    i = 0
+    while i < this.values.length:
+      total += this.values[i]
+      i += 1
+    return total / this.values.length
+
+fn describe(s: Series, verbose: bool):
+  if verbose:
+    return s.name + " mean=" + s.mean().to_fixed(2)
+  return s.mean()
+
+latency = Series("latency", [12.5, 9.0, 31.25, 7.75, 18.0])
+print(describe(latency, true))
+print(describe(latency, false))

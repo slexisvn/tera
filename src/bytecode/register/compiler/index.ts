@@ -45,6 +45,9 @@ export class RegisterBytecodeCompiler {
   temps: TempAllocator | null;
   _breakJumps: RuntimeValue[] | null;
   _continueJumps: RuntimeValue[] | null;
+  _labeledBreaks: Record<string, number[]>;
+  _labeledContinues: Record<string, number[]>;
+  _pendingLoopLabels: string[];
   _finallyBlocks: RuntimeValue[];
   interfaceContracts: Map<string, RuntimeInterfaceContract>;
   classAbstractMembers: Map<string, Map<string, string>>;
@@ -63,6 +66,9 @@ export class RegisterBytecodeCompiler {
     this.temps = null;
     this._breakJumps = null;
     this._continueJumps = null;
+    this._labeledBreaks = {};
+    this._labeledContinues = {};
+    this._pendingLoopLabels = [];
     this._finallyBlocks = [];
     this.interfaceContracts = new Map(options.importedInterfaces ?? []);
     this.classAbstractMembers = new Map();

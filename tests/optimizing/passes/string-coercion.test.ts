@@ -1,20 +1,32 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   CFGFunction,
+  irBranch,
   irConstant,
+  irGenericAdd,
   irGenericCall,
   irGenericGetProp,
+  irJump,
   irReturn,
   resetIRNodeIds,
+  IR_CALL_BUILTIN,
   IR_GENERIC_ADD,
   IR_GENERIC_CALL,
 } from "../../../src/optimizing/ir/index.js";
+import { addPhi, link } from "../../../src/optimizing/ir/cfg-edit.js";
+import {
+  AOT_FLOAT_TO_STRING,
+  AOT_INT_TO_STRING,
+} from "../../../src/optimizing/analyses/aot-legality.js";
 import { AnalysisManager } from "../../../src/optimizing/infra/analysis-manager.js";
 import {
   createAnalysisRegistry,
   typeInferenceAnalysisId,
 } from "../../../src/optimizing/analyses/index.js";
-import { joinTextConcatenations } from "../../../src/optimizing/passes/string-coercion.js";
+import {
+  coerceStringOperands,
+  joinTextConcatenations,
+} from "../../../src/optimizing/passes/string-coercion.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -76,5 +88,68 @@ describe("joinTextConcatenations", () => {
     const graph = joining(["b"], 1);
 
     expect(join(graph)).toBe(0);
+  });
+});
+
+function rendering(present: number | string): CFGFunction {
+  const graph = new CFGFunction("render");
+  const entry = graph.addBlock();
+  const found = graph.addBlock();
+  const missing = graph.addBlock();
+  const join = graph.addBlock();
+
+  const flag = entry.addNode(irConstant(true));
+  entry.addNode(irBranch(flag, found, missing));
+  link(entry, found);
+  link(entry, missing);
+
+  const value = found.addNode(irConstant(present));
+  found.addNode(irJump(join));
+  const absent = missing.addNode(irConstant(undefined));
+  missing.addNode(irJump(join));
+  link(found, join);
+  link(missing, join);
+
+  const held = addPhi(join, [value, absent]);
+  const open = join.addNode(irConstant("["));
+  join.addNode(irReturn(join.addNode(irGenericAdd(open, held))));
+  graph.rebuildUses();
+  return graph;
+}
+
+function coerce(graph: CFGFunction): number {
+  return coerceStringOperands(
+    graph,
+    new AnalysisManager(graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
+  );
+}
+
+const builtinNames = (graph: CFGFunction) =>
+  nodesOf(graph, IR_CALL_BUILTIN).map((node) => String(node.props.name));
+
+describe("coerceStringOperands", () => {
+  it("renders a possibly absent integer through the float that holds it", () => {
+    const graph = rendering(1);
+    coerce(graph);
+
+    expect(builtinNames(graph)).toEqual([AOT_FLOAT_TO_STRING]);
+  });
+
+  it("renders an integer that is always present through the integer itself", () => {
+    const graph = new CFGFunction("render");
+    const block = graph.addBlock();
+    const open = block.addNode(irConstant("["));
+    const value = block.addNode(irConstant(1));
+    block.addNode(irReturn(block.addNode(irGenericAdd(open, value))));
+    graph.rebuildUses();
+    coerce(graph);
+
+    expect(builtinNames(graph)).toEqual([AOT_INT_TO_STRING]);
+  });
+
+  it("leaves a possibly absent string uncoerced", () => {
+    const graph = rendering("x");
+
+    expect(coerce(graph)).toBe(0);
   });
 });

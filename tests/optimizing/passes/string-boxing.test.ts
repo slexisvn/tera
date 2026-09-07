@@ -7,6 +7,9 @@ import {
   irJump,
   irReturn,
   resetIRNodeIds,
+  irLoadElement,
+  irNewObject,
+  irStoreElement,
   IR_LOAD_TEXT,
   IR_NEW_OBJECT,
   type CFGInstruction,
@@ -19,6 +22,7 @@ import {
 } from "../../../src/optimizing/analyses/index.js";
 import { buildClassTable } from "../../../src/optimizing/metadata/class-table.js";
 import { boxEscapingStrings } from "../../../src/optimizing/passes/string-boxing.js";
+import { SCALAR_TEXT } from "../../../src/optimizing/types/scalar.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -102,5 +106,60 @@ describe("strings a phi carries from more than one place", () => {
 
     expect(box(carried)).toBe(0);
     expect(carried.answer.inputs[0]).toBe(carried.phi);
+  });
+});
+
+describe("a string read out of an array that the program writes back into", () => {
+  interface Swapped {
+    readonly graph: CFGFunction;
+    readonly read: CFGInstruction;
+    readonly answer: CFGInstruction;
+  }
+
+  function reading(overwritten: "same" | "never"): Swapped {
+    const graph = new CFGFunction("swap");
+    graph.classes = buildClassTable([]);
+    const block = graph.addBlock();
+    const buffer = block.addNode(irNewObject());
+    const here = block.addNode(irConstant(0));
+    const there = block.addNode(irConstant(1));
+    const read = block.addNode(irLoadElement(buffer, here));
+    read.props.elementScalar = SCALAR_TEXT;
+    if (overwritten === "same") {
+      const written = block.addNode(irLoadElement(buffer, there));
+      written.props.elementScalar = SCALAR_TEXT;
+      const store = block.addNode(irStoreElement(buffer, here, written));
+      store.props.elementScalar = SCALAR_TEXT;
+    }
+    const answer = block.addNode(irStoreElement(buffer, there, read));
+    answer.props.elementScalar = SCALAR_TEXT;
+    block.addNode(irReturn(buffer));
+    graph.rebuildUses();
+    return { graph, read, answer };
+  }
+
+  const boxing = (swapped: Swapped): number =>
+    boxEscapingStrings(
+      swapped.graph,
+      new AnalysisManager(swapped.graph, createAnalysisRegistry()).get(typeInferenceAnalysisId),
+    );
+
+  it("copies the string it read before the slot it came from is written", () => {
+    const swapped = reading("same");
+    boxing(swapped);
+
+    expect(swapped.answer.inputs[2]!.type).toBe(IR_LOAD_TEXT);
+    expect(swapped.answer.inputs[2]!.inputs[0]!.type).toBe(IR_NEW_OBJECT);
+  });
+
+  it("reports the read it rewrote", () => {
+    expect(boxing(reading("same"))).toBe(1);
+  });
+
+  it("leaves the read alone when nothing writes the array in between", () => {
+    const swapped = reading("never");
+
+    expect(boxing(swapped)).toBe(0);
+    expect(swapped.answer.inputs[2]).toBe(swapped.read);
   });
 });

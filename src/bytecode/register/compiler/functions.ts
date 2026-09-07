@@ -14,8 +14,8 @@ import {
 } from "../../../frontend/ast/index.js";
 import type { ASTNode, FunctionParamInfo, ParamNode } from "../../../frontend/ast/index.js";
 import { MODEL_MARKER, MODULE_METHODS } from "../../../frontend/model.js";
-import { Scope } from "./helpers.js";
-import type { ScopeResolution } from "./helpers.js";
+import { Scope, enterLoop, exitLoop } from "./helpers.js";
+import type { LoopContext, ScopeResolution } from "./helpers.js";
 import { TempAllocator } from "./temp-allocator.js";
 import * as bytecode from "../ops/bytecode.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../../core/class-visibility.js";
@@ -611,6 +611,8 @@ type FunctionCompilerThis = {
   classConstructors: Map<string, ConstructorSurface>;
   _breakJumps: number[];
   _continueJumps: number[];
+  _labeledContinues: Record<string, number[]>;
+  _pendingLoopLabels: string[];
   _compileParams(
     fn: ParameterizedNode,
     innerFunc: bytecode.RegisterCompiledFunction,
@@ -1234,6 +1236,7 @@ export const functionMethods: FunctionMethodMap = {
   },
 
   compileForInStatement(node) {
+    const loop = enterLoop(this);
     const objReg = this.temps.alloc();
     this.compileExpression(node.object);
     this.func.emit(bytecode.ROP_STAR, objReg);
@@ -1277,13 +1280,6 @@ export const functionMethods: FunctionMethodMap = {
       varSlot = this._declareLocal(variableName, kind);
       this.func.setLocalBindingKind(varSlot, kind);
     }
-
-    const outerBreak = this._breakJumps;
-    const outerContinue = this._continueJumps;
-    const breakJumps: number[] = [];
-    const continueJumps: number[] = [];
-    this._breakJumps = breakJumps;
-    this._continueJumps = continueJumps;
 
     const loopStart = this.func.instructions.length;
     this.func.emit(bytecode.ROP_LDA_REG, iSlot);
@@ -1332,15 +1328,12 @@ export const functionMethods: FunctionMethodMap = {
     this.func.emit(bytecode.ROP_JUMP, loopStart);
     const endTarget = this.func.instructions.length;
     this.func.patchJump(exitJump, endTarget);
-    for (const j of breakJumps) this.func.patchJump(j, endTarget);
-    for (const j of continueJumps) this.func.patchJump(j, continueTarget);
-
-    this._breakJumps = outerBreak;
-    this._continueJumps = outerContinue;
+    exitLoop(this, loop, continueTarget, endTarget);
     this.scope = outerScope;
   },
 
   compileForOfStatement(node) {
+    const loop = enterLoop(this);
     this.compileExpression(node.iterable);
     this.func.emit(bytecode.ROP_GET_ITERATOR);
     const iterSlot = this.func.addLocal("_iter$");
@@ -1371,13 +1364,6 @@ export const functionMethods: FunctionMethodMap = {
       varSlot = this._declareLocal(variableName, kind);
       this.func.setLocalBindingKind(varSlot, kind);
     }
-
-    const outerBreak = this._breakJumps;
-    const outerContinue = this._continueJumps;
-    const breakJumps: number[] = [];
-    const continueJumps: number[] = [];
-    this._breakJumps = breakJumps;
-    this._continueJumps = continueJumps;
 
     const loopStart = this.func.instructions.length;
 
@@ -1414,11 +1400,7 @@ export const functionMethods: FunctionMethodMap = {
     this.func.emit(bytecode.ROP_JUMP, loopStart);
     const endTarget = this.func.instructions.length;
     this.func.patchJump(exitJump, endTarget);
-    for (const j of breakJumps) this.func.patchJump(j, endTarget);
-    for (const j of continueJumps) this.func.patchJump(j, continueTarget);
-
-    this._breakJumps = outerBreak;
-    this._continueJumps = outerContinue;
+    exitLoop(this, loop, continueTarget, endTarget);
     this.scope = outerScope;
   },
 

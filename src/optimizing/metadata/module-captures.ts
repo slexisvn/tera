@@ -2,7 +2,7 @@ import {
   irConstant,
   irLoadGlobal,
   irStoreGlobal,
-  IR_CONSTANT,
+  isUndefinedConstant,
   IR_MAKE_CLOSURE,
   IR_LOAD_CONTEXT_SLOT,
   IR_STORE_CONTEXT_SLOT,
@@ -78,10 +78,6 @@ function moduleVariableOf(
   }
   if (upvalue.outerType !== LOCAL_CAPTURE || !scopes.has(creator)) return null;
   return scopedVariable(creator, upvalue.outerSlot, upvalue.name ?? null, isVariable);
-}
-
-function isUndefinedConstant(value: CFGInstruction | undefined): boolean {
-  return value !== undefined && value.type === IR_CONSTANT && value.props.value === undefined;
 }
 
 function rewrite(

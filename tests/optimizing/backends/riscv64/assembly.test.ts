@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { nodeEngine } from "../../../helpers/engine.js";
 import type { AotProgram } from "../../../../src/optimizing/drivers/aot.js";
-import { ABSENCE_VALUES } from "../../../../src/optimizing/metadata/printed-values.js";
+import {
+  ABSENCE_VALUES,
+  absenceValueOf,
+} from "../../../../src/optimizing/metadata/printed-values.js";
 import { FLOAT64_EXPONENT_MASK } from "../../../../src/optimizing/target/float64.js";
 import {
   C_CHAR,
@@ -9,6 +12,14 @@ import {
   C_WIDE_TEXT_UNIT,
 } from "../../../../src/optimizing/target/c-types.js";
 import { riscvTarget } from "../../../../src/optimizing/backends/riscv64/target.js";
+import { RISCV_RUNTIME_SYMBOLS } from "../../../../src/optimizing/backends/riscv64/runtime-symbols.js";
+import { dataItemText, integerData } from "../../../../src/optimizing/machine/data.js";
+import {
+  scalarWidth,
+  SCALAR_FLOAT64,
+} from "../../../../src/optimizing/types/scalar.js";
+
+const DOUBLE_BYTES = scalarWidth(SCALAR_FLOAT64);
 
 const src = (...lines: string[]) => lines.join("\n");
 
@@ -256,5 +267,89 @@ describe("riscv64 absent numbers", () => {
       expect(testedAt).toBeGreaterThan(0);
       expect(testedAt).toBeLessThan(decodedAt);
     }
+  });
+});
+
+const SEEKS_ABSENT_ELEMENT = src(
+  "fn seek(xs: (int | null)[]) -> int:",
+  "  return xs.index_of(null)",
+  "print(seek([1, null]))",
+);
+
+const SEEKS_PRESENT_ELEMENT = src(
+  "fn seek(xs: int[]) -> int:",
+  "  return xs.index_of(1)",
+  "print(seek([1, 2]))",
+);
+
+const MOVED_OUT = /fmv\.x\.d\s+(\w+), \w+/g;
+
+const bodyOf = (source: string, symbol: string): string =>
+  routineOf(assemblyOf(source), symbol);
+
+const movedOutOf = (body: string): string[] =>
+  [...body.matchAll(MOVED_OUT)].map((moved) => moved[1]!);
+
+const countOf = (body: string, mnemonic: string): number =>
+  linesOf(body).filter((line) => line.trim().startsWith(`${mnemonic} `)).length;
+
+const pairedBy = (body: string, mnemonic: string, left: string, right: string): boolean =>
+  new RegExp(`${mnemonic}\\s+\\w+, (${left}, ${right}|${right}, ${left})`).test(body);
+
+describe("riscv64 comparing the bits two numbers carry", () => {
+  it("moves the two compared payloads out of their float registers", () => {
+    const body = bodyOf(SEEKS_ABSENT_ELEMENT, "seek");
+    const moved = movedOutOf(body);
+
+    expect(moved.length).toBeGreaterThanOrEqual(2);
+    expect(moved.some((left) => moved.some((right) => left !== right && pairedBy(body, "xor", left, right)))).toBe(true);
+  });
+
+  it("never hands two numbers to the routine that compares strings", () => {
+    expect(bodyOf(SEEKS_ABSENT_ELEMENT, "seek")).not.toContain(
+      RISCV_RUNTIME_SYMBOLS.stringCompare,
+    );
+  });
+
+  it("moves nothing out of a float register where the element admits no absence", () => {
+    expect(bodyOf(SEEKS_PRESENT_ELEMENT, "seek")).not.toContain("fmv.x.d");
+  });
+});
+
+describe("riscv64 comparing a number against an absence", () => {
+  const TESTS_ABSENCE = src(
+    "fn f(n: int | null) -> int:",
+    "  if n == null:",
+    "    return 0",
+    "  return 1",
+    "print(f(null))",
+  );
+
+  const BOTH_OPERANDS = 2;
+
+  it("tests each operand against every absence payload the language has", () => {
+    const body = bodyOf(TESTS_ABSENCE, "f");
+
+    for (const absence of ABSENCE_VALUES) {
+      expect(countOf(body, "li")).toBeGreaterThan(0);
+      expect(body).toMatch(new RegExp(`li \\w+, ${absence.bits}\\b`));
+    }
+  });
+
+  it("reduces each operand's payload tests down to a single flag", () => {
+    const body = bodyOf(TESTS_ABSENCE, "f");
+
+    expect(countOf(body, "or")).toBe(BOTH_OPERANDS * (ABSENCE_VALUES.length - 1));
+  });
+
+  it("never hands a number and an absence to the routine that compares strings", () => {
+    expect(bodyOf(TESTS_ABSENCE, "f")).not.toContain(RISCV_RUNTIME_SYMBOLS.stringCompare);
+  });
+
+  it("materialises the absence as the payload that flavour owns", () => {
+    const assembly = assemblyOf(TESTS_ABSENCE);
+    const declared = linesOf(assembly).filter((line) => line.trim().startsWith(".quad "));
+
+    expect(declared).toContain(dataItemText(integerData(absenceValueOf(null)!.bits, DOUBLE_BYTES)));
   });
 });

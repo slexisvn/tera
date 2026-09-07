@@ -1787,7 +1787,7 @@ export class Parser {
       label = this.tokenString(this.advance(), "label");
     }
     this.consumeSemicolon();
-    return withSpan({ type: NodeType.BreakStatement, label }, start);
+    return withSpan(BreakStatement(label), start);
   }
 
   parseDoWhileStatement(): ASTNode {
@@ -1808,7 +1808,7 @@ export class Parser {
       label = this.tokenString(this.advance(), "label");
     }
     this.consumeSemicolon();
-    return withSpan({ type: NodeType.ContinueStatement, label }, start);
+    return withSpan(ContinueStatement(label), start);
   }
 
   parseTryStatement(): ASTNode {

@@ -144,6 +144,10 @@ export function nullableNumericType(type: LatticeType): SingletonType {
   return NULLABLE_NUMERICS.get(type.kind) ?? nullishType();
 }
 
+export function heldNumericType(type: LatticeType): LatticeType {
+  return isNumericKind(type) && acceptsNull(type) ? nullableNumericType(doubleType()) : type;
+}
+
 export function withoutNull(type: LatticeType): LatticeType {
   if (type.kind === TypeKind.Object && type.nullable) return objectType(type.map);
   if (type.kind === TypeKind.String && type.nullable === true) return stringType();

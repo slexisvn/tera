@@ -24,6 +24,7 @@ import {
   ABSENCE_COMPARISON,
   ABSENCE_VALUES,
   absenceValueOf,
+  BITS_COMPARISON,
 } from "../../../../src/optimizing/metadata/printed-values.js";
 import { FLOAT64_MANTISSA_BITS } from "../../../../src/optimizing/target/float64.js";
 import { codeUnitArrayLiteral } from "../../../../src/optimizing/target/text-literal.js";
@@ -553,6 +554,32 @@ function absenceCompare(name: string, held: unknown): CFGFunction {
   block.addNode(irReturn(compare));
   return graph;
 }
+
+function bitsCompare(name: string): CFGFunction {
+  const graph = declaring(name, ["float", "float"], "bool");
+  const left = graph.addParameter(0);
+  const right = graph.addParameter(1);
+  const block = graph.addBlock();
+  const compare = irGenericCompare(BITS_COMPARISON, left, right);
+  block.addNode(compare);
+  block.addNode(irReturn(compare));
+  return graph;
+}
+
+const OPERAND = "\\((?:\\(double\\))?\\w+\\)";
+
+const readingWith = (helper: string): RegExp =>
+  new RegExp(`${helper}${OPERAND} == ${helper}${OPERAND}`);
+
+describe("what the C backend emits for a comparison of the bits two numbers carry", () => {
+  it("compares the payload words themselves", () => {
+    expect(emitted(bitsCompare("alike")).source).toMatch(readingWith("tera_f64_bits"));
+  });
+
+  it("asks nothing of the absence flag, which every absence would share", () => {
+    expect(emitted(bitsCompare("alike")).source).not.toMatch(readingWith("tera_f64_absent"));
+  });
+});
 
 describe("what the C backend emits for an absent number", () => {
   it("compares the two operands as absence flags, not as raw payload words", () => {

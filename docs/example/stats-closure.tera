@@ -1,0 +1,16 @@
+fn scaler(factor: float) -> fn(float) -> float:
+  fn scale(x: float) -> float:
+    return x * factor
+  return scale
+
+values: float[] = [12.5, 9.0, 31.25, 7.75, 18.0]
+double = scaler(2.0)
+scaled: float[] = values.map(double)
+
+total = 0.0
+i = 0
+while i < scaled.length:
+  total += scaled[i]
+  i += 1
+
+print("scaled mean=" + (total / scaled.length).to_fixed(2))

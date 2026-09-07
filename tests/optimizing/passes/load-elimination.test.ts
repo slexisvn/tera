@@ -15,7 +15,11 @@ import {
   irReturn,
   irJump,
   irBranch,
+  irCheckArray,
+  irCheckElementsKind,
+  irLoadElement,
   IR_LOAD_FIELD,
+  IR_LOAD_ELEMENT,
   IR_CONSTANT,
   resetIRNodeIds,
 } from "../../../src/optimizing/ir/index.js";
@@ -313,6 +317,92 @@ describe("loadElimination", () => {
 
     expect(count).toBe(1);
     expect(ret.inputs[0]).toBe(val);
+  });
+
+  it("keeps a load of a second array that only shares the first array's shape", () => {
+    const graph = new CFGFunction("test");
+    const block = graph.addBlock();
+    const left = graph.addParameter(0);
+    const right = graph.addParameter(1);
+    const index = irConstant(0);
+    block.addNode(index);
+    const leftElements = irCheckElementsKind(irCheckArray(left), "PACKED_SMI");
+    block.addNode(leftElements.inputs[0]!);
+    block.addNode(leftElements);
+    const rightElements = irCheckElementsKind(irCheckArray(right), "PACKED_SMI");
+    block.addNode(rightElements.inputs[0]!);
+    block.addNode(rightElements);
+    const leftLoad = irLoadElement(leftElements, index);
+    block.addNode(leftLoad);
+    const rightLoad = irLoadElement(rightElements, index);
+    block.addNode(rightLoad);
+    const ret = irReturn(irInt32Add(leftLoad, rightLoad));
+    block.addNode(ret.inputs[0]!);
+    block.addNode(ret);
+
+    expect(eliminateLoads(graph)).toBe(0);
+    expect(block.nodes.filter((n) => n.type === IR_LOAD_ELEMENT)).toHaveLength(2);
+  });
+
+  it("keeps a second load of one array taken at a different index", () => {
+    const graph = new CFGFunction("test");
+    const block = graph.addBlock();
+    const array = graph.addParameter(0);
+    const first = graph.addParameter(1);
+    const second = graph.addParameter(2);
+    const elements = irCheckElementsKind(irCheckArray(array), "PACKED_SMI");
+    block.addNode(elements.inputs[0]!);
+    block.addNode(elements);
+    const firstLoad = irLoadElement(elements, first);
+    block.addNode(firstLoad);
+    const secondLoad = irLoadElement(elements, second);
+    block.addNode(secondLoad);
+    const ret = irReturn(irInt32Add(firstLoad, secondLoad));
+    block.addNode(ret.inputs[0]!);
+    block.addNode(ret);
+
+    expect(eliminateLoads(graph)).toBe(0);
+    expect(block.nodes.filter((n) => n.type === IR_LOAD_ELEMENT)).toHaveLength(2);
+  });
+
+  it("still forwards a repeated load reached through a second guard on one array", () => {
+    const graph = new CFGFunction("test");
+    const block = graph.addBlock();
+    const array = graph.addParameter(0);
+    const index = irConstant(0);
+    block.addNode(index);
+    const firstGuard = irCheckElementsKind(irCheckArray(array), "PACKED_SMI");
+    block.addNode(firstGuard.inputs[0]!);
+    block.addNode(firstGuard);
+    const firstLoad = irLoadElement(firstGuard, index);
+    block.addNode(firstLoad);
+    const secondGuard = irCheckElementsKind(irCheckArray(array), "PACKED_SMI");
+    block.addNode(secondGuard.inputs[0]!);
+    block.addNode(secondGuard);
+    const secondLoad = irLoadElement(secondGuard, index);
+    block.addNode(secondLoad);
+    const ret = irReturn(secondLoad);
+    block.addNode(ret);
+
+    expect(eliminateLoads(graph)).toBe(1);
+    expect(ret.inputs[0]).toBe(firstLoad);
+  });
+
+  it("keeps a load of a second object that only shares the first object's shape", () => {
+    const graph = new CFGFunction("test");
+    const block = graph.addBlock();
+    const first = graph.addParameter(0);
+    const second = graph.addParameter(1);
+    const firstLoad = irLoadField(first, 0);
+    block.addNode(firstLoad);
+    const secondLoad = irLoadField(second, 0);
+    block.addNode(secondLoad);
+    const ret = irReturn(irInt32Add(firstLoad, secondLoad));
+    block.addNode(ret.inputs[0]!);
+    block.addNode(ret);
+
+    expect(eliminateLoads(graph)).toBe(0);
+    expect(block.nodes.filter((n) => n.type === IR_LOAD_FIELD)).toHaveLength(2);
   });
 
   it("invalidates load state across non-pure call for non-fresh objects", () => {

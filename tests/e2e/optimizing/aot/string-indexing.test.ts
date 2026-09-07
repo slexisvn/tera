@@ -41,6 +41,52 @@ const IN_RANGE: readonly (readonly [string, string])[] = [
   ],
 ];
 
+const COMPARED: readonly (readonly [string, string])[] = [
+  [
+    "tells two characters of one string apart",
+    src('w = "aab"', "print(w[0] == w[1], w[1] == w[2])"),
+  ],
+  [
+    "compares a character against a literal",
+    src('w = "aab"', 'print(w[0] == "a", w[2] == "a")'),
+  ],
+  [
+    "counts the neighbours a string repeats",
+    src(
+      "fn runs(text: string) -> int:",
+      "  n = 0",
+      "  i = 1",
+      "  while i < text.length:",
+      "    if text[i] == text[i - 1]:",
+      "      n += 1",
+      "    i += 1",
+      "  return n",
+      'print(runs("aaabbbcccd"))',
+    ),
+  ],
+  [
+    "builds run-length text while comparing neighbours",
+    src(
+      "fn encode(text: string) -> string:",
+      "  if text.length == 0:",
+      '    return ""',
+      '  out = ""',
+      "  run = 1",
+      "  i = 1",
+      "  while i <= text.length:",
+      "    if i < text.length and text[i] == text[i - 1]:",
+      "      run += 1",
+      "    else:",
+      "      out += `${text[i - 1]}${run}`",
+      "      run = 1",
+      "    i += 1",
+      "  return out",
+      'for sample of ["aaabbbcccd", "abcd", "wwwwwwww"]:',
+      '  print(sample, "->", encode(sample))',
+    ),
+  ],
+];
+
 const BEYOND_THE_ENDS: readonly (readonly [string, string])[] = [
   ["reading one past the end", src(TEXT, "print(s[5])")],
   ["reading far past the end", src(TEXT, "print(s[99])")],
@@ -52,6 +98,13 @@ const BEYOND_THE_ENDS: readonly (readonly [string, string])[] = [
 
 describe("negative string subscripts count back from the end", () => {
   for (const [name, source] of IN_RANGE) {
+    itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
+    itNative(`${name} the same way through the C backend`, native.agrees(source));
+  }
+});
+
+describe("characters read out of a string compare as text, not as numbers", () => {
+  for (const [name, source] of COMPARED) {
     itRunsPe(`${name} the way the interpreter does`, () => peAgrees(source));
     itNative(`${name} the same way through the C backend`, native.agrees(source));
   }

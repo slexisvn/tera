@@ -32,12 +32,17 @@ function compiledFunction(name: string): RegisterCompiledFunction {
   return new RegisterCompiledFunction(name, 0);
 }
 
-function closureGraph(slots: readonly number[]): CFGFunction {
+function closureGraph(count: number, mutated: ReadonlySet<number> = new Set()): CFGFunction {
   const graph = new CFGFunction(CLOSURE);
   graph.declaredSignature = { params: [], returns: "int" };
   const block = graph.addBlock();
-  const read = slots.map((slot) => block.addNode(irLoadContextSlot(slot, "upvalue")));
+  const read = Array.from({ length: count }, (_, index) =>
+    block.addNode(irLoadContextSlot(index, "upvalue")),
+  );
   const joined = read.reduce((carried, held) => block.addNode(irGenericAdd(carried, held)));
+  for (const index of mutated) {
+    block.addNode(irStoreContextSlot(index, joined, "upvalue"));
+  }
   block.addNode(irReturn(joined));
   graph.rebuildUses();
   return graph;
@@ -50,12 +55,20 @@ interface Built {
   readonly converted: number;
 }
 
-function converted(captures: readonly number[], slots = captures.map((_, at) => at)): Built {
+interface Shape {
+  readonly outerSlots?: readonly number[];
+  readonly mutated?: ReadonlySet<number>;
+  readonly declaredEmpty?: boolean;
+  readonly readsBack?: boolean;
+}
+
+function converted(captures: readonly number[], shape: Shape = {}): Built {
+  const outerSlots = shape.outerSlots ?? captures.map((_, at) => at);
   const inner = compiledFunction(CLOSURE);
-  inner.upvalues = slots.map((slot) => ({
-    name: `${CAPTURED}${slot}`,
+  inner.upvalues = outerSlots.map((outerSlot, index) => ({
+    name: `${CAPTURED}${index}`,
     outerType: "local" as const,
-    outerSlot: slot,
+    outerSlot,
   }));
   const outer = compiledFunction(MAKER);
   outer.constants.push(inner);
@@ -63,14 +76,23 @@ function converted(captures: readonly number[], slots = captures.map((_, at) => 
   const maker = new CFGFunction(MAKER);
   maker.declaredSignature = { params: [], returns: "int" };
   const block = maker.addBlock();
-  slots.forEach((slot, at) => {
+  if (shape.declaredEmpty === true) {
+    for (const slot of outerSlots) {
+      block.addNode(irStoreContextSlot(slot, block.addNode(irConstant(undefined)), "local"));
+    }
+  }
+  const made = block.addNode(irMakeClosure(0, inner as never, []));
+  outerSlots.forEach((slot, at) => {
     block.addNode(irStoreContextSlot(slot, block.addNode(irConstant(captures[at]!)), "local"));
   });
-  const made = block.addNode(irMakeClosure(0, inner as never, []));
-  block.addNode(irReturn(made));
+  const answer =
+    shape.readsBack === true
+      ? block.addNode(irLoadContextSlot(outerSlots[0]!, "local"))
+      : made;
+  block.addNode(irReturn(answer));
   maker.rebuildUses();
 
-  const closure = closureGraph(slots);
+  const closure = closureGraph(outerSlots.length, shape.mutated);
   const classes = buildClassTable([]);
   const module = createModuleIR([
     createCompilationUnit(maker, [], outer),
@@ -166,6 +188,73 @@ describe("a closure over more than one value", () => {
   });
 });
 
+describe("a closure that writes what it captured", () => {
+  const MUTATED = new Set([0]);
+
+  it("boxes a lone capture into a frame instead of handing over its value", () => {
+    const { maker, closure } = converted([7], { mutated: MUTATED });
+
+    expect(opcodesIn(maker)).toContain(IR_NEW_OBJECT);
+    expect(closure.declaredSignature?.params).toEqual([FRAME]);
+  });
+
+  it("writes the capture back into that frame", () => {
+    const { closure } = converted([7], { mutated: MUTATED });
+
+    expect(fieldNamesIn(closure, IR_STORE_FIELD)).toEqual([`${CAPTURED}0`]);
+    expect(opcodesIn(closure)).not.toContain(IR_STORE_CONTEXT_SLOT);
+  });
+
+  it("stores the initial value where the maker stored it, not into the allocation", () => {
+    const { maker } = converted([7], { mutated: MUTATED });
+    const nodes = opcodesIn(maker);
+
+    expect(nodes.indexOf(IR_NEW_OBJECT)).toBeLessThan(nodes.indexOf(IR_STORE_FIELD));
+    expect(fieldNamesIn(maker, IR_STORE_FIELD)).toEqual([`${CAPTURED}0`]);
+  });
+
+  it("reads the maker's own view of the capture back off the frame", () => {
+    const { maker } = converted([7], { mutated: MUTATED, readsBack: true });
+
+    expect(fieldNamesIn(maker, IR_LOAD_FIELD)).toEqual([`${CAPTURED}0`]);
+    expect(opcodesIn(maker)).not.toContain(IR_LOAD_CONTEXT_SLOT);
+  });
+
+  it("leaves an unwritten lone capture unboxed", () => {
+    const { maker } = converted([7]);
+
+    expect(opcodesIn(maker)).not.toContain(IR_NEW_OBJECT);
+  });
+});
+
+describe("the slot the maker stores and the slot the closure reads", () => {
+  it("finds the captured value when the maker's slot is not the upvalue index", () => {
+    const { maker, closure } = converted([7], {
+      outerSlots: [3],
+      mutated: new Set([0]),
+    });
+
+    expect(fieldNamesIn(maker, IR_STORE_FIELD)).toEqual([`${CAPTURED}0`]);
+    expect(fieldNamesIn(closure, IR_LOAD_FIELD)).toEqual([`${CAPTURED}0`]);
+    expect(opcodesIn(maker)).not.toContain(IR_STORE_CONTEXT_SLOT);
+  });
+
+  it("types the frame off the real store, not the empty declaration before it", () => {
+    const { maker, classes } = converted([7], { mutated: new Set([0]), declaredEmpty: true });
+
+    expect(classes.shapeOf(FRAME)?.fields.get(`${CAPTURED}0`)?.declaredType).toBe("int");
+    expect(fieldNamesIn(maker, IR_STORE_FIELD)).toEqual([`${CAPTURED}0`]);
+  });
+
+  it("hands over a maker-local capture nothing writes without a frame", () => {
+    const { maker, closure } = converted([7], { declaredEmpty: true });
+
+    expect(opcodesIn(maker)).not.toContain(IR_NEW_OBJECT);
+    expect(opcodesIn(maker)).not.toContain(IR_STORE_CONTEXT_SLOT);
+    expect(closure.declaredSignature?.params).toEqual(["int"]);
+  });
+});
+
 describe("what closure conversion leaves alone", () => {
   it("leaves a closure whose captured value it cannot name", () => {
     const inner = compiledFunction(CLOSURE);
@@ -176,7 +265,7 @@ describe("what closure conversion leaves alone", () => {
     const block = maker.addBlock();
     block.addNode(irReturn(block.addNode(irMakeClosure(0, inner as never, []))));
     maker.rebuildUses();
-    const closure = closureGraph([0]);
+    const closure = closureGraph(1);
     const module = createModuleIR([
       createCompilationUnit(maker, [], outer),
       createCompilationUnit(closure, [], inner),

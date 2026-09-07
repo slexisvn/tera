@@ -200,3 +200,60 @@ export type SemanticNode =
 export type SemanticProgram = {
   body: SemanticNode[];
 };
+
+const NO_ALTERNATIVE = 0;
+const SEMANTIC_KIND = "kind";
+const AST_KIND = "type";
+
+export function branchChain(body: readonly SemanticNode[], at: number): BlockNode[] {
+  const first = body[at];
+  if (first?.kind !== "Block" || first.test === undefined) return [];
+  if (first.testRole !== "guard" || (first.otherwise ?? []).length > NO_ALTERNATIVE) return [];
+  const chain: BlockNode[] = [first];
+  for (let next = at + 1; next < body.length; next++) {
+    const node = body[next];
+    if (node?.kind !== "Block" || (node.otherwise ?? []).length === NO_ALTERNATIVE) break;
+    if (node.test !== undefined && node.testRole !== "guard") break;
+    chain.push(node);
+    if (node.test === undefined) break;
+  }
+  return chain;
+}
+
+const LEAVES_THE_BODY: ReadonlySet<SemanticNode["kind"]> = new Set<SemanticNode["kind"]>([
+  "Return",
+  "Jump",
+]);
+
+export function alwaysExits(body: readonly SemanticNode[]): boolean {
+  return body.some((node) => LEAVES_THE_BODY.has(node.kind));
+}
+
+function gather(held: unknown, found: ASTNode[], within: boolean): void {
+  if (held === null || typeof held !== "object") return;
+  if (Array.isArray(held)) {
+    for (const item of held) gather(item, found, within);
+    return;
+  }
+  if (SEMANTIC_KIND in held) {
+    if (within) for (const value of Object.values(held)) gather(value, found, within);
+    return;
+  }
+  if (AST_KIND in held) {
+    found.push(held as ASTNode);
+    return;
+  }
+  for (const value of Object.values(held)) gather(value, found, within);
+}
+
+export function ownExpressions(node: SemanticNode): ASTNode[] {
+  const found: ASTNode[] = [];
+  for (const value of Object.values(node)) gather(value, found, false);
+  return found;
+}
+
+export function nestedExpressions(held: SemanticNode | readonly SemanticNode[]): ASTNode[] {
+  const found: ASTNode[] = [];
+  gather(Array.isArray(held) ? held : [held], found, true);
+  return found;
+}

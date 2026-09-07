@@ -28,8 +28,9 @@ import type { ClassTable } from "../metadata/class-table.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
 import { TypeKind, type LatticeType } from "../types/lattice.js";
 import type { TypeInference } from "../analyses/type-inference.js";
-import { producedTypeName } from "./array-shapes.js";
+import { producedTypeName, producedTypeNaming } from "./array-shapes.js";
 import { isUnwritten } from "../types/signature.js";
+import { builtinGlobalIntrinsicByName } from "../metadata/builtin-methods.js";
 import { memberCallTargets } from "./class-member-lowering.js";
 
 import {
@@ -210,8 +211,10 @@ function keyKindOf(
 ): KeyKind | null {
   const named = kindOf(types.typeOf(value), KEY_BY_KIND);
   if (named !== null) return named;
-  const produced = producedName(value, graph, types);
-  return produced === null ? null : (KIND_BY_NAME.get(produced) ?? null);
+  const classes = graph.classes;
+  const produced = classes === null ? null : producedTypeNaming(value, graph, classes, types);
+  if (produced === null || produced.guessed) return null;
+  return KIND_BY_NAME.get(produced.held) ?? null;
 }
 
 function divided(node: CFGInstruction): ValueKind | null {
@@ -234,7 +237,9 @@ export type CallAnswers = (call: CFGInstruction) => string | null;
 function answersFrom(returnOf: (name: string) => string | null | undefined): CallAnswers {
   return (call) => {
     const name = calleeNameOf(call);
-    const returns = name === null ? null : returnOf(name) ?? null;
+    if (name === null) return null;
+    const returns =
+      returnOf(name) ?? builtinGlobalIntrinsicByName(name)?.signature.returns ?? null;
     return isUnwritten(returns) ? null : returns!;
   };
 }

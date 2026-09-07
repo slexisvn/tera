@@ -1,4 +1,10 @@
-import { acceptsNull, isNumericKind, TypeKind, type LatticeType } from "./lattice.js";
+import {
+  heldNumericType,
+  nullableNumericType,
+  smiType,
+  TypeKind,
+  type LatticeType,
+} from "./lattice.js";
 import { latticeFromElementsKind } from "./elements.js";
 
 export const SCALAR_INT32 = "int32";
@@ -60,8 +66,7 @@ export function aotScalarOf(type: LatticeType): AotScalar | null {
   if (type.kind === TypeKind.Object) {
     return type.map === null ? null : SCALAR_POINTER;
   }
-  if (isNumericKind(type) && acceptsNull(type)) return SCALAR_FLOAT64;
-  return SCALAR_BY_KIND.get(type.kind) ?? null;
+  return SCALAR_BY_KIND.get(heldNumericType(type).kind) ?? null;
 }
 
 export function aotElementScalarOf(type: LatticeType): AotScalar | null {
@@ -77,6 +82,10 @@ export function isStorableScalar(scalar: AotScalar | null): AotScalar | null {
 
 export function isNumericScalar(scalar: AotScalar): boolean {
   return scalar === SCALAR_INT32 || scalar === SCALAR_FLOAT64;
+}
+
+export function carriesAbsence(scalar: AotScalar): boolean {
+  return scalar === aotScalarOf(nullableNumericType(smiType()));
 }
 
 export function isReferenceScalar(scalar: AotScalar): boolean {

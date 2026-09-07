@@ -211,3 +211,90 @@ describe("lowering a range taken out of the middle of an array", () => {
     expect(CALL_SITE.test(text)).toBe(true);
   });
 });
+
+const ABSENCE_TEST = 'op="loose=="';
+const SPELLED = /^\s+(v\d+) = CallBuiltin .* name="\w+\.to_string"/m;
+const BLANK = /^\s+(v\d+) = Constant \[value=""\]/m;
+
+const MAY_BE_ABSENT: Held = { element: "(int | null)", value: "1, null" };
+const COUNTED: Held = { element: "int", value: "1" };
+
+function joining(held: Held): string {
+  return lowered(
+    src(
+      `fn only(xs: ${held.element}[]) -> string:`,
+      '  return xs.join(",")',
+      `print(only([${held.value}]))`,
+    ),
+  );
+}
+
+describe("lowering a join over elements that may be absent", () => {
+  it("tests each element for absence when the element may hold one", () => {
+    expect(joining(MAY_BE_ABSENT)).toContain(ABSENCE_TEST);
+  });
+
+  it("spells an absent element as nothing rather than as its word", () => {
+    const text = joining(MAY_BE_ABSENT);
+    const spelled = SPELLED.exec(text)![1]!;
+    const blank = BLANK.exec(text)![1]!;
+
+    expect(text).toMatch(new RegExp(`Phi (${blank}, ${spelled}|${spelled}, ${blank}) `));
+  });
+
+  it("tests a float element too, whose storage is what carries an absence", () => {
+    expect(joining(NUMERIC)).toContain(ABSENCE_TEST);
+  });
+
+  it("leaves out the test for an int element, which has no room for an absence", () => {
+    expect(joining(COUNTED)).not.toContain(ABSENCE_TEST);
+  });
+
+  it("leaves out the test for a reference element, which join never sees absent", () => {
+    expect(joining(REFERENCE)).not.toContain(ABSENCE_TEST);
+  });
+});
+
+const BITS_TEST = 'op="bits=="';
+
+function searching(held: Held, member: string, needle: string): string {
+  return lowered(
+    src(
+      `fn only(xs: ${held.element}[]) -> int:`,
+      `  return xs.${member}(${needle})`,
+      `print(only([${held.value}]))`,
+    ),
+  );
+}
+
+describe("lowering a search over elements that may be absent", () => {
+  for (const member of ["index_of", "last_index_of"]) {
+    it(`compares the bits an absence carries when ${member} may meet one`, () => {
+      expect(searching(MAY_BE_ABSENT, member, "null")).toContain(BITS_TEST);
+    });
+  }
+
+  it("requires the element to be absent as well, so two plain NaNs never match", () => {
+    const text = searching(MAY_BE_ABSENT, "index_of", "null");
+    const absent = /^\s+(v\d+) = GenericCompare v\d+, v\d+ \[op="loose=="\]/m.exec(text)![1]!;
+    const alike = /^\s+(v\d+) = GenericCompare v\d+, v\d+ \[op="bits=="\]/m.exec(text)![1]!;
+
+    expect(text).toMatch(new RegExp(`= Int32And (${absent}, ${alike}|${alike}, ${absent})`));
+  });
+
+  it("keeps the ordinary comparison beside it, so present elements still match", () => {
+    const text = searching(MAY_BE_ABSENT, "index_of", "null");
+    const plain = /^\s+(v\d+) = Float64Compare v\d+, v\d+ \[op="=="\]/m.exec(text)![1]!;
+    const both = /^\s+(v\d+) = Int32And /m.exec(text)![1]!;
+
+    expect(text).toMatch(new RegExp(`= Int32Or (${plain}, ${both}|${both}, ${plain})`));
+  });
+
+  it("leaves the bits alone for an int element, which has no room for an absence", () => {
+    expect(searching(COUNTED, "index_of", "1")).not.toContain(BITS_TEST);
+  });
+
+  it("leaves the bits alone for a reference element", () => {
+    expect(searching(REFERENCE, "index_of", '"a"')).not.toContain(BITS_TEST);
+  });
+});

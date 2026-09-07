@@ -40,6 +40,7 @@ import {
   type AotLegality,
 } from "../../../src/optimizing/analyses/aot-legality.js";
 import { SPREAD_ARGUMENTS_PROP } from "../../../src/optimizing/passes/spread-calls.js";
+import { BITS_COMPARISON } from "../../../src/optimizing/metadata/printed-values.js";
 import {
   BYTEWISE_PROP,
   NARROW_TEXT,
@@ -446,6 +447,17 @@ describe("AOT legality string buffers", () => {
 
     expect(reasonOf(graph)).toBe(
       "greet builds a string and then stores it in value; that string lives only until the " +
+        "next one is produced there, so it can be printed, built into another string, or " +
+        "copied into an object field, but not kept; use it where it is produced, or keep " +
+        "this part interpreted",
+    );
+  });
+
+  it("says a built string is held without naming the operation that held it", () => {
+    const graph = building((owner, built) => irFloat64Compare("<", built, owner));
+
+    expect(reasonOf(graph)).toBe(
+      "greet builds a string and then holds on to it; that string lives only until the " +
         "next one is produced there, so it can be printed, built into another string, or " +
         "copied into an object field, but not kept; use it where it is produced, or keep " +
         "this part interpreted",
@@ -1150,6 +1162,52 @@ describe("AOT absence compared as a number", () => {
 
   it("reads two absences that are both references as references", () => {
     expect(comparesAsNumber([], { absent: null }, { absent: null })).toBe(false);
+  });
+});
+
+describe("AOT comparing the bits two numbers carry", () => {
+  const EQUALITY = "==";
+
+  type Compare = (left: CFGInstruction, right: CFGInstruction) => CFGInstruction;
+
+  const readingBits: Compare = (left, right) => irGenericCompare(BITS_COMPARISON, left, right);
+  const readingValues: Compare = (left, right) => irFloat64Compare(EQUALITY, left, right);
+
+  function comparing(params: readonly string[], compare: Compare) {
+    const graph = new CFGFunction("compared");
+    graph.declaredSignature = { params: [...params], returns: "int" };
+    const held = params.map((_unused, index) => graph.addParameter(index));
+    const block = graph.addBlock();
+    const compared = block.addNode(compare(held[0]!, held[1]!));
+    block.addNode(irReturn(compared));
+    return { graph, compared };
+  }
+
+  function comparesBits(params: readonly string[], compare: Compare = readingBits): boolean {
+    const { graph, compared } = comparing(params, compare);
+    return admitted(graph).comparesBits(compared);
+  }
+
+  it("reads a bit comparison of two doubles as one", () => {
+    expect(comparesBits(["float", "float"])).toBe(true);
+  });
+
+  it("reads one over whole numbers as one too", () => {
+    expect(comparesBits(["int", "int"])).toBe(true);
+  });
+
+  it("refuses one over a reference, which carries no number to read bits from", () => {
+    expect(comparesBits(["string", "string"])).toBe(false);
+  });
+
+  it("leaves an ordinary equality between numbers alone", () => {
+    expect(comparesBits(["float", "float"], readingValues)).toBe(false);
+  });
+
+  it("answers a bit comparison as a whole number", () => {
+    const { graph, compared } = comparing(["float", "float"], readingBits);
+
+    expect(admitted(graph).scalarOf(compared)).toBe(SCALAR_INT32);
   });
 });
 

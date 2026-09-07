@@ -1,13 +1,18 @@
 import {
+  heapElementScalarOf,
   IR_CALL_BUILTIN,
   IR_CALL_KNOWN_FUNCTION,
   IR_GENERIC_CALL,
+  IR_GENERIC_SET_INDEX,
+  IR_LOAD_ELEMENT,
   IR_PHI,
   IR_RETURN,
+  IR_STORE_ELEMENT,
   type CFGBlock,
   type CFGFunction,
   type CFGInstruction,
 } from "../ir/index.js";
+import { SCALAR_TEXT } from "../types/scalar.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
 import { mergedTextInputs, StringBufferRules } from "../analyses/aot-legality.js";
@@ -78,7 +83,16 @@ function positionsOf(graph: CFGFunction): Positions {
   return positions;
 }
 
-function livesAcrossCall(value: CFGInstruction, positions: Positions): boolean {
+const OVERWRITES: ReadonlySet<string> = new Set<string>([
+  IR_STORE_ELEMENT,
+  IR_GENERIC_SET_INDEX,
+]);
+
+function livesAcross(
+  value: CFGInstruction,
+  positions: Positions,
+  hazards: ReadonlySet<string>,
+): boolean {
   const block = value.block!;
   const defined = positions.get(value)!;
   let last = defined;
@@ -88,9 +102,13 @@ function livesAcrossCall(value: CFGInstruction, positions: Positions): boolean {
     if (at !== undefined) last = Math.max(last, at);
   }
   for (let index = defined + 1; index < last; index += 1) {
-    if (CALLS.has(block.nodes[index]!.type)) return true;
+    if (hazards.has(block.nodes[index]!.type)) return true;
   }
   return false;
+}
+
+function borrowsElementText(value: CFGInstruction): boolean {
+  return value.type === IR_LOAD_ELEMENT && heapElementScalarOf(value) === SCALAR_TEXT;
 }
 
 export type ReenteringCall = (node: CFGInstruction) => boolean;
@@ -125,11 +143,12 @@ function boxable(
   reenters: ReenteringCall,
 ): boolean {
   if (acceptsNull(types.typeOf(value))) return false;
-  if (!answersString(value, rules)) return false;
   if (value.uses.length === 0) return false;
+  if (borrowsElementText(value)) return livesAcross(value, positions, OVERWRITES);
+  if (!answersString(value, rules)) return false;
   if (aliasesOwnBuffer(value, rules, reenters)) return true;
   if (value.uses.every((use) => use.type === IR_RETURN || use.type === IR_PHI)) return false;
-  return rules.walk(value).phis === 0 && livesAcrossCall(value, positions);
+  return rules.walk(value).phis === 0 && livesAcross(value, positions, CALLS);
 }
 
 type Stamp = (node: CFGInstruction) => CFGInstruction;

@@ -1,0 +1,18 @@
+fn total_of(values) -> float:
+  total = 0.0
+  i = 0
+  while i < values.length:
+    total += values[i]
+    i += 1
+  return total
+
+clean: float[] = [12.5, 9.0, 31.25, 7.75, 18.0]
+warm = 0
+while warm < 200:
+  total_of(clean)
+  warm += 1
+
+print("warm  total=" + total_of(clean).to_fixed(2))
+
+tainted = [12.5, 9.0, "31.25", 7.75, 18.0]
+print("taint total=" + total_of(tainted))

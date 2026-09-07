@@ -1,7 +1,7 @@
 import type { RuntimeValue } from "../../../core/value/index.js";
 import { NodeType } from "../../../frontend/ast/index.js";
 import type { ASTNode, InterfaceFieldAstNode } from "../../../frontend/ast/index.js";
-import { Scope } from "./helpers.js";
+import { Scope, enterLoop, exitLoop } from "./helpers.js";
 import type { TempAllocator } from "./temp-allocator.js";
 import * as bytecode from "../ops/bytecode.js";
 import { runtimeInterfaceBaseName, type RuntimeInterfaceContract, type RuntimeInterfaceMember } from "../../../runtime/interface-contract.js";
@@ -73,6 +73,31 @@ function requiredLabel(node: StatementNode, context: string): string {
   return node.label;
 }
 
+const LOOP_STATEMENTS: ReadonlySet<string> = new Set([
+  NodeType.WhileStatement,
+  NodeType.DoWhileStatement,
+  NodeType.ForStatement,
+  NodeType.ForInStatement,
+  NodeType.ForOfStatement,
+]);
+
+function labelsLoop(node: ASTNode | null | undefined): boolean {
+  let current: ASTNode | null | undefined = node;
+  while (current) {
+    const type = current.type as string;
+    if (LOOP_STATEMENTS.has(type)) return true;
+    if (type === NodeType.LabeledStatement) {
+      current = (current as StatementNode).body as ASTNode | undefined;
+      continue;
+    }
+    if (type !== NodeType.BlockStatement) return false;
+    const statements = blockBody((current as StatementNode).body);
+    if (statements.length !== 1) return false;
+    current = statements[0];
+  }
+  return false;
+}
+
 function astNodeList(values: RuntimeValue[] | ASTNode[]): ASTNode[] {
   const nodes: ASTNode[] = [];
   for (const value of values) {
@@ -104,6 +129,7 @@ type StatementCompilerThis = {
   _finallyBlocks: Array<{ body: ASTNode[] }>;
   _labeledBreaks: Record<string, number[]>;
   _labeledContinues: Record<string, number[]>;
+  _pendingLoopLabels: string[];
   interfaceContracts: Map<string, RuntimeInterfaceContract>;
   _withSourceNode<T>(node: ASTNode, run: () => T): T;
   _collectInterfaceDeclarations(nodes: ASTNode[]): void;
@@ -360,12 +386,7 @@ export const statementMethods: StatementMethodMap = {
     const iterationScopeBase = this.func.registerCount;
     const body = singleStatement(node.body, "while body");
     const mayCapture = this._bodyMayCapture(body);
-    const outerBreak = this._breakJumps;
-    const outerContinue = this._continueJumps;
-    const breakJumps: number[] = [];
-    const continueJumps: number[] = [];
-    this._breakJumps = breakJumps;
-    this._continueJumps = continueJumps;
+    const loop = enterLoop(this);
 
     const loopStart = this.func.instructions.length;
     this.compileExpression(expressionNode(node.test, "while test"));
@@ -379,11 +400,7 @@ export const statementMethods: StatementMethodMap = {
     this.func.emit(bytecode.ROP_JUMP, loopStart);
     const endTarget = this.func.instructions.length;
     this.func.patchJump(jumpToEnd, endTarget);
-    for (const j of breakJumps) this.func.patchJump(j, endTarget);
-    for (const j of continueJumps) this.func.patchJump(j, continueTarget);
-
-    this._breakJumps = outerBreak;
-    this._continueJumps = outerContinue;
+    exitLoop(this, loop, continueTarget, endTarget);
   },
 
   compileForStatement(node) {
@@ -392,12 +409,7 @@ export const statementMethods: StatementMethodMap = {
     const iterationScopeBase = this.func.registerCount;
     const body = singleStatement(node.body, "for body");
     const mayCapture = this._bodyMayCapture(body);
-    const outerBreak = this._breakJumps;
-    const outerContinue = this._continueJumps;
-    const breakJumps: number[] = [];
-    const continueJumps: number[] = [];
-    this._breakJumps = breakJumps;
-    this._continueJumps = continueJumps;
+    const loop = enterLoop(this);
 
     if (node.init) {
       const inits = Array.isArray(node.init) ? node.init : [node.init];
@@ -436,11 +448,7 @@ export const statementMethods: StatementMethodMap = {
     this.func.emit(bytecode.ROP_JUMP, loopStart);
     const endTarget = this.func.instructions.length;
     this.func.patchJump(jumpToEnd, endTarget);
-    for (const j of breakJumps) this.func.patchJump(j, endTarget);
-    for (const j of continueJumps) this.func.patchJump(j, updateStart);
-
-    this._breakJumps = outerBreak;
-    this._continueJumps = outerContinue;
+    exitLoop(this, loop, updateStart, endTarget);
     this.scope = outerScope;
   },
 
@@ -632,12 +640,7 @@ export const statementMethods: StatementMethodMap = {
   },
 
   compileDoWhileStatement(node) {
-    const outerBreak = this._breakJumps;
-    const outerContinue = this._continueJumps;
-    const breakJumps: number[] = [];
-    const continueJumps: number[] = [];
-    this._breakJumps = breakJumps;
-    this._continueJumps = continueJumps;
+    const loop = enterLoop(this);
 
     const loopStart = this.func.instructions.length;
     this.compileStatement(singleStatement(node.body, "do-while body"));
@@ -645,11 +648,7 @@ export const statementMethods: StatementMethodMap = {
     this.compileExpression(expressionNode(node.test, "do-while test"));
     this.func.emit(bytecode.ROP_JUMP_IF_TRUE, loopStart, this.func.allocFeedbackSlot());
     const endTarget = this.func.instructions.length;
-    for (const j of breakJumps) this.func.patchJump(j, endTarget);
-    for (const j of continueJumps) this.func.patchJump(j, continueTarget);
-
-    this._breakJumps = outerBreak;
-    this._continueJumps = outerContinue;
+    exitLoop(this, loop, continueTarget, endTarget);
   },
 
   compileContinueStatement(node) {
@@ -668,16 +667,22 @@ export const statementMethods: StatementMethodMap = {
 
   compileLabeledStatement(node) {
     const label = requiredLabel(node, "labeled statement");
-    if (!this._labeledBreaks) this._labeledBreaks = {};
-    if (!this._labeledContinues) this._labeledContinues = {};
+    const body = singleStatement(node.body, "labeled body");
+    const unboundContinues: number[] = [];
+    const outerPending = this._pendingLoopLabels;
     this._labeledBreaks[label] = [];
-    this._labeledContinues[label] = [];
+    this._labeledContinues[label] = unboundContinues;
+    this._pendingLoopLabels = labelsLoop(body) ? [...outerPending, label] : [];
 
-    this.compileStatement(singleStatement(node.body, "labeled body"));
+    this.compileStatement(body);
 
+    this._pendingLoopLabels = outerPending;
     const afterLabel = this.func.instructions.length;
-    for (const jump of this._labeledBreaks[label] ?? []) {
+    for (const jump of this._labeledBreaks[label]) {
       this.func.patchJump(jump, afterLabel);
+    }
+    if (this._labeledContinues[label] === unboundContinues && unboundContinues.length > 0) {
+      throw new Error(`[RegCompiler] Label '${label}' does not name a loop`);
     }
     delete this._labeledBreaks[label];
     delete this._labeledContinues[label];

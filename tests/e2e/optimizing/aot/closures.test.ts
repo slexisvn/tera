@@ -172,6 +172,93 @@ describe("handing a closure to a function that calls it", () => {
   });
 });
 
+describe("a closure that writes what it captured", () => {
+  const COUNTER = [
+    "fn make() -> fn() -> int:",
+    "  n = 0",
+    "  fn next() -> int:",
+    "    n += 1",
+    "    return n",
+    "  return next",
+  ];
+
+  itRunsPe("carries the count from one call to the next", () => {
+    agrees(src(...COUNTER, "c = make()", "print(c())", "print(c())", "print(c())"));
+  });
+
+  itRunsPe("gives each counter the maker built its own count", () => {
+    agrees(
+      src(...COUNTER, "a = make()", "b = make()", "print(a(), a(), a())", "print(b())", "print(a())"),
+    );
+  });
+
+  itRunsPe("shows the maker what the closure wrote", () => {
+    agrees(
+      src(
+        "fn run() -> int:",
+        "  n = 10",
+        "  fn bump() -> int:",
+        "    n += 5",
+        "    return n",
+        "  bump()",
+        "  bump()",
+        "  return n",
+        "print(run())",
+      ),
+    );
+  });
+
+  itRunsPe("keeps a written capture beside an unwritten one", () => {
+    agrees(
+      src(
+        "fn make(step: int) -> fn() -> int:",
+        "  total = 100",
+        "  fn add() -> int:",
+        "    total += step",
+        "    return total",
+        "  return add",
+        "f = make(3)",
+        "g = make(10)",
+        "print(f(), f(), g(), f(), g())",
+      ),
+    );
+  });
+
+  itRunsPe("keeps writing its capture across a handoff to another function", () => {
+    agrees(
+      src(
+        "fn make() -> fn(int) -> int:",
+        "  seen = 0",
+        "  fn tally(x: int) -> int:",
+        "    seen += x",
+        "    return seen",
+        "  return tally",
+        "fn apply_all(xs: int[], f: fn(int) -> int) -> int[]:",
+        "  out: int[] = []",
+        "  for x of xs:",
+        "    out.push(f(x))",
+        "  return out",
+        "acc = make()",
+        "print(apply_all([1, 2, 3], acc))",
+        "print(apply_all([10], acc))",
+      ),
+    );
+  });
+
+  itRunsPe("hands over a maker's own local that nothing writes", () => {
+    agrees(
+      src(
+        "fn make() -> fn() -> int:",
+        "  n = 7",
+        "  fn get() -> int:",
+        "    return n",
+        "  return get",
+        "print(make()())",
+      ),
+    );
+  });
+});
+
 describe("a closure that captures more than one value", () => {
   itRunsPe("carries two numbers it captured", () => {
     agrees(

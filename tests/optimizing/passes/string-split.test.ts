@@ -29,6 +29,7 @@ import {
 import { BYTEWISE_PROP } from "../../../src/optimizing/analyses/wide-text.js";
 import { capabilitySet } from "../../../src/optimizing/target/capabilities.js";
 import { lowerStringSplit } from "../../../src/optimizing/passes/string-split.js";
+import { canDeoptimize, isEffectFree, isGuard } from "../../../src/optimizing/ir/index.js";
 
 beforeEach(() => resetIRNodeIds());
 
@@ -38,19 +39,23 @@ const CALL_SITE = /^\s+v\d+ = GenericCall /m;
 
 const src = (...lines: string[]) => lines.join("\n");
 
-function lowered(source: string): string {
-  let taken: string | null = null;
+function readAsLowered<T>(source: string, read: (graph: CFGFunction) => T): T {
+  let taken: T | null = null;
   nodeEngine({ typecheck: "off" }).compileAot(`${source}\n`, {
     backend: "c",
     format: "assembly",
     compilerOptions: compilerOptions("speed", {
       passTracer: (record) => {
-        if (record.pass === LOWERING && record.graph.name === TAKER) taken = printIR(record.graph);
+        if (record.pass === LOWERING && record.graph.name === TAKER) taken = read(record.graph);
       },
     }),
   });
   if (taken === null) throw new Error(`${LOWERING} never ran over ${TAKER}`);
   return taken;
+}
+
+function lowered(source: string): string {
+  return readAsLowered(source, printIR);
 }
 
 function loweredBody(...lines: string[]): string {
@@ -307,5 +312,51 @@ describe("which separators a target can be asked to scan for", () => {
 
   it("still leaves a separator outside ASCII to the interpreter on a target storing bytes", () => {
     expect(lowersWith(`${WIDE_SEPARATOR} `, false)).toBe(0);
+  });
+});
+
+describe("what a scan asks of a target that cannot deoptimize", () => {
+  const deoptimizing = (graph: CFGFunction): string[] =>
+    nodesOf(graph)
+      .filter((node) => isGuard(node) || (canDeoptimize(node) && isEffectFree(node)))
+      .map((node) => node.type);
+
+  const COUNTING = /^Int32/;
+  const countingWithin =
+    (read: (graph: CFGFunction) => string[]) =>
+    (graph: CFGFunction): string[] =>
+      read(graph).filter((type) => COUNTING.test(type));
+
+  it("counts its way through a separator of one character without a frame state", () => {
+    expect(deoptimizing(scanned(",", null))).toEqual([]);
+  });
+
+  it("counts its way through a separator of several characters without one either", () => {
+    expect(deoptimizing(scanned(", ", null))).toEqual([]);
+  });
+
+  it("asks for none when the call also says how many pieces to keep", () => {
+    expect(deoptimizing(scanned(", ", 2))).toEqual([]);
+  });
+
+  it("asks for none when the limit is only readable once the program runs", () => {
+    expect(deoptimizing(scanned(", ", "int"))).toEqual([]);
+  });
+
+  it("asks for none when the separator is only readable once the program runs", () => {
+    expect(
+      readAsLowered(
+        src(
+          "fn only(line: string, sep: string) -> int:",
+          "  return line.split(sep).length",
+          'print(only("a, b", ", "))',
+        ),
+        countingWithin(deoptimizing),
+      ),
+    ).toEqual([]);
+  });
+
+  it("asks for none when it splits into characters", () => {
+    expect(deoptimizing(scanned("", null))).toEqual([]);
   });
 });

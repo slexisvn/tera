@@ -132,6 +132,19 @@ function ahead(site: Site, node: CFGInstruction): CFGInstruction {
   return placed(site, node, (added) => site.editor.insertBefore(site.node, added));
 }
 
+function bounded(node: CFGInstruction): CFGInstruction {
+  node.props.noOverflow = true;
+  return node;
+}
+
+function plus(left: CFGInstruction, right: CFGInstruction): CFGInstruction {
+  return bounded(irInt32Add(left, right));
+}
+
+function minus(left: CFGInstruction, right: CFGInstruction): CFGInstruction {
+  return bounded(irInt32Sub(left, right));
+}
+
 function bytewise(node: CFGInstruction): CFGInstruction {
   node.props[BYTEWISE_PROP] = true;
   return node;
@@ -202,8 +215,7 @@ function lowerCharacters(site: Site, bound: CFGInstruction | null): void {
   link(header, body);
   link(header, after);
 
-  const next = append(body, irInt32Add(cursor, step), stamp);
-  next.props.noOverflow = true;
+  const next = append(body, plus(cursor, step), stamp);
   const piece = callBuiltin(site, body, SLICE_MEMBER, [subject, cursor, next]);
   const bodyJump = append(body, irJump(header), stamp);
   pushElement(editor, bodyJump, parts, piece, model, stamp);
@@ -242,9 +254,9 @@ function branchTo(
 
 function unitsPlan(site: Site, length: CFGInstruction, codes: readonly number[]): Plan {
   const width = ahead(site, irConstant(codes.length));
-  const past = ahead(site, irInt32Sub(length, width));
+  const past = ahead(site, minus(length, width));
   const limit =
-    codes.length === STEP ? null : ahead(site, irInt32Add(past, ahead(site, irConstant(STEP))));
+    codes.length === STEP ? null : ahead(site, plus(past, ahead(site, irConstant(STEP))));
   return {
     pieceStride: width,
     scanStride: width,
@@ -261,7 +273,7 @@ function unitsPlan(site: Site, length: CFGInstruction, codes: readonly number[])
         const at =
           index === FIRST_INDEX
             ? cursor
-            : within(site, from, irInt32Add(cursor, within(site, from, irConstant(index))));
+            : within(site, from, plus(cursor, within(site, from, irConstant(index))));
         const unit = bytewise(callBuiltin(site, from, CHARACTER_AT, [site.subject, at]));
         const wanted = within(site, from, irConstant(codes[index]!));
         const hit = within(site, from, irInt32Compare(EQUALS, unit, wanted));
@@ -278,9 +290,9 @@ function textPlan(site: Site, length: CFGInstruction, text: CFGInstruction): Pla
   const width = bytewise(ahead(site, callOf(site, LENGTH_MEMBER, [text])));
   const one = ahead(site, irConstant(STEP));
   const origin = ahead(site, irConstant(FIRST_INDEX));
-  const limit = ahead(site, irInt32Add(ahead(site, irInt32Sub(length, width)), one));
+  const limit = ahead(site, plus(ahead(site, minus(length, width)), one));
   const vacant = ahead(site, irInt32Compare(LESS_THAN, width, one));
-  const spanned = ahead(site, irInt32Add(length, width));
+  const spanned = ahead(site, plus(length, width));
   return {
     pieceStride: width,
     scanStride: ahead(site, irSelect(vacant, one, width)),
@@ -296,13 +308,12 @@ function textPlan(site: Site, length: CFGInstruction, text: CFGInstruction): Pla
       const taken = stamp(addPhi(scan, [origin]));
       branchTo(site, scan, within(site, scan, irInt32Compare(LESS_THAN, taken, width)), compare, whole);
 
-      const here = within(site, compare, irInt32Add(cursor, taken));
+      const here = within(site, compare, plus(cursor, taken));
       const unit = bytewise(callBuiltin(site, compare, CHARACTER_AT, [site.subject, here]));
       const wanted = bytewise(callBuiltin(site, compare, CHARACTER_AT, [text, taken]));
       branchTo(site, compare, within(site, compare, irInt32Compare(EQUALS, unit, wanted)), step, onMiss);
 
-      const advanced = within(site, step, irInt32Add(taken, one));
-      advanced.props.noOverflow = true;
+      const advanced = within(site, step, plus(taken, one));
       append(step, irJump(scan), stamp);
       link(step, scan);
       taken.addInput(advanced);
@@ -392,12 +403,10 @@ function lowerSite(site: Site): void {
   const piece = bytewise(callBuiltin(site, cut, SLICE_MEMBER, [subject, start, cursor]));
   const cutJump = append(cut, irJump(advance), stamp);
   pushElement(editor, cutJump, parts, piece, model, stamp);
-  const resumed = stamp(irInt32Add(cursor, plan.pieceStride));
-  resumed.props.noOverflow = true;
+  const resumed = stamp(plus(cursor, plan.pieceStride));
   editor.insertBefore(cutJump, resumed);
-  const taken = kept === null ? null : stamp(irInt32Add(kept, step));
+  const taken = kept === null ? null : stamp(plus(kept, step));
   if (taken !== null) {
-    taken.props.noOverflow = true;
     editor.insertBefore(cutJump, taken);
   }
   append(skip, irJump(advance), stamp);
@@ -413,8 +422,7 @@ function lowerSite(site: Site): void {
   }
   connect(cut, advance, cutArgs);
   connect(skip, advance, skipArgs);
-  const next = append(advance, irInt32Add(cursor, strode), stamp);
-  next.props.noOverflow = true;
+  const next = append(advance, plus(cursor, strode), stamp);
   append(advance, irJump(header), stamp);
   link(advance, header);
   cursor.addInput(next);

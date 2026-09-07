@@ -2399,6 +2399,11 @@ class CFunctionEmitter {
   }
 
   private emitStringCompare(ctx: EmitContext): void {
+    if (this.legality.comparesBits(ctx.node)) {
+      const bits = ctx.node.inputs.map((input) => `tera_f64_bits(${this.asDouble(input)})`);
+      this.define(ctx, bits.join(" == "));
+      return;
+    }
     const operator = COMPARE_OPERATORS.get(String(ctx.node.props.op));
     if (operator === undefined) {
       throw new Error(`C backend has no lowering for comparison ${String(ctx.node.props.op)}`);

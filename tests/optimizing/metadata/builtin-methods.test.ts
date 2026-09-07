@@ -15,6 +15,9 @@ import {
   anyType,
   arrayType,
   booleanType,
+  doubleType,
+  nullableNumericType,
+  nullableStringType,
   objectType,
   smiType,
   stringType,
@@ -25,6 +28,7 @@ import { builtinMethodImplementation } from "../../../src/runtime/intrinsics/bui
 import { mkDouble, mkSmi, mkString, type TaggedValue } from "../../../src/core/value/index.js";
 
 const CHAR_CODE_AT = qualifiedMethodName("string", "char_code_at");
+const TO_STRING = "to_string";
 
 const RECEIVER_SAMPLES: Record<string, TaggedValue> = {
   string: mkString("sample"),
@@ -140,6 +144,24 @@ describe("builtinMethodIntrinsicFor", () => {
 
   it("rejects a method the string owner does not declare", () => {
     expect(builtinMethodIntrinsicFor(stringType(), "not_a_method")).toBeNull();
+  });
+
+  it("resolves a whole number that admits an absence through the double holding it", () => {
+    expect(builtinMethodIntrinsicFor(nullableNumericType(smiType()), TO_STRING)?.qualifiedName).toBe(
+      builtinMethodIntrinsicFor(doubleType(), TO_STRING)?.qualifiedName,
+    );
+  });
+
+  it("still resolves a whole number that is always present as a whole number", () => {
+    expect(builtinMethodIntrinsicFor(smiType(), TO_STRING)?.qualifiedName).toBe(
+      qualifiedMethodName("int", TO_STRING),
+    );
+  });
+
+  it("leaves a string that admits an absence a string", () => {
+    expect(builtinMethodIntrinsicFor(nullableStringType(), "char_code_at")?.qualifiedName).toBe(
+      CHAR_CODE_AT,
+    );
   });
 });
 

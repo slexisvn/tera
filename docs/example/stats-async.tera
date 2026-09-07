@@ -1,0 +1,21 @@
+async fn load(name: string) -> float[]:
+  if name == "latency":
+    return [12.5, 9.0, 31.25, 7.75, 18.0]
+  return [880.0, 913.5, 902.25, 897.0]
+
+async fn mean_of(name: string) -> float:
+  values = await load(name)
+  total = 0.0
+  i = 0
+  while i < values.length:
+    total += values[i]
+    i += 1
+  return total / values.length
+
+async fn main() -> void:
+  latency = await mean_of("latency")
+  throughput = await mean_of("throughput")
+  print("latency mean=" + latency.to_fixed(2))
+  print("throughput mean=" + throughput.to_fixed(2))
+
+main()

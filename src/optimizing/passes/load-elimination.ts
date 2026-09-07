@@ -1,7 +1,7 @@
 import * as ir from "../ir/index.js";
 import { type ModRef } from "../analyses/mod-ref.js";
 import { type PointsToResult } from "../analyses/points-to.js";
-import { type MemoryLocation } from "../analyses/heap-model.js";
+import { isExternallyVisible, type MemoryLocation } from "../analyses/heap-model.js";
 import { runSnapshotDataflow } from "../infra/snapshot-dataflow.js";
 import { detachNode, replaceValueUses } from "../ir/graph-edit.js";
 
@@ -60,7 +60,9 @@ function rewriteBlock(
   for (const node of block.nodes) {
     if (ir.isTrackedLoad(node.type)) {
       const location = modRef.locationOf(node);
-      const existing = location ? state.byLocation.get(location.key) : undefined;
+      const existing = location?.identity == null
+        ? undefined
+        : state.byLocation.get(location.identity);
       if (existing && existing.value !== node) {
         replaceValueUses(graph, node, existing.value);
         detachNode(node);
@@ -86,7 +88,9 @@ function transferNode(
 ): void {
   if (ir.isTrackedLoad(node.type)) {
     const location = modRef.locationOf(node);
-    if (location && !state.byLocation.has(location.key)) addLocation(state, location, node, pointsTo);
+    if (location?.identity != null && !state.byLocation.has(location.identity)) {
+      addLocation(state, location, node, pointsTo);
+    }
     return;
   }
   if (ir.isTrackedStore(node.type)) {
@@ -106,7 +110,7 @@ function transferNode(
     killVisible(state);
     return;
   }
-  for (const key of modRef.gmod(node)) removeLocation(state, key);
+  for (const key of modRef.gmod(node)) killLocationKey(state, key);
 }
 
 
@@ -154,16 +158,24 @@ function addLocation(
   value: LoadNode,
   pointsTo: PointsToResult,
 ): void {
-  removeLocation(state, location.key);
+  const identity = location.identity;
+  if (identity === null) return;
+  removeLocation(state, identity);
   const entry: MemoryEntry = { ...location, value, visible: isExternallyVisible(location, pointsTo) };
-  state.byLocation.set(location.key, entry);
+  state.byLocation.set(identity, entry);
   let keys = state.byBase.get(location.baseKey);
   if (!keys) {
     keys = new Set();
     state.byBase.set(location.baseKey, keys);
   }
-  keys.add(location.key);
+  keys.add(identity);
   if (entry.visible) state.visibleBaseKeys.add(location.baseKey);
+}
+
+function killLocationKey(state: MemoryState, key: string): void {
+  for (const [identity, entry] of [...state.byLocation]) {
+    if (entry.key === key) removeLocation(state, identity);
+  }
 }
 
 function removeLocation(state: MemoryState, key: string): void {
@@ -186,14 +198,6 @@ function killVisible(state: MemoryState): void {
     if (!keys) continue;
     for (const key of [...keys]) removeLocation(state, key);
   }
-}
-
-function isExternallyVisible(
-  location: MemoryLocation,
-  pointsTo: PointsToResult,
-): boolean {
-  if (location.base === null) return true;
-  return location.partition.kind !== "alloc" || pointsTo.escapes(location.base);
 }
 
 function emptyState(): MemoryState {
@@ -238,12 +242,14 @@ function sameEntry(left: MemoryEntry, right: MemoryEntry): boolean {
 }
 
 function addEntry(state: MemoryState, entry: MemoryEntry): void {
-  state.byLocation.set(entry.key, entry);
+  const identity = entry.identity;
+  if (identity === null) return;
+  state.byLocation.set(identity, entry);
   let keys = state.byBase.get(entry.baseKey);
   if (!keys) {
     keys = new Set();
     state.byBase.set(entry.baseKey, keys);
   }
-  keys.add(entry.key);
+  keys.add(identity);
   if (entry.visible) state.visibleBaseKeys.add(entry.baseKey);
 }

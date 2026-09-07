@@ -41,6 +41,18 @@ const ABSENT_REFERENCE_CONSTANT = src(
 
 const PRINTS_ABSENT_NUMBER = src("xs: int[] = []", "print(xs.pop())");
 
+const SEEKS_ABSENT_ELEMENT = src(
+  "fn seek(xs: (int | null)[]) -> int:",
+  "  return xs.index_of(null)",
+  "print(seek([1, null]))",
+);
+
+const SEEKS_PRESENT_ELEMENT = src(
+  "fn seek(xs: int[]) -> int:",
+  "  return xs.index_of(1)",
+  "print(seek([1, 2]))",
+);
+
 function assemblyOf(source: string): string {
   const program = nodeEngine({ typecheck: "off" }).compileAot(source, {
     backend: HOST_TARGET,
@@ -121,6 +133,27 @@ describe("x64 lowers a loose comparison against absence", () => {
     const body = bodyOf(assemblyOf(ABSENT_INT), "f");
 
     expect(body).toMatch(/\tcmpl %e\w+, %e\w+\n\tsete %\w+\n/);
+  });
+});
+
+describe("x64 lowers a comparison of the bits two numbers carry", () => {
+  it("moves both operands out of their float registers to compare them whole", () => {
+    const body = bodyOf(assemblyOf(SEEKS_ABSENT_ELEMENT), "seek");
+
+    expect(countOf(body, "movq")).toBeGreaterThanOrEqual(2);
+    expect(body).toMatch(/\tmovq %xmm\d+, %r\w+\n/);
+  });
+
+  it("compares those bits as whole numbers rather than as floats", () => {
+    const body = bodyOf(assemblyOf(SEEKS_ABSENT_ELEMENT), "seek");
+
+    expect(countOf(body, "cmpq")).toBeGreaterThan(0);
+  });
+
+  it("asks for no bit comparison where the element admits no absence", () => {
+    const body = bodyOf(assemblyOf(SEEKS_PRESENT_ELEMENT), "seek");
+
+    expect(countOf(body, "cmpq")).toBe(0);
   });
 });
 

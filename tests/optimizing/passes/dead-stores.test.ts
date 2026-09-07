@@ -13,6 +13,10 @@ import {
   irGenericSetProp,
   irReturn,
   irJump,
+  irCheckArray,
+  irCheckElementsKind,
+  irLoadElement,
+  irStoreElement,
   IR_STORE_FIELD,
   resetIRNodeIds,
 } from "../../../src/optimizing/ir/index.js";
@@ -150,6 +154,69 @@ describe("deadStoreElimination", () => {
       const stores = block.nodes.filter(n => n.type === IR_STORE_FIELD);
       expect(stores).toHaveLength(1);
       expect(stores[0].inputs[1]).toBe(v1);
+    });
+  });
+
+  describe("stores that only look overwritten", () => {
+    it("keeps a store that a second object of the same shape overwrites", () => {
+      const graph = new CFGFunction("test");
+      const block = graph.addBlock();
+      const first = graph.addParameter(0);
+      const second = graph.addParameter(1);
+      const v1 = irConstant(1);
+      const v2 = irConstant(2);
+      block.addNode(v1);
+      block.addNode(v2);
+      const kept = irStoreField(first, 0, v1);
+      block.addNode(kept);
+      block.addNode(irStoreField(second, 0, v2));
+      block.addNode(irReturn(irLoadField(first, 0)));
+
+      expect(eliminateDeadStores(graph)).toBe(0);
+      expect(block.nodes).toContain(kept);
+    });
+
+    it("keeps a store that a different index of the same array overwrites", () => {
+      const graph = new CFGFunction("test");
+      const block = graph.addBlock();
+      const array = graph.addParameter(0);
+      const first = graph.addParameter(1);
+      const second = graph.addParameter(2);
+      const v1 = irConstant(1);
+      const v2 = irConstant(2);
+      block.addNode(v1);
+      block.addNode(v2);
+      const elements = irCheckElementsKind(irCheckArray(array), "PACKED_SMI");
+      block.addNode(elements.inputs[0]!);
+      block.addNode(elements);
+      const kept = irStoreElement(elements, first, v1);
+      block.addNode(kept);
+      block.addNode(irStoreElement(elements, second, v2));
+      block.addNode(irReturn(irLoadElement(elements, first)));
+
+      expect(eliminateDeadStores(graph)).toBe(0);
+      expect(block.nodes).toContain(kept);
+    });
+
+    it("still drops a store the same index of the same array overwrites", () => {
+      const graph = new CFGFunction("test");
+      const block = graph.addBlock();
+      const array = graph.addParameter(0);
+      const index = graph.addParameter(1);
+      const v1 = irConstant(1);
+      const v2 = irConstant(2);
+      block.addNode(v1);
+      block.addNode(v2);
+      const elements = irCheckElementsKind(irCheckArray(array), "PACKED_SMI");
+      block.addNode(elements.inputs[0]!);
+      block.addNode(elements);
+      const dropped = irStoreElement(elements, index, v1);
+      block.addNode(dropped);
+      block.addNode(irStoreElement(elements, index, v2));
+      block.addNode(irReturn(irLoadElement(elements, index)));
+
+      expect(eliminateDeadStores(graph)).toBe(1);
+      expect(block.nodes).not.toContain(dropped);
     });
   });
 

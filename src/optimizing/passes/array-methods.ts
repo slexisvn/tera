@@ -13,6 +13,8 @@ import {
   irGenericAdd,
   irGenericCompare,
   irInt32Add,
+  irInt32And,
+  irInt32Or,
   irCallBuiltin,
   irConstant,
   irInt32Compare,
@@ -30,7 +32,7 @@ import {
 } from "../ir/index.js";
 import { addPhi, connect, link, splitBlockBefore } from "../ir/cfg-edit.js";
 import { compiledFunctionConstant } from "../ir/compiled-function.js";
-import { countProvesSome } from "../../core/indexing.js";
+import { provenCount } from "../../core/indexing.js";
 import { functionTargetOf } from "../metadata/module-functions.js";
 import { GraphEditor } from "../ir/editor.js";
 import { nodeIdStamper } from "../ir/graph-edit.js";
@@ -59,9 +61,11 @@ import {
   builtinMethodIntrinsicFor,
   TO_STRING_MEMBER,
 } from "../metadata/builtin-methods.js";
+import { ABSENCE_COMPARISON, BITS_COMPARISON } from "../metadata/printed-values.js";
 import { doubleType, smiType, stringType, type LatticeType } from "../types/lattice.js";
 import {
   aotScalarOf,
+  carriesAbsence,
   isNumericScalar,
   SCALAR_FLOAT64,
   SCALAR_INT32,
@@ -72,6 +76,7 @@ import {
 } from "../types/scalar.js";
 
 const CALLEE_AND_RECEIVER = 2;
+const HOLDS_SOME = 1;
 const ONE_ARGUMENT = 1;
 const FIRST_INDEX = 0;
 const NOT_FOUND = -1;
@@ -144,6 +149,25 @@ function comparison(
   if (element === SCALAR_INT32) return irInt32Compare(EQUALS, left, right);
   if (element === SCALAR_FLOAT64) return irFloat64Compare(EQUALS, left, right);
   return irGenericCompare(EQUALS, left, right);
+}
+
+function testsAbsent(site: Site, block: CFGBlock, value: CFGInstruction): CFGInstruction {
+  const nothing = append(block, irConstant(null), site.stamp);
+  return append(block, irGenericCompare(ABSENCE_COMPARISON, value, nothing), site.stamp);
+}
+
+function sameElement(
+  site: Site,
+  block: CFGBlock,
+  element: CFGInstruction,
+  wanted: CFGInstruction,
+): CFGInstruction {
+  const plain = append(block, comparison(site.model.element, element, wanted), site.stamp);
+  if (!carriesAbsence(site.model.element)) return plain;
+  const missing = testsAbsent(site, block, element);
+  const alike = append(block, irGenericCompare(BITS_COMPARISON, element, wanted), site.stamp);
+  const both = append(block, irInt32And(missing, alike), site.stamp);
+  return append(block, irInt32Or(plain, both), site.stamp);
 }
 
 function argumentsOf(node: CFGInstruction): CFGInstruction[] {
@@ -295,7 +319,7 @@ function lowerSearch(site: Site, search: Search): boolean {
 
   const scan = openScan(site);
   const element = appendLoad(site, scan.body, scan.buffer, scan.cursor);
-  const same = append(scan.body, comparison(site.model.element, element, wanted[0]!), site.stamp);
+  const same = sameElement(site, scan.body, element, wanted[0]!);
   const stop = stopOn(site, scan, same, true);
   const found = indexReached(site, scan, stop);
 
@@ -651,8 +675,8 @@ function nonEmptyArm(condition: CFGInstruction, array: CFGInstruction): boolean 
   const bound = boundOf(right);
   if (bound === null) return null;
   const operator = String(condition.props.op);
-  if (countProvesSome(operator, bound)) return true;
-  return countProvesSome(operator, bound, true) ? false : null;
+  if (provenCount(operator, bound) >= HOLDS_SOME) return true;
+  return provenCount(operator, bound, true) >= HOLDS_SOME ? false : null;
 }
 
 function mayShorten(node: CFGInstruction, array: CFGInstruction, taking: CFGInstruction): boolean {
@@ -808,6 +832,42 @@ function elementText(
   return text;
 }
 
+interface Piece {
+  readonly block: CFGBlock;
+  readonly text: CFGInstruction;
+}
+
+function joinedPiece(
+  site: Site,
+  block: CFGBlock,
+  element: CFGInstruction,
+  blank: CFGInstruction,
+): Piece {
+  if (!carriesAbsence(site.model.element)) {
+    return { block, text: elementText(site, block, element) };
+  }
+
+  const { graph, stamp } = site;
+  const absent = graph.addBlock();
+  const present = graph.addBlock();
+  const joined = graph.addBlock();
+
+  const nothing = append(block, irConstant(null), stamp);
+  const missing = append(block, irGenericCompare(ABSENCE_COMPARISON, element, nothing), stamp);
+  append(block, irBranch(missing, absent, present), stamp);
+  link(block, absent);
+  link(block, present);
+
+  append(absent, irJump(joined), stamp);
+  const spelled = elementText(site, present, element);
+  append(present, irJump(joined), stamp);
+
+  const text = stamp(addPhi(joined));
+  connect(absent, joined, [blank]);
+  connect(present, joined, [spelled]);
+  return { block: joined, text };
+}
+
 function lowerJoin(site: Site): boolean {
   const args = argumentsOf(site.node);
   if (args.length > ONE_ARGUMENT) return false;
@@ -842,11 +902,11 @@ function lowerJoin(site: Site): boolean {
   connect(between, merge, [separator]);
 
   const element = appendLoad(site, merge, scan.buffer, scan.cursor);
-  const piece = elementText(site, merge, element);
-  const spaced = append(merge, irGenericAdd(carried, spacing), stamp);
-  const grown = append(merge, irGenericAdd(spaced, piece), stamp);
-  append(merge, irJump(scan.advance), stamp);
-  link(merge, scan.advance);
+  const piece = joinedPiece(site, merge, element, blank);
+  const spaced = append(piece.block, irGenericAdd(carried, spacing), stamp);
+  const grown = append(piece.block, irGenericAdd(spaced, piece.text), stamp);
+  append(piece.block, irJump(scan.advance), stamp);
+  link(piece.block, scan.advance);
   carried.addInput(grown);
 
   append(scan.exhausted, irJump(scan.after), stamp);
@@ -1063,7 +1123,7 @@ function lowerLastSearch(site: Site): boolean {
   const scan = openScan(site);
   const carried = site.stamp(addPhi(scan.header, [scan.missing]));
   const element = appendLoad(site, scan.body, scan.buffer, scan.cursor);
-  const same = append(scan.body, comparison(site.model.element, element, wanted[0]!), site.stamp);
+  const same = sameElement(site, scan.body, element, wanted[0]!);
   const hit = site.graph.addBlock();
   append(scan.body, irBranch(same, hit, scan.advance), site.stamp);
   link(scan.body, hit);

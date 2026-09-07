@@ -19,9 +19,11 @@ import {
   irIteratorValue,
   irLoadGlobal,
   irNewArray,
+  irGenericGetIndex,
   irNewObject,
   irReturn,
   resetIRNodeIds,
+  type CFGBlock,
   type CFGInstruction,
 } from "../../../src/optimizing/ir/index.js";
 import {
@@ -513,5 +515,74 @@ describe("shaping a map whose values a function answers", () => {
 
   it("leaves the map generic when the called function says nothing about its answer", () => {
     expect(constructedIn(storingWhatACallAnswers(null))).toBe("Map");
+  });
+});
+
+describe("naming what a map holds when the program does not spell it out", () => {
+  function mapOver(
+    stored: (block: CFGBlock, map: CFGInstruction) => CFGInstruction,
+    read: ((block: CFGBlock, map: CFGInstruction) => CFGInstruction) | null,
+  ): readonly CFGFunction[] {
+    const graph = new CFGFunction("f");
+    graph.classes = buildClassTable([]);
+    const block = graph.addBlock();
+    const global = block.addNode(irLoadGlobal("Map"));
+    const map = block.addNode(irGenericCall(global, []));
+
+    const key = block.addNode(irConstant("a"));
+    const setter = block.addNode(irGenericGetProp(map, "set"));
+    const set = block.addNode(irGenericCall(setter, [map, key, stored(block, map)]));
+    set.props.isMethod = true;
+
+    if (read !== null) {
+      const getter = block.addNode(irGenericGetProp(map, "get"));
+      const get = block.addNode(irGenericCall(getter, [map, read(block, map)]));
+      get.props.isMethod = true;
+    }
+
+    block.addNode(irReturn(map));
+    graph.rebuildUses();
+    const analyses = new AnalysisManager(graph, createAnalysisRegistry());
+    return shapeModuleCollections([
+      { graph, types: analyses.get(typeInferenceAnalysisId) },
+    ]);
+  }
+
+  const constantValue = (block: CFGBlock): CFGInstruction => block.addNode(irConstant(1));
+
+  const builtinValue = (name: string) => (block: CFGBlock): CFGInstruction => {
+    const callee = block.addNode(irLoadGlobal(name));
+    const text = block.addNode(irConstant("1.5"));
+    return block.addNode(irGenericCall(callee, [text]));
+  };
+
+  const elementOfAnEmptyArray = (block: CFGBlock): CFGInstruction => {
+    const array = block.addNode(irNewArray([]));
+    const index = block.addNode(irConstant(0));
+    return block.addNode(irGenericGetIndex(array, index));
+  };
+
+  it("reads what a value holds off the builtin that produced it", () => {
+    expect(globalLoads(mapOver(builtinValue("parse_float"), null)[0]!)).toContain(
+      mapClassName("string", "float"),
+    );
+  });
+
+  it("reads a builtin that answers text the same way", () => {
+    expect(globalLoads(mapOver(builtinValue("input"), null)[0]!)).toContain(
+      mapClassName("string", "string"),
+    );
+  });
+
+  it("still names a map whose value is spelled out at the call", () => {
+    expect(globalLoads(mapOver(constantValue, null)[0]!)).toContain(
+      mapClassName("string", "int"),
+    );
+  });
+
+  it("does not let a guessed element type outvote the key the program stored", () => {
+    expect(globalLoads(mapOver(constantValue, elementOfAnEmptyArray)[0]!)).toContain(
+      mapClassName("string", "int"),
+    );
   });
 });

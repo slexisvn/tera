@@ -1,0 +1,9 @@
+fn drain(q: int[]) -> int:
+  total = 0
+  while q.length > 0:
+    a = q.shift()
+    b = q.shift()
+    total += a + b
+  return total
+
+print(drain([1, 2, 3, 4]))

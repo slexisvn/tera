@@ -548,6 +548,7 @@ function loadElementTransfer(node: TransferNode, context: TypeContext): LatticeT
   const declared = latticeFromElementRep(node.props.elementRep);
   if (declared !== null) return declared;
   const container = inputType(node, 0, context);
+  if (container.kind === TypeKind.String) return stringType();
   if (container.kind !== TypeKind.Array) return anyType();
   return latticeFromElementsKind(container.elementsKind);
 }
@@ -1168,6 +1169,10 @@ export function canDeoptimize(node: CFGInstruction): boolean {
   const deopt = effectsOf(node).deopt;
   if (deopt === DEOPT_ALWAYS) return true;
   return deopt === DEOPT_ON_OVERFLOW && node.props.noOverflow !== true;
+}
+
+export function isUndefinedConstant(node: CFGInstruction | null | undefined): boolean {
+  return node !== null && node !== undefined && node.type === IR_CONSTANT && node.props.value === undefined;
 }
 
 export function isEffectFree(node: CFGInstruction): boolean {

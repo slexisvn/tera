@@ -113,6 +113,49 @@ export function analyzeSimpleConstructor(
   return compiledFn.simpleConstructorInfo;
 }
 
+export type LoopContext = {
+  breakJumps: number[];
+  continueJumps: number[];
+  outerBreak: number[];
+  outerContinue: number[];
+};
+
+export type LoopJumpOwner = {
+  func: RegisterCompiledFunction;
+  _breakJumps: number[];
+  _continueJumps: number[];
+  _labeledContinues: Record<string, number[]>;
+  _pendingLoopLabels: string[];
+};
+
+export function enterLoop(compiler: LoopJumpOwner): LoopContext {
+  const loop: LoopContext = {
+    breakJumps: [],
+    continueJumps: [],
+    outerBreak: compiler._breakJumps,
+    outerContinue: compiler._continueJumps,
+  };
+  compiler._breakJumps = loop.breakJumps;
+  compiler._continueJumps = loop.continueJumps;
+  for (const label of compiler._pendingLoopLabels) {
+    compiler._labeledContinues[label] = loop.continueJumps;
+  }
+  compiler._pendingLoopLabels = [];
+  return loop;
+}
+
+export function exitLoop(
+  compiler: LoopJumpOwner,
+  loop: LoopContext,
+  continueTarget: number,
+  endTarget: number,
+): void {
+  for (const jump of loop.breakJumps) compiler.func.patchJump(jump, endTarget);
+  for (const jump of loop.continueJumps) compiler.func.patchJump(jump, continueTarget);
+  compiler._breakJumps = loop.outerBreak;
+  compiler._continueJumps = loop.outerContinue;
+}
+
 export class Scope {
   parent: Scope | null;
   locals: Map<string, number>;

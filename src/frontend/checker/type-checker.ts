@@ -16,7 +16,14 @@ import {
 import { diagnostic, type Diagnostic } from "./diagnostics.js";
 import { callSignatureForCallee, childScope, comprehensionArrayType, comprehensionElementType, comprehensionOf, declaredMemberType, functionSignatureForType, inferExpression, instantiateForCall, literalIndexKey, narrowScope, objectLiteralFields, typeArgsOf, writesUnknownKey } from "./infer.js";
 import { acceptsTensorLeftArithmetic, acceptsTensorRightArithmetic, binaryOperatorSemantics, isTensorType } from "./operator-types.js";
-import type { BlockNode, ClassMemberNode, SemanticNode } from "./semantic-ast.js";
+import {
+  alwaysExits,
+  branchChain,
+  nestedExpressions,
+  type BlockNode,
+  type ClassMemberNode,
+  type SemanticNode,
+} from "./semantic-ast.js";
 import { arrayElementType, assignableType, awaitedType, cleanType, compatible, indexKeyAssignable, indexedAccessType, indexKeyType, instantiateShapeForType, isIndexableType, isTupleType, iterableBindingType, leastUpperBound, promiseType, removeNullish, resolveType, tupleTypes, unionParts, unionType, type ObjectShape, type Signature, type TypeEnv, type TypeName } from "./type-system.js";
 import { restParameterType } from "../type-source.js";
 import { isUnwrittenType } from "../../core/type-text.js";
@@ -912,7 +919,8 @@ export class TypeChecker {
       return;
     }
     if (!binaryOperatorSemantics(op, left, right, this.bound.env).valid) {
-      this.addBinaryDiagnostic(node, scope, line, column, `Operator '${op}' cannot be applied to '${left}' and '${right}'`);
+      const remedy = this.operandRemedyFor(op, left, right);
+      this.addBinaryDiagnostic(node, scope, line, column, `Operator '${op}' cannot be applied to '${left}' and '${right}'${remedy}`);
     }
   }
 
@@ -1249,7 +1257,18 @@ export class TypeChecker {
     const parts = unionParts(actual, this.bound.env);
     const present = removeNullish(actual, this.bound.env);
     if (parts.length < NAMES_BOTH || present === actual) return "";
-    return compatible(present, expected, this.bound.env) ? ` (${ABSENCE_ADVICE})` : "";
+    return this.adviceWhen(compatible(present, expected, this.bound.env));
+  }
+
+  operandRemedyFor(op: string, left: TypeName, right: TypeName): string {
+    const present = removeNullish(left, this.bound.env);
+    const other = removeNullish(right, this.bound.env);
+    if (present === left && other === right) return "";
+    return this.adviceWhen(binaryOperatorSemantics(op, present, other, this.bound.env).valid);
+  }
+
+  private adviceWhen(remedied: boolean): string {
+    return remedied ? ` (${ABSENCE_ADVICE})` : "";
   }
 
   reportBuiltinRedeclaration(name: string, line: number, column: number, scope: Scope): boolean {
@@ -1370,33 +1389,14 @@ function collectCalled(node: ASTNode | undefined, out: Set<string>): void {
   for (const child of astChildren(node)) collectCalled(child, out);
 }
 
-function collectCalledThrough(held: unknown, out: Set<string>): void {
-  if (held === null || typeof held !== "object") return;
-  if (Array.isArray(held)) {
-    for (const item of held) collectCalledThrough(item, out);
-    return;
-  }
-  if (SEMANTIC_KIND in held) {
-    for (const value of Object.values(held)) collectCalledThrough(value, out);
-    return;
-  }
-  if (AST_KIND in held) {
-    collectCalled(held as ASTNode, out);
-    return;
-  }
-  for (const value of Object.values(held)) collectCalledThrough(value, out);
-}
-
 function calledNames(body: SemanticNode[]): ReadonlySet<string> {
   const out = new Set<string>();
-  collectCalledThrough(body, out);
+  for (const held of nestedExpressions(body)) collectCalled(held, out);
   return out;
 }
 
 const PUSH_MEMBER = "push";
 const NULL_TYPE = "null";
-const SEMANTIC_KIND = "kind";
-const AST_KIND = "type";
 const ADVICE_SEPARATOR = "->";
 const NAMES_BOTH = 2;
 const ABSENCE_ADVICE = "the value may be absent: guard it before use, or spell a fallback with ??";
@@ -1543,23 +1543,4 @@ function sameUnion(left: TypeName, right: TypeName, env: TypeEnv): boolean {
   const held = unionParts(left, env).map(cleanType).sort();
   const asked = unionParts(right, env).map(cleanType).sort();
   return held.length === asked.length && held.every((part, at) => part === asked[at]);
-}
-
-function branchChain(body: readonly SemanticNode[], at: number): BlockNode[] {
-  const first = body[at];
-  if (first?.kind !== "Block" || first.test === undefined) return [];
-  if (first.testRole !== "guard" || (first.otherwise ?? []).length > 0) return [];
-  const chain: BlockNode[] = [first];
-  for (let next = at + 1; next < body.length; next++) {
-    const node = body[next];
-    if (node?.kind !== "Block" || (node.otherwise ?? []).length === 0) break;
-    if (node.test !== undefined && node.testRole !== "guard") break;
-    chain.push(node);
-    if (node.test === undefined) break;
-  }
-  return chain;
-}
-
-function alwaysExits(body: SemanticNode[]): boolean {
-  return body.some((node) => node.kind === "Return" || node.kind === "Jump");
 }

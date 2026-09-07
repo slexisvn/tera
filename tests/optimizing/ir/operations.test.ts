@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as ops from "../../../src/optimizing/ir/operations.js";
 import * as ir from "../../../src/optimizing/ir/index.js";
 import { deadCodeElimination } from "../../../src/optimizing/passes/dce.js";
+import { PACKED_SMI } from "../../../src/objects/elements/elements-kind.js";
 
 const declaredOpcodes = Object.entries(ops)
   .filter(([name, value]) => name.startsWith("IR_") && typeof value === "string")
@@ -251,6 +252,26 @@ describe("operation property table", () => {
     expect(ops.writesMemory(load)).toBe(false);
     expect(ops.readsMemory(load)).toBe(true);
     expect(ops.writesMemory(store)).toBe(true);
+  });
+});
+
+describe("what a subscript answers", () => {
+  const readingFrom = (container: { kind: string }) => {
+    const held = ir.irConstant("text");
+    const read = ir.irGenericGetIndex(held, ir.irConstant(0));
+    const context = {
+      typeOf: (value: ir.CFGInstruction) => (value === held ? container : { kind: "Smi" }),
+      returnTypeOf: () => ({ kind: "Any" }),
+    } as never;
+    return ops.transferType(read, context).kind;
+  };
+
+  it("answers text when it reads out of text", () => {
+    expect(readingFrom({ kind: "String" })).toBe("String");
+  });
+
+  it("still answers the element when it reads out of an array", () => {
+    expect(readingFrom({ kind: "Array", elementsKind: PACKED_SMI })).toBe("Smi");
   });
 });
 

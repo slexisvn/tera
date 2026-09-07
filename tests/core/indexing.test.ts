@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { countProvesSome, normalizeIndex, resolveSlice } from "../../src/core/indexing.js";
+import { normalizeIndex, provenCount, resolveSlice } from "../../src/core/indexing.js";
 
 const slice = (start: number | null, stop: number | null, step = 1) => ({ start, stop, step });
 
@@ -67,51 +67,52 @@ describe("core indexing", () => {
     });
   });
 
-  describe("countProvesSome", () => {
-    it("proves some from a count above any bound at or over zero", () => {
-      expect(countProvesSome(">", 0)).toBe(true);
-      expect(countProvesSome(">", 3)).toBe(true);
-      expect(countProvesSome(">", -1)).toBe(false);
+  describe("provenCount", () => {
+    it("counts one more than a bound the count must exceed", () => {
+      expect(provenCount(">", 0)).toBe(1);
+      expect(provenCount(">", 3)).toBe(4);
+      expect(provenCount(">", -1)).toBe(0);
     });
 
-    it("proves some from a count at or over one", () => {
-      expect(countProvesSome(">=", 1)).toBe(true);
-      expect(countProvesSome(">=", 0)).toBe(false);
+    it("counts the bound itself when the count may equal it", () => {
+      expect(provenCount(">=", 1)).toBe(1);
+      expect(provenCount(">=", 4)).toBe(4);
+      expect(provenCount(">=", 0)).toBe(0);
     });
 
-    it("proves some from a count that equals a bound of at least one", () => {
-      expect(countProvesSome("==", 1)).toBe(true);
-      expect(countProvesSome("==", 3)).toBe(true);
-      expect(countProvesSome("loose==", 1)).toBe(true);
-      expect(countProvesSome("===", 2)).toBe(true);
-      expect(countProvesSome("==", 0)).toBe(false);
+    it("counts the bound a count is equal to", () => {
+      expect(provenCount("==", 1)).toBe(1);
+      expect(provenCount("==", 3)).toBe(3);
+      expect(provenCount("loose==", 2)).toBe(2);
+      expect(provenCount("===", 2)).toBe(2);
+      expect(provenCount("==", 0)).toBe(0);
     });
 
-    it("proves some only from a count that differs from zero", () => {
-      expect(countProvesSome("!=", 0)).toBe(true);
-      expect(countProvesSome("loose!=", 0)).toBe(true);
-      expect(countProvesSome("!=", 1)).toBe(false);
+    it("counts one only from a count that differs from zero", () => {
+      expect(provenCount("!=", 0)).toBe(1);
+      expect(provenCount("loose!=", 0)).toBe(1);
+      expect(provenCount("!=", 1)).toBe(0);
     });
 
     it("reads a negated test as its complement", () => {
-      expect(countProvesSome("!=", 1, true)).toBe(true);
-      expect(countProvesSome("loose!=", 2, true)).toBe(true);
-      expect(countProvesSome("<", 1, true)).toBe(true);
-      expect(countProvesSome("<=", 0, true)).toBe(true);
-      expect(countProvesSome("==", 0, true)).toBe(true);
+      expect(provenCount("!=", 1, true)).toBe(1);
+      expect(provenCount("loose!=", 2, true)).toBe(2);
+      expect(provenCount("<", 1, true)).toBe(1);
+      expect(provenCount("<=", 3, true)).toBe(4);
+      expect(provenCount("==", 0, true)).toBe(1);
     });
 
-    it("proves nothing from a negated test that leaves the count at zero", () => {
-      expect(countProvesSome("!=", 0, true)).toBe(false);
-      expect(countProvesSome("loose!=", 0, true)).toBe(false);
-      expect(countProvesSome(">", 0, true)).toBe(false);
-      expect(countProvesSome(">=", 1, true)).toBe(false);
+    it("counts nothing from a negated test that leaves the count at zero", () => {
+      expect(provenCount("!=", 0, true)).toBe(0);
+      expect(provenCount("loose!=", 0, true)).toBe(0);
+      expect(provenCount(">", 0, true)).toBe(0);
+      expect(provenCount(">=", 1, true)).toBe(0);
     });
 
-    it("proves nothing from an operator it does not know", () => {
-      expect(countProvesSome("in", 1)).toBe(false);
-      expect(countProvesSome("<", 1)).toBe(false);
-      expect(countProvesSome("in", 1, true)).toBe(false);
+    it("counts nothing from an operator it does not know", () => {
+      expect(provenCount("in", 1)).toBe(0);
+      expect(provenCount("<", 1)).toBe(0);
+      expect(provenCount("in", 1, true)).toBe(0);
     });
   });
 });

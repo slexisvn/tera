@@ -51,6 +51,7 @@ import {
   AOT_CHAR_AT,
   AOT_FLOAT_TO_STRING,
   AOT_INT_TO_STRING,
+  isAbsenceConstant,
   type AotStringBuffer,
 } from "../../analyses/aot-legality.js";
 
@@ -82,6 +83,7 @@ import {
   qualifiedMethodName,
   THROW_BUILTIN,
 } from "../../metadata/builtin-methods.js";
+import { ABSENCE_VALUES, absenceValueOf } from "../../metadata/printed-values.js";
 import { BackendLoweringError } from "../../target/errors.js";
 import {
   def,
@@ -136,6 +138,9 @@ const OPPOSITE_BRANCHES = new Map<string, string>(
     [opposite, branch] as [string, string],
   ]),
 );
+
+const EQUAL_COMPARISON = "==";
+const ABSENT_REFERENCE = 0;
 
 const INT_CONDITIONS = new Map<string, IntCondition>([
   ["<", { branch: "blt", swap: false, negate: false, equality: false }],
@@ -299,6 +304,12 @@ export class RiscvLowering extends MachineLoweringBase<RiscvTargetModel> {
       ctx.reference(symbol);
       ctx.emit(instruction("lla", [writeOf(destination), sym(symbol)]));
       return destination;
+    }
+    const absence = absenceValueOf(value);
+    if (absence !== null) {
+      return scalar === SCALAR_FLOAT64
+        ? this.loadDoubleBits(ctx, absence.bits, ctx.temp(scalar))
+        : this.loadNumber(ctx, ABSENT_REFERENCE, scalar);
     }
     return this.loadNumber(ctx, Number(value), scalar);
   }
@@ -484,7 +495,14 @@ export class RiscvLowering extends MachineLoweringBase<RiscvTargetModel> {
       ctx.emit(instruction("li", [writeOf(into), imm(value)]));
       return into;
     }
-    const bits = doubleBits(value);
+    return this.loadDoubleBits(ctx, doubleBits(value), into);
+  }
+
+  private loadDoubleBits(
+    ctx: SelectionContext,
+    bits: bigint,
+    into: VirtualRegister,
+  ): VirtualRegister {
     const datum = ctx.data.intern(`double:${bits}`, 8, [integerData(bits, 8)]);
     const address = ctx.tempIn(RISCV_GPR, 8);
     ctx.emit(instruction("lla", [writeOf(address), sym(datum.label)]));
@@ -597,14 +615,66 @@ export class RiscvLowering extends MachineLoweringBase<RiscvTargetModel> {
     this.emitIntCondition(ctx, String(ctx.node.props.op), left, right);
   }
 
+  private bitsOf(ctx: SelectionContext, value: CFGInstruction): VirtualRegister {
+    const bits = ctx.tempIn(RISCV_GPR, 8);
+    ctx.emit(
+      instruction("fmv.x.d", [writeOf(bits), readOf(this.coerce(ctx, value, SCALAR_FLOAT64))]),
+    );
+    return bits;
+  }
+
+  private selectBitsCompare(ctx: SelectionContext): void {
+    const left = this.bitsOf(ctx, ctx.node.inputs[0]!);
+    const right = this.bitsOf(ctx, ctx.node.inputs[1]!);
+    this.emitIntCondition(ctx, EQUAL_COMPARISON, left, right);
+  }
+
+  private absenceFlagOf(ctx: SelectionContext, value: CFGInstruction): VirtualRegister {
+    const bits = this.bitsOf(ctx, value);
+    const flag = ctx.tempIn(RISCV_GPR, 8);
+    const matched = ctx.tempIn(RISCV_GPR, 8);
+    const pattern = ctx.tempIn(RISCV_GPR, 8);
+    let seeded = false;
+    for (const absence of ABSENCE_VALUES) {
+      const held = seeded ? matched : flag;
+      ctx.emit(instruction("li", [writeOf(pattern), imm(absence.bits)]));
+      ctx.emit(instruction("xor", [writeOf(held), readOf(bits), readOf(pattern)]));
+      ctx.emit(instruction("seqz", [writeOf(held), readOf(held)]));
+      if (seeded) {
+        ctx.emit(instruction("or", [writeOf(flag), readOf(flag), readOf(matched)]));
+      }
+      seeded = true;
+    }
+    return flag;
+  }
+
+  private selectAbsenceCompare(ctx: SelectionContext): void {
+    const left = this.absenceFlagOf(ctx, ctx.node.inputs[0]!);
+    const right = this.absenceFlagOf(ctx, ctx.node.inputs[1]!);
+    this.emitIntCondition(ctx, String(ctx.node.props.op), left, right);
+  }
+
+  private selectReferenceCompare(ctx: SelectionContext): void {
+    this.emitIntCondition(
+      ctx,
+      String(ctx.node.props.op),
+      ctx.registerOf(ctx.node.inputs[0]!),
+      ctx.registerOf(ctx.node.inputs[1]!),
+    );
+  }
+
   protected selectStringCompare(ctx: SelectionContext): void {
+    if (ctx.legality.comparesBits(ctx.node)) {
+      this.selectBitsCompare(ctx);
+      return;
+    }
     if (ctx.node.inputs.every((input) => ctx.scalarOf(input) === SCALAR_POINTER)) {
-      this.emitIntCondition(
-        ctx,
-        String(ctx.node.props.op),
-        ctx.registerOf(ctx.node.inputs[0]!),
-        ctx.registerOf(ctx.node.inputs[1]!),
-      );
+      this.selectReferenceCompare(ctx);
+      return;
+    }
+    if (ctx.node.inputs.some(isAbsenceConstant)) {
+      if (ctx.legality.absenceComparesAsNumber(ctx.node)) this.selectAbsenceCompare(ctx);
+      else this.selectReferenceCompare(ctx);
       return;
     }
     const left = ctx.registerOf(ctx.node.inputs[0]!);

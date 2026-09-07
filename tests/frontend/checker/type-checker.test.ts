@@ -480,6 +480,8 @@ describe("nullable narrowing", () => {
 });
 
 describe("taking one element after a guard that the array holds some", () => {
+  const ABSENT = "(the value may be absent: guard it before use, or spell a fallback with ??)";
+
   const takes = (guard: string, member: string) =>
     src(
       'queue: string[] = ["a", "b"]',
@@ -636,6 +638,153 @@ describe("taking one element after a guard that the array holds some", () => {
 
     expect(diagnose(source)).toEqual([
       "Type 'string | undefined' is not assignable to 'string' (the value may be absent: guard it before use, or spell a fallback with ??)",
+    ]);
+  });
+
+  it("takes as many as the guard counted", () => {
+    const source = src(
+      "fn add(stack: float[]) -> float:",
+      "  if stack.length >= 2:",
+      "    right: float = stack.pop()",
+      "    left: float = stack.pop()",
+      "    return left + right",
+      "  return 0.0",
+      "print(add([3.0, 4.0]))",
+    );
+
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("keeps the largest count when one test names the array twice", () => {
+    const source = src(
+      "fn add(stack: float[]) -> float:",
+      "  if stack.length >= 3 and stack.length > 0:",
+      "    right: float = stack.pop()",
+      "    left: float = stack.pop()",
+      "    return left + right",
+      "  return 0.0",
+      "print(add([3.0, 4.0, 5.0]))",
+    );
+
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("counts a take back off the guard's count", () => {
+    const source = src(
+      'queue: string[] = ["a", "b"]',
+      "while queue.length > 0:",
+      "  first: string = queue.shift()",
+      "  second: string = queue.shift()",
+      "  print(first, second)",
+    );
+
+    expect(diagnose(source)).toEqual([
+      `Type 'string | undefined' is not assignable to 'string' ${ABSENT}`,
+    ]);
+  });
+
+  it("counts what a take put back", () => {
+    const source = src(
+      'queue: string[] = ["a", "b"]',
+      "while queue.length > 0:",
+      "  first: string = queue.shift()",
+      "  queue.push(first)",
+      "  second: string = queue.shift()",
+      "  print(first, second)",
+    );
+
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("counts takes on separate arms apart, not one after the other", () => {
+    const source = src(
+      'queue: string[] = ["a"]',
+      "flag = true",
+      "if queue.length > 0:",
+      "  if flag:",
+      "    left: string = queue.shift()",
+      "    print(left)",
+      "  else:",
+      "    right: string = queue.shift()",
+      "    print(right)",
+    );
+
+    expect(diagnose(source)).toEqual([]);
+  });
+
+  it("counts the worst arm against a take that follows the branch", () => {
+    const source = src(
+      'queue: string[] = ["a", "b"]',
+      "flag = true",
+      "if queue.length >= 2:",
+      "  if flag:",
+      "    first: string = queue.shift()",
+      "    print(first)",
+      "  second: string = queue.shift()",
+      "  third: string = queue.shift()",
+      "  print(second, third)",
+    );
+
+    expect(diagnose(source)).toEqual([
+      `Type 'string | undefined' is not assignable to 'string' ${ABSENT}`,
+    ]);
+  });
+
+  it("proves nothing about a take a nested loop repeats", () => {
+    const source = src(
+      'queue: string[] = ["a", "b"]',
+      "rounds = 0",
+      "if queue.length > 0:",
+      "  while rounds < 3:",
+      "    item: string = queue.shift()",
+      "    rounds = rounds + 1",
+      "    print(item)",
+    );
+
+    expect(diagnose(source)).toEqual([
+      `Type 'string | undefined' is not assignable to 'string' ${ABSENT}`,
+    ]);
+  });
+
+  it("proves nothing about a take inside a function the guard encloses", () => {
+    const source = src(
+      'queue: string[] = ["a"]',
+      "if queue.length > 0:",
+      "  fn later() -> string:",
+      "    return queue.shift()",
+      "  print(later())",
+    );
+
+    expect(diagnose(source)).toEqual([
+      `Type 'string | undefined' is not assignable to return type 'string' ${ABSENT}`,
+    ]);
+  });
+
+  it("does not let a put back inside a nested function pay for another take", () => {
+    const source = src(
+      'queue: string[] = ["a", "b"]',
+      "if queue.length >= 2:",
+      "  first: string = queue.shift()",
+      "  fn never():",
+      "    queue.push(first)",
+      "  second: string = queue.shift()",
+      "  third: string = queue.shift()",
+      "  print(first, second, third)",
+    );
+
+    expect(diagnose(source)).toEqual([
+      `Type 'string | undefined' is not assignable to 'string' ${ABSENT}`,
+    ]);
+  });
+
+  it("says how to mend an operand a take may not have filled", () => {
+    const source = src(
+      'stack: float[] = [1.5]',
+      "print(stack.pop() + stack.pop())",
+    );
+
+    expect(diagnose(source)).toEqual([
+      `Operator '+' cannot be applied to 'float | undefined' and 'float | undefined' ${ABSENT}`,
     ]);
   });
 
@@ -1106,3 +1255,44 @@ describe("advice on a value that may be absent", () => {
     expect(messages.join("\n")).not.toMatch(ABSENCE);
   });
 });
+
+describe("reading an element by a subscript that spells a name", () => {
+  it("does not read a local array through an outer one written at the same index name", () => {
+    const messages = diagnose(
+      src(
+        'names: string[] = ["b", "a"]',
+        "j = 1",
+        "while j > 0:",
+        "  names[j] = names[j - 1]",
+        "  j -= 1",
+        "fn count():",
+        "  names: int[] = [1, 2]",
+        "  j: int = 0",
+        "  while j < names.length:",
+        "    held: int = names[j]",
+        "    print(held)",
+        "    j += 1",
+        "count()",
+      ),
+    );
+
+    expect(messages).toEqual([]);
+  });
+
+  it("still reads a named member of an outer value", () => {
+    const messages = diagnose(
+      src("point = { x: 1 }", "held: int = point.x", "print(held)"),
+    );
+
+    expect(messages).toEqual([]);
+  });
+
+  it("still reports an element read whose type really does not fit", () => {
+    const messages = diagnose(
+      src('names: string[] = ["a"]', "i = 0", "held: int = names[i]", "print(held)"),
+    );
+
+    expect(messages.join("\n")).toMatch(/not assignable/);
+  });
+});
+

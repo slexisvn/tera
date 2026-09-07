@@ -1,0 +1,7 @@
+rows = [[1, 2, 0], [3, 0, 4], [5, 6, 7]]
+
+outer: for r of rows:
+  for v of r:
+    if v == 0:
+      continue outer
+    print(v)
