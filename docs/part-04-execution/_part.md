@@ -1,6 +1,6 @@
 # Part IV — The bytecode runs   ⟨I · B · J · N⟩
 
-> **Status:** outline
+> **Status:** written
 
 **What arrived.** A `RegisterCompiledFunction` per function — instructions, constants,
 `registerCount`, `paramCount`, `localNames`, `uninitializedLocalSlots`, an unallocated

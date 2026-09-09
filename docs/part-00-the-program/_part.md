@@ -1,12 +1,10 @@
 # Part 0 — The Program   ⟨I · B · J · N⟩
 
-> **Status:** outline
+> **Status:** written
 
 **What this part is.** Three chapters before any machinery: the program, the language
 it is written in, and every shape that program will take. Nothing here is a stage of the
 pipeline. Everything here is what the pipeline is *for*.
-
-**Length.** 38 pages (14 + 12 + 12).
 
 ## What this stage owes everything downstream
 
@@ -20,7 +18,7 @@ Part 0 hands four things forward, and every later part depends on all four.
 2. **A reason to care about agreement.** `queue.tera` is nine lines the four tiers do not
    agree about. Part XIII returns to it as a contract (`[Ch 80 § the-agreement-contract]`)
    and as a refusal (`[Ch 81 § refusal-as-a-first-class-answer]`); Part II pays off the
-   mechanism (`[Ch 13 § q-shift-under-a-guard]`). Without chapter 1 those chapters have no
+   mechanism (`[Ch 13 § spending-and-refunding]`). Without chapter 1 those chapters have no
    stakes.
 3. **Enough tera to read a listing.** Colon-and-indent blocks, `name: type = value` with
    no binding keyword, `fn`/`class`/`interface`, `for x of` versus `for k in`, slices and

@@ -1,8 +1,6 @@
 # Part III — The tree becomes bytecode   ⟨I · B · J · N⟩
 
-> **Status:** outline
-
-**Length.** 2 pages
+> **Status:** written
 
 ## What this part is
 
@@ -32,7 +30,7 @@
   `src/bytecode/register/compiler/functions.ts:165`. Nothing else from Part II crosses.
 - The one semantic annotation that does cross as a flag is `node.implicitAwait`, read at
   `src/bytecode/register/compiler/expressions.ts:243`, which appends `ROP_AWAIT` after a
-  call. [Ch 14 § the-await-you-never-wrote] earned it; this part spends it.
+  call. [Ch 14 § one-flag-one-byte] earned it; this part spends it.
 
 ## What leaves
 

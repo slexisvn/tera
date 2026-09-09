@@ -1,7 +1,7 @@
 <title>Part II — The tree acquires meaning</title>
 # Part II — The tree acquires meaning
 
-> **Status:** outline
+> **Status:** written
 
 **Chapters 8–16.** Between the parser (Part I) and the bytecode compiler (Part III) sits
 the only stage in this engine that ever answers a question about a program instead of
