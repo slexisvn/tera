@@ -3,6 +3,7 @@ import type { Builtin, KeywordGroup, Operators } from "../../src/shared/language
 type Pattern = Record<string, unknown>;
 
 const IDENT = "[A-Za-z_$][A-Za-z0-9_$]*";
+const MODEL_HOOKS = ["forward", "train", "validate", "optimizer"];
 
 const SCOPE_BY_KEYWORD_GROUP: Record<KeywordGroup, string> = {
   declaration: "keyword.other.declaration.tera",
@@ -150,7 +151,15 @@ function numberPatterns(): Pattern[] {
 
 function declarationPatterns(groups: Record<KeywordGroup, string[]>): Pattern[] {
   const declarations = new Set(groups.declaration);
-  const patterns: Pattern[] = [...importPatterns(declarations)];
+  const patterns: Pattern[] = [
+    {
+      match: `^(\\s*)(${MODEL_HOOKS.join("|")})\\b(?=\\s*(?:\\([^\\n]*\\)\\s*(?:->[^\\n:]+)?\\s*)?:)`,
+      captures: {
+        2: { name: "entity.name.function.tera" },
+      },
+    },
+    ...importPatterns(declarations),
+  ];
 
   const callable = ["fn"].filter((k) => declarations.has(k));
   if (callable.length) {

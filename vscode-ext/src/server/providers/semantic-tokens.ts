@@ -66,6 +66,8 @@ const TYPE_BY_BINDING: Record<ModuleBindingKind, TokenTypeName> = {
   module: "namespace",
 };
 
+const MODEL_HOOKS = new Set(["forward", "train", "validate", "optimizer"]);
+
 export default defineProvider({
   id: "semanticTokens",
   legend,
@@ -149,6 +151,9 @@ function resolve(
   }
 
   const name = tokens[index].value;
+  const hookType = modelHookType(tokens, index);
+  if (hookType) return hookType;
+
   const importedType = imported.get(name);
   if (importedType !== undefined) return importedType;
 
@@ -164,6 +169,27 @@ function resolve(
 
   const symbol = symbolByName.get(name);
   return symbol ? TYPE_BY_KIND[symbol.kind] ?? null : null;
+}
+
+function modelHookType(tokens: AnalyzedToken[], index: number): TokenTypeName | null {
+  const token = tokens[index];
+  if (!MODEL_HOOKS.has(token.value)) return null;
+  if (tokens[index - 1]?.value === ".") return null;
+
+  const next = tokens[index + 1];
+  if (next?.line !== token.line) return null;
+  if (next.value === ":") return "function";
+  if (next.value !== "(") return null;
+
+  let depth = 0;
+  for (let i = index + 1; i < tokens.length; i++) {
+    const current = tokens[i];
+    if (current.line !== token.line) return null;
+    if (current.value === "(" || current.value === "[" || current.value === "{") depth++;
+    else if (current.value === ")" || current.value === "]" || current.value === "}") depth = Math.max(0, depth - 1);
+    else if (current.value === ":" && depth === 0) return "function";
+  }
+  return null;
 }
 
 function genericCallAhead(tokens: AnalyzedToken[], start: number): boolean {

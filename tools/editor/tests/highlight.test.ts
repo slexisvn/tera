@@ -50,6 +50,29 @@ describe("deciding what colour a token of Tera source gets", () => {
     expect(classOf("n = xs.push (1)", "push")).toBe("tok-method");
   });
 
+  it("paints model hook labels like callable hooks", () => {
+    const code = [
+      "  forward (x: Tensor) -> Tensor:",
+      "    return x",
+      "  train (batch: Tensor[]):",
+      "    return tensor(0.0)",
+      "  validate (batch: Tensor[]):",
+      "    return tensor(0.0)",
+      "  optimizer:",
+      "    return optim_config(SGD(Model.parameters()))",
+    ].join("\n");
+
+    expect(classOf(code, "forward")).toBe("tok-method");
+    expect(classOf(code, "train")).toBe("tok-method");
+    expect(classOf(code, "validate")).toBe("tok-method");
+    expect(classOf(code, "optimizer")).toBe("tok-method");
+  });
+
+  it("does not paint ordinary hook names as model hook labels", () => {
+    expect(classOf("optimizer = SGD(params)", "optimizer")).not.toBe("tok-method");
+    expect(classOf("model.train()", "train")).toBe("tok-method");
+  });
+
   it("treats a name after a colon or an arrow as a type", () => {
     expect(classOf("fn work(n: int) -> int:", "int")).toBe("tok-type");
     expect(classOf("total: Point = p", "Point")).toBe("tok-type");

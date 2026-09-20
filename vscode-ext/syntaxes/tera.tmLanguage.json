@@ -182,6 +182,14 @@
     "declarations": {
       "patterns": [
         {
+          "match": "^(\\s*)(forward|train|validate|optimizer)\\b(?=\\s*(?:\\([^\\n]*\\)\\s*(?:->[^\\n:]+)?\\s*)?:)",
+          "captures": {
+            "2": {
+              "name": "entity.name.function.tera"
+            }
+          }
+        },
+        {
           "match": "\\b(from)\\s+(\\.*[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*|\\.+)\\s+(import)\\b",
           "captures": {
             "1": {

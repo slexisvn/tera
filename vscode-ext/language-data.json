@@ -662,6 +662,63 @@
         }
       },
       {
+        "name": "exp",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "exp(x: float) -> float"
+        }
+      },
+      {
+        "name": "sin",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "sin(x: float) -> float"
+        }
+      },
+      {
+        "name": "cos",
+        "description": null,
+        "returns": "float",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "cos(x: float) -> float"
+        }
+      },
+      {
         "name": "pow",
         "description": null,
         "returns": "float",
@@ -3946,6 +4003,25 @@
     ],
     "String": [
       {
+        "name": "concat",
+        "description": "Return this string with `pieces` appended to it.",
+        "returns": "string",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "pieces",
+              "type": "string",
+              "optional": true,
+              "rest": true,
+              "defaultValue": null
+            }
+          ],
+          "display": "concat(...pieces: string) -> string"
+        }
+      },
+      {
         "name": "to_upper_case",
         "description": "Return the string with every character upper-cased.",
         "returns": "string",
@@ -4002,7 +4078,7 @@
       },
       {
         "name": "split",
-        "description": "Split the string on `sep`.",
+        "description": "Split the string on `sep`, keeping at most `limit` pieces.",
         "returns": "string[]",
         "effect": "sync",
         "isGetter": false,
@@ -4014,9 +4090,16 @@
               "optional": false,
               "rest": false,
               "defaultValue": null
+            },
+            {
+              "name": "limit",
+              "type": "int",
+              "optional": true,
+              "rest": false,
+              "defaultValue": null
             }
           ],
-          "display": "split(sep) -> string[]"
+          "display": "split(sep, limit?: int) -> string[]"
         }
       },
       {
@@ -4164,6 +4247,25 @@
             }
           ],
           "display": "index_of(sub) -> int"
+        }
+      },
+      {
+        "name": "last_index_of",
+        "description": "Return the index of the last occurrence of `sub`, or `-1` if absent.",
+        "returns": "int",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "sub",
+              "type": null,
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "last_index_of(sub) -> int"
         }
       },
       {

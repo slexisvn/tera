@@ -60,9 +60,15 @@ function hostAbiName(platform: string): X64AbiName {
   return platform === "win32" ? "win64" : "sysv";
 }
 
+function currentPlatform(): string {
+  const platform = (globalThis as { process?: { platform?: unknown } }).process?.platform;
+  return typeof platform === "string" ? platform : "linux";
+}
+
 export function x64Target(options: X64TargetOptions = {}): X64TargetModel {
-  const abiName = options.abi ?? hostAbiName(process.platform);
-  const formatName = options.format ?? hostObjectFormat(process.platform);
+  const platform = currentPlatform();
+  const abiName = options.abi ?? hostAbiName(platform);
+  const formatName = options.format ?? hostObjectFormat(platform);
   const built = x64Abi(abiName);
   const registers: RegisterFile = built.registers;
   const abi: RuntimeAbi = built.abi;

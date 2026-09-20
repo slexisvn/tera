@@ -4,6 +4,7 @@ import { isStringLiteralTextOffset } from "tera/frontend";
 const KEYWORDS = languageData.keywords;
 const BUILTINS = languageData.builtins.map((item) => item.name);
 const TYPES = languageData.types;
+const MODEL_HOOKS = new Set(["forward", "train", "validate", "optimizer"]);
 
 export const KEYWORD_SET = new Set(KEYWORDS);
 export const BUILTIN_SET = new Set(BUILTINS);
@@ -18,6 +19,7 @@ export function tokenClass(token: string, code: string, index: number, isStringT
   if (nonSpaceBefore(code, index) === '.') {
     return nonSpaceAfter(code, index + token.length) === '(' ? 'tok-method' : 'tok-prop';
   }
+  if (isModelHookLabel(token, code, index)) return 'tok-method';
   if (TYPE_SET.has(token) && isTypeAnnotation(code, index)) return 'tok-type';
   if (KEYWORD_SET.has(token)) return 'tok-kw';
   if (TYPE_SET.has(token) || isTypeAnnotation(code, index)) return 'tok-type';
@@ -45,5 +47,30 @@ function isTypeAnnotation(code: string, index: number): boolean {
   if (cursor < 0) return false;
   if (code[cursor] === ':') return true;
   if (code[cursor] === '>' && cursor > 0 && code[cursor - 1] === '-') return true;
+  return false;
+}
+
+function isModelHookLabel(token: string, code: string, index: number): boolean {
+  if (!MODEL_HOOKS.has(token)) return false;
+
+  let lineStart = index - 1;
+  while (lineStart >= 0 && code[lineStart] !== '\n' && code[lineStart] !== '\r') lineStart--;
+  for (let cursor = lineStart + 1; cursor < index; cursor++) {
+    if (code[cursor] !== ' ' && code[cursor] !== '\t') return false;
+  }
+
+  let cursor = index + token.length;
+  while (cursor < code.length && (code[cursor] === ' ' || code[cursor] === '\t')) cursor++;
+  if (code[cursor] === ':') return true;
+  if (code[cursor] !== '(') return false;
+
+  let depth = 0;
+  for (; cursor < code.length; cursor++) {
+    const char = code[cursor];
+    if (char === '\n' || char === '\r') return false;
+    if (char === '(' || char === '[' || char === '{') depth++;
+    else if (char === ')' || char === ']' || char === '}') depth = Math.max(0, depth - 1);
+    else if (char === ':' && depth === 0) return true;
+  }
   return false;
 }
