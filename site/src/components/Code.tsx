@@ -1,5 +1,6 @@
 import Prism from 'prismjs';
 import { CodeTooltip } from './CodeTooltip';
+import { stagger } from '../motion';
 
 const grammar: Prism.Grammar = {
   string: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/,
@@ -12,7 +13,7 @@ const grammar: Prism.Grammar = {
   punctuation: /[()[\]{},.:]/,
 };
 
-type CodeProps = { value: string; numbered?: boolean; annotations?: Record<string, string> };
+type CodeProps = { value: string; numbered?: boolean; annotations?: Record<string, string>; animated?: boolean };
 
 function Tokens({ tokens, annotations }: { tokens: Prism.TokenStream; annotations?: CodeProps['annotations'] }) {
   if (typeof tokens === 'string') return tokens;
@@ -23,9 +24,9 @@ function Tokens({ tokens, annotations }: { tokens: Prism.TokenStream; annotation
   </span>;
 }
 
-export function Code({ value, numbered = false, annotations }: CodeProps) {
-  return <pre className={`code${numbered ? ' code-numbered' : ''}`}><code>
-    {value.split('\n').map((line, index) => <span className="code-line" key={index}>
+export function Code({ value, numbered = false, annotations, animated = false }: CodeProps) {
+  return <pre className={`code${numbered ? ' code-numbered' : ''}${animated ? ' code-animated' : ''}`}><code>
+    {value.split('\n').map((line, index) => <span className="code-line" key={index} style={animated ? stagger(index) : undefined}>
       {numbered && <span className="line-number" aria-hidden="true">{index + 1}</span>}
       <span><Tokens tokens={Prism.tokenize(line || ' ', grammar)} annotations={annotations} /></span>
     </span>)}

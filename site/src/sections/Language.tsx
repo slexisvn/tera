@@ -8,7 +8,7 @@ export function Language() {
   const maxRevenue = Math.max(...language.chart.values.map(item => item.value));
   return <section className="section" id="language">
     <SectionHeading {...language} />
-    <div className="feature-grid">
+    <div className="feature-grid reveal">
       <article className="feature feature-core"><div className="feature-icon"><Braces size={21} /></div><h3>{language.core.title}</h3><p>{language.core.description}</p><Code value={language.core.code} /><ul className="language-features">{language.core.features.map(feature => <li key={feature}><Check size={13} />{feature}</li>)}</ul></article>
       <article className="feature feature-data"><div className="feature-label"><Table2 size={18} />{language.dataframe.label}</div><h3>{language.dataframe.title}</h3><p>{language.dataframe.description}</p><DataTable {...language.dataframe} /></article>
       <article className="feature feature-tensor"><div className="feature-label"><Box size={18} />{language.tensor.label}</div><div className="tensor-visual" aria-label={language.tensor.caption}><div className="matrix">{language.tensor.matrix.flat().map((value, index) => <span key={index}>{value.toFixed(1)}</span>)}</div><div className="tensor-notation"><code>{language.tensor.operation}</code><span>{language.tensor.caption}</span></div></div><h3>{language.tensor.title}</h3><p>{language.tensor.description}</p></article>

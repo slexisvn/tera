@@ -7,11 +7,12 @@ export const project = {
 
 const source = (path: string) => `${project.repository}/tree/main/${path}`;
 const app = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`;
+const marketplace = (id: string) => `https://marketplace.visualstudio.com/items?itemName=${id}`;
 
 export const links = {
   docs: source('docs'),
   notebook: app('notebook/'),
-  extension: source('vscode-ext'),
+  extension: marketplace('slexisvn.tera-language'),
   cli: source('src/cli'),
   visualizer: app('visualizer/'),
   examples: source('examples'),

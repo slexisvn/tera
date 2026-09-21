@@ -6,7 +6,10 @@ import { Tooling } from './sections/Tooling';
 import { Engine } from './sections/Engine';
 import { Footer } from './sections/Footer';
 import { ui } from './content/site';
+import { useScrollReveal } from './motion';
 
 export default function App() {
+  useScrollReveal();
+
   return <div id="top"><a className="skip-link" href="#main">{ui.skip}</a><Header /><main id="main"><Hero /><div className="container"><ExampleExplorer /><Language /><Tooling /><Engine /><Footer /></div></main></div>;
 }

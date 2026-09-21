@@ -8,7 +8,7 @@ import { Link } from '../components/Link';
 export function Tooling() {
   return <section className="section" id="tooling">
     <SectionHeading {...tooling} />
-    <div className="tool-grid">
+    <div className="tool-grid reveal">
       <article className="tool tool-notebook"><div className="tool-copy"><BookOpen size={24} /><h3>{tooling.notebook.title}</h3><p>{tooling.notebook.description}</p><Link href={links.notebook} className="text-link">{tooling.notebook.action}<ArrowUpRight size={16} /></Link></div>
         <div className="notebook-preview" aria-label={tooling.notebook.label}><div className="notebook-top"><BookOpen size={15} /><span>{tooling.notebook.filename}</span><span className="status-dot" /></div><div className="notebook-cell"><span className="cell-index">[1]</span><Code value={tooling.notebook.cell} /></div><div className="notebook-output"><Table2 size={14} /><DataTable {...language.dataframe} /></div></div>
       </article>
