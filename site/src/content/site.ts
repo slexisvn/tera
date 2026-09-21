@@ -204,12 +204,57 @@ export const tooling = {
 
 export const engine = {
   eyebrow: '03 / UNDER THE HOOD',
-  title: 'Readable on the surface.\nSerious underneath.',
-  description: 'An interpreter, tiered JIT, and ahead-of-time compiler share the same language pipeline.',
-  stages: [
-    { name: 'Interpreter', tag: 'START IMMEDIATELY', text: 'Run a script or notebook cell directly. Inspect, iterate, and debug.' },
-    { name: 'JIT', tag: 'OPTIMIZE AS YOU GO', text: 'Hot code moves through a JavaScript baseline and an optimizing WebAssembly tier.' },
-    { name: 'Native AOT', tag: 'COMPILE AHEAD', text: 'Compile supported programs to native executables, object files, or C source.' },
+  title: 'Simple to write.\nBuilt to go deeper.',
+  description: 'A language compiler at the core. A query optimizer for your data. An ML compiler for your models.',
+  systems: [
+    {
+      id: 'language', label: 'Language', subtitle: 'Compile the program', title: 'One language. JIT or AOT.',
+      description: 'Warm up through JIT tiers, or compile supported programs straight to native code. The same language, ready for either path.',
+      input: 'Your Tera program', output: 'EXECUTION PATHS',
+      steps: [
+        { name: 'Source', detail: 'Parse & analyze' },
+        { name: 'Bytecode', detail: 'Register instructions' },
+        { name: 'Optimize', detail: 'IR & compiler passes' },
+      ],
+      targets: ['Tiered JIT', 'Native AOT'],
+      details: [
+        { title: 'JIT · Optimize as you run', text: 'Start in the bytecode interpreter. Hot code moves through a JavaScript baseline and an optimizing WebAssembly tier.' },
+        { title: 'AOT · Compile ahead', text: 'Compile supported programs to native executables, object files, or C source before execution.' },
+      ],
+      note: 'The interpreter is the starting tier of the JIT runtime. Native AOT checks supported patterns at compile time.',
+    },
+    {
+      id: 'query', label: 'DataFrames', subtitle: 'Find a better plan', title: 'Same question. A smarter plan.',
+      description: 'DataFrame operations become a query plan. Push filters down, reorder joins, and execute in columnar batches.',
+      input: 'DataFrame operations', output: 'EXECUTION',
+      steps: [
+        { name: 'Plan', detail: 'Logical operations' },
+        { name: 'Optimize', detail: 'Rewrite & estimate' },
+        { name: 'Execute', detail: 'Physical operators' },
+      ],
+      targets: ['Lazy plans', 'Cost estimates', 'Columnar execution'],
+      details: [
+        { title: 'Do less work', text: 'Push filters closer to the data, reconsider join order, and use statistics to estimate execution costs.' },
+        { title: 'Work in batches', text: 'Physical operators process columnar chunks. DataFrames share the same optimizer and executor as SQL.' },
+      ],
+      note: 'A chain of DataFrame operations stays a plan until an action requests its results.',
+    },
+    {
+      id: 'ml', label: 'Tensors & models', subtitle: 'Turn graphs into kernels', title: 'A model becomes machine work.',
+      description: 'Run tensors eagerly, or compile a model. Its graph lowers into scheduled tensor operations and backend kernels.',
+      input: 'Compiled model', output: 'BACKEND TARGETS',
+      steps: [
+        { name: 'Graph IR', detail: 'Trace & optimize' },
+        { name: 'Tensor IR', detail: 'Lower & schedule' },
+        { name: 'Low-level IR', detail: 'Generate kernels' },
+      ],
+      targets: ['CPU', 'WebAssembly', 'CUDA', 'WebGPU'],
+      details: [
+        { title: 'See the computation', text: 'Graph passes transform the model before tensor-level lowering exposes loops and scheduling decisions.' },
+        { title: 'Match the backend', text: 'Code generation and buffer planning prepare execution. Eager operations also reuse cached kernels.' },
+      ],
+      note: 'Eager tensor execution and whole-model compilation are distinct paths through the ML stack.',
+    },
   ],
   command: 'tera compile hello.tera -o hello',
   note: 'AOT checks supported patterns strictly and reports what it cannot compile.',
