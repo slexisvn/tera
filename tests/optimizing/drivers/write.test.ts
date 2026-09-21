@@ -66,7 +66,7 @@ describe("writing an AOT program to disk", () => {
     const directory = workspace();
     writeAotProgram(
       programOf({
-        name: "program.elf",
+        name: "program",
         contents: Uint8Array.from([0x7f, 0x45, 0x4c, 0x46]),
         mode: AOT_OUTPUT_EXECUTABLE_MODE,
       }),
@@ -74,18 +74,18 @@ describe("writing an AOT program to disk", () => {
     );
 
     const expected = AOT_OUTPUT_EXECUTABLE_MODE & ~process.umask() & EXECUTE_BITS;
-    expect(statSync(join(directory, "program.elf")).mode & EXECUTE_BITS).toBe(expected);
+    expect(statSync(join(directory, "program")).mode & EXECUTE_BITS).toBe(expected);
   });
 
   it.skipIf(process.platform === "win32")("updates the mode when replacing an old output", () => {
     const directory = workspace();
-    const executable = join(directory, "program.elf");
+    const executable = join(directory, "program");
     writeFileSync(executable, "old");
     chmodSync(executable, 0o600);
 
     writeAotProgram(
       programOf({
-        name: "program.elf",
+        name: "program",
         contents: "new",
         mode: AOT_OUTPUT_EXECUTABLE_MODE,
       }),

@@ -16,7 +16,7 @@ type Launcher = (path: string, input: string) => ElfRun;
 function inRunDirectory<T>(use: (path: string) => T): T {
   const directory = mkdtempSync(join(tmpdir(), "tera-elf-"));
   try {
-    return use(join(directory, "program.elf"));
+    return use(join(directory, "program"));
   } finally {
     removeDirectory(directory);
   }

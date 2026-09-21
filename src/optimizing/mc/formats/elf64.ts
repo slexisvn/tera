@@ -10,7 +10,7 @@ import type { McTarget } from "../target.js";
 import type { McExecutableWriter, McObjectWriter } from "./container.js";
 
 export const ELF_OBJECT_EXTENSION = "o";
-export const ELF_EXECUTABLE_EXTENSION = "elf";
+export const ELF_EXECUTABLE_EXTENSION = "";
 const ELF_RELOCATIONS = "elf";
 
 export const ELF_MACHINE_X86_64 = 62;

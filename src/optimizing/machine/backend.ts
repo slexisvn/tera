@@ -291,6 +291,10 @@ function entryPart(
   return { part, shape: shape.shape };
 }
 
+function outputFileName(moduleName: string, extension: string): string {
+  return extension.length === 0 ? moduleName : `${moduleName}.${extension}`;
+}
+
 function outputsOf(support: NativeMachineCodeSupport | null): readonly AotOutputFormat[] {
   return [
     "assembly" as const,
@@ -396,7 +400,7 @@ export function createNativeBackend(options: NativeBackendOptions): AotBackend {
           const { part, shape } = entryPart(id, parts, linkOptions);
           return [
             {
-              name: `${linkOptions.moduleName}.${program.writer.extension}`,
+              name: outputFileName(linkOptions.moduleName, program.writer.extension),
               mode: AOT_OUTPUT_EXECUTABLE_MODE,
               contents: executableImage(
                 support,

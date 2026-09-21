@@ -103,6 +103,12 @@ describe("x64 executables built without an external toolchain", () => {
 });
 
 describe("x64 executable entry requirements", () => {
+  it("names the output after the module without an extension", () => {
+    expect(build(src("fn main() -> int:", "  return 1")).files.map((file) => file.name)).toEqual([
+      "program",
+    ]);
+  });
+
   it("makes the top level of the file the entry when none is named", () => {
     const program = nodeEngine({ typecheck: "off" }).compileAot(
       src("fn main() -> int:", "  return 1"),

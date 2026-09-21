@@ -26,8 +26,9 @@ function imageOf(format: "object" | "executable"): Uint8Array {
     format,
   });
   expect(program.skipped).toEqual([]);
-  const extension = format === "object" ? ".o" : ".elf";
-  const file = program.files.find((candidate) => candidate.name.endsWith(extension));
+  const file = program.files.find((candidate) =>
+    format === "object" ? candidate.name.endsWith(".o") : candidate.name === "program",
+  );
   return file!.contents as Uint8Array;
 }
 

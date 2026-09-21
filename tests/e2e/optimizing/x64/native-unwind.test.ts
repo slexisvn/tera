@@ -29,11 +29,11 @@ function compile(backend: string, format: "assembly" | "object" | "executable") 
   return program;
 }
 
-function fileOf(backend: string, format: "assembly" | "object" | "executable", extension: string) {
+function fileOf(backend: string, format: "assembly" | "object" | "executable", artifact: string) {
   const file = compile(backend, format).files.find((candidate) =>
-    candidate.name.endsWith(extension),
+    artifact.startsWith(".") ? candidate.name.endsWith(artifact) : candidate.name === artifact,
   );
-  if (file === undefined) throw new Error(`program has no ${extension} output`);
+  if (file === undefined) throw new Error(`program has no ${artifact} output`);
   return file.contents;
 }
 
@@ -101,7 +101,7 @@ describe("unwind tables the host toolchain reads back", () => {
   });
 
   itReadsElf("hands the executable a GNU_EH_FRAME segment", () => {
-    const image = fileOf("x64-linux", "executable", ".elf") as Uint8Array;
+    const image = fileOf("x64-linux", "executable", "program") as Uint8Array;
 
     const report = inspectElf(image, ["-lW"]);
 
