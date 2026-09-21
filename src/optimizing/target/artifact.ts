@@ -47,9 +47,13 @@ export interface EmittedFunction {
   readonly artifact: BackendArtifact;
 }
 
+export const AOT_OUTPUT_REGULAR_MODE = 0o666;
+export const AOT_OUTPUT_EXECUTABLE_MODE = 0o777;
+
 export interface AotOutputFile {
   readonly name: string;
   readonly contents: string | Uint8Array;
+  readonly mode?: number;
 }
 
 export type AotOutputFormat = "assembly" | "object" | "executable";

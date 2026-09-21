@@ -4,7 +4,7 @@ import path from "path";
 import { spawnSync } from "child_process";
 import { Engine } from "../api/engine.js";
 import { AotLinkError, type AotProgram } from "../optimizing/drivers/aot.js";
-import { writeAotProgram } from "../optimizing/drivers/write.js";
+import { writeAotFile, writeAotProgram } from "../optimizing/drivers/write.js";
 import type {
   AotOutputFile,
   AotOutputFormat,
@@ -266,10 +266,10 @@ function writeDirect(program: AotProgram, config: CompileConfig, input: string):
   const primary = primaryOf(program);
   const output = path.resolve(config.output ?? defaultOutput(input, primary.name));
   fs.mkdirSync(path.dirname(output), { recursive: true });
-  fs.writeFileSync(output, primary.contents);
+  writeAotFile(primary, output);
   for (const file of program.files) {
     if (file === primary) continue;
-    fs.writeFileSync(path.join(path.dirname(output), file.name), file.contents);
+    writeAotFile(file, path.join(path.dirname(output), file.name));
   }
   return output;
 }

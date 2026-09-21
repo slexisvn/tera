@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -7,11 +15,16 @@ import { Engine } from "../../../src/index.js";
 import { parseArgs } from "../../../src/cli/args.js";
 import { runCompile } from "../../../src/cli/compile.js";
 import { HOST_PLATFORM, hostBackendId } from "../../../src/optimizing/backends/host.js";
+import { AOT_OUTPUT_EXECUTABLE_MODE } from "../../../src/optimizing/target/artifact.js";
 import { itNative } from "../../helpers/c-executor.js";
 
 const src = (...lines: string[]) => lines.join("\n");
 
 const itBuildsNatively = it.skipIf(hostBackendId() === null);
+const itBuildsNativelyOnUnix = it.skipIf(
+  hostBackendId() === null || process.platform === "win32",
+);
+const EXECUTE_BITS = 0o111;
 
 interface Build {
   readonly status: number;
@@ -102,6 +115,23 @@ describe("tera compile", () => {
 
       expect(built.status).toBe(0);
       expect(Number(output(built.output))).toBe(interpreted);
+    });
+  });
+
+  itBuildsNativelyOnUnix("marks direct executable output executable when replacing a plain file", () => {
+    inWorkspace((dir) => {
+      const outPath = join(dir, "out");
+      writeFileSync(outPath, "old");
+      chmodSync(outPath, 0o600);
+
+      const built = compile(dir, SQUARES);
+
+      const expected = AOT_OUTPUT_EXECUTABLE_MODE & ~process.umask() & EXECUTE_BITS;
+      expect(built.status).toBe(0);
+      expect(statSync(built.output).mode & EXECUTE_BITS).toBe(expected);
+      expect(Number(output(built.output))).toBe(
+        new Engine({ typecheck: "off" }).runNative(`${SQUARES}\nsquares()`),
+      );
     });
   });
 

@@ -1,12 +1,21 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { writeAotProgram } from "../../../src/optimizing/drivers/write.js";
 import { removeDirectory } from "../../helpers/workspace.js";
 import type { AotOutputFile, AotProgram } from "../../../src/optimizing/drivers/aot.js";
+import { AOT_OUTPUT_EXECUTABLE_MODE } from "../../../src/optimizing/target/artifact.js";
 
 const directories: string[] = [];
+const EXECUTE_BITS = 0o111;
 
 function workspace(): string {
   const directory = mkdtempSync(join(tmpdir(), "tera-write-"));
@@ -51,6 +60,41 @@ describe("writing an AOT program to disk", () => {
     writeAotProgram(programOf({ name: "program.exe", contents }), directory);
 
     expect(new Uint8Array(readFileSync(join(directory, "program.exe")))).toEqual(contents);
+  });
+
+  it.skipIf(process.platform === "win32")("marks executable output as executable", () => {
+    const directory = workspace();
+    writeAotProgram(
+      programOf({
+        name: "program.elf",
+        contents: Uint8Array.from([0x7f, 0x45, 0x4c, 0x46]),
+        mode: AOT_OUTPUT_EXECUTABLE_MODE,
+      }),
+      directory,
+    );
+
+    const expected = AOT_OUTPUT_EXECUTABLE_MODE & ~process.umask() & EXECUTE_BITS;
+    expect(statSync(join(directory, "program.elf")).mode & EXECUTE_BITS).toBe(expected);
+  });
+
+  it.skipIf(process.platform === "win32")("updates the mode when replacing an old output", () => {
+    const directory = workspace();
+    const executable = join(directory, "program.elf");
+    writeFileSync(executable, "old");
+    chmodSync(executable, 0o600);
+
+    writeAotProgram(
+      programOf({
+        name: "program.elf",
+        contents: "new",
+        mode: AOT_OUTPUT_EXECUTABLE_MODE,
+      }),
+      directory,
+    );
+
+    const expected = AOT_OUTPUT_EXECUTABLE_MODE & ~process.umask() & EXECUTE_BITS;
+    expect(readFileSync(executable, "utf8")).toBe("new");
+    expect(statSync(executable).mode & EXECUTE_BITS).toBe(expected);
   });
 
   it("leaves the directory empty for a program that produced no files", () => {

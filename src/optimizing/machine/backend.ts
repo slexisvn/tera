@@ -5,6 +5,7 @@ import { aotLegalityAnalysisId } from "../analyses/aot-legality.js";
 import type { AotBackend, LinkableFunction, TargetPlatform } from "../target/backend.js";
 import type { Emitter } from "../target/emitter.js";
 import {
+  AOT_OUTPUT_EXECUTABLE_MODE,
   isNativeArtifact,
   type AotLinkOptions,
   type AotOutputFile,
@@ -21,11 +22,9 @@ import {
 import { moduleInitTable } from "../target/symbols.js";
 import { targetLegalizationPipeline } from "../target/legalization.js";
 import type { MachineTargetModel } from "../target/model.js";
-import type { FrameLayout } from "./frame.js";
 import type { MachineDatum, MachineFunction } from "./ir.js";
 import { assembleData, assembleFunction, type AssembledFunction } from "../mc/assembler.js";
 import { heapData, heapImageOf, type HeapImage } from "./heap-data.js";
-import type { ClassTable } from "../metadata/class-table.js";
 import type { McExecutableWriter, McObjectWriter } from "../mc/formats/container.js";
 import { McModule } from "../mc/module.js";
 import {
@@ -398,6 +397,7 @@ export function createNativeBackend(options: NativeBackendOptions): AotBackend {
           return [
             {
               name: `${linkOptions.moduleName}.${program.writer.extension}`,
+              mode: AOT_OUTPUT_EXECUTABLE_MODE,
               contents: executableImage(
                 support,
                 program,
