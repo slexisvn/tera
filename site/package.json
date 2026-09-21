@@ -1,0 +1,28 @@
+{
+  "name": "tera-site",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@floating-ui/react": "^0.27.20",
+    "@fontsource-variable/jetbrains-mono": "^5.2.0",
+    "@fontsource-variable/manrope": "^5.2.0",
+    "lucide-react": "^0.468.0",
+    "prismjs": "^1.30.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/prismjs": "^1.26.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.4"
+  }
+}

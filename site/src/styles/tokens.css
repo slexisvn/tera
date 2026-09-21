@@ -1,0 +1,22 @@
+:root {
+  color-scheme: dark;
+  --bg: #0c0e10;
+  --surface: #121517;
+  --surface-hover: #181c1e;
+  --surface-raised: #1a1e20;
+  --line: #292e31;
+  --line-soft: #202528;
+  --text: #f1f3ef;
+  --muted: #a0a8ac;
+  --subtle: #788389;
+  --mint: #a6f3c2;
+  --mint-dark: #13291d;
+  --lavender: #c4b5ed;
+  --peach: #e9b094;
+  --blue: #9cbddb;
+  --radius: 8px;
+  --page-width: 1120px;
+  --gutter: 32px;
+  --font-sans: 'Manrope Variable', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', monospace;
+}
