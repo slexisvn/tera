@@ -17,9 +17,9 @@
   --radius: 8px;
   --page-width: 1120px;
   --gutter: 32px;
-  --font-sans: 'Manrope Variable', sans-serif;
-  --font-mono: 'JetBrains Mono Variable', monospace;
-  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --font-sans: "Manrope Variable", sans-serif;
+  --font-mono: "JetBrains Mono Variable", monospace;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --dur-fast: 280ms;
   --dur-normal: 650ms;
   --dur-slow: 900ms;
@@ -27,6 +27,6 @@
   --lift-y: -4px;
   --shadow-lift: 0 12px 40px #00000040;
   --border-lift: #363c3f;
-  --glow-1: rgba(166, 243, 194, .07);
-  --glow-2: rgba(196, 181, 237, .04);
+  --glow-1: rgba(166, 243, 194, 0.07);
+  --glow-2: rgba(196, 181, 237, 0.04);
 }
