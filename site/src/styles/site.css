@@ -627,44 +627,83 @@ pre {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 18px;
+  gap: 12px;
   height: 146px;
   margin-bottom: 28px;
 }
-.matrix {
+.tensor-matrix-card {
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px 15px;
-  padding: 12px;
+  width: 146px;
+  flex: 0 0 146px;
+  padding: 10px;
+  border: 1px solid #a899c155;
+  border-radius: 5px;
+  background: linear-gradient(145deg, #b9a2d918, #b9a2d905);
+  box-shadow: 5px 5px 0 -1px #b9a2d91a;
+}
+.tensor-matrix-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
   color: var(--lavender);
-  font: 13px var(--font-mono);
-  border-inline: 1px solid #766887;
+  font: 9px var(--font-mono);
 }
-.matrix::before,
-.matrix::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-block: 1px solid #766887;
-  width: 6px;
+.tensor-matrix-header span:last-child {
+  color: var(--subtle);
+  font-size: 8px;
+  letter-spacing: 0.05em;
 }
-.matrix::after {
-  left: auto;
-  right: 0;
+.tensor-matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.tensor-cell {
+  display: grid;
+  place-items: center;
+  height: 28px;
+  border: 1px solid #a899c128;
+  border-radius: 2px;
+  background: #a899c10d;
+  color: #d1c1e7;
+  font: 11px var(--font-mono);
+}
+.tensor-cell-focus {
+  border-color: #b9a2d985;
+  background: #b9a2d936;
+  color: #e1d4f3;
+}
+.tensor-flow-arrow {
+  color: #a899c18c;
 }
 .tensor-notation {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  min-width: 84px;
+  font-family: var(--font-mono);
+}
+.tensor-notation-label,
+.tensor-output-label {
+  color: var(--subtle);
+  font-size: 8px;
+  letter-spacing: 0.06em;
 }
 .tensor-notation code {
+  margin-top: 5px;
   font-size: 13px;
   color: var(--lavender);
 }
-.tensor-notation span {
-  font: 10px var(--font-mono);
-  color: var(--subtle);
+.tensor-output-label {
+  border-top: 1px solid #a899c12b;
+  margin-top: 15px;
+  padding-top: 11px;
+}
+.tensor-shape {
+  color: var(--lavender);
+  font-size: 10px;
+  margin-top: 5px;
+  white-space: nowrap;
 }
 .model-visual {
   height: 146px;
@@ -1611,17 +1650,26 @@ pre {
     padding-top: 76px;
   }
 }
+@media (min-width: 626px) and (max-width: 1060px) {
+  .tensor-visual {
+    gap: 9px;
+  }
+  .tensor-matrix-card {
+    width: 128px;
+    flex-basis: 128px;
+    padding: 9px;
+  }
+  .tensor-cell {
+    height: 25px;
+    font-size: 10px;
+  }
+  .tensor-notation {
+    min-width: 77px;
+  }
+}
 @media (max-width: 1000px) {
   .feature {
     padding: 23px;
-  }
-  .tensor-visual {
-    gap: 12px;
-    flex-direction: column;
-  }
-  .tensor-notation {
-    flex-direction: row;
-    align-items: center;
   }
   .notebook-preview {
     margin-left: 0;
@@ -1807,6 +1855,14 @@ pre {
     margin-left: auto;
   }
 }
+@media (max-width: 625px) {
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+  .feature {
+    grid-column: 1;
+  }
+}
 @media (max-width: 440px) {
   :root {
     --gutter: 18px;
@@ -1830,18 +1886,6 @@ pre {
   }
   .install-command > code {
     font-size: 10px;
-  }
-  .feature-grid {
-    grid-template-columns: 1fr;
-  }
-  .feature {
-    grid-column: 1;
-  }
-  .tensor-visual {
-    flex-direction: row;
-  }
-  .tensor-notation {
-    flex-direction: column;
   }
   .tool {
     padding: 25px;

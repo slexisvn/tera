@@ -5,6 +5,7 @@ import {
   Network,
   ChartNoAxesColumn,
   Check,
+  ArrowRight,
 } from "lucide-react";
 import { language } from "../content/site";
 import { SectionHeading } from "../components/SectionHeading";
@@ -133,15 +134,35 @@ export function Language() {
             <Box size={18} />
             {language.tensor.label}
           </div>
-          <div className="tensor-visual" aria-label={language.tensor.caption}>
-            <div className="matrix">
-              {language.tensor.matrix.flat().map((value, index) => (
-                <span key={index}>{value.toFixed(1)}</span>
-              ))}
+          <div
+            className="tensor-visual"
+            role="img"
+            aria-label={`Matrix a with ${language.tensor.caption}, values ${language.tensor.matrix.flat().map((value) => value.toFixed(1)).join(", ")}; operation ${language.tensor.operation}.`}
+          >
+            <div className="tensor-matrix-card" aria-hidden="true">
+              <div className="tensor-matrix-header">
+                <span>a</span>
+                <span>2D TENSOR</span>
+              </div>
+              <div className="tensor-matrix-grid">
+                {language.tensor.matrix.flat().map((value, index) => (
+                  <span
+                    className={
+                      index === 4 ? "tensor-cell tensor-cell-focus" : "tensor-cell"
+                    }
+                    key={index}
+                  >
+                    {value.toFixed(1)}
+                  </span>
+                ))}
+              </div>
             </div>
-            <div className="tensor-notation">
+            <ArrowRight className="tensor-flow-arrow" size={14} aria-hidden="true" />
+            <div className="tensor-notation" aria-hidden="true">
+              <span className="tensor-notation-label">MATMUL</span>
               <code>{language.tensor.operation}</code>
-              <span>{language.tensor.caption}</span>
+              <span className="tensor-output-label">OUTPUT</span>
+              <span className="tensor-shape">{language.tensor.caption}</span>
             </div>
           </div>
           <h3>{language.tensor.title}</h3>
