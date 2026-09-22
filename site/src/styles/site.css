@@ -328,8 +328,13 @@ pre {
   display: flex;
   height: 100%;
   gap: 24px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 .example-tabs button {
+  flex: 0 0 auto;
+  min-height: 44px;
   background: none;
   border: 0;
   border-bottom: 2px solid transparent;
@@ -344,6 +349,9 @@ pre {
 }
 .example-tabs button:hover {
   color: var(--text);
+}
+.example-tabs button:focus-visible {
+  outline-offset: -3px;
 }
 .toolbar-icon {
   margin-left: auto;
@@ -391,7 +399,7 @@ pre {
 .line-number {
   display: inline-block;
   width: 29px;
-  color: #596268;
+  color: var(--subtle);
   user-select: none;
 }
 .token.keyword {
@@ -472,6 +480,105 @@ pre {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.quickstart {
+  padding-top: 108px;
+  scroll-margin-top: 20px;
+}
+.quickstart-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 36px;
+}
+.quickstart-heading h2 {
+  margin-top: 13px;
+  font-size: 36px;
+}
+.quickstart-heading p {
+  max-width: 350px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.quickstart-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 32px 0 0;
+  padding: 1px;
+  list-style: none;
+  border-radius: var(--radius);
+  background: var(--line);
+  overflow: hidden;
+}
+.quickstart-steps li {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 25px;
+  background: var(--surface);
+}
+.quickstart-number {
+  color: var(--mint);
+  font: 11px var(--font-mono);
+}
+.quickstart-steps h3 {
+  margin-top: 19px;
+  font-size: 19px;
+}
+.quickstart-steps p {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.quickstart-snippet {
+  margin-top: auto;
+  padding-top: 26px;
+}
+.quickstart-file {
+  color: var(--subtle);
+  font: 11px var(--font-mono);
+}
+.quickstart-command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 8px;
+  padding: 4px 5px 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #0f1314;
+}
+.quickstart-command code {
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+  white-space: nowrap;
+  color: var(--mint);
+  font-size: 12px;
+  scrollbar-width: thin;
+}
+.quickstart-command .icon-button {
+  flex: 0 0 34px;
+}
+.quickstart-output {
+  display: block;
+  margin-top: 9px;
+  color: var(--mint);
+  font: 11px var(--font-mono);
+}
+.quickstart-links {
+  display: flex;
+  gap: 24px;
+  margin-top: 22px;
+}
+.quickstart-links .text-link:first-child {
+  color: var(--mint);
+}
+.quickstart-links .text-link:last-child {
+  color: var(--muted);
 }
 .status-divider {
   color: #444e50;
@@ -743,52 +850,41 @@ pre {
 }
 .chart-visual {
   height: 146px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 28px;
-  padding-top: 18px;
   margin-bottom: 28px;
-  border-bottom: 1px solid var(--line);
-  background: repeating-linear-gradient(
-    to top,
-    transparent 0 39px,
-    #ffffff05 39px 40px
-  );
 }
-.chart-column {
-  height: calc(100% - 20px);
-  width: 48px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  position: relative;
-  margin-bottom: 20px;
-}
-.chart-bar {
+.chart-visual svg {
+  display: block;
   width: 100%;
-  background: #9cbddb35;
-  border: 1px solid #9cbddb65;
-  border-bottom: none;
-  position: relative;
-  min-height: 5px;
+  height: 100%;
 }
-.chart-column:first-child .chart-bar {
-  background: #9cbddb80;
+.chart-grid line {
+  stroke: #9cbddb2a;
+  stroke-dasharray: 3 5;
 }
-.chart-bar > span {
-  position: absolute;
-  top: -21px;
-  left: 50%;
-  transform: translateX(-50%);
-  font: 9px var(--font-mono);
-  color: var(--blue);
+.chart-grid line:last-child {
+  stroke: #9cbddb55;
+  stroke-dasharray: none;
+}
+.chart-series rect {
+  fill: #9cbddb38;
+  stroke: #9cbddb8a;
+  stroke-width: 1;
+}
+.chart-series-lead rect {
+  fill: #9cbddb86;
+  stroke: var(--blue);
+}
+.chart-value,
+.chart-axis {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--subtle);
+}
+.chart-series-lead .chart-value {
+  fill: var(--blue);
 }
 .chart-axis {
-  position: absolute;
-  bottom: -20px;
-  font: 9px var(--font-mono);
-  color: var(--subtle);
+  fill: var(--muted);
 }
 .tool-grid {
   display: grid;
@@ -1380,6 +1476,14 @@ pre {
     grid-template-columns: minmax(0, 1fr) 48px minmax(0, 1.3fr);
   }
 }
+@media (max-width: 900px) {
+  .quickstart-steps {
+    grid-template-columns: 1fr;
+  }
+  .quickstart-snippet {
+    margin-top: 0;
+  }
+}
 @media (max-width: 760px) {
   .engine-cards {
     grid-template-columns: minmax(0, 1fr);
@@ -1609,7 +1713,9 @@ pre {
   transform: translateY(var(--reveal-y));
   transition:
     opacity var(--dur-normal) var(--ease-out),
-    transform var(--dur-normal) var(--ease-out);
+    transform var(--dur-normal) var(--ease-out),
+    box-shadow var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
   transition-delay: var(--delay, 0ms);
 }
 .reveal.is-visible {
@@ -1617,15 +1723,18 @@ pre {
   transform: none;
 }
 .feature,
-.tool {
+.tool,
+.quickstart-steps li {
   transition:
     transform var(--dur-fast) ease,
     box-shadow var(--dur-fast) ease,
     border-color var(--dur-fast) ease;
 }
-@media (hover: hover) {
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .feature:hover,
-  .tool:hover {
+  .tool:hover,
+  .quickstart-steps li:hover,
+  .engine-card.is-visible:hover {
     transform: translateY(var(--lift-y));
     box-shadow: var(--shadow-lift);
     border-color: var(--border-lift);
@@ -1752,11 +1861,22 @@ pre {
   }
   .example-tabs {
     width: 100%;
-    justify-content: space-between;
-    gap: 12px;
+    gap: 18px;
   }
   .example-tabs button {
-    font-size: 11px;
+    font-size: 12px;
+  }
+  .quickstart {
+    padding-top: 78px;
+  }
+  .quickstart-heading {
+    display: block;
+  }
+  .quickstart-heading h2 {
+    font-size: 30px;
+  }
+  .quickstart-heading p {
+    margin-top: 16px;
   }
   .explorer-body {
     grid-template-columns: 1fr;
@@ -1811,11 +1931,6 @@ pre {
   }
   .feature h3 {
     font-size: 18px;
-  }
-  .feature-chart .chart-visual {
-    justify-content: flex-start;
-    padding-left: 35px;
-    gap: 45px;
   }
   .feature-data .table-scroll {
     margin-top: 24px;
@@ -1881,6 +1996,18 @@ pre {
     padding: 10px 13px;
     gap: 8px;
   }
+  .quickstart-steps li {
+    padding: 20px;
+  }
+  .quickstart-command code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+  }
+  .quickstart-links {
+    flex-direction: column;
+    gap: 14px;
+  }
   .install-command {
     gap: 8px;
   }
@@ -1914,6 +2041,22 @@ pre {
   .footer-brand {
     flex-wrap: wrap;
     gap: 16px;
+  }
+}
+@media (max-width: 360px) {
+  .explorer-toolbar {
+    height: auto;
+    padding: 6px 12px;
+  }
+  .example-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    height: auto;
+    overflow: visible;
+  }
+  .example-tabs button {
+    height: 44px;
   }
 }
 @media (max-height: 700px) {

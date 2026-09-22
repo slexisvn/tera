@@ -1,6 +1,6 @@
 import { useState, type KeyboardEvent } from "react";
 import { Braces, FileCode2, ArrowUpRight } from "lucide-react";
-import { examples, links, ui } from "../content/site";
+import { examples, ui } from "../content/site";
 import { Code } from "../components/Code";
 import { CopyButton } from "../components/CopyButton";
 import { Link } from "../components/Link";
@@ -77,7 +77,7 @@ export function ExampleExplorer() {
           <div className="insight-copy">
             <h2>{example.title}</h2>
             <p>{example.description}</p>
-            <Link href={links.examples} className="text-link">
+            <Link href={example.source} className="text-link">
               {ui.source}
               <ArrowUpRight size={15} />
             </Link>
@@ -87,7 +87,7 @@ export function ExampleExplorer() {
       <div className="explorer-status">
         <span>
           <span className="status-dot" />
-          Tera
+          Tera · static preview
         </span>
         <span>
           UTF-8<span className="status-divider">/</span>

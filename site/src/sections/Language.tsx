@@ -187,17 +187,47 @@ export function Language() {
             role="img"
             aria-label={`${language.chart.caption}: ${language.chart.values.map((item) => `${item.label} ${item.value}`).join(", ")}`}
           >
-            {language.chart.values.map((item) => (
-              <div className="chart-column" key={item.label}>
-                <span
-                  className="chart-bar"
-                  style={{ height: `${(item.value / maxRevenue) * 100}%` }}
-                >
-                  <span>{item.value.toLocaleString("en-US")}</span>
-                </span>
-                <span className="chart-axis">{item.label}</span>
-              </div>
-            ))}
+            <svg viewBox="0 0 320 146" aria-hidden="true" focusable="false">
+              <g className="chart-grid">
+                <line x1="25" y1="33" x2="295" y2="33" />
+                <line x1="25" y1="72" x2="295" y2="72" />
+                <line x1="25" y1="111" x2="295" y2="111" />
+              </g>
+              {language.chart.values.map((item, index) => {
+                const x = 70 + index * 90;
+                const height = Math.max(4, (item.value / maxRevenue) * 78);
+
+                return (
+                  <g
+                    className={
+                      item.value === maxRevenue
+                        ? "chart-series chart-series-lead"
+                        : "chart-series"
+                    }
+                    key={item.label}
+                  >
+                    <rect
+                      x={x - 22}
+                      y={111 - height}
+                      width="44"
+                      height={height}
+                      rx="2"
+                    />
+                    <text
+                      className="chart-value"
+                      x={x}
+                      y={Math.max(21, 104 - height)}
+                      textAnchor="middle"
+                    >
+                      {item.value.toLocaleString("en-US")}
+                    </text>
+                    <text className="chart-axis" x={x} y="135" textAnchor="middle">
+                      {item.label}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
           </div>
           <h3>{language.chart.title}</h3>
           <p>{language.chart.description}</p>

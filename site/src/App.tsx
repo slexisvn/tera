@@ -1,6 +1,7 @@
 import { Header } from "./components/Header";
 import { Hero } from "./sections/Hero";
 import { ExampleExplorer } from "./sections/ExampleExplorer";
+import { Quickstart } from "./sections/Quickstart";
 import { Language } from "./sections/Language";
 import { Tooling } from "./sections/Tooling";
 import { Engine } from "./sections/Engine";
@@ -21,6 +22,7 @@ export default function App() {
         <Hero />
         <div className="container">
           <ExampleExplorer />
+          <Quickstart />
           <Language />
           <Tooling />
           <Engine />

@@ -6,6 +6,7 @@ export const project = {
 };
 
 const source = (path: string) => `${project.repository}/tree/main/${path}`;
+const sourceFile = (path: string) => `${project.repository}/blob/main/${path}`;
 const app = (path: string) =>
   `${import.meta.env.BASE_URL}${path.replace(/^\/+/, "")}`;
 const marketplace = (id: string) =>
@@ -21,6 +22,7 @@ export const links = {
 };
 
 export const navigation = [
+  { label: "Get started", href: "#quickstart" },
   { label: "Language", href: "#language" },
   { label: "Tooling", href: "#tooling" },
   { label: "Under the hood", href: "#engine" },
@@ -35,9 +37,9 @@ export const ui = {
   copied: "Copied",
   copyFailed: "Could not copy. Select and copy the text.",
   install: "Copy install command",
-  output: "Example output",
+  output: "Illustrative output",
   examples: "Language examples",
-  source: "View source",
+  source: "Related example",
 };
 
 export const hero = {
@@ -46,9 +48,44 @@ export const hero = {
   subtitle: "Ideas into programs.",
   description:
     "A readable language for everyday code, data, and models. From your first notebook cell to a native executable.",
-  primary: "Explore the language",
+  primary: "Get started",
   secondary: "Read the docs",
   footnote: "DataFrames. Tensors. Models. Built in.",
+};
+
+export const quickstart = {
+  eyebrow: "00 / GET STARTED",
+  title: "Your first Tera program.",
+  description: "Install the CLI, save one line, and run it from your terminal.",
+  steps: [
+    {
+      number: "01",
+      title: "Install the CLI",
+      detail: "Add the tera command to your terminal.",
+      filename: "terminal",
+      code: project.install,
+      copyLabel: "Copy install command",
+    },
+    {
+      number: "02",
+      title: "Create hello.tera",
+      detail: "Save this line in a file named hello.tera.",
+      filename: "hello.tera",
+      code: 'print("Hello, Tera.")',
+      copyLabel: "Copy example code",
+    },
+    {
+      number: "03",
+      title: "Run the file",
+      detail: "Run it in the same folder as hello.tera.",
+      filename: "terminal",
+      code: "tera hello.tera",
+      copyLabel: "Copy run command",
+      output: "Hello, Tera.",
+    },
+  ],
+  next: "Explore language examples",
+  docs: "Read the full docs",
 };
 
 export type Example = {
@@ -58,6 +95,7 @@ export type Example = {
   code: string;
   output: string;
   outputLabel?: string;
+  source: string;
   title: string;
   description: string;
 };
@@ -82,6 +120,7 @@ summary = sales.group_by("region").agg(
 summary.order_by("region").show()`,
     output:
       "region | total\n-------+------\nNorth  | 2160\nSouth  | 840\nWest   | 650",
+    source: sourceFile("examples/dataframe.tera"),
   },
   {
     id: "tensors",
@@ -100,6 +139,7 @@ print(product.to_array())
 print(column.to_array())
 print(product.sum().item())`,
     output: "[[2, 4], [6, 8]]\n[2, 6]\n20",
+    source: sourceFile("examples/tensors.tera"),
   },
   {
     id: "models",
@@ -120,7 +160,8 @@ print(product.sum().item())`,
 
 net = IrisNet(3)`,
     output: "IrisNet\n  Linear     4 → 32\n  ReLU\n  Linear    32 → 3",
-    outputLabel: "Model architecture",
+    outputLabel: "Architecture preview",
+    source: sourceFile("examples/regression.tera"),
   },
   {
     id: "language",
@@ -139,6 +180,7 @@ orders = [12, 8, 15]
 print(total(orders))
 print("Hello, Tera.")`,
     output: "35\nHello, Tera.",
+    source: sourceFile("examples/control_flow.tera"),
   },
 ];
 

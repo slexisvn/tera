@@ -23,7 +23,7 @@ export function Hero() {
         {hero.description}
       </p>
       <div className="hero-actions hero-enter" style={stagger(4)}>
-        <a href="#playground" className="button button-primary">
+        <a href="#quickstart" className="button button-primary">
           {hero.primary}
           <ArrowDown size={17} />
         </a>
