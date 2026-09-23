@@ -63,7 +63,7 @@ export default defineConfig([
   {
     ...shared,
     platform: "node",
-    entry: { cli: "src/cli/index.ts" },
+    entry: { cli: "src/cli/index.ts", peta: "src/cli/peta.ts" },
     outDir: dist,
     outExtension: () => ({ js: ".js" }),
     external: [...dependencyNames, "*.node"],

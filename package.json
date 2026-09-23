@@ -6,7 +6,8 @@
     "tools/*"
   ],
   "bin": {
-    "tera": "./dist/cli.js"
+    "tera": "./dist/cli.js",
+    "peta": "./dist/peta.js"
   },
   "main": "./dist/index.node.js",
   "types": "./dist/index.d.ts",
