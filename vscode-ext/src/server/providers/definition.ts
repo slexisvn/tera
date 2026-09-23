@@ -11,7 +11,7 @@ import {
 import { pathOfUri, samePath } from "../analyzer/paths.ts";
 import { receiverNameAt, wordRangeAt } from "../analyzer/position.ts";
 import type { AnalyzedDocument, AnalyzedToken } from "../analyzer/types.ts";
-import { isMemberAccess, resolveReceiverType } from "../language/members.ts";
+import { isMemberAccess, resolveReceiverType, symbolsFor } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
 export default defineProvider({
@@ -47,13 +47,14 @@ export function computeDefinition(context: ProviderContext, params: DefinitionPa
   if (superTarget) return superTarget;
 
   if (isMemberAccess(document, params.position)) {
-    const receiverType = resolveReceiverType(context, document, params.position);
+    const symbols = symbolsFor(context, params.textDocument.uri, document);
+    const receiverType = resolveReceiverType(context, params.textDocument.uri, document, params.position);
     if (!receiverType) return null;
-    const field = document.symbols.resolveField(receiverType, word.text, params.position);
+    const field = symbols.resolveField(receiverType, word.text, params.position);
     return field && field.line > 0 ? location(params.textDocument.uri, field.name, field.line, field.column) : null;
   }
 
-  const symbol = document.symbols.resolve(word.text, params.position);
+  const symbol = symbolsFor(context, params.textDocument.uri, document).resolve(word.text, params.position);
   return symbol ? location(params.textDocument.uri, symbol.name, symbol.line, symbol.column) : null;
 }
 
@@ -165,11 +166,12 @@ function superDefinition(
   const member = memberAfterDot(line, word.range.end.character);
   if (member) {
     const position = { line: word.range.start.line, character: member.end };
-    const receiverType = resolveReceiverType(context, document, position);
-    const field = receiverType ? document.symbols.resolveField(receiverType, member.name, position) : null;
+    const symbols = symbolsFor(context, params.textDocument.uri, document);
+    const receiverType = resolveReceiverType(context, params.textDocument.uri, document, position);
+    const field = receiverType ? symbols.resolveField(receiverType, member.name, position) : null;
     return field && field.line > 0 ? location(params.textDocument.uri, field.name, field.line, field.column) : null;
   }
-  const symbol = document.symbols.resolve("super", params.position);
+  const symbol = symbolsFor(context, params.textDocument.uri, document).resolve("super", params.position);
   const owner = symbol?.typeName ? typeSymbol(document, symbol.typeName) : null;
   const constructor = owner?.scope?.symbols.find((item) => item.name === "constructor");
   const target = constructor ?? owner;

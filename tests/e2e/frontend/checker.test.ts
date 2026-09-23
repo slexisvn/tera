@@ -46,6 +46,27 @@ describe("checker pipeline", () => {
     ]);
   });
 
+  it("keeps type names out of value declarations and expressions", () => {
+    const source = [
+      "type UserId = int",
+      "interface Row:",
+      "  id: UserId",
+      "ok: UserId = 1",
+      "UserId = 1",
+      "fn Row() -> int:",
+      "  return 1",
+      "UserId()",
+      "int = 1",
+    ].join("\n");
+
+    expect(messages(source)).toEqual([
+      "Cannot declare variable 'UserId' with type name 'UserId'",
+      "Cannot declare function 'Row' with type name 'Row'",
+      "Cannot use type 'UserId' as a value",
+      "Cannot declare variable 'int' with type name 'int'",
+    ]);
+  });
+
   it("reports assignment type errors with strict severity", () => {
     const diagnostics = checkSource("total: float = \"nope\"", "strict");
 

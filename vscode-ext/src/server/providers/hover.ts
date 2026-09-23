@@ -11,7 +11,7 @@ import {
 } from "../analyzer/modules.ts";
 import { pathOfUri } from "../analyzer/paths.ts";
 import { receiverNameAt, wordRangeAt } from "../analyzer/position.ts";
-import { isMemberAccess, resolveReceiverType } from "../language/members.ts";
+import { isMemberAccess, resolveReceiverType, symbolsFor } from "../language/members.ts";
 import type { MethodLookup } from "../language/type-resolver.ts";
 import { toSignature } from "./signature-help.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
@@ -137,12 +137,21 @@ function localHover(
   word: NonNullable<ReturnType<typeof wordRangeAt>>,
 ): Hover | null {
   if (isMemberAccess(document, params.position)) {
-    const receiverType = resolveReceiverType(context, document, params.position);
+    const symbols = symbolsFor(context, params.textDocument.uri, document);
+    const receiverType = resolveReceiverType(context, params.textDocument.uri, document, params.position);
     const hover = receiverType
-      ? memberHover(context, document, receiverType, word.text, params.position)
+      ? memberHover(context, symbols, receiverType, word.text, params.position)
       : uniqueMethodHover(context, word.text);
     if (hover) return { ...hover, range: word.range };
     if (receiverType) return null;
+  }
+
+  const symbols = symbolsFor(context, params.textDocument.uri, document);
+  const symbol = symbols.resolve(word.text, params.position);
+  if (symbol) {
+    const lines = [`\`${symbol.name}\` — *${symbol.kind}*`];
+    if (symbol.typeName) lines.push("", `type: \`${symbol.typeName}\``);
+    return markdown(lines, word.range);
   }
 
   const builtin = context.types.builtin(word.text);
@@ -152,13 +161,6 @@ function localHover(
       : [`\`${builtin.name}\``];
     lines.push("", `_${builtin.kind}_`);
     if (builtin.description) lines.push("", builtin.description);
-    return markdown(lines, word.range);
-  }
-
-  const symbol = document.symbols.resolve(word.text, params.position);
-  if (symbol) {
-    const lines = [`\`${symbol.name}\` — *${symbol.kind}*`];
-    if (symbol.typeName) lines.push("", `type: \`${symbol.typeName}\``);
     return markdown(lines, word.range);
   }
 
@@ -175,13 +177,13 @@ function localHover(
 
 function memberHover(
   context: ProviderContext,
-  document: AnalyzedDocument,
+  symbols: ReturnType<typeof symbolsFor>,
   receiverType: string,
   name: string,
   position: HoverParams["position"],
 ): Hover | null {
   const element = arrayElement(receiverType);
-  const field = document.symbols.resolveField(receiverType, name, position);
+  const field = symbols.resolveField(receiverType, name, position);
   if (field && genericBase(receiverType) !== receiverType) return fieldHover(context, receiverType, field);
 
   const lookup = context.types.lookupMethod(element ? "Array" : receiverType, name) ?? context.types.lookupMethod(receiverType, name);

@@ -10,6 +10,7 @@ import {
   PROJECT_MANIFEST,
   buildModuleGraph,
   checkModuleGraph,
+  importedSurface,
   isNativeSpec,
   moduleSpecFor,
   nativeName,
@@ -401,6 +402,73 @@ export class ModuleWorkspace {
       }
     }
     return names;
+  }
+
+  importedSurfaceFor(uri: string, lines?: readonly string[]): ModuleInterface | null {
+    if (lines !== undefined) {
+      const entryPath = pathOfUri(uri);
+      if (entryPath !== null) {
+        const recovered = this.importedSurfaceFromSyntax(entryPath, lines);
+        if (recovered !== null) return recovered;
+      }
+    }
+    const graph = this.graphFor(uri);
+    const analysis = this.analyze(uri);
+    if (graph === null || analysis === null) return null;
+    return importedSurface(graph.entry.imports, analysis.interfaces);
+  }
+
+  private importedSurfaceFromSyntax(entryPath: string, lines: readonly string[]): ModuleInterface | null {
+    const { resolver, from } = this.resolverFor(entryPath);
+    const imports: ResolvedImport[] = [];
+    const interfaces = new Map<string, ModuleInterface>();
+    const addSurface = (resolved: ResolvedModule): string | null => {
+      if (resolved.path === null) return null;
+      const analysis = this.analyze(uriOfPath(resolved.path));
+      const surface = analysis?.interfaces.get(ENTRY_SPEC);
+      if (surface === undefined) return null;
+      const spec = `syntax:${interfaces.size}`;
+      interfaces.set(spec, surface);
+      return spec;
+    };
+
+    for (const syntax of importsIn(lines)) {
+      const path = syntax.path.map((token) => token.text);
+      const resolved = resolver.tryResolve({ level: syntax.level, path }, from);
+      if (resolved === null) continue;
+      if (syntax.form === "import") {
+        const token = syntax.alias ?? syntax.path[0];
+        if (token === undefined) continue;
+        const boundPath = syntax.alias === null ? path.slice(0, 1) : path;
+        const bound = resolver.tryResolve({ level: syntax.level, path: boundPath }, from) ?? resolved;
+        const boundSpec = addSurface(bound);
+        imports.push({
+          module: boundSpec ?? resolved.spec,
+          local: token.text,
+          boundSpec,
+          bindings: [],
+          span: { line: token.line + 1, column: token.start + 1 },
+        });
+        continue;
+      }
+      if (syntax.importKeyword === null) continue;
+      const spec = addSurface(resolved);
+      if (spec === null) continue;
+      imports.push({
+        module: spec,
+        local: null,
+        boundSpec: null,
+        bindings: syntax.specifiers.map((specifier) => ({
+          imported: specifier.imported.text,
+          local: (specifier.local ?? specifier.imported).text,
+          module: spec,
+          submodule: null,
+          span: { line: specifier.imported.line + 1, column: specifier.imported.start + 1 },
+        })),
+        span: { line: (syntax.path[0] ?? syntax.dots)?.line ?? 1, column: ((syntax.path[0] ?? syntax.dots)?.start ?? 0) + 1 },
+      });
+    }
+    return imports.length ? importedSurface(imports, interfaces) : null;
   }
 
   unresolvedImports(entryPath: string, lines: readonly string[]): AnalyzedError[] {

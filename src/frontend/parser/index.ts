@@ -699,7 +699,10 @@ export class Parser {
   }
 
   parseInterfaceDeclaration(start: ParserToken): ASTNode {
-    const nameToken = this.expect(TokenType.Identifier);
+    const nameToken =
+      this.check(TokenType.Identifier) || this.check(TokenType.Keyword)
+        ? this.advance()
+        : this.expect(TokenType.Identifier);
     const name = this.tokenString(nameToken, "interface name");
     const typeParams = this.parseGenericArguments();
     const parents: string[] = [];
@@ -737,7 +740,10 @@ export class Parser {
     }
 
     this.match(TokenType.Identifier, "readonly");
-    const nameToken = this.expect(TokenType.Identifier);
+    const nameToken =
+      this.check(TokenType.Identifier) || this.check(TokenType.Keyword)
+        ? this.advance()
+        : this.expect(TokenType.Identifier);
     const name = this.tokenString(nameToken, "interface member name");
     const optional = this.match(TokenType.Punctuator, "?");
     if (!optional && (this.check(TokenType.Punctuator, "(") || this.check(TokenType.Punctuator, "<"))) {

@@ -56,6 +56,36 @@ describe("buildSourceSymbolTable", () => {
     });
   });
 
+  describe("interfaces", () => {
+    it("keeps interface member declarations inside the interface scope", () => {
+      const source = [
+        "interface ArrayGuard:",
+        "  of: (schema: GuardSchema) -> ArrayGuard",
+        "  min: (size: int) -> ArrayGuard",
+      ].join("\n");
+      const table = tableOf(source);
+
+      expect(table.resolve("of", { line: 1, character: 2 })?.typeName).toBe("(schema: GuardSchema) -> ArrayGuard");
+      expect(table.resolve("min", { line: 2, character: 2 })?.typeName).toBe("(size: int) -> ArrayGuard");
+    });
+
+    it("uses imported interface surfaces for member lookup", () => {
+      const table = buildSourceSymbolTable("guard: GuardApi = {}\nguard.", [], {
+        imports: {
+          interfaces: [{
+            name: "GuardApi",
+            fields: {
+              object: { type: "(shape: GuardShape) -> ObjectGuard" },
+              string: { type: "() -> StringGuard" },
+            },
+          }],
+        },
+      });
+
+      expect(table.membersOf("GuardApi").map((member) => member.name)).toEqual(["object", "string"]);
+    });
+  });
+
   describe("synthetic bindings", () => {
     it("gives this no source position of its own", () => {
       const self = tableOf(BOX).flat.find((symbol) => symbol.name === "this");

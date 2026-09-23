@@ -1,5 +1,5 @@
 import type { Completion, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
-import { isStringLiteralTextOffset, resolveMemberReceiverType } from "tera/frontend";
+import { isStringLiteralTextOffset, resolveMemberReceiverType, type SourceScope } from "tera/frontend";
 import { languageData, type Builtin, type Method } from "../language-data";
 import type { AnalysisProvider } from "../types";
 
@@ -37,9 +37,13 @@ export function makeCompletionSource(completionNames: readonly string[], analysi
         for (const item of memberItems) addMethod(item, item.isGetter ? "property" : "method");
       }
     } else {
-      for (const item of languageData.builtins) addBuiltin(item);
-      for (const name of completionNames) add(name, "variable");
-      for (const name of languageData.keywords) add(name, "keyword");
+      if (isTypeCompletionPosition(source, word.from)) {
+        for (const name of typeCompletionNames(completionNames, analysis, documentId, source, word.from)) add(name, "type");
+      } else {
+        for (const item of languageData.builtins) addBuiltin(item);
+        for (const name of completionNames) add(name, "variable");
+        for (const name of languageData.keywords) add(name, "keyword");
+      }
     }
     function addBuiltin(item: Builtin): void {
       add(item.name, item.kind || "function", item.kind, item.description ?? undefined);
@@ -69,6 +73,32 @@ function receiverType(context: CompletionContext, from: number, analysis: Analys
   const current = analysis();
   const position = current.positionFor(documentId, source, from);
   return resolveMemberReceiverType(current.source, position, current.symbols, languageData.globalNamespaces);
+}
+
+function typeCompletionNames(completionNames: readonly string[], analysis: AnalysisProvider | undefined, documentId: string | undefined, source: string, from: number): string[] {
+  const names = new Set(languageData.types);
+  for (const name of completionNames) names.add(name);
+  if (analysis && documentId) {
+    const current = analysis();
+    const position = current.positionFor(documentId, source, from);
+    for (const symbol of visibleSymbols(current.symbols.findScopeAt(position))) {
+      if (symbol.kind === "model" || symbol.kind === "module") names.add(symbol.name);
+    }
+  }
+  return [...names];
+}
+
+function visibleSymbols(scope: SourceScope): Array<{ name: string; kind: string }> {
+  const out: Array<{ name: string; kind: string }> = [];
+  for (let cursor: typeof scope | null = scope; cursor; cursor = cursor.parent) out.push(...cursor.symbols);
+  return out;
+}
+
+function isTypeCompletionPosition(source: string, from: number): boolean {
+  const lineStart = source.lastIndexOf("\n", Math.max(0, from - 1)) + 1;
+  const before = source.slice(lineStart, from);
+  return /(?::|->|\||&|<|,)\s*[A-Za-z_$][\w$]*$/.test(before)
+    || /(?::|->|\||&|<|,)\s*$/.test(before);
 }
 
 function ownerBeforeDot(source: string, index: number): string | null {

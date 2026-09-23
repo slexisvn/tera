@@ -74,6 +74,13 @@ describe("completing a bare word", () => {
     expect(labels(keyword.slice(0, 2))).toContain(keyword);
   });
 
+  it("offers type names instead of runtime names in annotations", () => {
+    const offered = labels("guard: Gu", ["GuardApi"]);
+
+    expect(offered).toContain("GuardApi");
+    expect(offered).not.toContain("print");
+  });
+
   it("does not offer members of a type when there is no dot", () => {
     expect(labels("sq")).not.toContain("sqrt");
   });

@@ -73,6 +73,35 @@ describe("deciding what colour a token of Tera source gets", () => {
     expect(classOf("model.train()", "train")).toBe("tok-method");
   });
 
+  it("paints interface members from their containing scope", () => {
+    const code = [
+      "interface ArrayGuard extends GuardSchema:",
+      "  validate: (value: unknown, path?: string) -> GuardResultOf<unknown[]>",
+      "  of: (schema: GuardSchema) -> ArrayGuard",
+      "  fallback: string",
+    ].join("\n");
+
+    expect(classOf(code, "validate")).toBe("tok-method");
+    expect(classOf(code, "of")).toBe("tok-method");
+    expect(classOf(code, "fallback")).toBe("tok-prop");
+  });
+
+  it("paints braced literal keys as properties without stealing parameter names", () => {
+    const code = [
+      "guard: GuardApi = {",
+      "  any: _make_any,",
+      "  boolean: _make_boolean,",
+      "  validate: validate,",
+      "}",
+    ].join("\n");
+
+    expect(classOf(code, "any")).toBe("tok-prop");
+    expect(classOf(code, "boolean")).toBe("tok-prop");
+    expect(classOf(code, "validate")).toBe("tok-prop");
+    expect(classOf("type Row = { maybe?: int }", "maybe")).toBe("tok-prop");
+    expect(classOf("fn wrap(a: int, b: int) -> int:", "b")).toBe("tok-ident");
+  });
+
   it("treats a name after a colon or an arrow as a type", () => {
     expect(classOf("fn work(n: int) -> int:", "int")).toBe("tok-type");
     expect(classOf("total: Point = p", "Point")).toBe("tok-type");

@@ -1,4 +1,5 @@
 import type { ASTNode } from "../ast/index.js";
+import { TERA_PRIMITIVE_TYPES } from "../../../data/tera-language-spec.js";
 import { provenTakes } from "./length-bounds.js";
 import type { SemanticNode, SemanticProgram } from "./semantic-ast.js";
 import {
@@ -31,6 +32,7 @@ export type BoundProgram = {
   root: Scope;
   scopes: WeakMap<SemanticNode, Scope>;
   reserved: ReadonlySet<string>;
+  typeNames: ReadonlySet<string>;
   provenTakes: ReadonlySet<ASTNode>;
 };
 
@@ -298,6 +300,14 @@ function createScope(parent: Scope | null, signature?: Signature, boundary = fal
   return { parent, locals: new Map(), signatures: new Map(), signature, classOwner: parent?.classOwner ?? null, boundary };
 }
 
+function typeNames(env: TypeEnv): ReadonlySet<string> {
+  return new Set([
+    ...TERA_PRIMITIVE_TYPES,
+    ...env.aliases.keys(),
+    ...env.interfaces.keys(),
+  ]);
+}
+
 export function bindProgram(program: SemanticProgram, options: BindOptions = {}): BoundProgram {
   validateBindOptions(options);
   const root = createScope(null);
@@ -320,11 +330,13 @@ export function bindProgram(program: SemanticProgram, options: BindOptions = {})
     root,
     scopes: new WeakMap(),
     reserved,
+    typeNames: new Set(),
     provenTakes: provenTakes(program.body),
   };
   bindExternalTypes(bound, options);
   if (options.imports !== undefined) bindImportedSurface(bound, options.imports);
   for (const node of program.body) bindNode(node, bound, root);
+  bound.typeNames = typeNames(bound.env);
   return bound;
 }
 

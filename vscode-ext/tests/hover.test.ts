@@ -124,6 +124,23 @@ describe("hover", () => {
     expect(text).toContain("type: `QuantMetrics`");
   });
 
+  it("shows interface member declarations from their interface scope before builtins or keywords", () => {
+    const source = [
+      "interface ArrayGuard extends GuardSchema:",
+      "  of: (schema: GuardSchema) -> ArrayGuard",
+      "  min: (size: int, message?: string) -> ArrayGuard",
+    ].join("\n");
+
+    const ofText = hoverText(source, 1, "  of".length);
+    const minText = hoverText(source, 2, "  min".length);
+
+    expect(ofText).toContain("`of` — *field*");
+    expect(ofText).toContain("type: `(schema: GuardSchema) -> ArrayGuard`");
+    expect(minText).toContain("`min` — *field*");
+    expect(minText).toContain("type: `(size: int, message ?: string) -> ArrayGuard`");
+    expect(minText).not.toContain("Aggregate");
+  });
+
   it("shows contextual types for Promise arrow callback parameters", () => {
     const source = "Promise.resolve(10).then(v => v * 2).then(v => v + 1).then(v => print(\"chained ->\", v))";
 
@@ -152,7 +169,7 @@ describe("hover", () => {
     const text = hoverText(source, 11, "acc.deposit(100.0).withdraw".length);
 
     expect(text).toContain("`Account.withdraw`");
-    expect(text).toContain("type: `(float) -> Account`");
+    expect(text).toContain("type: `(amount: float) -> Account`");
   });
 
   it("shows inherited class methods through nominal array element inference", () => {
@@ -211,9 +228,9 @@ describe("hover", () => {
     expect(superCtor).toContain("`super` — *variable*");
     expect(superCtor).toContain("type: `Handler`");
     expect(methodDecl).toContain("`handle` — *method*");
-    expect(methodDecl).toContain("type: `(string) -> string`");
+    expect(methodDecl).toContain("type: `(request: string) -> string`");
     expect(superMethod).toContain("`Handler.handle`");
-    expect(superMethod).toContain("type: `(string) -> string`");
+    expect(superMethod).toContain("type: `(request: string) -> string`");
   });
 
   it("shows protected inherited method types through super inside subclasses", () => {
@@ -229,7 +246,7 @@ describe("hover", () => {
     const superMethod = hoverText(source, 5, "    return super.handle".length);
 
     expect(superMethod).toContain("`Handler.handle`");
-    expect(superMethod).toContain("type: `(string) -> string`");
+    expect(superMethod).toContain("type: `(request: string) -> string`");
   });
 
   it("shows class instance fields on this", () => {

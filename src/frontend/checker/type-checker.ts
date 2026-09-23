@@ -22,6 +22,8 @@ import {
   nestedExpressions,
   type BlockNode,
   type ClassMemberNode,
+  type FunctionNode,
+  type ModelNode,
   type SemanticNode,
 } from "./semantic-ast.js";
 import { arrayElementType, assignableType, awaitedType, cleanType, compatible, indexKeyAssignable, indexedAccessType, indexKeyType, instantiateShapeForType, isIndexableType, isTupleType, iterableBindingType, leastUpperBound, promiseType, removeNullish, resolveType, tupleTypes, unionParts, unionType, type ObjectShape, type Signature, type TypeEnv, type TypeName } from "./type-system.js";
@@ -114,6 +116,7 @@ export class TypeChecker {
     const child = this.blockScope(node, scope);
     if (node.catchVariable) {
       const at = node.catchVariableSpan ?? node.span;
+      this.checkValueDeclarationName(node.catchVariable, "parameter", at.line, at.column);
       this.onDeclare?.({ name: node.catchVariable, line: at.line, column: at.column, type: "any", kind: "parameter" });
     }
     if (node.test) {
@@ -147,6 +150,7 @@ export class TypeChecker {
       case "Function":
       case "Model": {
         const child = this.bound.scopes.get(node) ?? scope;
+        this.checkCallableDeclaration(node, node.kind.toLowerCase());
         if (node.kind === "Model") this.registerModelShape(node, child);
         this.checkStatements(node.body, child);
         if (node.kind === "Function") this.inferReturnType(node.body, child);
@@ -154,6 +158,7 @@ export class TypeChecker {
       }
       case "Class": {
         const child = this.bound.scopes.get(node) ?? scope;
+        this.checkValueDeclarationName(node.name, "class", node.nameSpan.line, node.nameSpan.column);
         this.registerClassShape(node, child);
         for (const field of node.fields) this.checkClassField(field, child);
         for (const member of node.members) {
@@ -196,6 +201,7 @@ export class TypeChecker {
     const child = this.bound.scopes.get(node) ?? scope;
     const iterableType = inferExpression(node.iterable, this.bound, scope);
     const variableType = iterableBindingType(iterableType, node.mode, this.bound.env);
+    this.checkValueDeclarationName(node.variable, "variable", node.variableSpan.line, node.variableSpan.column);
     child.locals.set(node.variable, { type: variableType, optional: false });
     this.onDeclare?.({ name: node.variable, line: node.variableSpan.line, column: node.variableSpan.column, type: variableType });
     this.checkForIterable(node, iterableType);
@@ -328,6 +334,7 @@ export class TypeChecker {
   }
 
   checkClassField(field: Extract<SemanticNode, { kind: "Class" }>["fields"][number], scope: Scope): void {
+    this.checkValueDeclarationName(field.name, "field", field.nameSpan.line, field.nameSpan.column);
     if (!field.explicitVisibility) {
       this.add(field.nameSpan.line, field.nameSpan.column, `Field '${field.name}' must declare a visibility modifier ('public', 'private', or 'protected')`);
     }
@@ -350,6 +357,7 @@ export class TypeChecker {
     loopScope.locals.set(comp.variable, { type: elementType, optional: false, declared: true });
     const at = nodePosition(comp.variableNode, line, column);
     const start = comp.projection ? nodePosition(comp.projection, line, column) : at;
+    this.checkValueDeclarationName(comp.variable, "parameter", at.line, at.column);
     this.onDeclare?.({
       name: comp.variable,
       line: at.line,
@@ -514,6 +522,10 @@ export class TypeChecker {
   }
 
   checkVar(node: Extract<SemanticNode, { kind: "Var" }>, scope: Scope): void {
+    if (this.checkValueDeclarationName(node.name, "variable", node.nameSpan.line, node.nameSpan.column)) {
+      this.checkExpression(node.value, scope, node.span.line, node.span.column);
+      return;
+    }
     if (this.reportBuiltinRedeclaration(node.name, node.nameSpan.line, node.nameSpan.column, scope)) {
       this.checkExpression(node.value, scope, node.span.line, node.span.column);
       return;
@@ -568,6 +580,7 @@ export class TypeChecker {
     for (let i = 0; i < node.names.length; i++) {
       const name = node.names[i];
       const at = node.variableSpans[i] ?? node.span;
+      if (this.checkValueDeclarationName(name, "variable", at.line, at.column)) continue;
       if (this.reportBuiltinRedeclaration(name, at.line, at.column, scope)) continue;
       const previous = lookupWithinBoundary(scope, name);
       const actual = itemTypes[i] ?? "unknown";
@@ -688,7 +701,28 @@ export class TypeChecker {
     const name = String(node.name);
     if (lookup(scope, name) || lookupSignature(scope, name)) return;
     const at = nodePosition(node, line, column);
+    if (this.isTypeName(name)) {
+      this.add(at.line, at.column, `Cannot use type '${name}' as a value`);
+      return;
+    }
     this.add(at.line, at.column, `undefined name '${name}'`);
+  }
+
+  checkCallableDeclaration(node: FunctionNode | ModelNode, kind: string): void {
+    this.checkValueDeclarationName(node.name, kind, node.nameSpan.line, node.nameSpan.column);
+    for (const param of node.params) {
+      this.checkValueDeclarationName(param.name, "parameter", param.span.line, param.span.column);
+    }
+  }
+
+  checkValueDeclarationName(name: string, kind: string, line: number, column: number): boolean {
+    if (!this.isTypeName(name)) return false;
+    this.add(line, column, `Cannot declare ${kind} '${name}' with type name '${name}'`);
+    return true;
+  }
+
+  isTypeName(name: string): boolean {
+    return this.bound.typeNames.has(name);
   }
 
   checkBlockTest(node: Extract<SemanticNode, { kind: "Block" }>, scope: Scope): void {
@@ -840,6 +874,7 @@ export class TypeChecker {
     for (let i = 0; i < params.length; i++) {
       const name = typeof params[i] === "string" ? params[i] as string : String((params[i] as { name?: string }).name ?? `arg${i}`);
       const expectedType = expected?.params.get(expected.positional[i])?.type ?? "any";
+      this.checkValueDeclarationName(name, "parameter", line, column);
       child.locals.set(name, { type: expectedType, optional: false, declared: true });
       const at = nodePosition(node, line, column);
       this.onDeclare?.({ name, line: at.line, column: at.column, type: expectedType, kind: "parameter" });
@@ -865,7 +900,10 @@ export class TypeChecker {
     const params = node.params as Array<string | { name?: string }>;
     for (const param of params) {
       const name = typeof param === "string" ? param : String(param.name ?? "");
-      if (name) child.locals.set(name, { type: "any", optional: false, declared: true });
+      if (name) {
+        this.checkValueDeclarationName(name, "parameter", line, column);
+        child.locals.set(name, { type: "any", optional: false, declared: true });
+      }
     }
     this.checkFunctionExpressionBody(node.body as ASTNode | ASTNode[], child, line, column);
   }

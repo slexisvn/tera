@@ -27,6 +27,7 @@ export type CheckSourceOptions = {
   builtins?: readonly ExternalBuiltinSignature[];
   aliases?: BindOptions["aliases"];
   interfaces?: BindOptions["interfaces"];
+  imports?: BindOptions["imports"];
 };
 
 function checkOptions(modeOrOptions: TypecheckMode | CheckSourceOptions): Required<Pick<CheckSourceOptions, "mode">> & Omit<CheckSourceOptions, "mode"> {
@@ -38,6 +39,7 @@ function checkOptions(modeOrOptions: TypecheckMode | CheckSourceOptions): Requir
       builtins: modeOrOptions.builtins,
       aliases: modeOrOptions.aliases,
       interfaces: modeOrOptions.interfaces,
+      imports: modeOrOptions.imports,
     };
 }
 
@@ -56,6 +58,7 @@ export function checkSourceProgram(
     builtins: options.builtins,
     aliases: options.aliases,
     interfaces: options.interfaces,
+    imports: options.imports,
     mode: options.mode,
   });
 }
@@ -77,7 +80,7 @@ export function checkProgram(
 
 export function inferSymbolTypes(source: string, options: Omit<CheckSourceOptions, "mode"> = {}): SymbolType[] {
   const program = lowerToSemanticProgram(source, { syntaxPlugins: options.syntaxPlugins });
-  const bound = bindProgram(program, { builtins: options.builtins, aliases: options.aliases, interfaces: options.interfaces });
+  const bound = bindProgram(program, { builtins: options.builtins, aliases: options.aliases, interfaces: options.interfaces, imports: options.imports });
   const symbols: SymbolType[] = [];
   new TypeChecker(bound, false, (symbol) => symbols.push(symbol)).check();
   return symbols;

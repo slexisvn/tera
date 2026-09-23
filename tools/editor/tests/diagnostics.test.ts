@@ -55,6 +55,12 @@ describe("splitting one checker run back across the documents it came from", () 
     expect(third).toEqual(alone);
   });
 
+  it("keeps type-only value-use diagnostics on the offending token", () => {
+    const TYPE_AS_VALUE = "type Row = { id: int }\nRow()\n";
+
+    expect(pointedAt(docs(TYPE_AS_VALUE), "cell-0")).toEqual(["Row"]);
+  });
+
   it("offsets a later-line diagnostic from its own first line, not the combined one", () => {
     const shifted = diagnoseDocuments(docs(CLEAN, LATE)).get("cell-1") ?? [];
 

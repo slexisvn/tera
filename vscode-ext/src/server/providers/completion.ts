@@ -4,7 +4,7 @@ import {
 } from "vscode-languageserver/node.js";
 import { isStringLiteralTextPosition, type ModuleBindingKind } from "tera/frontend";
 import type { Method, Param } from "@/shared/language-data";
-import type { AnalyzedDocument, Position, Scope, TeraSymbol } from "../analyzer/index.ts";
+import type { AnalyzedDocument, Position, Scope, SymbolTable, TeraSymbol } from "../analyzer/index.ts";
 import {
   importCompletionAt,
   importsIn,
@@ -15,7 +15,7 @@ import type { ModuleCandidate } from "../analyzer/modules.ts";
 import { pathOfUri } from "../analyzer/paths.ts";
 import { receiverNameAt } from "../analyzer/position.ts";
 import { buildSnippet } from "@/shared/snippet";
-import { isMemberAccess, resolveReceiverType } from "../language/members.ts";
+import { isMemberAccess, resolveReceiverType, symbolsFor } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
 const KIND_BY_SYMBOL: Record<string, CompletionItemKind> = {
@@ -96,8 +96,13 @@ function collect(context: ProviderContext, uri: string, document: AnalyzedDocume
   if (isMemberAccess(document, position)) {
     const exports = namespaceExportItems(context, uri, document, position);
     if (exports) return { isIncomplete: false, items: exports };
-    const typeName = resolveReceiverType(context, document, position);
-    return { isIncomplete: false, items: typeName ? memberItems(context, document, typeName, position) : [] };
+    const symbols = symbolsFor(context, uri, document);
+    const typeName = resolveReceiverType(context, uri, document, position);
+    return { isIncomplete: false, items: typeName ? memberItems(context, symbols, typeName, position) : [] };
+  }
+
+  if (isTypeCompletionPosition(document.lines, position)) {
+    return { isIncomplete: false, items: typeItems(context, uri, document, position) };
   }
 
   const items: CompletionItem[] = [
@@ -105,7 +110,7 @@ function collect(context: ProviderContext, uri: string, document: AnalyzedDocume
     ...importedNameItems(context, uri, document),
     ...keywordItems(context),
     ...builtinItems(context),
-    ...symbolItems(document, position),
+    ...symbolItems(symbolsFor(context, uri, document), position),
   ];
   return { isIncomplete: false, items };
 }
@@ -241,10 +246,10 @@ function builtinItems(context: ProviderContext): CompletionItem[] {
   });
 }
 
-function symbolItems(document: AnalyzedDocument, position: Position): CompletionItem[] {
+function symbolItems(symbols: SymbolTable, position: Position): CompletionItem[] {
   const seen = new Set<string>();
   const items: CompletionItem[] = [];
-  for (const symbol of visibleSymbols(document.symbols.findScopeAt(position))) {
+  for (const symbol of visibleSymbols(symbols.findScopeAt(position))) {
     if (seen.has(symbol.name)) continue;
     seen.add(symbol.name);
     items.push({
@@ -259,11 +264,11 @@ function symbolItems(document: AnalyzedDocument, position: Position): Completion
 
 function memberItems(
   context: ProviderContext,
-  document: AnalyzedDocument,
+  symbols: SymbolTable,
   typeName: string,
   position: Position,
 ): CompletionItem[] {
-  const members = document.symbols.membersOf(typeName, position);
+  const members = symbols.membersOf(typeName, position);
   if (members.length) {
     return members.map((member) => ({
       label: member.name,
@@ -274,6 +279,38 @@ function memberItems(
   }
   const element = typeName.endsWith("[]") ? "Array" : typeName;
   return context.types.methodsOf(element).map((method) => methodItem(method));
+}
+
+function typeItems(context: ProviderContext, uri: string, document: AnalyzedDocument, position: Position): CompletionItem[] {
+  const seen = new Set<string>();
+  const items: CompletionItem[] = [];
+  const add = (label: string, kind: CompletionItemKind, detail: string, sort = "0") => {
+    if (seen.has(label)) return;
+    seen.add(label);
+    items.push({ label, kind, detail, sortText: `${sort}_${label}` });
+  };
+
+  for (const type of context.languageData.types) add(type, CompletionItemKind.TypeParameter, "type", "1");
+  const entryPath = pathOfUri(uri);
+  if (entryPath !== null) {
+    for (const name of context.modules.importedNames(entryPath, document.lines)) {
+      if (name.namespace) continue;
+      if (name.kind === "type" || name.kind === "interface" || name.kind === "class" || name.kind === "model") {
+        add(name.local, KIND_BY_BINDING[name.kind], `${name.kind} of ${name.label}`);
+      }
+    }
+  }
+  for (const symbol of visibleSymbols(symbolsFor(context, uri, document).findScopeAt(position))) {
+    if (symbol.kind === "model" || symbol.kind === "module") add(symbol.name, KIND_BY_SYMBOL[symbol.kind] ?? CompletionItemKind.Class, symbol.kind);
+  }
+  return items;
+}
+
+function isTypeCompletionPosition(lines: readonly string[], position: Position): boolean {
+  const line = lines[position.line] ?? "";
+  const before = line.slice(0, Math.min(position.character, line.length));
+  return /(?:^|[(:=,]\s*|\|\s*|&\s*|->\s*)[A-Za-z_$][\w$]*$/.test(before)
+    && /(?::|->|\||&|<|,\s*)\s*[A-Za-z_$][\w$]*$/.test(before);
 }
 
 function methodItem(method: Method): CompletionItem {

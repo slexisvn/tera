@@ -1,6 +1,6 @@
 {
   "name": "@slexisvn/tera",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "workspaces": [
     "tools/*"
@@ -60,6 +60,7 @@
   },
   "dependencies": {
     "@slexisvn/mlfw": "^0.1.7",
+    "@slexisvn/peta": "^0.1.2",
     "@slexisvn/quantc": "^0.1.2",
     "@slexisvn/query-engine": "^0.1.5",
     "@slexisvn/reactive": "^0.1.2",

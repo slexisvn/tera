@@ -3,6 +3,7 @@ import { TERA_PRIMITIVE_PSEUDO_TYPES, TERA_PSEUDO_TYPES, type TeraPseudoTypeSpec
 import { lowerToSemanticProgram } from "./semantic-lowering.js";
 import type { ClassFieldNode, ClassMemberNode, FunctionNode, SemanticNode } from "./semantic-ast.js";
 import { builtinMethod, createTypeEnv, signatureType, type Binding } from "./type-system.js";
+import type { ExternalInterface, ExternalModuleSurface, ExternalTypeAlias } from "./binder.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
 import { splitTopLevel } from "../../core/type-text.js";
 import type { SyntaxPlugin } from "../parser/extensions.js";
@@ -51,10 +52,17 @@ export type SourceSymbolTable = {
   membersOf(typeName: string | null, position?: SymbolPosition): SourceSymbol[];
 };
 
-export function buildSourceSymbolTable(source: string, inferredSymbols: Iterable<InferredSymbolInput> = [], options: { syntaxPlugins?: readonly SyntaxPlugin[] } = {}): SourceSymbolTable {
+export type BuildSourceSymbolTableOptions = {
+  syntaxPlugins?: readonly SyntaxPlugin[];
+  aliases?: readonly ExternalTypeAlias[];
+  interfaces?: readonly ExternalInterface[];
+  imports?: ExternalModuleSurface;
+};
+
+export function buildSourceSymbolTable(source: string, inferredSymbols: Iterable<InferredSymbolInput> = [], options: BuildSourceSymbolTableOptions = {}): SourceSymbolTable {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const inferred = collectInferredTypes(inferredSymbols);
-  const builder = new SymbolTableBuilder(lines, inferred);
+  const builder = new SymbolTableBuilder(lines, inferred, options);
   try {
     builder.visitProgram(lowerToSemanticProgram(source, { syntaxPlugins: options.syntaxPlugins }).body);
   } catch {
@@ -100,10 +108,14 @@ class SymbolTableBuilder {
   scopes: SourceScope[];
   fieldsByType = builtinFieldsByType();
   parentsByType = new Map<string, string>();
+  aliasesByType = new Map<string, string>();
+  typeParamsByOwner = new Map<string, string[]>();
 
-  constructor(private readonly lines: string[], private readonly inferred: InferredTypes) {
+  constructor(private readonly lines: string[], private readonly inferred: InferredTypes, options: BuildSourceSymbolTableOptions) {
     this.root = makeScope("<root>", null, 1, lines.length + 1, 0);
     this.scopes = [this.root];
+    this.addExternalSurface({ aliases: options.aliases, interfaces: options.interfaces });
+    if (options.imports !== undefined) this.addExternalSurface(options.imports);
   }
 
   visitProgram(nodes: SemanticNode[]): void {
@@ -161,17 +173,32 @@ class SymbolTableBuilder {
       resolve: (name, position) => resolveName(root, name, position.line + 1, position.character + 1, lines),
       resolveField: (typeName, fieldName, position) => {
         const scope = position ? findScopeAt(root, position.line + 1, lines) : null;
-        return (typeName ? membersFor(typeName, fieldsByType).find((field) =>
+        return (typeName ? membersFor(typeName, fieldsByType, this.aliasesByType, this.typeParamsByOwner).find((field) =>
           field.name === fieldName && sourceAccessAllowed(field, typeName, scope, parentsByType),
         ) : null) ?? null;
       },
       membersOf: (typeName, position) => {
         const scope = position ? findScopeAt(root, position.line + 1, lines) : null;
-        return typeName ? membersFor(typeName, fieldsByType).filter((field) =>
+        return typeName ? membersFor(typeName, fieldsByType, this.aliasesByType, this.typeParamsByOwner).filter((field) =>
           sourceAccessAllowed(field, typeName, scope, parentsByType) && !isHiddenMember(typeName, field.name),
         ) : [];
       },
     };
+  }
+
+  private addExternalSurface(surface: Pick<ExternalModuleSurface, "aliases" | "interfaces">): void {
+    for (const alias of surface.aliases ?? []) {
+      this.aliasesByType.set(alias.name, alias.type);
+      this.typeParamsByOwner.set(alias.name, alias.typeParams ?? []);
+    }
+    for (const spec of surface.interfaces ?? []) {
+      const members = this.fieldsByType.get(spec.name) ?? [];
+      this.typeParamsByOwner.set(spec.name, spec.typeParams ?? []);
+      for (const [name, binding] of Object.entries(spec.fields)) {
+        upsertMember(members, builtinField(name, { type: binding.type, optional: binding.optional ?? false }));
+      }
+      this.fieldsByType.set(spec.name, members);
+    }
   }
 
   private visitNode(node: SemanticNode, scope: SourceScope): void {
@@ -260,6 +287,7 @@ class SymbolTableBuilder {
       const member = addSymbol(child, field.name, "field", field.span.line, field.span.column, cleanType(field.type));
       upsertMember(members, member);
     }
+    child.endLine = endLine(node.fields, node.span.line);
   }
 
   private visitBlock(body: SemanticNode[], scope: SourceScope, kind: ScopeKind, line: number, column: number): void {
@@ -453,7 +481,7 @@ function builtinField(name: string, binding: Binding): SourceSymbol {
   return { name, kind: binding.type.includes("->") ? "method" : "field", line: 0, column: 0, typeName: binding.type };
 }
 
-function endLine(nodes: Array<SemanticNode | FunctionNode | ClassFieldNode>, fallback: number): number {
+function endLine(nodes: Array<SemanticNode | FunctionNode | ClassFieldNode | { span: { line: number } }>, fallback: number): number {
   let line = fallback;
   for (const node of nodes) {
     line = Math.max(line, node.span.line);
@@ -480,19 +508,26 @@ function memberType(member: ClassMemberNode): string | null {
   return `(${params}) -> ${returns ?? "any"}`;
 }
 
-function membersFor(typeName: string, fieldsByType: Map<string, SourceSymbol[]>): SourceSymbol[] {
+function membersFor(
+  typeName: string,
+  fieldsByType: Map<string, SourceSymbol[]>,
+  aliasesByType: ReadonlyMap<string, string> = new Map(),
+  typeParamsByOwner: ReadonlyMap<string, string[]> = new Map(),
+): SourceSymbol[] {
   const type = typeName.trim();
+  const alias = aliasesByType.get(type);
+  if (alias !== undefined && alias !== type) return membersFor(alias, fieldsByType, aliasesByType, typeParamsByOwner);
   const union = splitUnionTopLevel(type);
   if (union.length > 1) {
     const concrete = union.filter((part) => !isNullishType(part));
-    return commonMembers((concrete.length ? concrete : union).map((part) => membersFor(part, fieldsByType)));
+    return commonMembers((concrete.length ? concrete : union).map((part) => membersFor(part, fieldsByType, aliasesByType, typeParamsByOwner)));
   }
   if (arrayElementType(type)) return fieldsByType.get("Array") ?? [];
   const generic = genericType(type);
   if (generic) {
     const owner = canonicalPseudoMemberOwner(generic.name);
     const members = fieldsByType.get(owner);
-    const params = typeParamsFor(owner);
+    const params = typeParamsFor(owner, typeParamsByOwner);
     if (members?.length && params.length) return instantiateMembers(members, params, generic.args);
   }
   return objectTypeMembers(type) ?? fieldsByType.get(type) ?? fieldsByType.get(canonicalPseudoMemberOwner(type)) ?? [];
@@ -564,7 +599,9 @@ function genericType(typeName: string): { name: string; args: string[] } | null 
   return { name: match[1], args: splitTopLevel(match[2], MEMBER_SEPARATOR).map((arg) => arg.trim()) };
 }
 
-function typeParamsFor(owner: string): string[] {
+function typeParamsFor(owner: string, external: ReadonlyMap<string, string[]> = new Map()): string[] {
+  const externalParams = external.get(owner);
+  if (externalParams !== undefined) return externalParams;
   const pseudo = (TERA_PSEUDO_TYPES as Record<string, TeraPseudoTypeSpec>)[owner]?.typeParams;
   if (pseudo?.length) return pseudo;
   return createTypeEnv().interfaces.get(owner)?.typeParams ?? [];

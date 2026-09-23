@@ -3,13 +3,14 @@ import type { ModuleBindingKind } from "tera/frontend";
 import type { AnalyzedDocument, AnalyzedToken } from "../analyzer/index.ts";
 import { importsIn } from "../analyzer/import-syntax.ts";
 import { pathOfUri } from "../analyzer/paths.ts";
+import { symbolsFor } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
-const TOKEN_TYPES = ["namespace", "class", "enumMember", "parameter", "variable", "function", "method", "type"] as const;
+export const TOKEN_TYPES = ["namespace", "class", "enumMember", "parameter", "variable", "function", "method", "type"] as const;
 
 type TokenTypeName = (typeof TOKEN_TYPES)[number];
 
-const legend: SemanticTokensLegend = {
+export const semanticTokenLegend: SemanticTokensLegend = {
   tokenTypes: [...TOKEN_TYPES],
   tokenModifiers: ["declaration"],
 };
@@ -70,34 +71,35 @@ const MODEL_HOOKS = new Set(["forward", "train", "validate", "optimizer"]);
 
 export default defineProvider({
   id: "semanticTokens",
-  legend,
+  legend: semanticTokenLegend,
   register(connection, context) {
     connection.languages.semanticTokens.on((params) => {
       const document = context.analyzer.get(params.textDocument.uri);
       if (!document) return { data: [] };
-      return build(document, context, params.textDocument.uri);
+      return buildSemanticTokens(document, context, params.textDocument.uri);
     });
   },
 });
 
-function build(document: AnalyzedDocument, context: ProviderContext, uri: string) {
-  const typeIndex = new Map(legend.tokenTypes.map((name, index) => [name, index]));
+export function buildSemanticTokens(document: AnalyzedDocument, context: ProviderContext, uri: string) {
+  const typeIndex = new Map(semanticTokenLegend.tokenTypes.map((name, index) => [name, index]));
   const builder = new SemanticTokensBuilder();
-  const symbolByName = new Map(document.symbols.flat.map((symbol) => [symbol.name, symbol]));
   const types = new Set(context.languageData.types);
   const imported = importedTypes(context, uri, document);
   const paths = modulePathTokens(document);
+  const contextual = contextualNameTypes(document);
+  const symbols = symbolsFor(context, uri, document);
 
   let callDepth = 0;
   for (let i = 0; i < document.tokens.length; i++) {
     const token = document.tokens[i];
     if (token.value === "(" || token.value === "[") callDepth++;
     else if (token.value === ")" || token.value === "]") callDepth = Math.max(0, callDepth - 1);
-    if (token.type !== "identifier") continue;
+    if (token.type !== "identifier" && !contextual.has(positionKey(token))) continue;
 
     const tokenType = paths.has(`${token.line}:${token.column}`)
       ? "namespace"
-      : resolve(document.tokens, i, callDepth, context, symbolByName, types, imported);
+      : resolve(document, i, callDepth, context, symbols, types, imported, contextual);
     if (!tokenType) continue;
 
     builder.push(
@@ -134,14 +136,16 @@ function modulePathTokens(document: AnalyzedDocument): Set<string> {
 }
 
 function resolve(
-  tokens: AnalyzedToken[],
+  document: AnalyzedDocument,
   index: number,
   callDepth: number,
   context: ProviderContext,
-  symbolByName: Map<string, { kind: string }>,
+  symbols: AnalyzedDocument["symbols"],
   types: Set<string>,
   imported: Map<string, TokenTypeName>,
+  contextual: ReadonlyMap<string, TokenTypeName>,
 ): TokenTypeName | null {
+  const tokens = document.tokens;
   if (callDepth > 0 && tokens[index + 1]?.value === "=") return "parameter";
   if (tokens[index - 1]?.value === ".") {
     const next = tokens[index + 1]?.value;
@@ -151,6 +155,9 @@ function resolve(
   }
 
   const name = tokens[index].value;
+  const contextualType = contextual.get(positionKey(tokens[index]));
+  if (contextualType !== undefined) return contextualType;
+
   const hookType = modelHookType(tokens, index);
   if (hookType) return hookType;
 
@@ -167,8 +174,90 @@ function resolve(
 
   if (types.has(name)) return "type";
 
-  const symbol = symbolByName.get(name);
+  const symbol = symbols.resolve(name, {
+    line: Math.max(0, tokens[index].line - 1),
+    character: Math.max(0, tokens[index].column - 1),
+  });
   return symbol ? TYPE_BY_KIND[symbol.kind] ?? null : null;
+}
+
+type DelimiterFrame = { open: "{" | "(" | "["; expectKey: boolean };
+
+function contextualNameTypes(document: AnalyzedDocument): ReadonlyMap<string, TokenTypeName> {
+  const types = new Map<string, TokenTypeName>();
+  collectInterfaceMemberTypes(document.lines, types);
+  collectLiteralKeyTypes(document.tokens, types);
+  return types;
+}
+
+function collectInterfaceMemberTypes(lines: readonly string[], types: Map<string, TokenTypeName>): void {
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    const match = /^([ \t]*)([A-Za-z_$][\w$]*)\s*(?::|\()/.exec(line);
+    if (!match) continue;
+    const indent = match[1].length;
+    const header = nearestOuterHeader(lines, index, indent);
+    if (header === null || !/^interface\b/.test(header)) continue;
+    const rest = line.slice(indent + match[2].length);
+    types.set(`${index + 1}:${indent + 1}`, /^(?:\s*\(|\s*:\s*(?:\(|fn\b))/.test(rest) ? "method" : "variable");
+  }
+}
+
+function nearestOuterHeader(lines: readonly string[], lineIndex: number, indent: number): string | null {
+  for (let index = lineIndex - 1; index >= 0; index--) {
+    const line = lines[index] ?? "";
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    const parentIndent = line.length - line.trimStart().length;
+    if (parentIndent < indent) return trimmed;
+  }
+  return null;
+}
+
+function collectLiteralKeyTypes(tokens: readonly AnalyzedToken[], types: Map<string, TokenTypeName>): void {
+  const stack: DelimiterFrame[] = [];
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (token.value === "{" || token.value === "(" || token.value === "[") {
+      stack.push({ open: token.value, expectKey: token.value === "{" });
+      continue;
+    }
+    if (token.value === "}" || token.value === ")" || token.value === "]") {
+      popDelimiter(stack, token.value);
+      continue;
+    }
+    const frame = stack.at(-1);
+    if (token.value === ",") {
+      if (frame?.open === "{") frame.expectKey = true;
+      continue;
+    }
+    if (token.value === ":") {
+      if (frame?.open === "{") frame.expectKey = false;
+      continue;
+    }
+    if ((token.type === "identifier" || token.type === "keyword") && frame?.open === "{" && frame.expectKey && hasLiteralKeyDelimiter(tokens, index)) {
+      const key = positionKey(token);
+      if (!types.has(key)) types.set(key, "variable");
+    }
+  }
+}
+
+function hasLiteralKeyDelimiter(tokens: readonly AnalyzedToken[], index: number): boolean {
+  const next = tokens[index + 1];
+  if (next?.value === ":") return true;
+  return next?.value === "?" && tokens[index + 2]?.value === ":";
+}
+
+function popDelimiter(stack: DelimiterFrame[], close: string): void {
+  const open = close === "}" ? "{" : close === ")" ? "(" : "[";
+  while (stack.length > 0) {
+    const frame = stack.pop();
+    if (frame?.open === open) return;
+  }
+}
+
+function positionKey(token: Pick<AnalyzedToken, "line" | "column">): string {
+  return `${token.line}:${token.column}`;
 }
 
 function modelHookType(tokens: AnalyzedToken[], index: number): TokenTypeName | null {

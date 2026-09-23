@@ -46,6 +46,27 @@ export async function tokenizeLine(line: string): Promise<Scoped[]> {
     .filter((token) => token.text.trim() !== "");
 }
 
+export async function tokenizeSource(source: string): Promise<Scoped[]> {
+  const grammar = await (await loadRegistry()).loadGrammar("source.tera");
+  if (!grammar) throw new Error("failed to load source.tera grammar");
+
+  const out: Scoped[] = [];
+  let ruleStack = textmate.INITIAL;
+  for (const line of source.split(/\r\n|\r|\n/)) {
+    const result = grammar.tokenizeLine(line, ruleStack);
+    ruleStack = result.ruleStack;
+    out.push(
+      ...result.tokens
+        .map((token) => ({
+          text: line.slice(token.startIndex, token.endIndex),
+          scopes: token.scopes,
+        }))
+        .filter((token) => token.text.trim() !== ""),
+    );
+  }
+  return out;
+}
+
 export async function scopesOf(line: string, text: string): Promise<string[]> {
   const tokens = await tokenizeLine(line);
   const found = tokens.find((token) => token.text === text);
@@ -57,4 +78,13 @@ export async function scopesOf(line: string, text: string): Promise<string[]> {
 
 export async function scopeOf(line: string, text: string): Promise<string> {
   return (await scopesOf(line, text)).at(-1)!;
+}
+
+export async function scopeOfSource(source: string, text: string): Promise<string> {
+  const tokens = await tokenizeSource(source);
+  const found = tokens.find((token) => token.text === text);
+  if (!found) {
+    throw new Error(`token ${JSON.stringify(text)} not found; got ${tokens.map((t) => t.text).join("|")}`);
+  }
+  return found.scopes.at(-1)!;
 }

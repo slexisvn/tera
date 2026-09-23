@@ -118,6 +118,26 @@ describe("cross-module types", () => {
     })).toEqual([]);
   });
 
+  it("re-exports imported generic type aliases as types", () => {
+    expect(messages(check({
+      "main.tera": "from pkg import Box\nbox: Box<string> = { value: \"x\" }\nok: string = box.value\nbad: int = box.value\n",
+      "pkg/__init__.tera": "from .types import Box\n",
+      "pkg/types.tera": "type Box<T> = { value: T }\n",
+    }))).toEqual(["Type 'string' is not assignable to 'int'"]);
+  });
+
+  it("carries type dependencies used by imported values", () => {
+    expect(messages(check({
+      "main.tera": "from helper import api\nok: string = api.make().value\nbad: int = api.make().value\n",
+      "helper.tera": [
+        "type Box<T> = { value: T }",
+        "interface Api:",
+        "  make: () -> Box<string>",
+        "api: Api = { make: () => ({ value: \"ready\" }) }",
+      ].join("\n"),
+    }))).toEqual(["Type 'string' is not assignable to 'int'"]);
+  });
+
   it("renames an aliased import in the importing module", () => {
     expect(check({
       "main.tera": "from helper import twice as double\nprint(double(2))\n",

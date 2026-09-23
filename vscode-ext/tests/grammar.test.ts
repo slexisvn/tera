@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scopeOf, tokenizeLine } from "./grammar-harness.ts";
+import { scopeOf, scopeOfSource, tokenizeLine } from "./grammar-harness.ts";
 
 describe("grammar: declarations", () => {
   it("scopes a model declaration and its name", async () => {
@@ -19,6 +19,12 @@ describe("grammar: declarations", () => {
   it("scopes void as a return type", async () => {
     const line = "async fn run() -> void:";
     expect(await scopeOf(line, "void")).toBe("storage.type.tera");
+  });
+
+  it("scopes interface function fields as member functions before keyword rules", async () => {
+    expect(await scopeOf("  of: (schema: GuardSchema) -> ArrayGuard", "of")).toBe("entity.name.function.member.tera");
+    expect(await scopeOf("  length: (size: int) -> ArrayGuard", "length")).toBe("entity.name.function.member.tera");
+    expect(await scopeOf("  send(message: string) -> string", "send")).toBe("entity.name.function.member.tera");
   });
 
   it("does not mistake a fn-typed return for a type name", async () => {
@@ -102,6 +108,20 @@ describe("grammar: strings and comments", () => {
 });
 
 describe("grammar: builtins", () => {
+  it("scopes braced literal keys before type and builtin rules", async () => {
+    const source = [
+      "guard: GuardApi = {",
+      "  boolean: _make_boolean,",
+      "  any: _make_any,",
+      "  maybe?: int,",
+      "}",
+    ].join("\n");
+
+    expect(await scopeOfSource(source, "boolean")).toBe("variable.other.property.tera");
+    expect(await scopeOfSource(source, "any")).toBe("variable.other.property.tera");
+    expect(await scopeOfSource(source, "maybe")).toBe("variable.other.property.tera");
+  });
+
   it("scopes user calls apart from builtins", async () => {
     expect(await scopeOf("x = my_own_helper(1)", "my_own_helper")).toBe("entity.name.function.call.tera");
   });

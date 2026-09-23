@@ -1166,6 +1166,12 @@ describe("keywords as object property names", () => {
     ]);
   });
 
+  it("reads keyword names in interface fields", () => {
+    const stmt = parseStmt("interface Fluent:\n  of: () -> Fluent\n  default: string");
+
+    expect(stmt.fields.map((field) => field.name)).toEqual(["of", "default"]);
+  });
+
   it("keeps a keyword key apart from the statement it spells", () => {
     const object = parseExpr('({ if: 1, else: 2 })');
 

@@ -3,6 +3,7 @@ import type { ExternalBuiltinSignature } from "tera/frontend";
 import type { Signature } from "@/shared/language-data";
 import type { AnalyzedDocument, Position } from "../analyzer/index.ts";
 import { pathOfUri } from "../analyzer/paths.ts";
+import { symbolsFor } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
 const CALL_PATTERN = /(?:([A-Za-z_$][\w$]*)\s*\.\s*)?([A-Za-z_$][\w$]*)\s*\(([^()]*)$/;
@@ -27,7 +28,7 @@ export function computeSignatureHelp(
 
   const [, receiver, callee, args] = match;
   const signature = importedSignature(context, params.textDocument.uri, document, receiver, callee!)
-    ?? resolveSignature(context, document, receiver, callee!, params.position);
+    ?? resolveSignature(context, params.textDocument.uri, document, receiver, callee!, params.position);
   if (!signature) return null;
 
   return {
@@ -73,6 +74,7 @@ export function toSignature(external: ExternalBuiltinSignature, label: string): 
 
 function resolveSignature(
   context: ProviderContext,
+  uri: string,
   document: AnalyzedDocument,
   receiver: string | undefined,
   callee: string,
@@ -80,9 +82,33 @@ function resolveSignature(
 ): Signature | null {
   if (!receiver) return context.types.builtin(callee)?.signature ?? null;
 
-  const typeName = document.symbols.resolve(receiver, position)?.typeName ?? receiver;
+  const symbols = symbolsFor(context, uri, document);
+  const typeName = symbols.resolve(receiver, position)?.typeName ?? receiver;
+  const field = symbols.resolveField(typeName, callee, position);
+  if (field?.typeName) return signatureFromType(callee, field.typeName);
   const lookup = context.types.lookupMethod(typeName, callee) ?? context.types.findUniqueMethod(callee);
   return lookup?.method.signature ?? null;
+}
+
+function signatureFromType(name: string, typeName: string): Signature | null {
+  const arrow = typeName.lastIndexOf("->");
+  if (arrow < 0) return null;
+  const paramsText = typeName.slice(0, arrow).trim();
+  if (!paramsText.startsWith("(") || !paramsText.endsWith(")")) return null;
+  const params = paramsText.slice(1, -1).trim()
+      ? paramsText.slice(1, -1).split(",").map((item, index) => {
+        const [rawName, rawType] = item.trim().split(":");
+        const hasName = rawType !== undefined;
+        const label = hasName ? rawName!.trim() : `arg${index}`;
+        const optional = /\?\s*$/.test(label);
+        return {
+          name: label.replace(/\s*\?$/, ""),
+          type: (hasName ? rawType : rawName)?.trim() || null,
+          optional,
+        };
+      })
+    : [];
+  return { params, display: `${name}(${params.map((param) => `${param.name}${param.optional ? "?" : ""}${param.type ? `: ${param.type}` : ""}`).join(", ")}) -> ${typeName.slice(arrow + 2).trim()}` };
 }
 
 function countCommas(text: string): number {

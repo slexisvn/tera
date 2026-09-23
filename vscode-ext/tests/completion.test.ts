@@ -15,6 +15,8 @@ function labelsAtEnd(source: string): string[] {
 }
 
 describe("completion", () => {
+  afterEach(cleanupProjects);
+
   it("includes class modifier keywords", () => {
     expect(labels("", 0, 0)).toEqual(expect.arrayContaining(["abstract", "public", "private", "protected"]));
   });
@@ -108,6 +110,45 @@ describe("completion", () => {
 
     expect(memberLabels).toEqual(expect.arrayContaining(["latest", "state", "loading", "error", "peek", "refetch", "mutate", "subscribe", "dispose"]));
     expect(memberLabels).not.toContain("value");
+  });
+
+  it("suggests imported interface members even while the member access is incomplete", () => {
+    const project = projectFor({
+      "__init__.tera": [
+        "from .types import GuardApi",
+        "guard: GuardApi = {}",
+        "guard.",
+      ].join("\n"),
+      "types.tera": [
+        "interface GuardApi:",
+        "  object: () -> ObjectGuard",
+        "  string: () -> StringGuard",
+        "interface ObjectGuard:",
+        "  strict: () -> ObjectGuard",
+        "interface StringGuard:",
+        "  min: (size: int) -> StringGuard",
+      ].join("\n"),
+    }, ["__init__.tera", "types.tera"]);
+    const suggestions = collectCompletions(project.context, {
+      textDocument: { uri: project.uri("__init__.tera") },
+      position: { line: 2, character: "guard.".length },
+    }).items.map((item) => item.label);
+
+    expect(suggestions).toEqual(expect.arrayContaining(["object", "string"]));
+  });
+
+  it("suggests type names in variable annotations", () => {
+    const project = projectFor({
+      "__init__.tera": "from .types import GuardApi\nguard: Gu",
+      "types.tera": "interface GuardApi:\n  string: () -> string\n",
+    }, ["__init__.tera", "types.tera"]);
+    const suggestions = collectCompletions(project.context, {
+      textDocument: { uri: project.uri("__init__.tera") },
+      position: { line: 1, character: "guard: Gu".length },
+    }).items.map((item) => item.label);
+
+    expect(suggestions).toContain("GuardApi");
+    expect(suggestions).not.toContain("print");
   });
 });
 

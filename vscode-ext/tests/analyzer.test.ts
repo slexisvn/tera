@@ -98,6 +98,14 @@ describe("analyzeDiagnostics", () => {
     ]);
   });
 
+  it("reports type-only names used as values through checker diagnostics", () => {
+    const source = ["type Row = { id: int }", "Row()"].join("\n");
+
+    expect(analyzeDiagnostics(source).map((diagnostic) => diagnostic.message)).toEqual([
+      "Cannot use type 'Row' as a value",
+    ]);
+  });
+
   it("accepts fn-prefixed returned function types", () => {
     const source = [
       "fn adder(base: int) -> fn(int) -> int:",

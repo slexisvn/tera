@@ -3,7 +3,7 @@ import { isStringLiteralTextPosition } from "tera/frontend";
 import { pathOfUri } from "../analyzer/paths.ts";
 import { wordRangeAt } from "../analyzer/position.ts";
 import type { AnalyzedDocument, AnalyzedToken, Position } from "../analyzer/types.ts";
-import { isMemberAccess, resolveReceiverType } from "../language/members.ts";
+import { isMemberAccess, resolveReceiverType, symbolsFor } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
 type DefinitionSite = { line: number; column: number };
@@ -33,14 +33,14 @@ export function computeHighlights(context: ProviderContext, params: DocumentHigh
   const imported = importedHighlights(context, params.textDocument.uri, document, word.text);
   if (imported) return imported;
 
-  const target = definitionSiteAt(context, document, params.position, word.text);
+  const target = definitionSiteAt(context, params.textDocument.uri, document, params.position, word.text);
   if (!target) return [{ range: word.range, kind: DocumentHighlightKind.Text }];
 
   const highlights: DocumentHighlight[] = [];
   for (const token of document.tokens) {
     if (token.type !== "identifier" || token.value !== word.text) continue;
     const position = tokenStart(token);
-    const site = definitionSiteAt(context, document, position, token.value);
+    const site = definitionSiteAt(context, params.textDocument.uri, document, position, token.value);
     if (site && site.line === target.line && site.column === target.column) {
       highlights.push({ range: tokenRange(token), kind: DocumentHighlightKind.Text });
     }
@@ -77,13 +77,14 @@ function importedHighlights(
   return highlights;
 }
 
-function definitionSiteAt(context: ProviderContext, document: AnalyzedDocument, position: Position, word: string): DefinitionSite | null {
+function definitionSiteAt(context: ProviderContext, uri: string, document: AnalyzedDocument, position: Position, word: string): DefinitionSite | null {
+  const symbols = symbolsFor(context, uri, document);
   if (isMemberAccess(document, position)) {
-    const receiverType = resolveReceiverType(context, document, position);
-    const field = receiverType ? document.symbols.resolveField(receiverType, word, position) : null;
+    const receiverType = resolveReceiverType(context, uri, document, position);
+    const field = receiverType ? symbols.resolveField(receiverType, word, position) : null;
     return field && field.line > 0 ? { line: field.line, column: field.column } : null;
   }
-  const symbol = document.symbols.resolve(word, position);
+  const symbol = symbols.resolve(word, position);
   return symbol && symbol.line > 0 ? { line: symbol.line, column: symbol.column } : null;
 }
 
