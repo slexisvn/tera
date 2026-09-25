@@ -563,10 +563,10 @@ describe("taking one element after a guard that the array holds some", () => {
 
   it("takes one after a guard that throws unless the count is exact", () => {
     const source = src(
-      "fn only(stack: float[]) -> float:",
-      "  if stack.length != 1:",
+      "fn only(values: float[]) -> float:",
+      "  if values.length != 1:",
       '    throw "leftover operands"',
-      "  return stack.pop()",
+      "  return values.pop()",
       "print(only([2.5]))",
     );
 
@@ -575,10 +575,10 @@ describe("taking one element after a guard that the array holds some", () => {
 
   it("takes one after a guard that throws unless the count is some other exact one", () => {
     const source = src(
-      "fn third(stack: int[]) -> int:",
-      "  if stack.length != 3:",
+      "fn third(values: int[]) -> int:",
+      "  if values.length != 3:",
       '    throw "wrong shape"',
-      "  return stack.pop()",
+      "  return values.pop()",
       "print(third([1, 2, 3]))",
     );
 
@@ -587,10 +587,10 @@ describe("taking one element after a guard that the array holds some", () => {
 
   it("still refuses to take one after a guard that throws unless the array is empty", () => {
     const source = src(
-      "fn only(stack: float[]) -> float:",
-      "  if stack.length != 0:",
+      "fn only(values: float[]) -> float:",
+      "  if values.length != 0:",
       '    throw "not empty"',
-      "  return stack.pop()",
+      "  return values.pop()",
       "print(only([]))",
     );
 
@@ -607,10 +607,10 @@ describe("taking one element after a guard that the array holds some", () => {
 
   it("still refuses to take one after a guard that throws when the array holds some", () => {
     const source = src(
-      "fn only(stack: float[]) -> float:",
-      "  if stack.length > 0:",
+      "fn only(values: float[]) -> float:",
+      "  if values.length > 0:",
       '    throw "not empty"',
-      "  return stack.pop()",
+      "  return values.pop()",
       "print(only([]))",
     );
 
@@ -643,10 +643,10 @@ describe("taking one element after a guard that the array holds some", () => {
 
   it("takes as many as the guard counted", () => {
     const source = src(
-      "fn add(stack: float[]) -> float:",
-      "  if stack.length >= 2:",
-      "    right: float = stack.pop()",
-      "    left: float = stack.pop()",
+      "fn add(values: float[]) -> float:",
+      "  if values.length >= 2:",
+      "    right: float = values.pop()",
+      "    left: float = values.pop()",
       "    return left + right",
       "  return 0.0",
       "print(add([3.0, 4.0]))",
@@ -657,10 +657,10 @@ describe("taking one element after a guard that the array holds some", () => {
 
   it("keeps the largest count when one test names the array twice", () => {
     const source = src(
-      "fn add(stack: float[]) -> float:",
-      "  if stack.length >= 3 and stack.length > 0:",
-      "    right: float = stack.pop()",
-      "    left: float = stack.pop()",
+      "fn add(values: float[]) -> float:",
+      "  if values.length >= 3 and values.length > 0:",
+      "    right: float = values.pop()",
+      "    left: float = values.pop()",
       "    return left + right",
       "  return 0.0",
       "print(add([3.0, 4.0, 5.0]))",
@@ -779,8 +779,8 @@ describe("taking one element after a guard that the array holds some", () => {
 
   it("says how to mend an operand a take may not have filled", () => {
     const source = src(
-      'stack: float[] = [1.5]',
-      "print(stack.pop() + stack.pop())",
+      'values: float[] = [1.5]',
+      "print(values.pop() + values.pop())",
     );
 
     expect(diagnose(source)).toEqual([
@@ -803,8 +803,8 @@ describe("taking one element after a guard that the array holds some", () => {
 });
 
 describe("names that a built-in already has", () => {
-  it("refuses a top-level name the program still calls as a built-in", () => {
-    expect(diagnose(src("sum = 5", "print(sum([1, 2]))"))).toEqual([
+  it("refuses a top-level name without requiring a later call", () => {
+    expect(diagnose(src("sum = 5"))).toEqual([
       "Cannot redeclare built-in 'sum'",
     ]);
   });
@@ -829,17 +829,13 @@ describe("names that a built-in already has", () => {
     ).toContain("Cannot redeclare built-in 'sum'");
   });
 
-  it("lets a top-level name shadow a built-in nothing calls", () => {
-    expect(diagnose(src("stack = 5", "print(stack)"))).toEqual([]);
-  });
-
-  it("lets a function keep a local of the same name", () => {
+  it("refuses a local name inside a function", () => {
     expect(
       diagnose(src("fn total() -> float:", "  sum: float = 1.5", "  return sum", "print(total())")),
-    ).toEqual([]);
+    ).toContain("Cannot redeclare built-in 'sum'");
   });
 
-  it("lets a method keep a local of the same name", () => {
+  it("refuses a local name inside a method", () => {
     expect(
       diagnose(
         src(
@@ -850,7 +846,25 @@ describe("names that a built-in already has", () => {
           "print(Cart().total())",
         ),
       ),
-    ).toEqual([]);
+    ).toContain("Cannot redeclare built-in 'sum'");
+  });
+
+  it("refuses built-in names in lexical binding forms", () => {
+    expect(diagnose(src("fn total(sum: int) -> int:", "  return sum"))).toContain(
+      "Cannot redeclare built-in 'sum'",
+    );
+    expect(diagnose(src("for sum of [1, 2]:", "  print(sum)"))).toContain(
+      "Cannot redeclare built-in 'sum'",
+    );
+    expect(diagnose(src("[sum, rest] = [1, 2]"))).toContain(
+      "Cannot redeclare built-in 'sum'",
+    );
+    expect(diagnose(src("apply: ((int) -> int, int) -> int = (f, value) => f(value)", "apply(sum => sum, 1)"))).toContain(
+      "Cannot redeclare built-in 'sum'",
+    );
+    expect(diagnose(src("from helper import value as sum"))).toContain(
+      "Cannot redeclare built-in 'sum'",
+    );
   });
 });
 
@@ -1265,14 +1279,14 @@ describe("reading an element by a subscript that spells a name", () => {
         "while j > 0:",
         "  names[j] = names[j - 1]",
         "  j -= 1",
-        "fn count():",
+        "fn measure():",
         "  names: int[] = [1, 2]",
         "  j: int = 0",
         "  while j < names.length:",
         "    held: int = names[j]",
         "    print(held)",
         "    j += 1",
-        "count()",
+        "measure()",
       ),
     );
 
@@ -1295,4 +1309,3 @@ describe("reading an element by a subscript that spells a name", () => {
     expect(messages.join("\n")).toMatch(/not assignable/);
   });
 });
-

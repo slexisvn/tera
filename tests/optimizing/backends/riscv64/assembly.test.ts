@@ -146,7 +146,7 @@ describe("riscv64 assembly", () => {
 
   it("emits the runtime routine only when a function references it", () => {
     const withHelper = assemblyOf(src("fn rem(a: int, b: int) -> int:", "  return (a % b) + 0"));
-    const withoutHelper = assemblyOf(src("fn sum(a: int, b: int) -> int:", "  return a + b"));
+    const withoutHelper = assemblyOf(src("fn add(a: int, b: int) -> int:", "  return a + b"));
 
     expect(withHelper).toContain("tera_rv64_i32_mod:");
     expect(withoutHelper).not.toContain("tera_rv64_i32_mod:");

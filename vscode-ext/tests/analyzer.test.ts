@@ -106,6 +106,25 @@ describe("analyzeDiagnostics", () => {
     ]);
   });
 
+  it("reports built-in redeclarations at top level and inside callables", () => {
+    const source = [
+      "sum = 0",
+      "fn total() -> int:",
+      "  sum = 1",
+      "  return 1",
+      "class Cart:",
+      "  public total() -> int:",
+      "    sum = 2",
+      "    return 2",
+    ].join("\n");
+
+    expect(analyzeDiagnostics(source).map((diagnostic) => diagnostic.message)).toEqual([
+      "Cannot redeclare built-in 'sum'",
+      "Cannot redeclare built-in 'sum'",
+      "Cannot redeclare built-in 'sum'",
+    ]);
+  });
+
   it("accepts fn-prefixed returned function types", () => {
     const source = [
       "fn adder(base: int) -> fn(int) -> int:",

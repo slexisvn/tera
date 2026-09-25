@@ -61,6 +61,19 @@ describe("splitting one checker run back across the documents it came from", () 
     expect(pointedAt(docs(TYPE_AS_VALUE), "cell-0")).toEqual(["Row"]);
   });
 
+  it("keeps built-in redeclarations in their own documents", () => {
+    const TOP_LEVEL = "sum = 0\n";
+    const METHOD = "class Cart:\n  public total() -> int:\n    sum = 1\n    return 1\n";
+    const found = diagnoseDocuments(docs(TOP_LEVEL, METHOD));
+
+    expect(found.get("cell-0")?.map((item) => item.message)).toEqual([
+      "Cannot redeclare built-in 'sum'",
+    ]);
+    expect(found.get("cell-1")?.map((item) => item.message)).toEqual([
+      "Cannot redeclare built-in 'sum'",
+    ]);
+  });
+
   it("offsets a later-line diagnostic from its own first line, not the combined one", () => {
     const shifted = diagnoseDocuments(docs(CLEAN, LATE)).get("cell-1") ?? [];
 

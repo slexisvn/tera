@@ -8,7 +8,7 @@ const MASKS = src("fn mask(a: int) -> int:", "  return a & 7");
 const WIDENS = src("fn widen(a: int) -> int:", "  return a | 70000");
 
 const SUMS = src(
-  "fn sum(xs: float[], n: int) -> float:",
+  "fn accumulate(xs: float[], n: int) -> float:",
   "  acc: float = 0.0",
   "  i: int = 0",
   "  while i < n:",
@@ -62,7 +62,7 @@ describe("x64 operand folding", () => {
   });
 
   it("accumulates straight out of the array element", () => {
-    const body = bodyOf(SUMS, "sum");
+    const body = bodyOf(SUMS, "accumulate");
     const accumulate = body.find((line) => line.startsWith("addsd "))!;
 
     expect(accumulate).toMatch(/^addsd\s+-?\d*\(%\w+,%\w+,8\), %xmm/);

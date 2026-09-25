@@ -167,7 +167,7 @@ describe("x64 assembly", () => {
     const withHelper = assemblyOf(
       src("fn rem(a: int, b: int) -> int:", "  return (a % b) + 0"),
     );
-    const withoutHelper = assemblyOf(src("fn sum(a: int, b: int) -> int:", "  return a + b"));
+    const withoutHelper = assemblyOf(src("fn add(a: int, b: int) -> int:", "  return a + b"));
 
     expect(withHelper).toContain("tera_x64_i32_mod:");
     expect(withoutHelper).not.toContain("tera_x64_i32_mod:");

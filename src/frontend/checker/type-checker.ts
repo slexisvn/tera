@@ -19,7 +19,6 @@ import { acceptsTensorLeftArithmetic, acceptsTensorRightArithmetic, binaryOperat
 import {
   alwaysExits,
   branchChain,
-  nestedExpressions,
   type BlockNode,
   type ClassMemberNode,
   type FunctionNode,
@@ -47,7 +46,6 @@ export class TypeChecker {
   diagnostics: Diagnostic[] = [];
   strict: boolean;
   onDeclare?: (symbol: SymbolType) => void;
-  private called: ReadonlySet<string> = new Set();
   private readonly inferredFields = new Map<string, Set<string>>();
 
   constructor(bound: BoundProgram, strict: boolean, onDeclare?: (symbol: SymbolType) => void) {
@@ -57,7 +55,6 @@ export class TypeChecker {
   }
 
   check(): Diagnostic[] {
-    this.called = calledNames(this.bound.program.body);
     this.checkStatements(this.bound.program.body, this.bound.root);
     return this.diagnostics;
   }
@@ -116,7 +113,7 @@ export class TypeChecker {
     const child = this.blockScope(node, scope);
     if (node.catchVariable) {
       const at = node.catchVariableSpan ?? node.span;
-      this.checkValueDeclarationName(node.catchVariable, "parameter", at.line, at.column);
+      this.checkBindingDeclarationName(node.catchVariable, "parameter", at.line, at.column);
       this.onDeclare?.({ name: node.catchVariable, line: at.line, column: at.column, type: "any", kind: "parameter" });
     }
     if (node.test) {
@@ -145,12 +142,12 @@ export class TypeChecker {
     return child;
   }
 
-  checkNode(node: SemanticNode, scope: Scope): void {
+  checkNode(node: SemanticNode, scope: Scope, member = false): void {
     switch (node.kind) {
       case "Function":
       case "Model": {
         const child = this.bound.scopes.get(node) ?? scope;
-        this.checkCallableDeclaration(node, node.kind.toLowerCase());
+        this.checkCallableDeclaration(node, node.kind.toLowerCase(), member);
         if (node.kind === "Model") this.registerModelShape(node, child);
         this.checkStatements(node.body, child);
         if (node.kind === "Function") this.inferReturnType(node.body, child);
@@ -158,12 +155,13 @@ export class TypeChecker {
       }
       case "Class": {
         const child = this.bound.scopes.get(node) ?? scope;
-        this.checkValueDeclarationName(node.name, "class", node.nameSpan.line, node.nameSpan.column);
+        this.checkBindingDeclarationName(node.name, "class", node.nameSpan.line, node.nameSpan.column);
         this.registerClassShape(node, child);
         for (const field of node.fields) this.checkClassField(field, child);
         for (const member of node.members) {
           this.requireMemberVisibility(member);
-          if (!member.abstract) this.checkNode(member.fn, child);
+          if (member.abstract) this.checkCallableDeclaration(member.fn, "function", true);
+          else this.checkNode(member.fn, child, true);
         }
         this.refineOpenElements(node, child);
         break;
@@ -194,6 +192,16 @@ export class TypeChecker {
       case "Expr":
         this.checkExpression(node.value, scope, node.span.line, node.span.column);
         break;
+      case "Import":
+        if (node.bindings.length > 0) {
+          for (const binding of node.bindings) {
+            this.reportBuiltinRedeclaration(binding.local, binding.span.line, binding.span.column);
+          }
+        } else {
+          const name = node.alias ?? node.path[0];
+          if (name) this.reportBuiltinRedeclaration(name, node.span.line, node.span.column);
+        }
+        break;
     }
   }
 
@@ -201,7 +209,7 @@ export class TypeChecker {
     const child = this.bound.scopes.get(node) ?? scope;
     const iterableType = inferExpression(node.iterable, this.bound, scope);
     const variableType = iterableBindingType(iterableType, node.mode, this.bound.env);
-    this.checkValueDeclarationName(node.variable, "variable", node.variableSpan.line, node.variableSpan.column);
+    this.checkBindingDeclarationName(node.variable, "variable", node.variableSpan.line, node.variableSpan.column);
     child.locals.set(node.variable, { type: variableType, optional: false });
     this.onDeclare?.({ name: node.variable, line: node.variableSpan.line, column: node.variableSpan.column, type: variableType });
     this.checkForIterable(node, iterableType);
@@ -357,7 +365,7 @@ export class TypeChecker {
     loopScope.locals.set(comp.variable, { type: elementType, optional: false, declared: true });
     const at = nodePosition(comp.variableNode, line, column);
     const start = comp.projection ? nodePosition(comp.projection, line, column) : at;
-    this.checkValueDeclarationName(comp.variable, "parameter", at.line, at.column);
+    this.checkBindingDeclarationName(comp.variable, "parameter", at.line, at.column);
     this.onDeclare?.({
       name: comp.variable,
       line: at.line,
@@ -522,11 +530,7 @@ export class TypeChecker {
   }
 
   checkVar(node: Extract<SemanticNode, { kind: "Var" }>, scope: Scope): void {
-    if (this.checkValueDeclarationName(node.name, "variable", node.nameSpan.line, node.nameSpan.column)) {
-      this.checkExpression(node.value, scope, node.span.line, node.span.column);
-      return;
-    }
-    if (this.reportBuiltinRedeclaration(node.name, node.nameSpan.line, node.nameSpan.column, scope)) {
+    if (this.checkBindingDeclarationName(node.name, "variable", node.nameSpan.line, node.nameSpan.column)) {
       this.checkExpression(node.value, scope, node.span.line, node.span.column);
       return;
     }
@@ -580,8 +584,7 @@ export class TypeChecker {
     for (let i = 0; i < node.names.length; i++) {
       const name = node.names[i];
       const at = node.variableSpans[i] ?? node.span;
-      if (this.checkValueDeclarationName(name, "variable", at.line, at.column)) continue;
-      if (this.reportBuiltinRedeclaration(name, at.line, at.column, scope)) continue;
+      if (this.checkBindingDeclarationName(name, "variable", at.line, at.column)) continue;
       const previous = lookupWithinBoundary(scope, name);
       const actual = itemTypes[i] ?? "unknown";
       if (previous && !this.isUnknownish(actual) && !compatible(actual, assignableType(previous), this.bound.env)) {
@@ -708,11 +711,17 @@ export class TypeChecker {
     this.add(at.line, at.column, `undefined name '${name}'`);
   }
 
-  checkCallableDeclaration(node: FunctionNode | ModelNode, kind: string): void {
-    this.checkValueDeclarationName(node.name, kind, node.nameSpan.line, node.nameSpan.column);
+  checkCallableDeclaration(node: FunctionNode | ModelNode, kind: string, member: boolean): void {
+    if (member) this.checkValueDeclarationName(node.name, kind, node.nameSpan.line, node.nameSpan.column);
+    else this.checkBindingDeclarationName(node.name, kind, node.nameSpan.line, node.nameSpan.column);
     for (const param of node.params) {
-      this.checkValueDeclarationName(param.name, "parameter", param.span.line, param.span.column);
+      this.checkBindingDeclarationName(param.name, "parameter", param.span.line, param.span.column);
     }
+  }
+
+  checkBindingDeclarationName(name: string, kind: string, line: number, column: number): boolean {
+    if (this.checkValueDeclarationName(name, kind, line, column)) return true;
+    return this.reportBuiltinRedeclaration(name, line, column);
   }
 
   checkValueDeclarationName(name: string, kind: string, line: number, column: number): boolean {
@@ -874,7 +883,7 @@ export class TypeChecker {
     for (let i = 0; i < params.length; i++) {
       const name = typeof params[i] === "string" ? params[i] as string : String((params[i] as { name?: string }).name ?? `arg${i}`);
       const expectedType = expected?.params.get(expected.positional[i])?.type ?? "any";
-      this.checkValueDeclarationName(name, "parameter", line, column);
+      this.checkBindingDeclarationName(name, "parameter", line, column);
       child.locals.set(name, { type: expectedType, optional: false, declared: true });
       const at = nodePosition(node, line, column);
       this.onDeclare?.({ name, line: at.line, column: at.column, type: expectedType, kind: "parameter" });
@@ -901,7 +910,7 @@ export class TypeChecker {
     for (const param of params) {
       const name = typeof param === "string" ? param : String(param.name ?? "");
       if (name) {
-        this.checkValueDeclarationName(name, "parameter", line, column);
+        this.checkBindingDeclarationName(name, "parameter", line, column);
         child.locals.set(name, { type: "any", optional: false, declared: true });
       }
     }
@@ -926,7 +935,10 @@ export class TypeChecker {
         const init = statement.init as ASTNode | undefined;
         if (init) this.checkExpression(init, scope, line, column);
         const name = typeof statement.name === "string" ? statement.name : "";
-        if (name) scope.locals.set(name, { type: init ? inferExpression(init, this.bound, scope) : "unknown", optional: false });
+        if (name) {
+          this.checkBindingDeclarationName(name, "variable", line, column);
+          scope.locals.set(name, { type: init ? inferExpression(init, this.bound, scope) : "unknown", optional: false });
+        }
       } else if ("type" in statement) {
         this.checkExpression(statement, scope, line, column);
       }
@@ -1309,10 +1321,8 @@ export class TypeChecker {
     return remedied ? ` (${ABSENCE_ADVICE})` : "";
   }
 
-  reportBuiltinRedeclaration(name: string, line: number, column: number, scope: Scope): boolean {
+  reportBuiltinRedeclaration(name: string, line: number, column: number): boolean {
     if (!this.bound.reserved.has(name)) return false;
-    if (this.currentSignature(scope) !== undefined) return false;
-    if (!this.called.has(name)) return false;
     this.add(line, column, `Cannot redeclare built-in '${name}'`);
     return true;
   }
@@ -1416,21 +1426,6 @@ export class TypeChecker {
     const spellableAsElement = widened !== null && unionParts(widened, this.bound.env).length === 1;
     return spellableAsElement ? widened : null;
   }
-}
-
-function collectCalled(node: ASTNode | undefined, out: Set<string>): void {
-  if (!node || typeof node !== "object") return;
-  if (node.type === NodeType.CallExpression || node.type === NodeType.OptionalCallExpression) {
-    const callee = node.callee as ASTNode | undefined;
-    if (callee?.type === NodeType.Identifier) out.add(String(callee.name));
-  }
-  for (const child of astChildren(node)) collectCalled(child, out);
-}
-
-function calledNames(body: SemanticNode[]): ReadonlySet<string> {
-  const out = new Set<string>();
-  for (const held of nestedExpressions(body)) collectCalled(held, out);
-  return out;
 }
 
 const PUSH_MEMBER = "push";

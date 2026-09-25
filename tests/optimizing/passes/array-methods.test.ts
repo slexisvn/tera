@@ -36,9 +36,9 @@ const REFERENCE: Held = { element: "string", value: '"a"' };
 const taking = (member: string, held: Held, guard: readonly string[]): string =>
   lowered(
     src(
-      `fn only(stack: ${held.element}[]) -> int:`,
+      `fn only(values: ${held.element}[]) -> int:`,
       ...guard,
-      `  print(stack.${member}())`,
+      `  print(values.${member}())`,
       "  return 0",
       `print(only([${held.value}]))`,
     ),
@@ -49,10 +49,10 @@ const takes = (...guard: string[]) => taking("pop", NUMERIC, guard).includes(ABS
 const takingTwice = (member: string): string =>
   lowered(
     src(
-      "fn only(stack: float[]) -> int:",
-      "  if stack.length > 0:",
-      `    print(stack.${member}())`,
-      `    print(stack.${member}())`,
+      "fn only(values: float[]) -> int:",
+      "  if values.length > 0:",
+      `    print(values.${member}())`,
+      `    print(values.${member}())`,
       "  return 0",
       "print(only([2.5]))",
     ),
@@ -60,15 +60,15 @@ const takingTwice = (member: string): string =>
 
 describe("lowering a pop the surrounding branch already proved", () => {
   it("takes the element outright after a guard that throws below one", () => {
-    expect(takes("  if stack.length < 1:", '    throw "empty"')).toBe(false);
+    expect(takes("  if values.length < 1:", '    throw "empty"')).toBe(false);
   });
 
   it("takes the element outright after a guard that throws unless the count is exact", () => {
-    expect(takes("  if stack.length != 1:", '    throw "leftover"')).toBe(false);
+    expect(takes("  if values.length != 1:", '    throw "leftover"')).toBe(false);
   });
 
   it("takes the element outright after a guard that throws unless the array holds some", () => {
-    expect(takes("  if stack.length == 0:", '    throw "empty"')).toBe(false);
+    expect(takes("  if values.length == 0:", '    throw "empty"')).toBe(false);
   });
 
   it("still answers absence for a pop nothing guarded", () => {
@@ -76,7 +76,7 @@ describe("lowering a pop the surrounding branch already proved", () => {
   });
 
   it("still answers absence when the guard leaves the array empty", () => {
-    expect(takes("  if stack.length != 0:", '    throw "not empty"')).toBe(true);
+    expect(takes("  if values.length != 0:", '    throw "not empty"')).toBe(true);
   });
 
   it("still answers absence for a second pop the same guard cannot cover", () => {
@@ -86,10 +86,10 @@ describe("lowering a pop the surrounding branch already proved", () => {
   it("still answers absence when something else may shorten the array first", () => {
     const text = lowered(
       src(
-        "fn only(stack: float[]) -> int:",
-        "  if stack.length > 0:",
-        "    stack.splice(0, 1)",
-        "    print(stack.pop())",
+        "fn only(values: float[]) -> int:",
+        "  if values.length > 0:",
+        "    values.splice(0, 1)",
+        "    print(values.pop())",
         "  return 0",
         "print(only([2.5]))",
       ),
@@ -101,7 +101,7 @@ describe("lowering a pop the surrounding branch already proved", () => {
 
 describe("lowering a shift that may find the array already empty", () => {
   const shifts = (held: Held, ...guard: string[]) => taking("shift", held, guard);
-  const PROVES_SOME = ["  if stack.length < 1:", '    throw "empty"'];
+  const PROVES_SOME = ["  if values.length < 1:", '    throw "empty"'];
 
   it("joins an absence for a shift nothing proved the array could answer", () => {
     const text = shifts(NUMERIC);
