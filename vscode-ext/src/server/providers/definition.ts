@@ -208,9 +208,60 @@ function importedTypeTarget(
 
   const expression = memberReceiverExpression(document.text, position);
   const root = expression?.match(/^([A-Za-z_$][\w$]*)/)?.[1];
-  if (root === undefined) return null;
-  const receiver = importOwning(graph.entry, root);
-  return receiver === null ? null : resolveExport(graph, receiver.spec, owner);
+  if (root !== undefined) {
+    const receiver = importOwning(graph.entry, root);
+    if (receiver !== null) {
+      const target = resolveExport(graph, receiver.spec, owner);
+      if (target !== null) return target;
+    }
+  }
+  return importedTypeDependencyTarget(graph, owner);
+}
+
+const TYPE_TARGET_KINDS = new Set(["class", "model", "interface", "type"]);
+const IMPORTED_TYPE_TARGETS = new WeakMap<ModuleGraph, Map<string, ModuleTarget | null>>();
+
+function importedTypeDependencyTarget(graph: ModuleGraph, owner: string): ModuleTarget | null {
+  let cached = IMPORTED_TYPE_TARGETS.get(graph);
+  if (cached === undefined) {
+    cached = new Map();
+    IMPORTED_TYPE_TARGETS.set(graph, cached);
+  }
+  if (cached.has(owner)) return cached.get(owner) ?? null;
+
+  const specs = new Set<string>();
+  for (const entry of graph.entry.imports) {
+    specs.add(entry.module);
+    if (entry.boundSpec !== null) specs.add(entry.boundSpec);
+    for (const binding of entry.bindings) {
+      const spec = binding.submodule ?? binding.module;
+      specs.add(spec);
+      const target = resolveExport(graph, spec, binding.imported);
+      if (target !== null) specs.add(target.spec);
+    }
+  }
+
+  let found: ModuleTarget | null = null;
+  for (const spec of specs) {
+    const target = resolveExport(graph, spec, owner);
+    if (target === null || !TYPE_TARGET_KINDS.has(target.kind)) continue;
+    if (found !== null && !sameTarget(found, target)) {
+      cached.set(owner, null);
+      return null;
+    }
+    found = target;
+  }
+  cached.set(owner, found);
+  return found;
+}
+
+function sameTarget(left: ModuleTarget, right: ModuleTarget): boolean {
+  return (
+    left.spec === right.spec &&
+    left.name === right.name &&
+    left.line === right.line &&
+    left.column === right.column
+  );
 }
 
 function fileLocation(context: ProviderContext, filePath: string): Location {

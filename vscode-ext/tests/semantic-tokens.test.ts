@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { buildSemanticTokens, semanticTokenLegend } from "../src/server/providers/semantic-tokens.ts";
-import { contextFor } from "./provider-harness.ts";
+import { cleanupProjects, contextFor, projectFor } from "./provider-harness.ts";
+import type { ProviderContext } from "../src/server/providers/types.ts";
 
 const URI = "file:///test.tera";
 
@@ -11,12 +12,11 @@ type DecodedToken = {
   type: string;
 };
 
-function semanticTokensFor(source: string): DecodedToken[] {
-  const context = contextFor(source);
-  const document = context.analyzer.get(URI);
+function semanticTokensFor(source: string, context: ProviderContext = contextFor(source), uri = URI): DecodedToken[] {
+  const document = context.analyzer.get(uri);
   if (!document) throw new Error("missing analyzed document");
   const lines = source.split(/\r\n|\r|\n/);
-  const encoded = buildSemanticTokens(document, context, URI).data;
+  const encoded = buildSemanticTokens(document, context, uri).data;
   const decoded: DecodedToken[] = [];
   let line = 0;
   let character = 0;
@@ -43,6 +43,39 @@ function typeAt(source: string, tokens: readonly DecodedToken[], lineNeedle: str
 }
 
 describe("semantic tokens", () => {
+  afterEach(() => cleanupProjects());
+
+  it("classifies names imported from another module by their exported kind", () => {
+    const source = "from lib import helper, Widget, Shape";
+    const project = projectFor({
+      "main.tera": source,
+      "lib/__init__.tera": "from .api import helper, Widget, Shape",
+      "lib/api.tera": [
+        "fn helper() -> int:",
+        "  return 1",
+        "class Widget:",
+        "  public constructor():",
+        "    this.ready = true",
+        "interface Shape:",
+        "  area: () -> float",
+      ].join("\n"),
+    }, ["main.tera"]);
+    const importedNames = project.context.modules
+      .importedNames(`${project.root}/main.tera`, source.split("\n"))
+      .map(({ local, kind }) => [local, kind]);
+
+    expect(importedNames).toEqual([
+      ["helper", "function"],
+      ["Widget", "class"],
+      ["Shape", "interface"],
+    ]);
+    const tokens = semanticTokensFor(source, project.context, project.uri("main.tera"));
+
+    expect(typeAt(source, tokens, source, "helper")).toBe("function");
+    expect(typeAt(source, tokens, source, "Widget")).toBe("class");
+    expect(typeAt(source, tokens, source, "Shape")).toBe("type");
+  });
+
   it("uses syntax context before same-named symbols or builtins", () => {
     const source = [
       "fn validate(value: unknown) -> bool:",

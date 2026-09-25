@@ -229,7 +229,14 @@ export class ModuleWorkspace {
   exportedNamesOf(filePath: string): ModuleBinding[] {
     const graph = this.graphOf(filePath);
     if (graph === null) return [];
-    return [...graph.entry.bindings.values()].filter((binding) => binding.exported);
+    return [...graph.entry.bindings.values()]
+      .filter((binding) => binding.exported)
+      .map((binding) => {
+        const target = resolveExport(graph, graph.entry.spec, binding.name);
+        return target === null || target.kind === binding.kind
+          ? binding
+          : { ...binding, kind: target.kind };
+      });
   }
 
   declaredNamesOf(filePath: string): ModuleBinding[] {
@@ -731,22 +738,36 @@ export function moduleLabel(spec: string): string {
   return isNativeSpec(spec) ? nativeName(spec) : spec;
 }
 
-export function importOwning(record: ModuleRecord, local: string): ModuleOrigin | null {
+const IMPORT_ORIGINS = new WeakMap<ModuleRecord, ReadonlyMap<string, ModuleOrigin>>();
+
+function importOrigins(record: ModuleRecord): ReadonlyMap<string, ModuleOrigin> {
+  const cached = IMPORT_ORIGINS.get(record);
+  if (cached !== undefined) return cached;
+  const origins = new Map<string, ModuleOrigin>();
   for (const entry of record.imports) {
-    if (entry.local === local) {
-      return { spec: entry.boundSpec ?? entry.module, imported: local, local, namespace: true };
+    if (entry.local !== null) {
+      origins.set(entry.local, {
+        spec: entry.boundSpec ?? entry.module,
+        imported: entry.local,
+        local: entry.local,
+        namespace: true,
+      });
     }
     for (const binding of entry.bindings) {
-      if (binding.local !== local) continue;
-      return {
+      origins.set(binding.local, {
         spec: binding.submodule ?? binding.module,
         imported: binding.imported,
-        local,
+        local: binding.local,
         namespace: binding.submodule !== null,
-      };
+      });
     }
   }
-  return null;
+  IMPORT_ORIGINS.set(record, origins);
+  return origins;
+}
+
+export function importOwning(record: ModuleRecord, local: string): ModuleOrigin | null {
+  return importOrigins(record).get(local) ?? null;
 }
 
 export function namespaceImport(record: ModuleRecord, local: string): ResolvedImport | null {

@@ -348,6 +348,29 @@ describe("definition across modules", () => {
     expect(location?.range.end).toEqual({ line: 1, character: "  boolean".length });
   });
 
+  it("jumps from a member of a value returned by an imported factory", () => {
+    const project = projectFor({
+      "main.tera": [
+        "from src import create_cas",
+        "engine = create_cas()",
+        "parsed = engine.parse(\"x\")",
+      ].join("\n"),
+      "src/__init__.tera": "from .engine import CasEngine, create_cas",
+      "src/engine.tera": [
+        "class CasEngine:",
+        "  public parse(source: string) -> string:",
+        "    return source",
+        "fn create_cas() -> CasEngine:",
+        "  return CasEngine()",
+      ].join("\n"),
+    }, ["main.tera"]);
+    const location = jump(project, "main.tera", 2, "parsed = engine.parse".length);
+
+    expect(location?.uri).toBe(project.uri("src/engine.tera"));
+    expect(location?.range.start).toEqual({ line: 1, character: "  public ".length });
+    expect(location?.range.end).toEqual({ line: 1, character: "  public parse".length });
+  });
+
   it("returns nothing for a module path that does not resolve", () => {
     const project = projectFor({ ...GEOMETRY, "main.tera": "from nowhere import thing\n" }, ["main.tera"]);
     expect(jump(project, "main.tera", 0, "from nowhere".length)).toBeNull();
