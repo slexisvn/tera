@@ -13,6 +13,7 @@ import {
   parseGenericType,
   tupleTypes,
   typeLiteralShape,
+  type ObjectShape,
   type Signature,
   type TypeName,
 } from "../checker/type-system.js";
@@ -204,11 +205,7 @@ export function moduleInterfaceOf(record: ModuleRecord, bound: BoundProgram): Mo
     }
     const shape = bound.env.interfaces.get(name);
     if (shape !== undefined) {
-      const fields: ExternalInterface["fields"] = {};
-      for (const [field, value] of shape.fields) {
-        fields[field] = { type: value.type, optional: value.optional };
-      }
-      interfaces.push({ name, typeParams: shape.typeParams, fields });
+      interfaces.push(externalInterface(name, shape));
       if (binding.kind === "interface" || (signature === undefined && value === undefined)) continue;
     }
     if (signature !== undefined) {
@@ -218,7 +215,9 @@ export function moduleInterfaceOf(record: ModuleRecord, bound: BoundProgram): Mo
     values.push({ name, type: value?.type ?? ANY_TYPE });
   }
 
-  return { builtins, values, aliases, interfaces };
+  const surface = { builtins, values, aliases, interfaces };
+  addModuleInterfaceDependencies(bound, surface);
+  return surface;
 }
 
 type MutableSurface = {
@@ -228,28 +227,99 @@ type MutableSurface = {
   interfaces: ExternalInterface[];
 };
 
+type SurfaceLookup = {
+  builtins: Map<string, ExternalBuiltinSignature>;
+  values: Map<string, ExternalValue>;
+  aliases: Map<string, ExternalTypeAlias>;
+  interfaces: Map<string, ExternalInterface>;
+};
+
+const SURFACE_LOOKUPS = new WeakMap<object, SurfaceLookup>();
+
+function externalInterface(name: string, shape: ObjectShape): ExternalInterface {
+  const fields: ExternalInterface["fields"] = {};
+  for (const [field, value] of shape.fields) {
+    fields[field] = { type: value.type, optional: value.optional };
+  }
+  return { name, typeParams: shape.typeParams, fields };
+}
+
+function addModuleInterfaceDependencies(bound: BoundProgram, target: MutableSurface): void {
+  const source: ModuleInterface = {
+    aliases: [...bound.env.aliases].map(([name, alias]) => ({
+      name,
+      typeParams: alias.typeParams,
+      type: alias.type,
+    })),
+    interfaces: [...bound.env.interfaces].map(([name, shape]) => externalInterface(name, shape)),
+  };
+  const seen = new Set<string>();
+  for (const signature of [...target.builtins]) addSignatureDependencies(source, target, signature, seen);
+  for (const value of [...target.values]) addTypeDependencies(source, target, value.type, seen);
+  for (const alias of [...target.aliases]) {
+    addTypeDependencies(source, target, alias.type, seen, new Set(alias.typeParams ?? []));
+  }
+  for (const shape of [...target.interfaces]) {
+    const ignored = new Set(shape.typeParams ?? []);
+    for (const field of Object.values(shape.fields)) addTypeDependencies(source, target, field.type, seen, ignored);
+  }
+}
+
 function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function firstByName<T extends { name: string }>(entries: readonly T[] | undefined): Map<string, T> {
+  const indexed = new Map<string, T>();
+  for (const entry of entries ?? []) {
+    if (!indexed.has(entry.name)) indexed.set(entry.name, entry);
+  }
+  return indexed;
+}
+
+function surfaceLookup(surface: ModuleInterface): SurfaceLookup {
+  const cached = SURFACE_LOOKUPS.get(surface);
+  if (cached !== undefined) return cached;
+  const indexed = {
+    builtins: firstByName(surface.builtins),
+    values: firstByName(surface.values),
+    aliases: firstByName(surface.aliases),
+    interfaces: firstByName(surface.interfaces),
+  };
+  SURFACE_LOOKUPS.set(surface, indexed);
+  return indexed;
+}
+
 function pushBuiltin(target: MutableSurface, entry: ExternalBuiltinSignature): void {
-  const existing = target.builtins.find((item) => item.name === entry.name);
-  if (existing === undefined || !sameJson(existing, entry)) target.builtins.push(entry);
+  const indexed = surfaceLookup(target).builtins;
+  const existing = indexed.get(entry.name);
+  if (existing !== undefined && sameJson(existing, entry)) return;
+  target.builtins.push(entry);
+  if (existing === undefined) indexed.set(entry.name, entry);
 }
 
 function pushValue(target: MutableSurface, entry: ExternalValue): void {
-  const existing = target.values.find((item) => item.name === entry.name);
-  if (existing === undefined || !sameJson(existing, entry)) target.values.push(entry);
+  const indexed = surfaceLookup(target).values;
+  const existing = indexed.get(entry.name);
+  if (existing !== undefined && sameJson(existing, entry)) return;
+  target.values.push(entry);
+  if (existing === undefined) indexed.set(entry.name, entry);
 }
 
 function pushAlias(target: MutableSurface, entry: ExternalTypeAlias): void {
-  const existing = target.aliases.find((item) => item.name === entry.name);
-  if (existing === undefined || !sameJson(existing, entry)) target.aliases.push(entry);
+  const indexed = surfaceLookup(target).aliases;
+  const existing = indexed.get(entry.name);
+  if (existing !== undefined && sameJson(existing, entry)) return;
+  target.aliases.push(entry);
+  if (existing === undefined) indexed.set(entry.name, entry);
 }
 
 function pushInterface(target: MutableSurface, entry: ExternalInterface): void {
-  const existing = target.interfaces.find((item) => item.name === entry.name);
-  if (existing === undefined || !sameJson(existing, entry)) target.interfaces.push(entry);
+  const indexed = surfaceLookup(target).interfaces;
+  const existing = indexed.get(entry.name);
+  if (existing !== undefined && sameJson(existing, entry)) return;
+  target.interfaces.push(entry);
+  if (existing === undefined) indexed.set(entry.name, entry);
 }
 
 function surfaceIsEmpty(surface: MutableSurface): boolean {
@@ -291,14 +361,15 @@ function addNamedTypeDependency(
   if (BUILTIN_TYPES.has(clean) || seen.has(clean)) return;
   seen.add(clean);
 
-  const alias = source.aliases?.find((entry) => entry.name === clean);
+  const indexed = surfaceLookup(source);
+  const alias = indexed.aliases.get(clean);
   if (alias !== undefined) {
     pushAlias(target, alias);
     addTypeDependencies(source, target, alias.type, seen, new Set(alias.typeParams ?? []));
     return;
   }
 
-  const shape = source.interfaces?.find((entry) => entry.name === clean);
+  const shape = indexed.interfaces.get(clean);
   if (shape === undefined) return;
   pushInterface(target, shape);
   const ignored = new Set(shape.typeParams ?? []);
@@ -367,19 +438,20 @@ function renameSignature(
 ): ExternalModuleSurface | null {
   const renamed: MutableSurface = { builtins: [], values: [], aliases: [], interfaces: [] };
   const seen = new Set<string>();
-  const signature = surface.builtins?.find((entry) => entry.name === imported);
+  const indexed = surfaceLookup(surface);
+  const signature = indexed.builtins.get(imported);
   if (signature !== undefined) {
     const renamedSignature = { ...signature, name: local };
     pushBuiltin(renamed, renamedSignature);
     addSignatureDependencies(surface, renamed, signature, seen);
   }
-  const alias = surface.aliases?.find((entry) => entry.name === imported);
+  const alias = indexed.aliases.get(imported);
   if (alias !== undefined) {
     const renamedAlias = { ...alias, name: local };
     pushAlias(renamed, renamedAlias);
     addTypeDependencies(surface, renamed, alias.type, seen, new Set(alias.typeParams ?? []));
   }
-  const shape = surface.interfaces?.find((entry) => entry.name === imported);
+  const shape = indexed.interfaces.get(imported);
   if (shape !== undefined) {
     const renamedShape = { ...shape, name: local };
     pushInterface(renamed, renamedShape);
@@ -387,7 +459,7 @@ function renameSignature(
     for (const field of Object.values(shape.fields)) addTypeDependencies(surface, renamed, field.type, seen, ignored);
   }
   if (!surfaceIsEmpty(renamed)) return renamed;
-  const value = surface.values?.find((entry) => entry.name === imported);
+  const value = indexed.values.get(imported);
   if (value !== undefined) {
     pushValue(renamed, { ...value, name: local });
     addTypeDependencies(surface, renamed, value.type, seen);
@@ -431,7 +503,7 @@ export function importedSurface(
   for (const entry of imports) {
     if (entry.local !== null) {
       if (!claim(entry.local)) continue;
-      surface.values.push({ name: entry.local, type: ANY_TYPE });
+      pushValue(surface, { name: entry.local, type: ANY_TYPE });
       const bound = entry.boundSpec === null ? undefined : interfaces.get(entry.boundSpec);
       if (bound !== undefined) mergeSurface(surface, qualifiedSurface(bound, entry.local));
       continue;
@@ -440,11 +512,11 @@ export function importedSurface(
     for (const binding of entry.bindings) {
       if (!claim(binding.local)) continue;
       if (binding.submodule !== null || owner === undefined) {
-        surface.values.push({ name: binding.local, type: ANY_TYPE });
+        pushValue(surface, { name: binding.local, type: ANY_TYPE });
         continue;
       }
       const renamed = renameSignature(owner, binding.imported, binding.local);
-      if (renamed === null) surface.values.push({ name: binding.local, type: ANY_TYPE });
+      if (renamed === null) pushValue(surface, { name: binding.local, type: ANY_TYPE });
       else mergeSurface(surface, renamed);
     }
   }

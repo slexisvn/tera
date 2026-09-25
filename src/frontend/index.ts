@@ -66,6 +66,7 @@ export {
   isMemberAccessSource,
   isStringLiteralTextOffset,
   isStringLiteralTextPosition,
+  memberReceiverExpression,
   offsetAt,
   positionAt,
   recoverMemberCompletionSource,

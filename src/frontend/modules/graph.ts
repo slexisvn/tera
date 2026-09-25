@@ -215,6 +215,18 @@ function tarjan(
   return components;
 }
 
+function orderInitComponent(
+  component: readonly string[],
+  importEdges: ReadonlyMap<string, readonly string[]>,
+): string[] {
+  if (component.length < 2) return [...component];
+  const members = new Set(component);
+  return tarjan(
+    component,
+    (spec) => (importEdges.get(spec) ?? []).filter((target) => members.has(target)),
+  ).flat();
+}
+
 class ModuleLoader {
   private readonly resolver: ModuleResolver;
   private readonly fileSystem: ModuleFileSystem;
@@ -402,7 +414,7 @@ class ModuleLoader {
 
     const initOrder: ModuleRecord[] = [];
     for (const component of tarjan(specs, (spec) => initEdges.get(spec) ?? [])) {
-      for (const spec of component) {
+      for (const spec of orderInitComponent(component, importEdges)) {
         const record = runnable(spec);
         if (record !== null) initOrder.push(record);
       }

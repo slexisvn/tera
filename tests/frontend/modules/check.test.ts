@@ -138,6 +138,22 @@ describe("cross-module types", () => {
     }))).toEqual(["Type 'string' is not assignable to 'int'"]);
   });
 
+  it("carries transitive type dependencies through a package value", () => {
+    expect(messages(check({
+      "main.tera": "from pkg import api\nok: string = api.chain().next()\nbad: int = api.chain().next()\n",
+      "pkg/__init__.tera": [
+        "from .types import Api",
+        "api: Api = { chain: () => ({ next: () => \"ready\" }) }",
+      ].join("\n"),
+      "pkg/types.tera": [
+        "interface Chain:",
+        "  next: () -> string",
+        "interface Api:",
+        "  chain: () -> Chain",
+      ].join("\n"),
+    }))).toEqual(["Type 'string' is not assignable to 'int'"]);
+  });
+
   it("renames an aliased import in the importing module", () => {
     expect(check({
       "main.tera": "from helper import twice as double\nprint(double(2))\n",

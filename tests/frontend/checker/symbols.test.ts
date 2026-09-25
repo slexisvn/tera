@@ -85,6 +85,22 @@ describe("buildSourceSymbolTable", () => {
       expect(table.membersOf("GuardApi").map((member) => member.name)).toEqual(["object", "string"]);
     });
 
+    it("binds an imported value to its external interface", () => {
+      const table = buildSourceSymbolTable("from pkg import guard\nguard.string", [], {
+        imports: {
+          values: [{ name: "guard", type: "GuardApi" }],
+          interfaces: [{
+            name: "GuardApi",
+            fields: { string: { type: "() -> StringGuard" } },
+          }],
+        },
+      });
+      const position = { line: 1, character: "guard".length };
+
+      expect(table.resolve("guard", position)?.typeName).toBe("GuardApi");
+      expect(table.resolveField("GuardApi", "string", position)?.typeName).toBe("() -> StringGuard");
+    });
+
     it("resolves later function declarations without hoisting variables", () => {
       const source = [
         "value = later(1)",

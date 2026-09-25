@@ -123,4 +123,22 @@ describe("the hover card elsewhere in the line", () => {
     expect(hoverTokenWithAnalysis(source, "value")?.kind).toBe("field");
     expect(hoverTokenWithAnalysis(source, "T", source.indexOf("T | null"))?.kind).toBe("type");
   });
+
+  it("hovers a member chained after a multiline call", () => {
+    const source = [
+      "interface ObjectGuard:",
+      "  strict: () -> ObjectGuard",
+      "interface GuardApi:",
+      "  object: (shape: any) -> ObjectGuard",
+      "guard: GuardApi = {}",
+      "user_schema = guard.object({",
+      "  name: 1,",
+      "}).strict()",
+    ].join("\n");
+    const from = source.lastIndexOf("strict");
+    const doc = hoverTokenWithAnalysis(source, "strict", from);
+
+    expect(doc?.title).toBe("ObjectGuard.strict");
+    expect(doc?.description).toContain("() -> ObjectGuard");
+  });
 });

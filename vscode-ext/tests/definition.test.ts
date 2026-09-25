@@ -118,6 +118,21 @@ describe("definition", () => {
     expect(location?.range.end).toEqual({ line: 2, character: "  public sections".length });
   });
 
+  it("jumps from this to the owning class declaration", () => {
+    const source = [
+      "class Report:",
+      "  constructor(title: string):",
+      "    this.title = title",
+    ].join("\n");
+    const location = computeDefinition(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 2, character: "    this".length },
+    });
+
+    expect(location?.range.start).toEqual({ line: 0, character: "class ".length });
+    expect(location?.range.end).toEqual({ line: 0, character: "class Report".length });
+  });
+
   it("jumps from a super constructor call to the base constructor", () => {
     const source = [
       "class Handler:",

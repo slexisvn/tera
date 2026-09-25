@@ -330,6 +330,51 @@ describe("module values", () => {
     })).toEqual(["4"]);
   });
 
+  it("resolves an interface imported by a package submodule", () => {
+    expect(run({
+      "main.tera": ["from pkg import guard", "print(guard.make_array().size())", ""].join("\n"),
+      "pkg/__init__.tera": [
+        "from .array import make_array",
+        "from .types import GuardApi",
+        "guard: GuardApi = { make_array: make_array }",
+        "",
+      ].join("\n"),
+      "pkg/types.tera": [
+        "interface ArrayGuard:",
+        "  size() -> int",
+        "type GuardApi = { make_array: () -> ArrayGuard }",
+        "",
+      ].join("\n"),
+      "pkg/array.tera": [
+        "from .types import ArrayGuard",
+        "class ArraySchema implements ArrayGuard:",
+        "  public size() -> int:",
+        "    return 1",
+        "fn make_array() -> ArrayGuard:",
+        "  return ArraySchema()",
+        "",
+      ].join("\n"),
+    })).toEqual(["1"]);
+  });
+
+  it("checks inherited members from an imported interface", () => {
+    const root = project({
+      "main.tera": "from child import Broken\nBroken()\n",
+      "base.tera": ["interface Base:", "  required() -> int", ""].join("\n"),
+      "child.tera": [
+        "from base import Base as Parent",
+        "interface Child extends Parent:",
+        "  own() -> int",
+        "class Broken implements Child:",
+        "  public own() -> int:",
+        "    return 1",
+        "",
+      ].join("\n"),
+    });
+    expect(() => nodeEngine({ typecheck: "off" }).runModule(path.join(root, "main.tera"), { root }))
+      .toThrow("Class 'Broken' is missing 'required' required by interface 'Child'");
+  });
+
   it("sees a later write made by the exporting module", () => {
     expect(run({
       "main.tera": "from state import current, bump\nbump()\nprint(current)\n",

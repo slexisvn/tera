@@ -71,7 +71,7 @@ describe("tera run", () => {
     expect(run.out).toContain("slexis.json [package]");
     expect(run.out).toContain("slexis.http.client [file]");
     expect(run.out).toContain(
-      "init order: slexis.json -> slexis.http -> slexis.http.client -> __main__",
+      "init order: slexis.json -> slexis.http.client -> slexis.http -> __main__",
     );
   });
 

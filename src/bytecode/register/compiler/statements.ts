@@ -130,6 +130,7 @@ type StatementCompilerThis = {
   _labeledBreaks: Record<string, number[]>;
   _labeledContinues: Record<string, number[]>;
   _pendingLoopLabels: string[];
+  moduleSpec: string | null;
   interfaceContracts: Map<string, RuntimeInterfaceContract>;
   _withSourceNode<T>(node: ASTNode, run: () => T): T;
   _collectInterfaceDeclarations(nodes: ASTNode[]): void;
@@ -186,9 +187,13 @@ function interfaceContractFrom(
   resolving.add(node.name);
   const members = new Map<string, RuntimeInterfaceMember>();
   for (const parent of node.parents ?? []) {
-    const parentNode = raw.get(runtimeInterfaceBaseName(parent));
-    if (!parentNode) continue;
-    for (const member of interfaceContractFrom(parentNode, raw, resolved, resolving).members) {
+    const parentName = runtimeInterfaceBaseName(parent);
+    const parentNode = raw.get(parentName);
+    const contract = parentNode
+      ? interfaceContractFrom(parentNode, raw, resolved, resolving)
+      : resolved.get(parentName);
+    if (!contract) continue;
+    for (const member of contract.members) {
       members.set(member.name, member);
     }
   }
@@ -282,9 +287,10 @@ export const statementMethods: StatementMethodMap = {
 
   compileLetDeclaration(node) {
     const name = requiredName(node, "declaration");
+    const isModuleBinding = this.moduleSpec !== null && this.scope.isScript === true;
     const isScriptVar = this.scope.isInScriptScope() && node.type === NodeType.VarDeclaration;
 
-    if (isScriptVar) {
+    if (isModuleBinding || isScriptVar) {
       if (node.init === null || node.init === undefined) return;
       this.compileExpression(expressionNode(node.init, "var initializer"));
       const nameIdx = this.globalNameIndex(name);

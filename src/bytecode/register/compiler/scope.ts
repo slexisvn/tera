@@ -39,6 +39,7 @@ type HoistableFunction = RegisterCompiledFunction & {
 type ScopeCompiler = {
   func: HoistableFunction;
   scope: ScopeLike;
+  moduleSpec: string | null;
   _declareLocal(name: string, kind?: BindingKind): number;
   _declareLexical(name: string, kind: BindingKind): number;
   _addHoistedVar(name: string): void;
@@ -219,10 +220,12 @@ export const scopeMethods = {
         break;
       case NodeType.LetDeclaration:
       case NodeType.ConstDeclaration: {
-        this._declareLexical(
-          node.name as string,
-          node.type === NodeType.ConstDeclaration ? "const" : "let",
-        );
+        if (!this.scope.isScript || this.moduleSpec === null) {
+          this._declareLexical(
+            node.name as string,
+            node.type === NodeType.ConstDeclaration ? "const" : "let",
+          );
+        }
         break;
       }
       case NodeType.VarDeclaration: {

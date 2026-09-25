@@ -459,6 +459,24 @@ function preludeFor(graph: ModuleGraph): string {
   return preludeText(moduleRoots(graph), [graph.entry.ast], collections, json);
 }
 
+function runtimeContractsOf(
+  interfaces: ReadonlyMap<string, ModuleInterface>,
+): Map<string, RuntimeInterfaceContract> {
+  const contracts = new Map<string, RuntimeInterfaceContract>();
+  for (const [spec, surface] of interfaces) {
+    for (const entry of surface.interfaces ?? []) {
+      contracts.set(cellKey(spec, entry.name), {
+        name: entry.name,
+        members: Object.entries(entry.fields).map(([name, field]) => ({
+          name,
+          optional: field.optional ?? false,
+        })),
+      });
+    }
+  }
+  return contracts;
+}
+
 function adoptPreludeCalls(graph: ModuleGraph): void {
   const shapes = jsonShapesFor(graph);
   if (shapes.length > 0) {
@@ -1420,6 +1438,7 @@ ${prelude}`);
       nativeInterfaces: this.nativeModuleInterfaces(),
       collectClasses: aot,
     });
+    this.moduleContractCache.set(graph, runtimeContractsOf(checked.interfaces));
     this.diagnostics = [...checked.diagnostics];
     if (aot) refuseRepeatedClassNames(graph);
     if (aot) this.aotClasses = buildClassTable(checked.classes, checked.types);

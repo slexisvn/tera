@@ -340,15 +340,15 @@ describe("check order", () => {
     ]);
   });
 
-  it("still initialises the package before its submodule", () => {
+  it("initialises an imported submodule before the package that consumes it", () => {
     const graph = graphOf({
       "main.tera": "from pkg import shared\n",
       "pkg/__init__.tera": "from .inner import shared\n",
       "pkg/inner.tera": "shared = 1\n",
     });
     expect(graph.initOrder.map((record) => record.spec)).toEqual([
-      "pkg",
       "pkg.inner",
+      "pkg",
       ENTRY_SPEC,
     ]);
   });

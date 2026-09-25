@@ -3,7 +3,7 @@ import { TERA_PRIMITIVE_PSEUDO_TYPES, TERA_PSEUDO_TYPES, type TeraPseudoTypeSpec
 import { lowerToSemanticProgram } from "./semantic-lowering.js";
 import type { ClassFieldNode, ClassMemberNode, FunctionNode, SemanticNode } from "./semantic-ast.js";
 import { builtinMethod, createTypeEnv, signatureType, type Binding } from "./type-system.js";
-import type { ExternalInterface, ExternalModuleSurface, ExternalTypeAlias } from "./binder.js";
+import type { ExternalBuiltinSignature, ExternalInterface, ExternalModuleSurface, ExternalTypeAlias } from "./binder.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
 import { splitTopLevel } from "../../core/type-text.js";
 import type { SyntaxPlugin } from "../parser/extensions.js";
@@ -107,6 +107,11 @@ type InferredSymbolInput = {
   scopeStartColumn?: number;
 };
 
+type ImportedSourceSymbol = {
+  kind: SymbolKind;
+  typeName: string | null;
+};
+
 const PSEUDO_MEMBER_OWNER_BY_LOWER = new Map([
   ...Object.keys(TERA_PSEUDO_TYPES).map((owner) => [owner.toLowerCase(), owner] as const),
   ...Object.entries(TERA_PRIMITIVE_PSEUDO_TYPES).map(([primitive, owner]) => [primitive.toLowerCase(), owner] as const),
@@ -119,6 +124,7 @@ class SymbolTableBuilder {
   parentsByType = new Map<string, string>();
   aliasesByType = new Map<string, string>();
   typeParamsByOwner = new Map<string, string[]>();
+  importedSymbols = new Map<string, ImportedSourceSymbol>();
   source: string;
   lexicalSource: string;
   lineStarts: number[];
@@ -130,7 +136,10 @@ class SymbolTableBuilder {
     this.root = makeScope("<root>", null, 1, lines.length + 1, 0);
     this.scopes = [this.root];
     this.addExternalSurface({ aliases: options.aliases, interfaces: options.interfaces });
-    if (options.imports !== undefined) this.addExternalSurface(options.imports);
+    if (options.imports !== undefined) {
+      this.addExternalSurface(options.imports);
+      this.addImportedSymbols(options.imports);
+    }
   }
 
   visitProgram(nodes: SemanticNode[]): void {
@@ -216,6 +225,36 @@ class SymbolTableBuilder {
     }
   }
 
+  private addImportedSymbols(surface: ExternalModuleSurface): void {
+    for (const alias of surface.aliases ?? []) {
+      this.importedSymbols.set(alias.name, { kind: "type", typeName: cleanType(alias.type) });
+    }
+    for (const spec of surface.interfaces ?? []) {
+      this.importedSymbols.set(spec.name, { kind: "type", typeName: spec.name });
+    }
+    for (const spec of surface.builtins ?? []) {
+      this.importedSymbols.set(spec.name, { kind: "function", typeName: externalReturnType(spec) });
+    }
+    for (const value of surface.values ?? []) {
+      this.importedSymbols.set(value.name, { kind: "variable", typeName: cleanType(value.type) });
+    }
+  }
+
+  private visitImport(node: Extract<SemanticNode, { kind: "Import" }>, scope: SourceScope): void {
+    for (const binding of node.bindings) {
+      const imported = this.importedSymbols.get(binding.local);
+      if (imported === undefined) continue;
+      addSymbol(
+        scope,
+        binding.local,
+        imported.kind,
+        binding.span.line,
+        binding.span.column,
+        imported.typeName,
+      );
+    }
+  }
+
   private visitNode(node: SemanticNode, scope: SourceScope): void {
     switch (node.kind) {
       case "Function":
@@ -247,6 +286,9 @@ class SymbolTableBuilder {
           const at = node.variableSpans[index] ?? node.span;
           addSymbol(scope, name, "variable", at.line, at.column, this.localType(name, at.line));
         }
+        break;
+      case "Import":
+        this.visitImport(node, scope);
         break;
       case "Expr":
         this.visitExpression(node.value, scope, node.span);
@@ -554,6 +596,10 @@ function endLine(nodes: Array<SemanticNode | FunctionNode | ClassFieldNode | { s
 
 function cleanType(type: string | undefined): string | null {
   return type?.trim() || null;
+}
+
+function externalReturnType(spec: ExternalBuiltinSignature): string | null {
+  return returnType(spec.returns ?? "any");
 }
 
 function returnType(type: string): string | null {

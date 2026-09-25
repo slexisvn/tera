@@ -1,4 +1,5 @@
 import type { SourceSymbolTable, SymbolPosition } from "./checker/index.js";
+import { maskNonCodeSource } from "./source-context.js";
 
 export function recoverMemberCompletionSource(text: string): string {
   return text.replace(/\.([ \t]*)(?=(?:for|in|if|of)\b|[\]\),;:\n]|$)/g, ".__tera_completion__$1");
@@ -197,8 +198,7 @@ export function resolveMemberReceiverType(
   symbols: SourceSymbolTable,
   globals: Record<string, string> = {},
 ): string | null {
-  const lines = source.replace(/\r\n?/g, "\n").split("\n");
-  return resolveMemberReceiverTypeFromLines(lines, position, symbols, globals);
+  return resolveMemberReceiverTypeFromSource(receiverSourceContext(source), position, symbols, globals);
 }
 
 export function createMemberReceiverTypeResolver(
@@ -206,43 +206,115 @@ export function createMemberReceiverTypeResolver(
   symbols: SourceSymbolTable,
   globals: Record<string, string> = {},
 ): (position: SymbolPosition) => string | null {
-  const lines = source.replace(/\r\n?/g, "\n").split("\n");
-  return (position) => resolveMemberReceiverTypeFromLines(lines, position, symbols, globals);
+  const context = receiverSourceContext(source);
+  return (position) => resolveMemberReceiverTypeFromSource(context, position, symbols, globals);
 }
 
-function resolveMemberReceiverTypeFromLines(
-  lines: readonly string[],
+export function memberReceiverExpression(source: string, position: SymbolPosition): string | null {
+  return memberReceiverExpressionFromSource(receiverSourceContext(source), position);
+}
+
+type ReceiverSourceContext = {
+  source: string;
+  masked: string;
+  lines: string[];
+  lineOffsets: number[];
+};
+
+function receiverSourceContext(source: string): ReceiverSourceContext {
+  const normalized = source.replace(/\r\n?/g, "\n");
+  const lineOffsets = [0];
+  for (let index = 0; index < normalized.length; index++) {
+    if (normalized[index] === "\n") lineOffsets.push(index + 1);
+  }
+  return {
+    source: normalized,
+    masked: maskReceiverSource(normalized),
+    lines: normalized.split("\n"),
+    lineOffsets,
+  };
+}
+
+function resolveMemberReceiverTypeFromSource(
+  context: ReceiverSourceContext,
   position: SymbolPosition,
   symbols: SourceSymbolTable,
   globals: Record<string, string>,
 ): string | null {
-  const line = lines[position.line] ?? "";
-  const before = line.slice(0, position.character);
-  const trailing = before.match(/\.\s*[A-Za-z0-9_$]*$/);
-  if (!trailing) return null;
-  const receiverSource = before.slice(0, before.length - trailing[0].length);
-  const receiver = extractReceiverExpression(receiverSource) || leadingDotReceiverExpression(lines, position.line);
+  const receiver = memberReceiverExpressionFromSource(context, position);
   return receiver ? resolveExpressionType(receiver, position, symbols, globals) : null;
 }
 
+function memberReceiverExpressionFromSource(
+  context: ReceiverSourceContext,
+  position: SymbolPosition,
+): string | null {
+  const line = context.lines[position.line] ?? "";
+  const before = line.slice(0, position.character);
+  const trailing = before.match(/\.[ \t]*[A-Za-z0-9_$]*$/);
+  if (!trailing) return null;
+  const lineOffset = context.lineOffsets[position.line] ?? context.source.length;
+  const receiverEnd = Math.min(context.source.length, lineOffset + before.length - trailing[0].length);
+  const receiver = extractReceiverExpressionAt(context.source, context.masked, receiverEnd);
+  if (hasExpressionBase(receiver)) return receiver;
+  const leading = leadingDotReceiverExpression(context.lines, position.line);
+  return hasExpressionBase(leading) ? leading : null;
+}
+
 export function extractReceiverExpression(text: string): string {
-  let depth = 0;
+  return extractReceiverExpressionAt(text, maskReceiverSource(text), text.length);
+}
+
+function maskReceiverSource(source: string): string {
+  const masked = source.split("");
+  for (const range of stringLiteralTextRanges(source)) {
+    for (let index = range.from; index < range.to; index++) {
+      if (source[index] !== "\n" && source[index] !== "\r") masked[index] = " ";
+    }
+  }
+  return maskNonCodeSource(masked.join(""));
+}
+
+function extractReceiverExpressionAt(text: string, masked: string, endOffset: number): string {
+  let end = Math.max(0, Math.min(masked.length, endOffset));
+  while (end > 0 && /\s/.test(masked[end - 1])) end--;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
   let start = 0;
-  for (let i = text.length - 1; i >= 0; i--) {
-    const ch = text[i];
-    if (ch === ")" || ch === "]") depth++;
-    else if (ch === "(" || ch === "[") {
-      if (depth === 0) {
+  for (let i = end - 1; i >= 0; i--) {
+    const ch = masked[i];
+    if (ch === ")") parenDepth++;
+    else if (ch === "]") bracketDepth++;
+    else if (ch === "}") braceDepth++;
+    else if (ch === "(") {
+      if (parenDepth === 0) {
         start = i + 1;
         break;
       }
-      depth--;
-    } else if (depth === 0 && /[\s=,;{}+\-*/%<>!&|?:]/.test(ch)) {
+      parenDepth--;
+    } else if (ch === "[") {
+      if (bracketDepth === 0) {
+        start = i + 1;
+        break;
+      }
+      bracketDepth--;
+    } else if (ch === "{") {
+      if (braceDepth === 0) {
+        start = i + 1;
+        break;
+      }
+      braceDepth--;
+    } else if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && /[\s=,;+\-*/%<>!&|?:]/.test(ch)) {
       start = i + 1;
       break;
     }
   }
-  return text.slice(start).trim();
+  return text.slice(start, end).trim();
+}
+
+function hasExpressionBase(expression: string | null): expression is string {
+  return expression !== null && /^[A-Za-z_$][\w$]*/.test(expression);
 }
 
 function leadingDotReceiverExpression(lines: readonly string[], lineIndex: number): string | null {
@@ -255,7 +327,7 @@ function leadingDotReceiverExpression(lines: readonly string[], lineIndex: numbe
       continue;
     }
     const base = extractReceiverExpression(lines[cursor]);
-    return base ? `${base}${segments.join("")}` : null;
+    return hasExpressionBase(base) ? `${base}${segments.join("")}` : null;
   }
   return null;
 }

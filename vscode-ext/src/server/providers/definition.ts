@@ -1,6 +1,6 @@
 import type { DefinitionParams, Location } from "vscode-languageserver/node.js";
 import { createReactiveCheckOptions } from "@slexisvn/reactive/tera";
-import { buildSourceSymbolTable, isFieldSymbolAt, isStringLiteralTextPosition, type ModuleGraph } from "tera/frontend";
+import { buildSourceSymbolTable, isFieldSymbolAt, isStringLiteralTextPosition, memberReceiverExpression, type ModuleGraph } from "tera/frontend";
 import { importCursorAt } from "../analyzer/import-syntax.ts";
 import {
   importOwning,
@@ -12,7 +12,7 @@ import {
 import { pathOfUri, samePath } from "../analyzer/paths.ts";
 import { receiverNameAt, wordRangeAt } from "../analyzer/position.ts";
 import { isObjectKeyAt } from "../analyzer/token-context.ts";
-import type { AnalyzedDocument } from "../analyzer/types.ts";
+import type { AnalyzedDocument, Position } from "../analyzer/types.ts";
 import { isMemberAccess, resolveReceiverType, symbolsFor } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
@@ -50,12 +50,22 @@ export function computeDefinition(context: ProviderContext, params: DefinitionPa
   const superTarget = superDefinition(context, document, params, word);
   if (superTarget) return superTarget;
 
+  const thisTarget = thisDefinition(document, params.textDocument.uri, word, localSymbol);
+  if (thisTarget) return thisTarget;
+
   if (isMemberAccess(document, params.position)) {
     const receiverType = resolveReceiverType(context, params.textDocument.uri, document, params.position);
     if (!receiverType) return null;
     const field = symbols.resolveField(receiverType, word.text, params.position);
     if (field && field.line > 0) return location(params.textDocument.uri, field.name, field.line, field.column);
-    const importedMember = importedMemberDefinition(context, params.textDocument.uri, receiverType, word.text);
+    const importedMember = importedMemberDefinition(
+      context,
+      params.textDocument.uri,
+      document,
+      params.position,
+      receiverType,
+      word.text,
+    );
     return importedMember;
   }
 
@@ -156,27 +166,51 @@ function targetLocation(context: ProviderContext, target: ModuleTarget): Locatio
 function importedMemberDefinition(
   context: ProviderContext,
   uri: string,
+  document: AnalyzedDocument,
+  position: Position,
   receiverType: string,
   fieldName: string,
 ): Location | null {
   const graph = context.modules.graphFor(uri);
   if (graph === null) return null;
   const owner = ownerFromType(receiverType);
-  const origin = importOwning(graph.entry, owner);
-  if (origin === null || origin.namespace) return null;
-  const target = resolveExport(graph, origin.spec, origin.imported);
+  const target = importedTypeTarget(graph, document, position, owner);
   if (target === null || target.path === null) return null;
 
   const source = context.modules.sourceAt(target.path);
+  const targetUri = context.modules.uriFor(target.path);
+  const imports = context.modules.importedSurfaceFor(targetUri, source.replace(/\r\n?/g, "\n").split("\n"));
   const options = createReactiveCheckOptions();
-  const symbols = buildSourceSymbolTable(source, [], { syntaxPlugins: options.syntaxPlugins });
+  const symbols = buildSourceSymbolTable(source, [], {
+    syntaxPlugins: options.syntaxPlugins,
+    imports: imports ?? undefined,
+  });
   const field = symbols.resolveField(target.name, fieldName, {
     line: Math.max(0, target.line - 1),
     character: Math.max(0, target.column - 1),
   });
   return field && field.line > 0
-    ? location(context.modules.uriFor(target.path), field.name, field.line, field.column)
+    ? location(targetUri, field.name, field.line, field.column)
     : null;
+}
+
+function importedTypeTarget(
+  graph: ModuleGraph,
+  document: AnalyzedDocument,
+  position: Position,
+  owner: string,
+): ModuleTarget | null {
+  const direct = importOwning(graph.entry, owner);
+  if (direct !== null && !direct.namespace) {
+    const target = resolveExport(graph, direct.spec, direct.imported);
+    if (target !== null) return target;
+  }
+
+  const expression = memberReceiverExpression(document.text, position);
+  const root = expression?.match(/^([A-Za-z_$][\w$]*)/)?.[1];
+  if (root === undefined) return null;
+  const receiver = importOwning(graph.entry, root);
+  return receiver === null ? null : resolveExport(graph, receiver.spec, owner);
 }
 
 function fileLocation(context: ProviderContext, filePath: string): Location {
@@ -207,6 +241,17 @@ function superDefinition(
   const constructor = owner?.scope?.symbols.find((item) => item.name === "constructor");
   const target = constructor ?? owner;
   return target ? location(params.textDocument.uri, target.name, target.line, target.column) : null;
+}
+
+function thisDefinition(
+  document: AnalyzedDocument,
+  uri: string,
+  word: NonNullable<ReturnType<typeof wordRangeAt>>,
+  symbol: ReturnType<AnalyzedDocument["symbols"]["resolve"]>,
+): Location | null {
+  if (word.text !== "this" || symbol?.typeName === null || symbol?.typeName === undefined) return null;
+  const owner = typeSymbol(document, ownerFromType(symbol.typeName));
+  return owner ? location(uri, owner.name, owner.line, owner.column) : null;
 }
 
 function memberAfterDot(line: string, start: number): { name: string; end: number } | null {
@@ -240,4 +285,3 @@ function location(uri: string, name: string, lineOneBased: number, columnOneBase
     },
   };
 }
-
