@@ -8,3 +8,5 @@ export type {
   PseudoTypeSource,
   Signature,
 } from "tera/frontend/language-data";
+
+export { parseParams } from "tera/frontend/language-data";

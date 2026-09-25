@@ -1,5 +1,6 @@
 import type { DefinitionParams, Location } from "vscode-languageserver/node.js";
-import { isStringLiteralTextPosition, type ModuleGraph } from "tera/frontend";
+import { createReactiveCheckOptions } from "@slexisvn/reactive/tera";
+import { buildSourceSymbolTable, isFieldSymbolAt, isStringLiteralTextPosition, type ModuleGraph } from "tera/frontend";
 import { importCursorAt } from "../analyzer/import-syntax.ts";
 import {
   importOwning,
@@ -10,7 +11,8 @@ import {
 } from "../analyzer/modules.ts";
 import { pathOfUri, samePath } from "../analyzer/paths.ts";
 import { receiverNameAt, wordRangeAt } from "../analyzer/position.ts";
-import type { AnalyzedDocument, AnalyzedToken } from "../analyzer/types.ts";
+import { isObjectKeyAt } from "../analyzer/token-context.ts";
+import type { AnalyzedDocument } from "../analyzer/types.ts";
 import { isMemberAccess, resolveReceiverType, symbolsFor } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
@@ -33,12 +35,14 @@ export function computeDefinition(context: ProviderContext, params: DefinitionPa
   if (!document) return null;
   if (isStringLiteralTextPosition(document.text, params.position)) return null;
 
+  const word = wordRangeAt(document.lines, params.position);
   const imported = importDefinition(context, document, params);
   if (imported) return imported;
 
-  const word = wordRangeAt(document.lines, params.position);
   if (!word) return null;
-  if (isObjectKey(document, word.range.start)) return null;
+  const symbols = symbolsFor(context, params.textDocument.uri, document);
+  const localSymbol = symbols.resolve(word.text, params.position);
+  if (isObjectKeyAt(document.tokens, word.range.start) && !isFieldSymbolAt(localSymbol, word.range.start)) return null;
 
   const crossModule = crossModuleDefinition(context, document, params, word.text);
   if (crossModule) return crossModule;
@@ -47,14 +51,15 @@ export function computeDefinition(context: ProviderContext, params: DefinitionPa
   if (superTarget) return superTarget;
 
   if (isMemberAccess(document, params.position)) {
-    const symbols = symbolsFor(context, params.textDocument.uri, document);
     const receiverType = resolveReceiverType(context, params.textDocument.uri, document, params.position);
     if (!receiverType) return null;
     const field = symbols.resolveField(receiverType, word.text, params.position);
-    return field && field.line > 0 ? location(params.textDocument.uri, field.name, field.line, field.column) : null;
+    if (field && field.line > 0) return location(params.textDocument.uri, field.name, field.line, field.column);
+    const importedMember = importedMemberDefinition(context, params.textDocument.uri, receiverType, word.text);
+    return importedMember;
   }
 
-  const symbol = symbolsFor(context, params.textDocument.uri, document).resolve(word.text, params.position);
+  const symbol = localSymbol;
   return symbol ? location(params.textDocument.uri, symbol.name, symbol.line, symbol.column) : null;
 }
 
@@ -148,6 +153,32 @@ function targetLocation(context: ProviderContext, target: ModuleTarget): Locatio
   return location(context.modules.uriFor(target.path), target.name, target.line, target.column);
 }
 
+function importedMemberDefinition(
+  context: ProviderContext,
+  uri: string,
+  receiverType: string,
+  fieldName: string,
+): Location | null {
+  const graph = context.modules.graphFor(uri);
+  if (graph === null) return null;
+  const owner = ownerFromType(receiverType);
+  const origin = importOwning(graph.entry, owner);
+  if (origin === null || origin.namespace) return null;
+  const target = resolveExport(graph, origin.spec, origin.imported);
+  if (target === null || target.path === null) return null;
+
+  const source = context.modules.sourceAt(target.path);
+  const options = createReactiveCheckOptions();
+  const symbols = buildSourceSymbolTable(source, [], { syntaxPlugins: options.syntaxPlugins });
+  const field = symbols.resolveField(target.name, fieldName, {
+    line: Math.max(0, target.line - 1),
+    character: Math.max(0, target.column - 1),
+  });
+  return field && field.line > 0
+    ? location(context.modules.uriFor(target.path), field.name, field.line, field.column)
+    : null;
+}
+
 function fileLocation(context: ProviderContext, filePath: string): Location {
   return {
     uri: context.modules.uriFor(filePath),
@@ -189,30 +220,13 @@ function memberAfterDot(line: string, start: number): { name: string; end: numbe
 }
 
 function typeSymbol(document: AnalyzedDocument, typeName: string) {
-  return document.symbols.flat.find((symbol) => symbol.name === typeName && (symbol.kind === "module" || symbol.kind === "model")) ?? null;
+  return document.symbols.flat.find((symbol) => symbol.name === typeName && (symbol.kind === "module" || symbol.kind === "model" || symbol.kind === "type")) ?? null;
 }
 
-function isObjectKey(document: AnalyzedDocument, position: { line: number; character: number }): boolean {
-  const tokens = document.tokens;
-  const index = tokens.findIndex((token) => token.line === position.line + 1 && token.column === position.character + 1);
-  if (index < 0 || tokens[index].type !== "identifier") return false;
-  const next = nextAfterOptional(tokens, index + 1, "?");
-  if (tokens[next]?.value !== ":") return false;
-  return enclosingBrace(tokens, index)?.value === "{";
-}
-
-function nextAfterOptional(tokens: AnalyzedToken[], index: number, optional: string): number {
-  return tokens[index]?.value === optional ? index + 1 : index;
-}
-
-function enclosingBrace(tokens: AnalyzedToken[], before: number): AnalyzedToken | null {
-  const stack: AnalyzedToken[] = [];
-  for (let i = 0; i < before; i++) {
-    const value = tokens[i].value;
-    if (value === "{" || value === "[" || value === "(") stack.push(tokens[i]);
-    else if (value === "}" || value === "]" || value === ")") stack.pop();
-  }
-  return stack.at(-1) ?? null;
+function ownerFromType(typeName: string): string {
+  const cleaned = typeName.trim().replace(/^typeof\s+/, "");
+  const generic = cleaned.match(/^([A-Za-z_$][\w$]*)\s*</);
+  return generic ? generic[1] : cleaned;
 }
 
 function location(uri: string, name: string, lineOneBased: number, columnOneBased: number): Location {

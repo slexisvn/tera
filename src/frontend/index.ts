@@ -6,7 +6,7 @@ export { Parser } from "./parser/index.js";
 export type { ParserOptions } from "./parser/index.js";
 export type { ParserCheckpoint, ParserContext, StatementParseResult, SyntaxPlugin, SyntaxTransformContext } from "./parser/extensions.js";
 export { applySyntaxTransforms } from "./parser/extensions.js";
-export { buildSourceSymbolTable, checkSource, diagnoseSource, inferSymbolTypes, typeAccepts, TypecheckError } from "./checker/index.js";
+export { buildSourceSymbolTable, checkSource, diagnoseSource, inferSymbolTypes, isFieldSymbolAt, symbolStartsAt, typeAccepts, TypecheckError } from "./checker/index.js";
 export type { BindOptions, CheckSourceOptions, Diagnostic, ExternalBuiltinParam, ExternalBuiltinSignature, ExternalInterface, ExternalInterfaceField, ExternalTypeAlias, ScopeKind, SourceScope, SourceSymbol, SourceSymbolTable, SymbolKind, SymbolPosition, TypecheckMode, SymbolType } from "./checker/index.js";
 export {
   ENTRY_SPEC,
@@ -58,7 +58,9 @@ export {
 export type { InstalledPackage, InstalledPackages } from "./packages.js";
 export { buildLanguageData, buildLanguageDataFromSpec, collectLanguageDataSource, parseParams } from "./language-data.js";
 export { printAst } from "./ast-text.js";
+export { maskNonCodeSource } from "./source-context.js";
 export {
+  createMemberReceiverTypeResolver,
   extractReceiverExpression,
   highlightSpanEnd,
   isMemberAccessSource,

@@ -84,6 +84,63 @@ describe("buildSourceSymbolTable", () => {
 
       expect(table.membersOf("GuardApi").map((member) => member.name)).toEqual(["object", "string"]);
     });
+
+    it("resolves later function declarations without hoisting variables", () => {
+      const source = [
+        "value = later(1)",
+        "next_value = pending",
+        "fn later(item: int) -> int:",
+        "  return item",
+        "pending = 1",
+      ].join("\n");
+      const table = tableOf(source);
+
+      expect(table.resolve("later", { line: 0, character: "value = later".length })?.line).toBe(3);
+      expect(table.resolve("pending", { line: 1, character: "next_value = pending".length })).toBeNull();
+    });
+  });
+
+  describe("type parameters", () => {
+    it("keeps type alias parameters scoped through the alias body", () => {
+      const source = [
+        "type GuardResultOf<T> = {",
+        "  ok: bool,",
+        "  value: T | null,",
+        "}",
+      ].join("\n");
+      const table = tableOf(source);
+
+      expect(table.resolve("T", { line: 0, character: "type GuardResultOf<".length })?.kind).toBe("type");
+      expect(table.resolve("T", { line: 2, character: "  value: ".length })?.line).toBe(1);
+      expect(table.resolve("T", { line: 2, character: "  value: ".length })?.column).toBe("type GuardResultOf<".length + 1);
+    });
+
+    it("declares object type literal fields and index parameters in alias scope", () => {
+      const source = [
+        "type GuardObjectValue = { [key: string]: unknown }",
+        "type GuardRule = { kind: string, value?: any, message: string }",
+      ].join("\n");
+      const table = tableOf(source);
+
+      expect(table.resolve("key", { line: 0, character: "type GuardObjectValue = { [key".length })?.typeName).toBe("string");
+      expect(table.resolve("kind", { line: 1, character: "type GuardRule = { kind".length })?.typeName).toBe("string");
+      expect(table.resolve("value", { line: 1, character: "type GuardRule = { kind: string, value".length })?.typeName).toBe("any");
+      expect(table.resolve("message", { line: 1, character: "type GuardRule = { kind: string, value?: any, message".length })?.typeName).toBe("string");
+      expect(table.resolveField("GuardRule", "message")?.line).toBe(2);
+    });
+
+    it("ignores delimiters inside type literal comments", () => {
+      const source = [
+        "type GuardRule = {",
+        "  kind: string, # }",
+        "  value: int,",
+        "}",
+      ].join("\n");
+      const table = tableOf(source);
+
+      expect(table.resolveField("GuardRule", "kind")?.typeName).toBe("string");
+      expect(table.resolveField("GuardRule", "value")?.typeName).toBe("int");
+    });
   });
 
   describe("synthetic bindings", () => {
@@ -111,6 +168,23 @@ describe("buildSourceSymbolTable", () => {
       const parent = tableOf(source).flat.find((symbol) => symbol.name === "super");
 
       expect(parent).toMatchObject({ typeName: "Base", line: 0, column: 0 });
+    });
+  });
+
+  describe("arrow functions", () => {
+    it("declares typed parameters inside assignment expressions", () => {
+      const source = [
+        "class NumberSchema:",
+        "  constructor():",
+        "    this.int = (message: string = \"\") => _number_int(this, message)",
+        "",
+        "fn _number_int(schema: NumberSchema, message: string) -> NumberGuard:",
+        "  return schema",
+      ].join("\n");
+      const table = tableOf(source);
+
+      expect(table.resolve("message", { line: 2, character: "    this.int = (message".length })?.typeName).toBe("string");
+      expect(table.resolve("_number_int", { line: 2, character: "    this.int = (message: string = \"\") => _number_int".length })?.line).toBe(5);
     });
   });
 

@@ -21,4 +21,5 @@ export const languageData = buildLanguageDataFromSpec({
   globalNamespaces: TERA_GLOBAL_NAMESPACES,
 });
 
-export type { Builtin, LanguageData, Method } from "tera/frontend/language-data";
+export { parseParams } from "tera/frontend/language-data";
+export type { Builtin, LanguageData, Method, Param } from "tera/frontend/language-data";

@@ -9,6 +9,7 @@ import { defineProvider, type ProviderContext } from "./types.ts";
 const KIND_BY_SYMBOL: Record<string, SymbolKind> = {
   model: SymbolKind.Class,
   module: SymbolKind.Class,
+  type: SymbolKind.TypeParameter,
   function: SymbolKind.Function,
   method: SymbolKind.Method,
   property: SymbolKind.Property,

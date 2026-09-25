@@ -1,5 +1,5 @@
 import { createReactiveCheckOptions } from "@slexisvn/reactive/tera";
-import { buildSourceSymbolTable, inferSymbolTypes, isMemberAccessSource, recoverMemberCompletionSource, resolveMemberReceiverType, type SourceSymbolTable } from "tera/frontend";
+import { buildSourceSymbolTable, createMemberReceiverTypeResolver, inferSymbolTypes, isMemberAccessSource, recoverMemberCompletionSource, resolveMemberReceiverType, type SourceSymbolTable } from "tera/frontend";
 import type { AnalyzedDocument, Position } from "../analyzer/index.ts";
 import type { ProviderContext } from "../providers/types.ts";
 
@@ -35,6 +35,10 @@ export function symbolsFor(context: ProviderContext, uri: string, document: Anal
 
 export function resolveReceiverType(context: ProviderContext, uri: string, document: AnalyzedDocument, position: Position): string | null {
   return resolveMemberReceiverType(document.text, position, symbolsFor(context, uri, document), context.languageData.globalNamespaces);
+}
+
+export function receiverTypeResolver(context: ProviderContext, document: AnalyzedDocument, symbols: SourceSymbolTable): (position: Position) => string | null {
+  return createMemberReceiverTypeResolver(document.text, symbols, context.languageData.globalNamespaces);
 }
 
 function inferSafely(source: string, imports: NonNullable<ReturnType<ProviderContext["modules"]["importedSurfaceFor"]>>) {

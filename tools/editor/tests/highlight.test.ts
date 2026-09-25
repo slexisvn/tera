@@ -99,12 +99,19 @@ describe("deciding what colour a token of Tera source gets", () => {
     expect(classOf(code, "boolean")).toBe("tok-prop");
     expect(classOf(code, "validate")).toBe("tok-prop");
     expect(classOf("type Row = { maybe?: int }", "maybe")).toBe("tok-prop");
+    expect(classOf("type GuardObjectValue = { [key: string]: unknown }", "key")).toBe("tok-prop");
+    expect(classOf("type GuardRule = { kind: string, value?: any, message: string }", "kind")).toBe("tok-prop");
+    expect(classOf("type GuardRule = { kind: string, value?: any, message: string }", "value")).toBe("tok-prop");
+    expect(classOf("type GuardRule = { kind: string, value?: any, message: string }", "message")).toBe("tok-prop");
     expect(classOf("fn wrap(a: int, b: int) -> int:", "b")).toBe("tok-ident");
   });
 
   it("treats a name after a colon or an arrow as a type", () => {
     expect(classOf("fn work(n: int) -> int:", "int")).toBe("tok-type");
     expect(classOf("total: Point = p", "Point")).toBe("tok-type");
+    expect(classOf("this.int = (message: string = \"\") => _number_int(this, message)", "string")).toBe("tok-type");
+    expect(classOf("type GuardResultOf<T> = {", "T")).toBe("tok-type");
+    expect(classOf("  value: GuardResultOf<T>", "T")).toBe("tok-type");
   });
 
   it("lets a keyword win over a type name that is not in annotation position", () => {

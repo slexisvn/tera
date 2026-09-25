@@ -141,6 +141,49 @@ describe("hover", () => {
     expect(minText).not.toContain("Aggregate");
   });
 
+  it("shows type parameters from their alias scope", () => {
+    const source = [
+      "type GuardResultOf<T> = {",
+      "  value: T | null,",
+      "}",
+    ].join("\n");
+
+    const text = hoverText(source, 1, "  value: T".length);
+
+    expect(text).toContain("`T` — *type*");
+  });
+
+  it("shows object type literal fields and index parameters from type aliases", () => {
+    const source = [
+      "type GuardObjectValue = { [key: string]: unknown }",
+      "type GuardRule = { kind: string, value?: any, message: string }",
+    ].join("\n");
+
+    expect(hoverText(source, 0, "type GuardObjectValue = { [key".length)).toContain("type: `string`");
+    expect(hoverText(source, 1, "type GuardRule = { kind".length)).toContain("type: `string`");
+    expect(hoverText(source, 1, "type GuardRule = { kind: string, value".length)).toContain("type: `any`");
+    expect(hoverText(source, 1, "type GuardRule = { kind: string, value?: any, message".length)).toContain("type: `string`");
+  });
+
+  it("shows later helper functions and typed arrow parameters inside assignments", () => {
+    const source = [
+      "class NumberSchema:",
+      "  constructor():",
+      "    this.int = (message: string = \"\") => _number_int(this, message)",
+      "",
+      "fn _number_int(schema: NumberSchema, message: string) -> NumberGuard:",
+      "  return schema",
+    ].join("\n");
+
+    const param = hoverText(source, 2, "    this.int = (message".length);
+    const helper = hoverText(source, 2, "    this.int = (message: string = \"\") => _number_int".length);
+
+    expect(param).toContain("`message` — *parameter*");
+    expect(param).toContain("type: `string`");
+    expect(helper).toContain("`_number_int` — *function*");
+    expect(helper).toContain("type: `NumberGuard`");
+  });
+
   it("shows contextual types for Promise arrow callback parameters", () => {
     const source = "Promise.resolve(10).then(v => v * 2).then(v => v + 1).then(v => print(\"chained ->\", v))";
 

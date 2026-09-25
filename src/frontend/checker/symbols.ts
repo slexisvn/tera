@@ -1,4 +1,4 @@
-import { NodeType, type ASTNode } from "../ast/index.js";
+import { astChildren, NodeType, type ASTNode } from "../ast/index.js";
 import { TERA_PRIMITIVE_PSEUDO_TYPES, TERA_PSEUDO_TYPES, type TeraPseudoTypeSpec } from "../../../data/tera-language-spec.js";
 import { lowerToSemanticProgram } from "./semantic-lowering.js";
 import type { ClassFieldNode, ClassMemberNode, FunctionNode, SemanticNode } from "./semantic-ast.js";
@@ -7,6 +7,7 @@ import type { ExternalInterface, ExternalModuleSurface, ExternalTypeAlias } from
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
 import { splitTopLevel } from "../../core/type-text.js";
 import type { SyntaxPlugin } from "../parser/extensions.js";
+import { maskNonCodeSource } from "../source-context.js";
 
 const SYNTHETIC_LINE = 0;
 const UNION_SEPARATOR = "|";
@@ -14,9 +15,9 @@ const MEMBER_SEPARATOR = ",";
 
 export type SymbolPosition = { line: number; character: number };
 
-export type SymbolKind = "function" | "model" | "module" | "variable" | "parameter" | "field" | "method" | "property";
+export type SymbolKind = "function" | "model" | "module" | "type" | "variable" | "parameter" | "field" | "method" | "property";
 
-export type ScopeKind = "scope" | "function" | "class" | "model" | "interface";
+export type ScopeKind = "scope" | "function" | "class" | "model" | "interface" | "type";
 
 export type SourceSymbol = {
   name: string;
@@ -30,6 +31,14 @@ export type SourceSymbol = {
   owner?: string;
   scope?: SourceScope;
 };
+
+export function symbolStartsAt(symbol: SourceSymbol | null, position: SymbolPosition): boolean {
+  return symbol?.line === position.line + 1 && symbol.column === position.character + 1;
+}
+
+export function isFieldSymbolAt(symbol: SourceSymbol | null, position: SymbolPosition): boolean {
+  return symbol?.kind === "field" && symbolStartsAt(symbol, position);
+}
 
 export type SourceScope = {
   name: string;
@@ -110,8 +119,14 @@ class SymbolTableBuilder {
   parentsByType = new Map<string, string>();
   aliasesByType = new Map<string, string>();
   typeParamsByOwner = new Map<string, string[]>();
+  source: string;
+  lexicalSource: string;
+  lineStarts: number[];
 
   constructor(private readonly lines: string[], private readonly inferred: InferredTypes, options: BuildSourceSymbolTableOptions) {
+    this.source = lines.join("\n");
+    this.lexicalSource = maskNonCodeSource(this.source);
+    this.lineStarts = lineStartsOf(this.source);
     this.root = makeScope("<root>", null, 1, lines.length + 1, 0);
     this.scopes = [this.root];
     this.addExternalSurface({ aliases: options.aliases, interfaces: options.interfaces });
@@ -216,7 +231,7 @@ class SymbolTableBuilder {
         this.visitInterface(node, scope);
         break;
       case "TypeAlias":
-        addSymbol(scope, node.name, "module", node.nameSpan.line, node.nameSpan.column, node.type);
+        this.visitTypeAlias(node, scope);
         break;
       case "Block":
         this.visitBlock(node.body, scope, "scope", node.span.line, node.span.column);
@@ -248,10 +263,30 @@ class SymbolTableBuilder {
     const symbol = addSymbol(scope, node.name, "function", node.nameSpan.line, node.nameSpan.column, returnType(node.returns));
     const child = this.childScope(scope, node.name, "function", node.span.line, node.span.column);
     symbol.scope = child;
+    this.addTypeParams(child, node.name, node.nameSpan, node.typeParams);
     this.addParams(child, node);
     for (const stmt of node.body) this.visitNode(stmt, child);
     child.endLine = endLine(node.body, node.span.line);
     return child;
+  }
+
+  private visitTypeAlias(node: Extract<SemanticNode, { kind: "TypeAlias" }>, scope: SourceScope): void {
+    const symbol = addSymbol(scope, node.name, "type", node.nameSpan.line, node.nameSpan.column, node.type);
+    this.aliasesByType.set(node.name, node.type);
+    this.typeParamsByOwner.set(node.name, node.typeParams);
+    const typeMembers = typeLiteralSymbols(this.source, this.lexicalSource, this.lineStarts, node);
+    const shapeMembers = typeMembers.filter((member) => member.exported);
+    if (shapeMembers.length) this.fieldsByType.set(node.name, []);
+    if (node.typeParams.length === 0 && typeMembers.length === 0) return;
+    const child = this.childScope(scope, node.name, "type", node.span.line, node.span.column);
+    symbol.scope = child;
+    this.addTypeParams(child, node.name, node.nameSpan, node.typeParams);
+    const members = this.fieldsByType.get(node.name);
+    for (const member of typeMembers) {
+      const added = addSymbol(child, member.name, member.kind, member.line, member.column, member.typeName);
+      if (member.exported) upsertMember(members, added);
+    }
+    child.endLine = typeLiteralEndLine(this.lexicalSource, this.lineStarts, node) ?? node.span.line;
   }
 
   private visitModel(node: Extract<SemanticNode, { kind: "Model" }>, scope: SourceScope): void {
@@ -283,6 +318,8 @@ class SymbolTableBuilder {
     symbol.scope = child;
     const members = inheritedMembers(this.fieldsByType, node.parents[0]);
     this.fieldsByType.set(node.name, members);
+    this.typeParamsByOwner.set(node.name, node.typeParams);
+    this.addTypeParams(child, node.name, node.nameSpan, node.typeParams);
     for (const field of node.fields) {
       const member = addSymbol(child, field.name, "field", field.span.line, field.span.column, cleanType(field.type));
       upsertMember(members, member);
@@ -339,7 +376,11 @@ class SymbolTableBuilder {
   }
 
   private visitExpression(node: ASTNode, scope: SourceScope, span: { line: number; column: number }): void {
-    if (node.type === NodeType.ArrowFunctionExpression) this.visitArrowParams(node, scope, span);
+    const visit = (current: ASTNode): void => {
+      if (current.type === NodeType.ArrowFunctionExpression) this.visitArrowParams(current, scope, nodePosition(current, span));
+      for (const child of astChildren(current)) visit(child);
+    };
+    visit(node);
   }
 
   private visitThisField(node: SemanticNode, scope: SourceScope, owner: string): void {
@@ -362,6 +403,16 @@ class SymbolTableBuilder {
   }
 
   private visitArrowParams(node: ASTNode, scope: SourceScope, span: { line: number; column: number }): void {
+    const info = arrowParamInfo(node);
+    if (info.length) {
+      for (const param of info) {
+        if (!param.name) continue;
+        const line = param.line ?? span.line;
+        const column = param.column ?? span.column;
+        addSymbol(scope, param.name, "parameter", line, column, cleanType(param.type) ?? this.localType(param.name, line));
+      }
+      return;
+    }
     for (const param of node.params as unknown[]) {
       const name = paramName(param);
       if (name) addSymbol(scope, name, "parameter", span.line, span.column, this.localType(name, span.line));
@@ -370,6 +421,16 @@ class SymbolTableBuilder {
 
   private addParams(scope: SourceScope, fn: FunctionNode): void {
     for (const param of fn.params) addSymbol(scope, param.name, "parameter", param.span.line, param.span.column, cleanType(param.type));
+  }
+
+  private addTypeParams(scope: SourceScope, owner: string, ownerSpan: { line: number; column: number }, params: readonly string[]): void {
+    const positions = typeParameterPositions(this.lines, owner, ownerSpan, params);
+    for (const param of params) {
+      const name = typeParamName(param);
+      if (name === null) continue;
+      const at = positions.get(name) ?? ownerSpan;
+      addSymbol(scope, name, "type", at.line, at.column);
+    }
   }
 
   private childScope(parent: SourceScope, name: string, kind: ScopeKind, line: number, column: number): SourceScope {
@@ -488,7 +549,7 @@ function endLine(nodes: Array<SemanticNode | FunctionNode | ClassFieldNode | { s
     if ("body" in node) line = Math.max(line, endLine(node.body, node.span.line));
     if ("kind" in node && node.kind === "Class") line = Math.max(line, endLine(node.members.map((member) => member.fn), node.span.line));
   }
-  return line + 1;
+  return line;
 }
 
 function cleanType(type: string | undefined): string | null {
@@ -516,7 +577,11 @@ function membersFor(
 ): SourceSymbol[] {
   const type = typeName.trim();
   const alias = aliasesByType.get(type);
-  if (alias !== undefined && alias !== type) return membersFor(alias, fieldsByType, aliasesByType, typeParamsByOwner);
+  if (alias !== undefined && alias !== type) {
+    const sourceMembers = fieldsByType.get(type);
+    if (sourceMembers?.length) return sourceMembers;
+    return membersFor(alias, fieldsByType, aliasesByType, typeParamsByOwner);
+  }
   const union = splitUnionTopLevel(type);
   if (union.length > 1) {
     const concrete = union.filter((part) => !isNullishType(part));
@@ -528,7 +593,7 @@ function membersFor(
     const owner = canonicalPseudoMemberOwner(generic.name);
     const members = fieldsByType.get(owner);
     const params = typeParamsFor(owner, typeParamsByOwner);
-    if (members?.length && params.length) return instantiateMembers(members, params, generic.args);
+    if (members?.length) return params.length ? instantiateMembers(members, params, generic.args) : members;
   }
   return objectTypeMembers(type) ?? fieldsByType.get(type) ?? fieldsByType.get(canonicalPseudoMemberOwner(type)) ?? [];
 }
@@ -680,7 +745,7 @@ function objectTypeMembers(typeName: string): SourceSymbol[] | null {
 function findScopeAt(scope: SourceScope, line: number, lines: string[]): SourceScope {
   for (const child of scope.children) {
     if (line < child.startLine || line > child.endLine) continue;
-    if (!indentedInto(lines, line, child.indent)) continue;
+    if (line !== child.startLine && !indentedInto(lines, line, child.indent)) continue;
     return findScopeAt(child, line, lines);
   }
   return scope;
@@ -696,14 +761,24 @@ function resolveName(root: SourceScope, name: string, line: number, column: numb
   let scope: SourceScope | null = findScopeAt(root, line, lines);
   while (scope) {
     let best: SourceSymbol | null = null;
+    let hoisted: SourceSymbol | null = null;
     for (const symbol of scope.symbols) {
-      if (symbol.name !== name || !isVisibleAt(symbol, line, column)) continue;
-      if (!best || symbol.line > best.line || (symbol.line === best.line && symbol.column > best.column)) best = symbol;
+      if (symbol.name !== name) continue;
+      if (isVisibleAt(symbol, line, column)) {
+        if (!best || symbol.line > best.line || (symbol.line === best.line && symbol.column > best.column)) best = symbol;
+      } else if (isHoistedSymbol(symbol)) {
+        if (!hoisted || symbol.line < hoisted.line || (symbol.line === hoisted.line && symbol.column < hoisted.column)) hoisted = symbol;
+      }
     }
     if (best) return best;
+    if (hoisted) return hoisted;
     scope = scope.parent;
   }
   return null;
+}
+
+function isHoistedSymbol(symbol: SourceSymbol): boolean {
+  return symbol.kind === "function" || symbol.kind === "model" || symbol.kind === "module" || symbol.kind === "type";
 }
 
 function isVisibleAt(symbol: SourceSymbol, line: number, column: number): boolean {
@@ -729,9 +804,214 @@ function paramName(param: unknown): string | null {
   return typeof item.name === "string" ? item.name : null;
 }
 
+type ArrowParamInfo = {
+  name: string;
+  type?: string;
+  line?: number;
+  column?: number;
+};
+
+function arrowParamInfo(node: ASTNode): ArrowParamInfo[] {
+  const info = (node as { _paramInfo?: unknown })._paramInfo;
+  if (!Array.isArray(info)) return [];
+  return info
+    .filter((item): item is ArrowParamInfo => {
+      if (!item || typeof item !== "object") return false;
+      return typeof (item as ArrowParamInfo).name === "string";
+    });
+}
+
 function isIdentifier(value: string): boolean {
   if (!value) return false;
   if (!/[A-Za-z_$]/.test(value[0])) return false;
   for (let i = 1; i < value.length; i++) if (!/[\w$]/.test(value[i])) return false;
   return true;
+}
+
+type TypeLiteralSymbol = {
+  name: string;
+  kind: SymbolKind;
+  line: number;
+  column: number;
+  typeName: string | null;
+  exported: boolean;
+};
+
+function typeLiteralSymbols(source: string, lexicalSource: string, lineStarts: readonly number[], node: Extract<SemanticNode, { kind: "TypeAlias" }>): TypeLiteralSymbol[] {
+  const range = typeLiteralBodyRange(lexicalSource, lineStarts, node);
+  if (range === null) return [];
+  const symbols: TypeLiteralSymbol[] = [];
+  let segmentStart = range.start + 1;
+  let depth = 0;
+  for (let cursor = segmentStart; cursor <= range.end; cursor++) {
+    const char = cursor < range.end ? lexicalSource[cursor] : ",";
+    if (char === "," && depth === 0) {
+      symbols.push(...typeLiteralSegmentSymbols(source, lexicalSource, lineStarts, segmentStart, cursor));
+      segmentStart = cursor + 1;
+      continue;
+    }
+    if (char === "(" || char === "[" || char === "{" || char === "<") depth++;
+    else if (char === ")" || char === "]" || char === "}" || char === ">") depth = Math.max(0, depth - 1);
+  }
+  return symbols;
+}
+
+function typeLiteralBodyRange(source: string, lineStarts: readonly number[], node: Extract<SemanticNode, { kind: "TypeAlias" }>): { start: number; end: number } | null {
+  const nameOffset = offsetOf(lineStarts, node.nameSpan.line, node.nameSpan.column);
+  const equals = source.indexOf("=", nameOffset + node.name.length);
+  if (equals < 0) return null;
+  let cursor = equals + 1;
+  while (cursor < source.length && /\s/.test(source[cursor])) cursor++;
+  if (source[cursor] !== "{") return null;
+  const end = matchingDelimiter(source, cursor, "{", "}");
+  return end === null ? null : { start: cursor, end };
+}
+
+function typeLiteralEndLine(source: string, lineStarts: readonly number[], node: Extract<SemanticNode, { kind: "TypeAlias" }>): number | null {
+  const range = typeLiteralBodyRange(source, lineStarts, node);
+  return range === null ? null : positionOf(lineStarts, range.end).line;
+}
+
+function typeLiteralSegmentSymbols(source: string, lexicalSource: string, lineStarts: readonly number[], rawStart: number, rawEnd: number): TypeLiteralSymbol[] {
+  const start = skipSpace(lexicalSource, rawStart, rawEnd);
+  const end = trimEnd(lexicalSource, start, rawEnd);
+  if (start >= end) return [];
+  if (lexicalSource[start] === "[") return typeLiteralIndexerSymbols(source, lexicalSource, lineStarts, start, end);
+  return typeLiteralFieldSymbol(source, lexicalSource, lineStarts, start, end);
+}
+
+function typeLiteralFieldSymbol(source: string, lexicalSource: string, lineStarts: readonly number[], start: number, end: number): TypeLiteralSymbol[] {
+  if (!/[A-Za-z_$]/.test(lexicalSource[start] ?? "")) return [];
+  let cursor = start + 1;
+  while (cursor < end && /[\w$]/.test(lexicalSource[cursor])) cursor++;
+  const name = source.slice(start, cursor);
+  let afterName = skipSpace(lexicalSource, cursor, end);
+  if (lexicalSource[afterName] === "?") afterName = skipSpace(lexicalSource, afterName + 1, end);
+  if (lexicalSource[afterName] !== ":") return [];
+  const typeStart = skipSpace(lexicalSource, afterName + 1, end);
+  const typeEnd = trimEnd(lexicalSource, typeStart, end);
+  const at = positionOf(lineStarts, start);
+  return [{
+    name,
+    kind: "field",
+    line: at.line,
+    column: at.column,
+    typeName: typeStart < typeEnd ? lexicalSource.slice(typeStart, typeEnd).trim() : null,
+    exported: true,
+  }];
+}
+
+function typeLiteralIndexerSymbols(source: string, lexicalSource: string, lineStarts: readonly number[], start: number, end: number): TypeLiteralSymbol[] {
+  const close = matchingDelimiter(lexicalSource, start, "[", "]");
+  if (close === null || close >= end) return [];
+  let cursor = skipSpace(lexicalSource, start + 1, close);
+  if (!/[A-Za-z_$]/.test(lexicalSource[cursor] ?? "")) return [];
+  const nameStart = cursor;
+  cursor++;
+  while (cursor < close && /[\w$]/.test(lexicalSource[cursor])) cursor++;
+  const name = source.slice(nameStart, cursor);
+  cursor = skipSpace(lexicalSource, cursor, close);
+  if (lexicalSource[cursor] !== ":") return [];
+  const keyTypeStart = skipSpace(lexicalSource, cursor + 1, close);
+  const keyTypeEnd = trimEnd(lexicalSource, keyTypeStart, close);
+  const afterClose = skipSpace(lexicalSource, close + 1, end);
+  if (lexicalSource[afterClose] !== ":") return [];
+  const at = positionOf(lineStarts, nameStart);
+  return [{
+    name,
+    kind: "parameter",
+    line: at.line,
+    column: at.column,
+    typeName: keyTypeStart < keyTypeEnd ? lexicalSource.slice(keyTypeStart, keyTypeEnd).trim() : null,
+    exported: false,
+  }];
+}
+
+function matchingDelimiter(source: string, start: number, open: string, close: string): number | null {
+  let depth = 0;
+  for (let cursor = start; cursor < source.length; cursor++) {
+    const char = source[cursor];
+    if (char === open) depth++;
+    else if (char === close) {
+      depth--;
+      if (depth === 0) return cursor;
+    }
+  }
+  return null;
+}
+
+function skipSpace(source: string, start: number, end: number): number {
+  let cursor = start;
+  while (cursor < end && /\s/.test(source[cursor])) cursor++;
+  return cursor;
+}
+
+function trimEnd(source: string, start: number, end: number): number {
+  let cursor = end;
+  while (cursor > start && /\s/.test(source[cursor - 1])) cursor--;
+  return cursor;
+}
+
+function lineStartsOf(source: string): number[] {
+  const starts = [0];
+  for (let index = 0; index < source.length; index++) if (source[index] === "\n") starts.push(index + 1);
+  return starts;
+}
+
+function offsetOf(lineStarts: readonly number[], line: number, column: number): number {
+  return (lineStarts[Math.max(0, line - 1)] ?? 0) + Math.max(0, column - 1);
+}
+
+function positionOf(lineStarts: readonly number[], offset: number): { line: number; column: number } {
+  let low = 0;
+  let high = lineStarts.length - 1;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    if (lineStarts[mid] <= offset) low = mid + 1;
+    else high = mid - 1;
+  }
+  const lineIndex = Math.max(0, high);
+  return { line: lineIndex + 1, column: offset - lineStarts[lineIndex] + 1 };
+}
+
+function typeParamName(source: string): string | null {
+  return source.trim().match(/^[A-Za-z_$][\w$]*/)?.[0] ?? null;
+}
+
+function typeParameterPositions(
+  lines: readonly string[],
+  owner: string,
+  ownerSpan: { line: number; column: number },
+  params: readonly string[],
+): Map<string, { line: number; column: number }> {
+  const out = new Map<string, { line: number; column: number }>();
+  const wanted = new Set(params.map(typeParamName).filter((name): name is string => name !== null));
+  if (wanted.size === 0) return out;
+
+  const line = lines[ownerSpan.line - 1] ?? "";
+  const ownerStart = Math.max(0, ownerSpan.column - 1);
+  const open = line.indexOf("<", ownerStart + owner.length);
+  if (open < 0) return out;
+
+  let depth = 0;
+  for (let cursor = open; cursor < line.length; cursor++) {
+    const char = line[cursor];
+    if (char === "<") {
+      depth++;
+      continue;
+    }
+    if (char === ">") {
+      depth--;
+      if (depth <= 0) break;
+      continue;
+    }
+    if (depth !== 1 || !/[A-Za-z_$]/.test(char)) continue;
+    const start = cursor;
+    cursor++;
+    while (cursor < line.length && /[\w$]/.test(line[cursor])) cursor++;
+    const name = line.slice(start, cursor);
+    if (wanted.has(name) && !out.has(name)) out.set(name, { line: ownerSpan.line, column: start + 1 });
+    cursor--;
+  }
+  return out;
 }

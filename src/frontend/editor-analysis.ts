@@ -198,6 +198,24 @@ export function resolveMemberReceiverType(
   globals: Record<string, string> = {},
 ): string | null {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
+  return resolveMemberReceiverTypeFromLines(lines, position, symbols, globals);
+}
+
+export function createMemberReceiverTypeResolver(
+  source: string,
+  symbols: SourceSymbolTable,
+  globals: Record<string, string> = {},
+): (position: SymbolPosition) => string | null {
+  const lines = source.replace(/\r\n?/g, "\n").split("\n");
+  return (position) => resolveMemberReceiverTypeFromLines(lines, position, symbols, globals);
+}
+
+function resolveMemberReceiverTypeFromLines(
+  lines: readonly string[],
+  position: SymbolPosition,
+  symbols: SourceSymbolTable,
+  globals: Record<string, string>,
+): string | null {
   const line = lines[position.line] ?? "";
   const before = line.slice(0, position.character);
   const trailing = before.match(/\.\s*[A-Za-z0-9_$]*$/);
@@ -227,7 +245,7 @@ export function extractReceiverExpression(text: string): string {
   return text.slice(start).trim();
 }
 
-function leadingDotReceiverExpression(lines: string[], lineIndex: number): string | null {
+function leadingDotReceiverExpression(lines: readonly string[], lineIndex: number): string | null {
   const segments: string[] = [];
   for (let cursor = lineIndex - 1; cursor >= 0; cursor--) {
     const trimmed = lines[cursor].trim();

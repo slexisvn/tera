@@ -1,8 +1,9 @@
 import { RangeSetBuilder, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, hoverTooltip, ViewPlugin, type DecorationSet, type Tooltip, type ViewUpdate } from "@codemirror/view";
-import { isStringLiteralTextOffset, resolveMemberReceiverType, stringLiteralTextPredicate } from "tera/frontend";
+import { isStringLiteralTextOffset, resolveMemberReceiverType, stringLiteralTextPredicate, symbolStartsAt } from "tera/frontend";
 import { BUILTIN_SET, KEYWORD_SET, tokenClass, TOKEN_RE } from "../highlight";
 import { languageData } from "../language-data";
+import { bracedKeyAt } from "../source-context";
 import type { DocumentContext, TeraDiagnostic } from "../types";
 
 type HoverDoc = {
@@ -100,8 +101,9 @@ function teraHover(view: EditorView, pos: number, options: DocumentContext): Too
   const source = view.state.doc.toString();
   const word = wordAt(view, pos);
   const diagnostics = diagnosticsFor(options.diagnostics, word?.from ?? pos, word?.to ?? pos);
+  const key = word ? bracedKeyAt(source, word.from) : null;
   const baseDoc = word
-    ? memberHoverFor(source, word.text, word.from, options) ?? typeHoverFor(view, word.text, word.from, options) ?? hoverDocFor(source, word.text, word.from)
+    ? memberHoverFor(source, word.text, word.from, options) ?? typeHoverFor(view, word.text, word.from, options) ?? (key ? null : hoverDocFor(source, word.text, word.from))
     : null;
   const doc = mergeHover(baseDoc, diagnostics);
   if (!doc) return null;
@@ -124,8 +126,9 @@ export function teraHoverDocFor(
   options: DocumentContext = {},
 ): HoverDoc | null {
   if (isStringLiteralTextOffset(source, from)) return null;
+  const key = bracedKeyAt(source, from);
   return mergeHover(
-    memberHoverFor(source, token, from, options) ?? symbolHoverFor(source, token, from, options) ?? hoverDocFor(source, token, from),
+    memberHoverFor(source, token, from, options) ?? symbolHoverFor(source, token, from, options) ?? (key ? null : hoverDocFor(source, token, from)),
     diagnosticsFor(options.diagnostics, from, from + token.length),
   );
 }
@@ -166,8 +169,11 @@ function symbolHoverFor(source: string, token: string, from: number, options: Do
   if (nonSpaceBefore(source, from) === ".") return null;
   const analysis = options.analysis();
   const position = analysis.positionFor(options.documentId, source, from);
+  const key = bracedKeyAt(source, from);
+  const keyPosition = key ? analysis.positionFor(options.documentId, source, key.from) : null;
   const symbol = analysis.symbols.resolve(token, position);
   if (!symbol) return null;
+  if (keyPosition && !symbolStartsAt(symbol, keyPosition)) return null;
   return {
     title: symbol.name,
     kind: symbol.kind,

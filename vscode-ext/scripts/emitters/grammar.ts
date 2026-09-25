@@ -61,6 +61,7 @@ export function buildGrammar(config: {
       { include: "#strings" },
       { include: "#regex" },
       { include: "#numbers" },
+      { include: "#braced-literals" },
       { include: "#declarations" },
       { include: "#annotations" },
       { include: "#keywords" },
@@ -75,6 +76,7 @@ export function buildGrammar(config: {
       strings: { patterns: stringPatterns() },
       regex: { patterns: regexPatterns() },
       numbers: { patterns: numberPatterns() },
+      "braced-literals": { patterns: bracedLiteralPatterns() },
       declarations: { patterns: declarationPatterns(config.keywordGroups) },
       annotations: { patterns: annotationPatterns(config.keywordGroups, config.types) },
       keywords: { patterns: keywordPatterns(config.keywordGroups) },
@@ -149,6 +151,37 @@ function numberPatterns(): Pattern[] {
   ];
 }
 
+function bracedLiteralPatterns(): Pattern[] {
+  return [
+    {
+      begin: "\\{",
+      end: "\\}",
+      patterns: [
+        { include: "#comments" },
+        { include: "#strings" },
+        { include: "#regex" },
+        { include: "#numbers" },
+        {
+          match: `(\\[)\\s*(${IDENT})\\s*(:)`,
+          captures: {
+            1: { name: "punctuation.section.brackets.tera" },
+            2: { name: "variable.parameter.tera" },
+            3: { name: "punctuation.separator.tera" },
+          },
+        },
+        {
+          match: `\\b(${IDENT})\\s*(\\?)?\\s*(?=:)`,
+          captures: {
+            1: { name: "variable.other.property.tera" },
+            2: { name: "punctuation.definition.optional.tera" },
+          },
+        },
+        { include: "$self" },
+      ],
+    },
+  ];
+}
+
 function declarationPatterns(groups: Record<KeywordGroup, string[]>): Pattern[] {
   const declarations = new Set(groups.declaration);
   const patterns: Pattern[] = [
@@ -159,12 +192,21 @@ function declarationPatterns(groups: Record<KeywordGroup, string[]>): Pattern[] 
       },
     },
     ...importPatterns(declarations),
+    {
+      match: `^\\s*(${IDENT})\\s*:\\s*(?=\\(|fn\\b)`,
+      captures: { 1: { name: "entity.name.function.member.tera" } },
+    },
+    {
+      match: `^\\s*(${IDENT})\\s*(?:<[^\\n>]*>\\s*)?\\([^\\n)]*\\)\\s*(?=->)`,
+      captures: { 1: { name: "entity.name.function.member.tera" } },
+    },
   ];
 
   const callable = ["fn"].filter((k) => declarations.has(k));
   if (callable.length) {
+    patterns.push(genericDeclarationPattern(callable, "entity.name.function.tera"));
     patterns.push({
-      match: `\\b(${callable.join("|")})\\s+(${IDENT})`,
+      match: `\\b(${callable.join("|")})\\s+(${IDENT})(?!\\s*<)`,
       captures: {
         1: { name: "keyword.other.declaration.tera" },
         2: { name: "entity.name.function.tera" },
@@ -174,8 +216,9 @@ function declarationPatterns(groups: Record<KeywordGroup, string[]>): Pattern[] 
 
   const typeLike = ["model", "class", "interface", "type"].filter((k) => declarations.has(k));
   if (typeLike.length) {
+    patterns.push(genericDeclarationPattern(typeLike, "entity.name.type.tera"));
     patterns.push({
-      match: `\\b(${typeLike.join("|")})\\s+(${IDENT})`,
+      match: `\\b(${typeLike.join("|")})\\s+(${IDENT})(?!\\s*<)`,
       captures: {
         1: { name: "keyword.other.declaration.tera" },
         2: { name: "entity.name.type.tera" },
@@ -202,6 +245,25 @@ function declarationPatterns(groups: Record<KeywordGroup, string[]>): Pattern[] 
   });
 
   return patterns;
+}
+
+function genericDeclarationPattern(keywords: string[], nameScope: string): Pattern {
+  return {
+    begin: `\\b(${keywords.join("|")})\\s+(${IDENT})\\s*(<)`,
+    end: ">",
+    beginCaptures: {
+      1: { name: "keyword.other.declaration.tera" },
+      2: { name: nameScope },
+      3: { name: "punctuation.definition.typeparameters.begin.tera" },
+    },
+    endCaptures: {
+      0: { name: "punctuation.definition.typeparameters.end.tera" },
+    },
+    patterns: [
+      { name: "entity.name.type.parameter.tera", match: `\\b${IDENT}\\b` },
+      { name: "punctuation.separator.tera", match: "," },
+    ],
+  };
 }
 
 function importPatterns(declarations: ReadonlySet<string>): Pattern[] {
@@ -263,7 +325,7 @@ function typePatterns(types: string[]): Pattern[] {
   if (!types.length) return [];
   return [{
     name: "storage.type.tera",
-    match: `\\b(?:${[...types].sort(byLengthDesc).map(escapeRegex).join("|")})\\b`,
+    match: `(?<!\\.)\\b(?:${[...types].sort(byLengthDesc).map(escapeRegex).join("|")})\\b`,
   }];
 }
 

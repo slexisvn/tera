@@ -66,6 +66,15 @@ describe("grammar: keywords and operators", () => {
     expect(await scopeOf("p.type", "type")).toBe("variable.other.property.tera");
   });
 
+  it("scopes primitive-named members after a dot as members, not types", async () => {
+    expect(await scopeOf("this.int = 1", "int")).toBe("variable.other.property.tera");
+    expect(await scopeOf("guard.boolean()", "boolean")).toBe("entity.name.function.member.tera");
+  });
+
+  it("scopes arrow parameter annotations as types even with defaults", async () => {
+    expect(await scopeOf("this.int = (message: string = \"\") => _number_int(this, message)", "string")).toBe("storage.type.tera");
+  });
+
   it("still scopes catch/try/finally as control keywords in statement position", async () => {
     expect(await scopeOf("catch inner:", "catch")).toBe("keyword.control.tera");
     expect(await scopeOf("try:", "try")).toBe("keyword.control.tera");
@@ -120,6 +129,17 @@ describe("grammar: builtins", () => {
     expect(await scopeOfSource(source, "boolean")).toBe("variable.other.property.tera");
     expect(await scopeOfSource(source, "any")).toBe("variable.other.property.tera");
     expect(await scopeOfSource(source, "maybe")).toBe("variable.other.property.tera");
+  });
+
+  it("scopes object type literal fields and indexer keys", async () => {
+    expect(await scopeOf("type GuardObjectValue = { [key: string]: unknown }", "key")).toBe("variable.parameter.tera");
+    expect(await scopeOf("type GuardRule = { kind: string, value?: any, message: string }", "kind")).toBe("variable.other.property.tera");
+    expect(await scopeOf("type GuardRule = { kind: string, value?: any, message: string }", "value")).toBe("variable.other.property.tera");
+    expect(await scopeOf("type GuardRule = { kind: string, value?: any, message: string }", "message")).toBe("variable.other.property.tera");
+  });
+
+  it("scopes generic parameters as type parameters", async () => {
+    expect(await scopeOf("type GuardResultOf<T> = {", "T")).toBe("entity.name.type.parameter.tera");
   });
 
   it("scopes user calls apart from builtins", async () => {

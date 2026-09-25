@@ -1,4 +1,5 @@
 import { analyzeTokens } from "./tokens.ts";
+import { objectKeyPositionSet, positionKey } from "./token-context.ts";
 import type { AnalyzedToken, Range } from "./types.ts";
 
 export function nameOccurrences(
@@ -8,10 +9,12 @@ export function nameOccurrences(
   plain = true,
 ): Range[] {
   const tokens = analyzeTokens(source);
+  const objectKeys = objectKeyPositionSet(tokens);
   const ranges: Range[] = [];
   for (let at = 0; at < tokens.length; at++) {
     const token = tokens[at]!;
     if (token.type !== "identifier" || token.value !== name) continue;
+    if (objectKeys.has(positionKey(token))) continue;
     if (!reachable(tokens, at, namespaces, plain)) continue;
     ranges.push(rangeOf(token));
   }

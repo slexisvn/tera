@@ -1,9 +1,9 @@
 import { SemanticTokensBuilder, type SemanticTokensLegend } from "vscode-languageserver/node.js";
 import type { ModuleBindingKind } from "tera/frontend";
-import type { AnalyzedDocument, AnalyzedToken } from "../analyzer/index.ts";
+import type { AnalyzedDocument, AnalyzedToken, Position } from "../analyzer/index.ts";
 import { importsIn } from "../analyzer/import-syntax.ts";
 import { pathOfUri } from "../analyzer/paths.ts";
-import { symbolsFor } from "../language/members.ts";
+import { receiverTypeResolver, symbolsFor } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
 export const TOKEN_TYPES = ["namespace", "class", "enumMember", "parameter", "variable", "function", "method", "type"] as const;
@@ -19,6 +19,7 @@ const TYPE_BY_KIND: Record<string, TokenTypeName> = {
   namespace: "namespace",
   model: "class",
   module: "class",
+  type: "type",
   sequential: "class",
   optimizer: "class",
   scheduler: "class",
@@ -89,6 +90,7 @@ export function buildSemanticTokens(document: AnalyzedDocument, context: Provide
   const paths = modulePathTokens(document);
   const contextual = contextualNameTypes(document);
   const symbols = symbolsFor(context, uri, document);
+  const resolveReceiver = receiverTypeResolver(context, document, symbols);
 
   let callDepth = 0;
   for (let i = 0; i < document.tokens.length; i++) {
@@ -99,7 +101,7 @@ export function buildSemanticTokens(document: AnalyzedDocument, context: Provide
 
     const tokenType = paths.has(`${token.line}:${token.column}`)
       ? "namespace"
-      : resolve(document, i, callDepth, context, symbols, types, imported, contextual);
+      : resolve(document, i, callDepth, context, resolveReceiver, symbols, types, imported, contextual);
     if (!tokenType) continue;
 
     builder.push(
@@ -140,21 +142,29 @@ function resolve(
   index: number,
   callDepth: number,
   context: ProviderContext,
+  resolveReceiver: (position: Position) => string | null,
   symbols: AnalyzedDocument["symbols"],
   types: Set<string>,
   imported: Map<string, TokenTypeName>,
   contextual: ReadonlyMap<string, TokenTypeName>,
 ): TokenTypeName | null {
   const tokens = document.tokens;
-  if (callDepth > 0 && tokens[index + 1]?.value === "=") return "parameter";
+  const name = tokens[index].value;
+  if (callDepth > 0 && isNamedArgumentLabel(tokens, index)) return "parameter";
   if (tokens[index - 1]?.value === ".") {
+    const position = {
+      line: Math.max(0, tokens[index].line - 1),
+      character: Math.max(0, tokens[index].column - 1),
+    };
+    const receiverType = resolveReceiver(position);
+    const field = receiverType ? symbols.resolveField(receiverType, name, position) : null;
+    if (field) return TYPE_BY_KIND[field.kind] ?? (field.typeName?.includes("->") ? "method" : "variable");
     const next = tokens[index + 1]?.value;
     if (next === "(") return "method";
     if (next === "<" && genericCallAhead(tokens, index + 1)) return "method";
-    return null;
+    return "variable";
   }
 
-  const name = tokens[index].value;
   const contextualType = contextual.get(positionKey(tokens[index]));
   if (contextualType !== undefined) return contextualType;
 
@@ -179,6 +189,27 @@ function resolve(
     character: Math.max(0, tokens[index].column - 1),
   });
   return symbol ? TYPE_BY_KIND[symbol.kind] ?? null : null;
+}
+
+function isNamedArgumentLabel(tokens: readonly AnalyzedToken[], index: number): boolean {
+  if (tokens[index + 1]?.value !== "=") return false;
+  let depth = 0;
+  for (let i = index - 1; i >= 0; i--) {
+    const value = tokens[i].value;
+    if (value === ")" || value === "]" || value === "}") {
+      depth++;
+      continue;
+    }
+    if (value === "(" || value === "[" || value === "{") {
+      if (depth === 0) break;
+      depth--;
+      continue;
+    }
+    if (depth > 0) continue;
+    if (value === ",") break;
+    if (value === ":") return false;
+  }
+  return true;
 }
 
 type DelimiterFrame = { open: "{" | "(" | "["; expectKey: boolean };

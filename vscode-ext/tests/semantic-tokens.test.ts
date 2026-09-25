@@ -61,6 +61,16 @@ describe("semantic tokens", () => {
       "  validate: validate,",
       "}",
       "type Row = { maybe?: int }",
+      "class NumberSchema:",
+      "  constructor():",
+      "    this.int = (message: string = \"\") => _number_int(this, message)",
+      "fn _number_int(schema: NumberSchema, message: string) -> NumberGuard:",
+      "  return schema",
+      "type GuardResultOf<T> = {",
+      "  value: T | null,",
+      "}",
+      "type GuardObjectValue = { [key: string]: unknown }",
+      "type GuardRule = { kind: string, value?: any, message: string }",
     ].join("\n");
     const tokens = semanticTokensFor(source);
 
@@ -71,5 +81,15 @@ describe("semantic tokens", () => {
     expect(typeAt(source, tokens, "  validate: validate", "validate")).toBe("variable");
     expect(typeAt(source, tokens, "  validate: validate", "validate", true)).toBe("function");
     expect(typeAt(source, tokens, "maybe?:", "maybe")).toBe("variable");
+    expect(typeAt(source, tokens, "this.int", "int")).toBe("variable");
+    expect(typeAt(source, tokens, "this.int = (message", "message")).toBe("parameter");
+    expect(typeAt(source, tokens, "this.int = (message", "string")).toBe("type");
+    expect(typeAt(source, tokens, "_number_int(this", "_number_int")).toBe("function");
+    expect(typeAt(source, tokens, "GuardResultOf<T>", "T")).toBe("type");
+    expect(typeAt(source, tokens, "value: T", "T")).toBe("type");
+    expect(typeAt(source, tokens, "[key:", "key")).toBe("parameter");
+    expect(typeAt(source, tokens, "GuardRule", "kind")).toBe("variable");
+    expect(typeAt(source, tokens, "GuardRule", "value")).toBe("variable");
+    expect(typeAt(source, tokens, "GuardRule", "message")).toBe("variable");
   });
 });

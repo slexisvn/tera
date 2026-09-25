@@ -4,7 +4,7 @@ import { TypeChecker, type SymbolType } from "./type-checker.js";
 import { compatible, createTypeEnv, type TypeEnv } from "./type-system.js";
 import type { SemanticProgram } from "./semantic-ast.js";
 export { TypecheckError } from "./diagnostics.js";
-export { buildSourceSymbolTable } from "./symbols.js";
+export { buildSourceSymbolTable, isFieldSymbolAt, symbolStartsAt } from "./symbols.js";
 export type { Diagnostic, TypecheckMode } from "./diagnostics.js";
 export type { BindOptions, BoundProgram, ExternalBuiltinParam, ExternalBuiltinSignature, ExternalInterface, ExternalInterfaceField, ExternalModuleSurface, ExternalTypeAlias, ExternalValue, Scope } from "./binder.js";
 export type { ScopeKind, SourceScope, SourceSymbol, SourceSymbolTable, SymbolKind, SymbolPosition } from "./symbols.js";

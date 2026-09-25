@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { computeDefinition } from "../src/server/providers/definition.ts";
 import { computeHighlights } from "../src/server/providers/document-highlight.ts";
 import { computeReferences } from "../src/server/providers/references.ts";
 import { computeRename } from "../src/server/providers/rename.ts";
-import { GEOMETRY, cleanupProjects, projectFor, type ModuleProject } from "./provider-harness.ts";
+import { GEOMETRY, cleanupProjects, contextFor, projectFor, type ModuleProject } from "./provider-harness.ts";
 
 afterEach(cleanupProjects);
 
@@ -54,6 +55,144 @@ describe("document highlight across imports", () => {
       { line: 7, character: "print(floor_area(), ".length },
     ]);
   });
+
+  it("does not link an object literal key to a same-named parameter value", () => {
+    const source = [
+      "class StringSchema:",
+      "  public max(size: int, message: string = \"\") -> StringGuard:",
+      "    this.rules.push({ kind: \"max\", value: size, message: message })",
+      "    return this",
+    ].join("\n");
+    const highlights = computeHighlights(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 2, character: "    this.rules.push({ kind: \"max\", value: size, message: message".length },
+    });
+
+    expect(highlights?.map((entry) => entry.range.start)).toEqual([
+      { line: 1, character: "  public max(size: int, ".length },
+      { line: 2, character: "    this.rules.push({ kind: \"max\", value: size, message: ".length },
+    ]);
+  });
+
+  it("keeps an object literal key highlight on the key when a parameter has the same name", () => {
+    const source = [
+      "class StringSchema:",
+      "  public length(size: int, message: string = \"\") -> StringGuard:",
+      "    this.rules.push({ kind: \"length\", value: size, message: message })",
+      "    return this",
+    ].join("\n");
+    const highlights = computeHighlights(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 2, character: "    this.rules.push({ kind: \"length\", value: size, message".length },
+    });
+
+    expect(highlights?.map((entry) => entry.range.start)).toEqual([
+      { line: 2, character: "    this.rules.push({ kind: \"length\", value: size, ".length },
+    ]);
+  });
+
+  it("highlights every reference for a focused member declaration", () => {
+    const source = [
+      "class StringSchema:",
+      "  private rules: GuardRule[] = []",
+      "  public constructor():",
+      "    this.rules = []",
+      "  public min(size: int, message: string = \"\") -> StringGuard:",
+      "    this.rules.push({ kind: \"min\", value: size, message: message })",
+      "    return this",
+      "  public max(size: int, message: string = \"\") -> StringGuard:",
+      "    this.rules.push({ kind: \"max\", value: size, message: message })",
+      "    return this",
+    ].join("\n");
+    const highlights = computeHighlights(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 1, character: "  private ".length },
+    });
+
+    expect(highlights?.map((entry) => entry.range.start)).toEqual([
+      { line: 1, character: "  private ".length },
+      { line: 3, character: "    this.".length },
+      { line: 5, character: "    this.".length },
+      { line: 8, character: "    this.".length },
+    ]);
+  });
+
+  it("highlights every reference for a focused member access", () => {
+    const source = [
+      "class StringSchema:",
+      "  private rules: GuardRule[] = []",
+      "  public constructor():",
+      "    this.rules = []",
+      "  public min(size: int, message: string = \"\") -> StringGuard:",
+      "    this.rules.push({ kind: \"min\", value: size, message: message })",
+      "    return this",
+      "  public max(size: int, message: string = \"\") -> StringGuard:",
+      "    this.rules.push({ kind: \"max\", value: size, message: message })",
+      "    return this",
+    ].join("\n");
+    const highlights = computeHighlights(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 8, character: "    this.rules".length },
+    });
+
+    expect(highlights?.map((entry) => entry.range.start)).toEqual([
+      { line: 1, character: "  private ".length },
+      { line: 3, character: "    this.".length },
+      { line: 5, character: "    this.".length },
+      { line: 8, character: "    this.".length },
+    ]);
+  });
+
+  it("keeps document highlights independent from earlier definition requests", () => {
+    const source = [
+      "class StringSchema:",
+      "  private rules: GuardRule[] = []",
+      "  public constructor():",
+      "    this.rules = []",
+      "  public min(size: int, message: string = \"\") -> StringGuard:",
+      "    this.rules.push({ kind: \"min\", value: size, message: message })",
+      "    return this",
+      "  public max(size: int, message: string = \"\") -> StringGuard:",
+      "    this.rules.push({ kind: \"max\", value: size, message: message })",
+      "    return this",
+    ].join("\n");
+    const context = contextFor(source);
+    const definition = computeDefinition(context, {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 8, character: "    this.rules".length },
+    });
+    expect(definition?.range.start).toEqual({ line: 1, character: "  private ".length });
+
+    const highlights = computeHighlights(context, {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 1, character: "  private ".length },
+    });
+
+    expect(highlights?.map((entry) => entry.range.start)).toEqual([
+      { line: 1, character: "  private ".length },
+      { line: 3, character: "    this.".length },
+      { line: 5, character: "    this.".length },
+      { line: 8, character: "    this.".length },
+    ]);
+  });
+
+  it("keeps an object literal key local even when an import has the same name", () => {
+    const project = projectFor({
+      "lib.tera": "fn validate(value: int) -> bool:\n  return true\n",
+      "app.tera": [
+        "from lib import validate",
+        "guard = { validate: validate }",
+      ].join("\n"),
+    }, ["app.tera"]);
+    const highlights = computeHighlights(project.context, {
+      textDocument: { uri: project.uri("app.tera") },
+      position: { line: 1, character: "guard = { validate".length },
+    });
+
+    expect(highlights?.map((entry) => entry.range.start)).toEqual([
+      { line: 1, character: "guard = { ".length },
+    ]);
+  });
 });
 
 describe("references across modules", () => {
@@ -96,6 +235,21 @@ describe("references across modules", () => {
     const found = references(project, "main.tera", 1, "  return left".length);
 
     expect(sitesOf(project, found).every((site) => site.file === "main.tera")).toBe(true);
+  });
+
+  it("does not count object literal keys as local variable references", () => {
+    const project = projectFor({
+      "main.tera": [
+        "fn send(message: string):",
+        "  return { message: message }",
+      ].join("\n"),
+    }, ["main.tera"]);
+    const found = references(project, "main.tera", 1, "  return { message: message".length);
+
+    expect(sitesOf(project, found)).toEqual([
+      { file: "main.tera", line: 0, character: "fn send(".length },
+      { file: "main.tera", line: 1, character: "  return { message: ".length },
+    ]);
   });
 });
 
@@ -145,5 +299,20 @@ describe("rename across modules", () => {
   it("refuses a rename that is not a valid identifier", () => {
     const project = projectFor(GEOMETRY, ["main.tera"]);
     expect(rename(project, "main.tera", 1, "from mathx import abs_int".length, "not a name")).toBeNull();
+  });
+
+  it("renames a local value without changing an object literal key", () => {
+    const project = projectFor({
+      "main.tera": [
+        "fn send(message: string):",
+        "  return { message: message }",
+      ].join("\n"),
+    }, ["main.tera"]);
+    const edit = rename(project, "main.tera", 1, "  return { message: message".length, "text");
+
+    expect(edit?.changes?.[project.uri("main.tera")]?.map((entry) => entry.range.start)).toEqual([
+      { line: 0, character: "fn send(".length },
+      { line: 1, character: "  return { message: ".length },
+    ]);
   });
 });

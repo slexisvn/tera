@@ -16,11 +16,13 @@ import { pathOfUri } from "../analyzer/paths.ts";
 import { receiverNameAt } from "../analyzer/position.ts";
 import { buildSnippet } from "@/shared/snippet";
 import { isMemberAccess, resolveReceiverType, symbolsFor } from "../language/members.ts";
+import { resolveCallSignature } from "./signature-help.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
 
 const KIND_BY_SYMBOL: Record<string, CompletionItemKind> = {
   model: CompletionItemKind.Class,
   module: CompletionItemKind.Class,
+  type: CompletionItemKind.TypeParameter,
   function: CompletionItemKind.Function,
   parameter: CompletionItemKind.Variable,
   variable: CompletionItemKind.Variable,
@@ -105,8 +107,14 @@ function collect(context: ProviderContext, uri: string, document: AnalyzedDocume
     return { isIncomplete: false, items: typeItems(context, uri, document, position) };
   }
 
+  const call = findEnclosingCall(document.lines, position);
+  const signature = call === null
+    ? null
+    : resolveCallSignature(context, uri, document, call.receiver, call.callee, position);
+  if (signature && call && isEmptyNoRequiredArgCall(call, signature.params)) return EMPTY;
+
   const items: CompletionItem[] = [
-    ...namedArgumentItems(context, document, position),
+    ...(signature && call ? namedArgumentItems(signature.params, call.usedArgs) : []),
     ...importedNameItems(context, uri, document),
     ...keywordItems(context),
     ...builtinItems(context),
@@ -201,15 +209,9 @@ function exportItems(
   }));
 }
 
-function namedArgumentItems(context: ProviderContext, document: AnalyzedDocument, position: Position): CompletionItem[] {
-  const call = findEnclosingCall(document.lines, position);
-  if (!call) return [];
-
-  const builtin = context.types.builtin(call.callee);
-  if (!builtin?.signature?.params.length) return [];
-
-  const used = new Set(call.usedArgs);
-  return builtin.signature.params
+function namedArgumentItems(params: readonly Param[], usedArgs: readonly string[]): CompletionItem[] {
+  const used = new Set(usedArgs);
+  return params
     .filter((param) => !used.has(param.name))
     .map((param) => ({
       label: `${param.name}=`,
@@ -301,7 +303,9 @@ function typeItems(context: ProviderContext, uri: string, document: AnalyzedDocu
     }
   }
   for (const symbol of visibleSymbols(symbolsFor(context, uri, document).findScopeAt(position))) {
-    if (symbol.kind === "model" || symbol.kind === "module") add(symbol.name, KIND_BY_SYMBOL[symbol.kind] ?? CompletionItemKind.Class, symbol.kind);
+    if (symbol.kind === "model" || symbol.kind === "module" || symbol.kind === "type") {
+      add(symbol.name, KIND_BY_SYMBOL[symbol.kind] ?? CompletionItemKind.Class, symbol.kind);
+    }
   }
   return items;
 }
@@ -343,7 +347,14 @@ function paramHint(param: Param): string {
   return "required";
 }
 
-function findEnclosingCall(lines: string[], position: Position): { callee: string; usedArgs: string[] } | null {
+type EnclosingCall = {
+  receiver: string | undefined;
+  callee: string;
+  usedArgs: string[];
+  currentArgument: string;
+};
+
+function findEnclosingCall(lines: string[], position: Position): EnclosingCall | null {
   const used: string[] = [];
   let depth = 0;
   let segment = "";
@@ -361,8 +372,8 @@ function findEnclosingCall(lines: string[], position: Position): { callee: strin
         if (depth === 0) {
           if (char !== "(") return null;
           collectNamedArg(segment, used);
-          const callee = readIdentifierEndingAt(text, column - 1);
-          return callee ? { callee, usedArgs: used.reverse() } : null;
+          const callee = readCalleeEndingAt(text, column - 1);
+          return callee ? { ...callee, usedArgs: used.reverse(), currentArgument: segment } : null;
         }
         depth--;
       } else if (char === "," && depth === 0) {
@@ -393,11 +404,28 @@ function skipStringBackward(line: string, startColumn: number, quote: string): n
   return -1;
 }
 
-function readIdentifierEndingAt(line: string, endColumn: number): string | null {
+function readCalleeEndingAt(line: string, endColumn: number): Pick<EnclosingCall, "receiver" | "callee"> | null {
   let i = endColumn;
   while (i >= 0 && /\s/.test(line[i])) i--;
   const end = i + 1;
   while (i >= 0 && /[A-Za-z0-9_$]/.test(line[i])) i--;
   const start = i + 1;
-  return start === end ? null : line.slice(start, end);
+  if (start === end) return null;
+  const callee = line.slice(start, end);
+  i = start - 1;
+  while (i >= 0 && /\s/.test(line[i])) i--;
+  if (line[i] !== ".") return { receiver: undefined, callee };
+  i--;
+  while (i >= 0 && /\s/.test(line[i])) i--;
+  const receiverEnd = i + 1;
+  while (i >= 0 && /[A-Za-z0-9_$]/.test(line[i])) i--;
+  const receiverStart = i + 1;
+  const receiver = line.slice(receiverStart, receiverEnd);
+  return receiver ? { receiver, callee } : { receiver: undefined, callee };
+}
+
+function isEmptyNoRequiredArgCall(call: EnclosingCall, params: readonly Param[]): boolean {
+  return call.usedArgs.length === 0
+    && call.currentArgument.trim() === ""
+    && params.every((param) => param.optional || param.rest || param.defaultValue !== undefined && param.defaultValue !== null);
 }

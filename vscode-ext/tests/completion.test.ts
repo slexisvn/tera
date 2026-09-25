@@ -150,6 +150,54 @@ describe("completion", () => {
     expect(suggestions).toContain("GuardApi");
     expect(suggestions).not.toContain("print");
   });
+
+  it("does not show ordinary suggestions inside a zero-argument imported member call", () => {
+    const project = projectFor({
+      "__init__.tera": [
+        "from .types import GuardApi",
+        "guard: GuardApi = {}",
+        "_make_any = 1",
+        "guard.boolean()",
+      ].join("\n"),
+      "types.tera": [
+        "interface GuardApi:",
+        "  boolean: () -> BooleanGuard",
+      ].join("\n"),
+    }, ["__init__.tera", "types.tera"]);
+    const suggestions = collectCompletions(project.context, {
+      textDocument: { uri: project.uri("__init__.tera") },
+      position: { line: 3, character: "guard.boolean(".length },
+    }).items.map((item) => item.label);
+
+    expect(suggestions).toEqual([]);
+  });
+
+  it("does not show ordinary suggestions inside an imported member call whose arguments are optional", () => {
+    const project = projectFor({
+      "__init__.tera": [
+        "from .types import GuardApi",
+        "guard: GuardApi = {}",
+        "_make_array = 1",
+        "guard.array()",
+      ].join("\n"),
+      "types.tera": [
+        "interface GuardApi:",
+        "  array: (item_schema?: GuardSchema | null) -> ArrayGuard",
+      ].join("\n"),
+    }, ["__init__.tera", "types.tera"]);
+    const suggestions = collectCompletions(project.context, {
+      textDocument: { uri: project.uri("__init__.tera") },
+      position: { line: 3, character: "guard.array(".length },
+    }).items.map((item) => item.label);
+
+    expect(suggestions).toEqual([]);
+  });
+
+  it("does not borrow named arguments from a same-named builtin for an unresolved member", () => {
+    const suggestions = labelsAtEnd("unknown.print(");
+
+    expect(suggestions).not.toContain("values=");
+  });
 });
 
 describe("import completion", () => {

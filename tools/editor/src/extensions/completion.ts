@@ -1,6 +1,6 @@
 import type { Completion, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
 import { isStringLiteralTextOffset, resolveMemberReceiverType, type SourceScope } from "tera/frontend";
-import { languageData, type Builtin, type Method } from "../language-data";
+import { languageData, parseParams, type Builtin, type Method, type Param } from "../language-data";
 import type { AnalysisProvider } from "../types";
 
 const memberItems = Object.values(languageData.pseudoTypes).flat();
@@ -16,6 +16,7 @@ export function makeCompletionSource(completionNames: readonly string[], analysi
     const options: Completion[] = [];
     const source = context.state.doc.toString();
     if (isStringLiteralTextOffset(source, word.from)) return null;
+    if (isZeroArgCallPosition(context, word.from, analysis, documentId)) return null;
     const owner = ownerBeforeDot(context.state.doc.toString(), word.from);
     const memberAccess = nonSpaceBefore(source, word.from) === ".";
     const add = (label: string, type: string, detail?: string, info?: string) => {
@@ -82,10 +83,68 @@ function typeCompletionNames(completionNames: readonly string[], analysis: Analy
     const current = analysis();
     const position = current.positionFor(documentId, source, from);
     for (const symbol of visibleSymbols(current.symbols.findScopeAt(position))) {
-      if (symbol.kind === "model" || symbol.kind === "module") names.add(symbol.name);
+      if (symbol.kind === "model" || symbol.kind === "module" || symbol.kind === "type") names.add(symbol.name);
     }
   }
   return [...names];
+}
+
+function isZeroArgCallPosition(context: CompletionContext, from: number, analysis: AnalysisProvider | undefined, documentId: string | undefined): boolean {
+  const source = context.state.doc.toString();
+  const call = callBefore(source, from);
+  if (!call) return false;
+  if (call.receiver) {
+    if (!analysis || !documentId) return false;
+    const current = analysis();
+    const position = current.positionFor(documentId, source, call.nameFrom);
+    const typeName = resolveMemberReceiverType(current.source, position, current.symbols, languageData.globalNamespaces);
+    const field = typeName ? current.symbols.resolveField(typeName, call.callee, position) : null;
+    return isNoRequiredArgFunctionType(field?.typeName ?? null);
+  }
+  const builtin = languageData.builtins.find((item) => item.name === call.callee);
+  return !!builtin?.signature && hasNoRequiredParams(builtin.signature.params);
+}
+
+function callBefore(source: string, from: number): { receiver?: string; callee: string; nameFrom: number } | null {
+  let cursor = from - 1;
+  while (cursor >= 0 && /\s/.test(source[cursor])) cursor--;
+  if (source[cursor] === ")") return null;
+  const open = source.lastIndexOf("(", cursor);
+  if (open < 0 || source.slice(open + 1, from).trim() !== "") return null;
+  cursor = open - 1;
+  while (cursor >= 0 && /\s/.test(source[cursor])) cursor--;
+  const end = cursor + 1;
+  while (cursor >= 0 && /[\w$]/.test(source[cursor])) cursor--;
+  const nameFrom = cursor + 1;
+  const callee = source.slice(nameFrom, end);
+  if (!callee) return null;
+  cursor = nameFrom - 1;
+  while (cursor >= 0 && /\s/.test(source[cursor])) cursor--;
+  if (source[cursor] !== ".") return { callee, nameFrom };
+  cursor--;
+  while (cursor >= 0 && /\s/.test(source[cursor])) cursor--;
+  const receiverEnd = cursor + 1;
+  while (cursor >= 0 && /[\w$]/.test(source[cursor])) cursor--;
+  const receiver = source.slice(cursor + 1, receiverEnd);
+  return receiver ? { receiver, callee, nameFrom } : { callee, nameFrom };
+}
+
+function isNoRequiredArgFunctionType(typeName: string | null): boolean {
+  const params = paramsFromFunctionType(typeName);
+  return params !== null && hasNoRequiredParams(params);
+}
+
+function paramsFromFunctionType(typeName: string | null): Param[] | null {
+  if (typeName === null) return null;
+  const arrow = typeName.lastIndexOf("->");
+  if (arrow < 0) return null;
+  const paramsText = typeName.slice(0, arrow).trim();
+  if (!paramsText.startsWith("(") || !paramsText.endsWith(")")) return null;
+  return parseParams(paramsText.slice(1, -1));
+}
+
+function hasNoRequiredParams(params: readonly Param[]): boolean {
+  return params.every((param) => param.optional || param.rest || param.defaultValue !== undefined && param.defaultValue !== null);
 }
 
 function visibleSymbols(scope: SourceScope): Array<{ name: string; kind: string }> {

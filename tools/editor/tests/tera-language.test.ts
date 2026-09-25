@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { analyzeDocuments } from "../src/analysis/symbols";
 import { teraHoverDocFor } from "../src/extensions/tera-language";
 import { languageData } from "../src/language-data";
 
@@ -10,6 +11,11 @@ function hoverMember(source: string) {
 
 function hoverToken(source: string, token: string) {
   return teraHoverDocFor(source, token, source.indexOf(token));
+}
+
+function hoverTokenWithAnalysis(source: string, token: string, from = source.indexOf(token)) {
+  const analysis = analyzeDocuments([{ id: "cell", source }]);
+  return teraHoverDocFor(source, token, from, { analysis: () => analysis, documentId: "cell" });
 }
 
 const sharedNames = (() => {
@@ -92,5 +98,29 @@ describe("the hover card elsewhere in the line", () => {
     });
 
     expect(doc?.diagnostics ?? []).toEqual([]);
+  });
+
+  it("does not borrow a parameter hover for an object literal key", () => {
+    const source = [
+      "fn send(message: string):",
+      "  return { message: message }",
+    ].join("\n");
+    const key = source.indexOf("{ message") + "{ ".length;
+    const value = source.lastIndexOf("message");
+
+    expect(hoverTokenWithAnalysis(source, "message", key)).toBeNull();
+    expect(hoverTokenWithAnalysis(source, "message", value)?.kind).toBe("parameter");
+  });
+
+  it("hovers type literal fields and generic type parameters", () => {
+    const source = [
+      "type GuardResultOf<T> = {",
+      "  ok: bool,",
+      "  value: T | null,",
+      "}",
+    ].join("\n");
+
+    expect(hoverTokenWithAnalysis(source, "value")?.kind).toBe("field");
+    expect(hoverTokenWithAnalysis(source, "T", source.indexOf("T | null"))?.kind).toBe("type");
   });
 });

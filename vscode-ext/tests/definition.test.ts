@@ -199,6 +199,42 @@ describe("definition", () => {
 
     expect(location).toBeNull();
   });
+
+  it("jumps from a generic type parameter use to its declaration", () => {
+    const source = [
+      "type GuardResultOf<T> = {",
+      "  ok: bool,",
+      "  value: T | null,",
+      "}",
+    ].join("\n");
+
+    const location = computeDefinition(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 2, character: "  value: T".length },
+    });
+
+    expect(location?.range.start).toEqual({ line: 0, character: "type GuardResultOf<".length });
+    expect(location?.range.end).toEqual({ line: 0, character: "type GuardResultOf<T".length });
+  });
+
+  it("jumps from a later helper function call in an arrow assignment to its declaration", () => {
+    const source = [
+      "class NumberSchema:",
+      "  constructor():",
+      "    this.int = (message: string = \"\") => _number_int(this, message)",
+      "",
+      "fn _number_int(schema: NumberSchema, message: string) -> NumberGuard:",
+      "  return schema",
+    ].join("\n");
+
+    const location = computeDefinition(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 2, character: "    this.int = (message: string = \"\") => _number_int".length },
+    });
+
+    expect(location?.range.start).toEqual({ line: 4, character: "fn ".length });
+    expect(location?.range.end).toEqual({ line: 4, character: "fn _number_int".length });
+  });
 });
 
 describe("definition across modules", () => {
@@ -275,6 +311,26 @@ describe("definition across modules", () => {
 
     expect(location?.uri).toBe(project.uri("shapes/area.tera"));
     expect(location?.range.start).toEqual({ line: 2, character: "fn ".length });
+  });
+
+  it("jumps from an imported interface member access to the field declaration", () => {
+    const project = projectFor({
+      "__init__.tera": [
+        "from .types import GuardApi",
+        "guard: GuardApi = {}",
+        "guard.boolean()",
+      ].join("\n"),
+      "types.tera": [
+        "interface GuardApi:",
+        "  boolean: () -> BooleanGuard",
+        "  object: () -> ObjectGuard",
+      ].join("\n"),
+    }, ["__init__.tera", "types.tera"]);
+    const location = jump(project, "__init__.tera", 2, "guard.boolean".length);
+
+    expect(location?.uri).toBe(project.uri("types.tera"));
+    expect(location?.range.start).toEqual({ line: 1, character: 2 });
+    expect(location?.range.end).toEqual({ line: 1, character: "  boolean".length });
   });
 
   it("returns nothing for a module path that does not resolve", () => {

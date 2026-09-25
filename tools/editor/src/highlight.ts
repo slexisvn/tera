@@ -1,5 +1,6 @@
 import { languageData } from "./language-data";
 import { isStringLiteralTextOffset } from "tera/frontend";
+import { bracedKeys } from "./source-context";
 
 const KEYWORDS = languageData.keywords;
 const BUILTINS = languageData.builtins.map((item) => item.name);
@@ -26,9 +27,9 @@ export function tokenClass(token: string, code: string, index: number, isStringT
   const memberClass = contextualNameClasses(code).get(index);
   if (memberClass) return memberClass;
   if (isModelHookLabel(token, code, index)) return 'tok-method';
-  if (TYPE_SET.has(token) && isTypeAnnotation(code, index)) return 'tok-type';
+  if (TYPE_SET.has(token) && isTypePosition(code, index)) return 'tok-type';
   if (KEYWORD_SET.has(token)) return 'tok-kw';
-  if (TYPE_SET.has(token) || isTypeAnnotation(code, index)) return 'tok-type';
+  if (TYPE_SET.has(token) || isTypePosition(code, index)) return 'tok-type';
   if (BUILTIN_SET.has(token)) return 'tok-builtin';
   if (nonSpaceAfter(code, index + token.length) === '(') return 'tok-method';
   if (token[0] >= 'A' && token[0] <= 'Z') return 'tok-type';
@@ -56,13 +57,53 @@ function isTypeAnnotation(code: string, index: number): boolean {
   return false;
 }
 
+function isTypePosition(code: string, index: number): boolean {
+  if (isTypeAnnotation(code, index)) return true;
+  const before = nonSpaceBefore(code, index);
+  return before === "<" || before === "|" || before === "&";
+}
+
 function contextualNameClasses(code: string): ReadonlyMap<number, string> {
   if (cachedNameClasses?.code === code) return cachedNameClasses.classes;
   const classes = new Map<number, string>();
+  collectTypeParameters(code, classes);
   collectInterfaceMembers(code, classes);
   collectLiteralKeys(code, classes);
   cachedNameClasses = { code, classes };
   return classes;
+}
+
+function collectTypeParameters(code: string, classes: Map<number, string>): void {
+  let lineStart = 0;
+  while (lineStart <= code.length) {
+    const lineEnd = lineEndOf(code, lineStart);
+    const line = code.slice(lineStart, lineEnd);
+    const match = /^\s*(?:type|interface|fn|function)\s+[A-Za-z_$][\w$]*\s*</.exec(line);
+    if (match) {
+      const open = line.indexOf("<", match[0].length - 1);
+      const close = matchingAngle(line, open);
+      if (open >= 0 && close > open) {
+        const params = line.slice(open + 1, close);
+        const re = /[A-Za-z_$][\w$]*/g;
+        let found: RegExpExecArray | null;
+        while ((found = re.exec(params))) classes.set(lineStart + open + 1 + found.index, 'tok-type');
+      }
+    }
+    if (lineEnd >= code.length) break;
+    lineStart = code[lineEnd] === '\r' && code[lineEnd + 1] === '\n' ? lineEnd + 2 : lineEnd + 1;
+  }
+}
+
+function matchingAngle(line: string, open: number): number {
+  let depth = 0;
+  for (let cursor = open; cursor < line.length; cursor++) {
+    if (line[cursor] === "<") depth++;
+    else if (line[cursor] === ">") {
+      depth--;
+      if (depth === 0) return cursor;
+    }
+  }
+  return -1;
 }
 
 function collectInterfaceMembers(code: string, classes: Map<number, string>): void {
@@ -104,100 +145,8 @@ function nearestOuterHeader(code: string, lineStart: number, indent: number): st
   return null;
 }
 
-type DelimiterFrame = { open: '{' | '(' | '['; expectKey: boolean };
-
 function collectLiteralKeys(code: string, classes: Map<number, string>): void {
-  const stack: DelimiterFrame[] = [];
-  let cursor = 0;
-  while (cursor < code.length) {
-    const char = code[cursor];
-    if (char === '"' || char === "'" || char === '`') {
-      cursor = skipQuoted(code, cursor, char);
-      continue;
-    }
-    if (char === '#' || (char === '/' && code[cursor + 1] === '/')) {
-      cursor = lineEndOf(code, cursor);
-      continue;
-    }
-    if (char === '/' && code[cursor + 1] === '*') {
-      cursor = skipBlockComment(code, cursor + 2);
-      continue;
-    }
-    if (isIdentifierStart(char)) {
-      const start = cursor;
-      cursor++;
-      while (cursor < code.length && isIdentifierPart(code[cursor])) cursor++;
-      const frame = stack.at(-1);
-      if (frame?.open === '{' && frame.expectKey && hasLiteralKeyDelimiter(code, cursor) && !classes.has(start)) {
-        classes.set(start, 'tok-prop');
-      }
-      continue;
-    }
-    if (char === '{' || char === '(' || char === '[') stack.push({ open: char, expectKey: char === '{' });
-    else if (char === '}' || char === ')' || char === ']') popDelimiter(stack, char);
-    else if (char === ',') {
-      const frame = stack.at(-1);
-      if (frame?.open === '{') frame.expectKey = true;
-    } else if (char === ':') {
-      const frame = stack.at(-1);
-      if (frame?.open === '{') frame.expectKey = false;
-    }
-    cursor++;
-  }
-}
-
-function skipQuoted(code: string, start: number, quote: string): number {
-  let cursor = start + 1;
-  let escaped = false;
-  while (cursor < code.length) {
-    const char = code[cursor];
-    cursor++;
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === '\\') {
-      escaped = true;
-      continue;
-    }
-    if (char === quote) break;
-  }
-  return cursor;
-}
-
-function skipBlockComment(code: string, start: number): number {
-  let cursor = start;
-  while (cursor < code.length) {
-    if (code[cursor] === '*' && code[cursor + 1] === '/') return cursor + 2;
-    cursor++;
-  }
-  return cursor;
-}
-
-function popDelimiter(stack: DelimiterFrame[], close: string): void {
-  const open = close === '}' ? '{' : close === ')' ? '(' : '[';
-  while (stack.length > 0) {
-    const frame = stack.pop();
-    if (frame?.open === open) return;
-  }
-}
-
-function hasLiteralKeyDelimiter(code: string, index: number): boolean {
-  let cursor = index;
-  while (cursor < code.length && (code[cursor] === ' ' || code[cursor] === '\t')) cursor++;
-  if (code[cursor] === '?') {
-    cursor++;
-    while (cursor < code.length && (code[cursor] === ' ' || code[cursor] === '\t')) cursor++;
-  }
-  return code[cursor] === ':';
-}
-
-function isIdentifierStart(char: string): boolean {
-  return /[A-Za-z_$]/.test(char);
-}
-
-function isIdentifierPart(char: string): boolean {
-  return /[\w$]/.test(char);
+  for (const key of bracedKeys(code)) if (!classes.has(key.from)) classes.set(key.from, 'tok-prop');
 }
 
 function lineStartOf(code: string, index: number): number {

@@ -3,6 +3,7 @@ import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
 import { makeCompletionSource } from "../src/extensions/completion";
 import { languageData } from "../src/language-data";
+import { analyzeDocuments } from "../src/analysis/symbols";
 
 const everyMemberName = new Set(
   Object.values(languageData.pseudoTypes)
@@ -18,6 +19,13 @@ function complete(doc: string, names: readonly string[] = [], explicit = true) {
 
 function labels(doc: string, names: readonly string[] = []): string[] {
   return (complete(doc, names)?.options ?? []).map((option) => option.label);
+}
+
+function completeWithAnalysis(doc: string, pos = doc.length) {
+  const analysis = analyzeDocuments([{ id: "cell", source: doc }]);
+  const source = makeCompletionSource(["_make_any"], () => analysis, "cell");
+  const state = EditorState.create({ doc });
+  return source(new CompletionContext(state, pos, true));
 }
 
 describe("completing after a dot", () => {
@@ -103,6 +111,28 @@ describe("completing where it would be wrong to", () => {
 
   it("says nothing for an empty prefix unless the caller asked explicitly", () => {
     expect(complete("", [], false)).toBeNull();
+  });
+
+  it("says nothing inside a known zero-argument member call", () => {
+    const doc = [
+      "interface GuardApi:",
+      "  boolean: () -> BooleanGuard",
+      "guard: GuardApi = {}",
+      "guard.boolean()",
+    ].join("\n");
+
+    expect(completeWithAnalysis(doc, doc.length - 1)).toBeNull();
+  });
+
+  it("says nothing inside a known member call whose arguments are optional", () => {
+    const doc = [
+      "interface GuardApi:",
+      "  array: (item_schema?: GuardSchema | null) -> ArrayGuard",
+      "guard: GuardApi = {}",
+      "guard.array()",
+    ].join("\n");
+
+    expect(completeWithAnalysis(doc, doc.length - 1)).toBeNull();
   });
 
   it("answers null rather than an empty list when nothing matches", () => {

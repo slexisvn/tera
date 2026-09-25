@@ -1,6 +1,6 @@
 import type { SignatureHelp, SignatureHelpParams } from "vscode-languageserver/node.js";
 import type { ExternalBuiltinSignature } from "tera/frontend";
-import type { Signature } from "@/shared/language-data";
+import { parseParams, type Signature } from "@/shared/language-data";
 import type { AnalyzedDocument, Position } from "../analyzer/index.ts";
 import { pathOfUri } from "../analyzer/paths.ts";
 import { symbolsFor } from "../language/members.ts";
@@ -27,8 +27,7 @@ export function computeSignatureHelp(
   if (!match) return null;
 
   const [, receiver, callee, args] = match;
-  const signature = importedSignature(context, params.textDocument.uri, document, receiver, callee!)
-    ?? resolveSignature(context, params.textDocument.uri, document, receiver, callee!, params.position);
+  const signature = resolveCallSignature(context, params.textDocument.uri, document, receiver, callee!, params.position);
   if (!signature) return null;
 
   return {
@@ -72,7 +71,20 @@ export function toSignature(external: ExternalBuiltinSignature, label: string): 
   return { params, display: `${label}(${rendered})${returns}` };
 }
 
-function resolveSignature(
+export function resolveCallSignature(
+  context: ProviderContext,
+  uri: string,
+  document: AnalyzedDocument,
+  receiver: string | undefined,
+  callee: string,
+  position: Position,
+): Signature | null {
+  const imported = importedSignature(context, uri, document, receiver, callee);
+  if (imported) return imported;
+  return resolveLocalSignature(context, uri, document, receiver, callee, position);
+}
+
+function resolveLocalSignature(
   context: ProviderContext,
   uri: string,
   document: AnalyzedDocument,
@@ -95,19 +107,7 @@ function signatureFromType(name: string, typeName: string): Signature | null {
   if (arrow < 0) return null;
   const paramsText = typeName.slice(0, arrow).trim();
   if (!paramsText.startsWith("(") || !paramsText.endsWith(")")) return null;
-  const params = paramsText.slice(1, -1).trim()
-      ? paramsText.slice(1, -1).split(",").map((item, index) => {
-        const [rawName, rawType] = item.trim().split(":");
-        const hasName = rawType !== undefined;
-        const label = hasName ? rawName!.trim() : `arg${index}`;
-        const optional = /\?\s*$/.test(label);
-        return {
-          name: label.replace(/\s*\?$/, ""),
-          type: (hasName ? rawType : rawName)?.trim() || null,
-          optional,
-        };
-      })
-    : [];
+  const params = parseParams(paramsText.slice(1, -1));
   return { params, display: `${name}(${params.map((param) => `${param.name}${param.optional ? "?" : ""}${param.type ? `: ${param.type}` : ""}`).join(", ")}) -> ${typeName.slice(arrow + 2).trim()}` };
 }
 
