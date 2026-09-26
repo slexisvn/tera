@@ -36,9 +36,10 @@ export type SymbolType = {
   line: number;
   column: number;
   type: string;
-  kind?: "variable" | "parameter";
+  kind?: "variable" | "parameter" | "field";
   scopeStartLine?: number;
   scopeStartColumn?: number;
+  exact?: boolean;
 };
 
 export class TypeChecker {
@@ -599,7 +600,10 @@ export class TypeChecker {
 
   checkReturn(node: Extract<SemanticNode, { kind: "Return" }>, scope: Scope): void {
     const sig = this.currentSignature(scope);
-    if (!sig || sig.returns === "any") return;
+    if (!sig || sig.returns === "any") {
+      if (node.value) this.checkExpression(node.value, scope, node.span.line, node.span.column);
+      return;
+    }
     const resolved = sig.async ? awaitedType(sig.returns, this.bound.env) : sig.returns;
     const expectedType = sig.async ? unionType([resolved, promiseType(sig.returns, this.bound.env)]) : sig.returns;
     const expected = functionSignatureForType("<return>", resolved);
@@ -776,8 +780,24 @@ export class TypeChecker {
       }
       if (prop.computed && prop.key && typeof prop.key === "object") this.checkExpression(prop.key, scope, line, column);
       const value = prop.value ?? prop.argument;
-      if (value) this.checkExpression(value, scope, line, column);
+      if (value) {
+        this.emitObjectField(prop, value, scope, line, column);
+        this.checkExpression(value, scope, line, column);
+      }
     }
+  }
+
+  emitObjectField(prop: ObjectPropertyNode, value: ASTNode, scope: Scope, line: number, column: number): void {
+    if (prop.computed || typeof prop.key !== "string") return;
+    const at = objectPropertyPosition(prop, line, column);
+    this.onDeclare?.({
+      name: prop.key,
+      line: at.line,
+      column: at.column,
+      type: inferExpression(value, this.bound, scope),
+      kind: "field",
+      exact: true,
+    });
   }
 
   checkConditional(node: ASTNode, scope: Scope, line: number, column: number, expected?: Signature | null, expectedType?: TypeName | null): void {
@@ -1464,6 +1484,13 @@ function nodePosition(node: ASTNode, fallbackLine: number, fallbackColumn: numbe
   return {
     line: positioned.__line ?? fallbackLine,
     column: positioned.__column ?? fallbackColumn,
+  };
+}
+
+function objectPropertyPosition(prop: ObjectPropertyNode, fallbackLine: number, fallbackColumn: number): { line: number; column: number } {
+  return {
+    line: prop.__line ?? fallbackLine,
+    column: prop.__column ?? fallbackColumn,
   };
 }
 

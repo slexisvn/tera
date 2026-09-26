@@ -36,6 +36,24 @@ describe("hover", () => {
     expect(text).toContain("type: `int`");
   });
 
+  it("shows returned object literal key fields without hiding same-named parameters", () => {
+    const source = [
+      "fn issue(path: string, code: string):",
+      "  return {",
+      "    path: path,",
+      "    code: code,",
+      "  }",
+    ].join("\n");
+
+    const key = hoverText(source, 2, "    path".length);
+    const value = hoverText(source, 2, "    path: path".length);
+
+    expect(key).toContain("`path` — *field*");
+    expect(key).toContain("type: `string`");
+    expect(value).toContain("`path` — *parameter*");
+    expect(value).toContain("type: `string`");
+  });
+
   it("shows fn-prefixed returned function types in canonical form", () => {
     const source = [
       "fn adder(base: int) -> fn(int) -> int:",

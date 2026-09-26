@@ -113,6 +113,8 @@ export type ObjectPropertyNode = {
   shorthand?: boolean;
   argument?: ASTNode;
   spread?: boolean;
+  __line?: number;
+  __column?: number;
 };
 export type ClassMethodNode = {
   name: string | null;

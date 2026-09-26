@@ -100,15 +100,18 @@ describe("the hover card elsewhere in the line", () => {
     expect(doc?.diagnostics ?? []).toEqual([]);
   });
 
-  it("does not borrow a parameter hover for an object literal key", () => {
+  it("shows object literal keys as fields without hiding same-named values", () => {
     const source = [
       "fn send(message: string):",
-      "  return { message: message }",
+      "  return {",
+      "    message: message,",
+      "  }",
     ].join("\n");
-    const key = source.indexOf("{ message") + "{ ".length;
+    const key = source.indexOf("message: message");
     const value = source.lastIndexOf("message");
 
-    expect(hoverTokenWithAnalysis(source, "message", key)).toBeNull();
+    expect(hoverTokenWithAnalysis(source, "message", key)?.kind).toBe("field");
+    expect(hoverTokenWithAnalysis(source, "message", key)?.description).toBe("type: string");
     expect(hoverTokenWithAnalysis(source, "message", value)?.kind).toBe("parameter");
   });
 

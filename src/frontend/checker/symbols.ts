@@ -30,6 +30,7 @@ export type SourceSymbol = {
   visibility?: ClassVisibility;
   owner?: string;
   scope?: SourceScope;
+  exact?: boolean;
 };
 
 export function symbolStartsAt(symbol: SourceSymbol | null, position: SymbolPosition): boolean {
@@ -85,6 +86,7 @@ export function buildSourceSymbolTable(source: string, inferredSymbols: Iterable
 type InferredTypes = {
   locals: Map<string, InferredLocal[]>;
   members: Map<string, string>;
+  exact: InferredLocal[];
 };
 
 type InferredLocal = {
@@ -95,6 +97,7 @@ type InferredLocal = {
   kind?: SymbolKind;
   scopeStartLine?: number;
   scopeStartColumn?: number;
+  exact?: boolean;
 };
 
 type InferredSymbolInput = {
@@ -105,6 +108,7 @@ type InferredSymbolInput = {
   kind?: SymbolKind;
   scopeStartLine?: number;
   scopeStartColumn?: number;
+  exact?: boolean;
 };
 
 type ImportedSourceSymbol = {
@@ -125,6 +129,7 @@ class SymbolTableBuilder {
   aliasesByType = new Map<string, string>();
   typeParamsByOwner = new Map<string, string[]>();
   importedSymbols = new Map<string, ImportedSourceSymbol>();
+  exactSymbols = new Map<string, SourceSymbol[]>();
   source: string;
   lexicalSource: string;
   lineStarts: number[];
@@ -172,6 +177,20 @@ class SymbolTableBuilder {
         });
       }
     }
+    for (const local of this.inferred.exact) {
+      const typeName = local.type === "any" ? null : local.type;
+      const key = symbolLine(local.name, local.line);
+      const symbols = this.exactSymbols.get(key) ?? [];
+      symbols.push({
+        name: local.name,
+        kind: local.kind ?? "variable",
+        line: local.line,
+        column: local.column,
+        typeName,
+        exact: true,
+      });
+      this.exactSymbols.set(key, symbols);
+    }
   }
 
   finish(): SourceSymbolTable {
@@ -189,12 +208,15 @@ class SymbolTableBuilder {
     const lines = this.lines;
     const fieldsByType = this.fieldsByType;
     const parentsByType = this.parentsByType;
+    const exactSymbols = this.exactSymbols;
     return {
       root,
       scopes: this.scopes,
       flat: this.scopes.flatMap((scope) => scope.symbols),
       findScopeAt: (position) => findScopeAt(root, position.line + 1, lines),
-      resolve: (name, position) => resolveName(root, name, position.line + 1, position.character + 1, lines),
+      resolve: (name, position) =>
+        resolveExactName(exactSymbols, name, position.line + 1, position.character + 1)
+        ?? resolveName(root, name, position.line + 1, position.character + 1, lines),
       resolveField: (typeName, fieldName, position) => {
         const scope = position ? findScopeAt(root, position.line + 1, lines) : null;
         return (typeName ? membersFor(typeName, fieldsByType, this.aliasesByType, this.typeParamsByOwner).find((field) =>
@@ -297,6 +319,7 @@ class SymbolTableBuilder {
         if (node.value) this.visitExpression(node.value, scope, node.span);
         break;
       case "Return":
+        if (node.value) this.visitExpression(node.value, scope, node.span);
         break;
     }
   }
@@ -491,8 +514,10 @@ class SymbolTableBuilder {
 function collectInferredTypes(symbols: Iterable<InferredSymbolInput>): InferredTypes {
   const locals = new Map<string, InferredLocal[]>();
   const members = new Map<string, string>();
+  const exact: InferredLocal[] = [];
   for (const symbol of symbols) {
     if (symbol.name.includes(".")) members.set(symbol.name, symbol.type);
+    else if (symbol.exact) exact.push(symbol);
     else {
       const key = `${symbol.name}:${symbol.line}`;
       const entries = locals.get(key) ?? [];
@@ -500,7 +525,7 @@ function collectInferredTypes(symbols: Iterable<InferredSymbolInput>): InferredT
       locals.set(key, entries);
     }
   }
-  return { locals, members };
+  return { locals, members, exact };
 }
 
 function makeScope(name: string, parent: SourceScope | null, startLine: number, endLine: number, indent: number, kind: ScopeKind = "scope"): SourceScope {
@@ -588,9 +613,22 @@ function endLine(nodes: Array<SemanticNode | FunctionNode | ClassFieldNode | { s
   let line = fallback;
   for (const node of nodes) {
     line = Math.max(line, node.span.line);
+    if ("kind" in node) {
+      if ((node.kind === "Return" || node.kind === "Jump" || node.kind === "Var") && node.value) {
+        line = Math.max(line, expressionEndLine(node.value));
+      } else if (node.kind === "Expr") {
+        line = Math.max(line, expressionEndLine(node.value));
+      }
+    }
     if ("body" in node) line = Math.max(line, endLine(node.body, node.span.line));
     if ("kind" in node && node.kind === "Class") line = Math.max(line, endLine(node.members.map((member) => member.fn), node.span.line));
   }
+  return line;
+}
+
+function expressionEndLine(node: ASTNode): number {
+  let line = nodePosition(node, { line: 1, column: 1 }).line;
+  for (const child of astChildren(node)) line = Math.max(line, expressionEndLine(child));
   return line;
 }
 
@@ -735,6 +773,16 @@ function substituteTypeParams(typeName: string, params: string[], args: string[]
 
 function symbolPosition(name: string, line: number, column: number): string {
   return `${name}:${line}:${column}`;
+}
+
+function symbolLine(name: string, line: number): string {
+  return `${name}:${line}`;
+}
+
+function resolveExactName(exactSymbols: ReadonlyMap<string, readonly SourceSymbol[]>, name: string, line: number, column: number): SourceSymbol | null {
+  const symbols = exactSymbols.get(symbolLine(name, line));
+  if (symbols === undefined) return null;
+  return symbols.find((symbol) => column >= symbol.column && column <= symbol.column + symbol.name.length) ?? null;
 }
 
 function escapeRegExp(source: string): string {

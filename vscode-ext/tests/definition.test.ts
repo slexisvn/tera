@@ -180,7 +180,7 @@ describe("definition", () => {
     expect(fromMethod?.range.end).toEqual({ line: 1, character: "  protected handle".length });
   });
 
-  it("does not treat object literal keys as variable references", () => {
+  it("treats object literal keys as fields without resolving them to same-named values", () => {
     const source = [
       "async fn fetch_user(id: int):",
       "  return { id: id, name: `user-${id}` }",
@@ -196,7 +196,8 @@ describe("definition", () => {
       position: { line: 1, character: "  return { id: id".length },
     });
 
-    expect(key).toBeNull();
+    expect(key?.range.start).toEqual({ line: 1, character: "  return { ".length });
+    expect(key?.range.end).toEqual({ line: 1, character: "  return { id".length });
     expect(value?.range.start).toEqual({ line: 0, character: "async fn fetch_user(".length });
     expect(value?.range.end).toEqual({ line: 0, character: "async fn fetch_user(id".length });
   });

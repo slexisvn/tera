@@ -2072,12 +2072,17 @@ export class Parser {
       } else {
         let key;
         let computed = false;
+        let keyLine;
+        let keyColumn;
         if (this.match(TokenType.Punctuator, "[")) {
           key = this.parseExpression();
           this.expect(TokenType.Punctuator, "]");
           computed = true;
         } else if (namesProperty(this.current())) {
-          key = this.tokenString(this.advance(), "property name");
+          const keyToken = this.advance();
+          key = this.tokenString(keyToken, "property name");
+          keyLine = keyToken.line;
+          keyColumn = keyToken.column;
         } else {
           this.error("Expected property name", this.current());
         }
@@ -2098,8 +2103,13 @@ export class Parser {
             key = this.parseExpression();
             this.expect(TokenType.Punctuator, "]");
             computed = true;
+            keyLine = undefined;
+            keyColumn = undefined;
           } else {
-            key = this.tokenString(this.advance(), "property name");
+            const keyToken = this.advance();
+            key = this.tokenString(keyToken, "property name");
+            keyLine = keyToken.line;
+            keyColumn = keyToken.column;
           }
           const params = this._parseParams();
           const body = this.parseBlock();
@@ -2114,7 +2124,7 @@ export class Parser {
         } else {
           value = Identifier(this.tokenStringValue(key));
         }
-        properties.push({ key, value, computed, kind });
+        properties.push({ key, value, computed, kind, __line: keyLine, __column: keyColumn });
       }
 
       if (!this.check(TokenType.Punctuator, "}")) {

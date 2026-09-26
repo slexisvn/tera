@@ -204,6 +204,23 @@ describe("buildSourceSymbolTable", () => {
     });
   });
 
+  describe("object literals", () => {
+    it("resolves returned object keys as fields without hiding same-named values", () => {
+      const source = [
+        "fn issue(path: string, code: string):",
+        "  return {",
+        "    path: path,",
+        "    code: code,",
+        "  }",
+      ].join("\n");
+      const table = tableOf(source);
+
+      expect(table.resolve("path", { line: 2, character: "    path".length })?.kind).toBe("field");
+      expect(table.resolve("path", { line: 2, character: "    path".length })?.typeName).toBe("string");
+      expect(table.resolve("path", { line: 2, character: "    path: path".length })?.kind).toBe("parameter");
+    });
+  });
+
   describe("structural types written with an arrow", () => {
     const structural = tableOf("value = 1");
     const memberNames = (type) => structural.membersOf(type).map((member) => member.name);
