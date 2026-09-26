@@ -37,7 +37,7 @@ export function computeRename(context: ProviderContext, params: RenameParams): W
 
   const symbol = moduleSymbolAt(context, params.textDocument.uri, document, params.position, word.text);
   if (symbol === null || symbol.name !== word.text) {
-    add(params.textDocument.uri, edits(document.text, word.text, new Set(), true, params.newName));
+    add(params.textDocument.uri, edits(document.text, word.text, new Set(), true, params.newName, document.ast));
     return Object.keys(changes).length === 0 ? null : { changes };
   }
 
@@ -64,6 +64,7 @@ function edits(
   namespaces: ReadonlySet<string>,
   plain: boolean,
   newText: string,
+  ast?: unknown,
 ): TextEdit[] {
-  return nameOccurrences(source, name, namespaces, plain).map((range) => ({ range, newText }));
+  return nameOccurrences(source, name, namespaces, plain, ast).map((range) => ({ range, newText }));
 }

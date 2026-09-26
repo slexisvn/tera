@@ -74,6 +74,50 @@ describe("document highlight across imports", () => {
     ]);
   });
 
+  it("does not link named argument keys to a same-named model parameter", () => {
+    const source = [
+      "model IrisNet(num_classes: int):",
+      "  net = Sequential(",
+      "    Linear(4, 32),",
+      "    BatchNorm1d(32),",
+      "    ReLU(),",
+      "    Dropout(p=0.1),",
+      "    Linear(32, 16),",
+      "    ReLU(),",
+      "    Linear(16, num_classes)",
+      "  )",
+      "  loss_fn = CrossEntropyLoss()",
+      "  acc = Accuracy(task=\"multiclass\", num_classes=num_classes)",
+      "  f1 = F1Score(task=\"multiclass\", num_classes=num_classes)",
+    ].join("\n");
+    const highlights = computeHighlights(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 0, character: "model IrisNet(num_classes".length },
+    });
+
+    expect(highlights?.map((entry) => entry.range.start)).toEqual([
+      { line: 0, character: "model IrisNet(".length },
+      { line: 8, character: "    Linear(16, ".length },
+      { line: 11, character: "  acc = Accuracy(task=\"multiclass\", num_classes=".length },
+      { line: 12, character: "  f1 = F1Score(task=\"multiclass\", num_classes=".length },
+    ]);
+  });
+
+  it("keeps a named argument key highlight on the key when a parameter has the same name", () => {
+    const source = [
+      "model IrisNet(num_classes: int):",
+      "  acc = Accuracy(task=\"multiclass\", num_classes=num_classes)",
+    ].join("\n");
+    const highlights = computeHighlights(contextFor(source), {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 1, character: "  acc = Accuracy(task=\"multiclass\", num_classes".length },
+    });
+
+    expect(highlights?.map((entry) => entry.range.start)).toEqual([
+      { line: 1, character: "  acc = Accuracy(task=\"multiclass\", ".length },
+    ]);
+  });
+
   it("keeps an object literal key highlight on the key when a parameter has the same name", () => {
     const source = [
       "class StringSchema:",
@@ -251,6 +295,21 @@ describe("references across modules", () => {
       { file: "main.tera", line: 1, character: "  return { message: ".length },
     ]);
   });
+
+  it("does not count named argument keys as local variable references", () => {
+    const project = projectFor({
+      "main.tera": [
+        "model IrisNet(num_classes: int):",
+        "  acc = Accuracy(task=\"multiclass\", num_classes=num_classes)",
+      ].join("\n"),
+    }, ["main.tera"]);
+    const found = references(project, "main.tera", 1, "  acc = Accuracy(task=\"multiclass\", num_classes=num_classes".length);
+
+    expect(sitesOf(project, found)).toEqual([
+      { file: "main.tera", line: 0, character: "model IrisNet(".length },
+      { file: "main.tera", line: 1, character: "  acc = Accuracy(task=\"multiclass\", num_classes=".length },
+    ]);
+  });
 });
 
 describe("rename across modules", () => {
@@ -313,6 +372,21 @@ describe("rename across modules", () => {
     expect(edit?.changes?.[project.uri("main.tera")]?.map((entry) => entry.range.start)).toEqual([
       { line: 0, character: "fn send(".length },
       { line: 1, character: "  return { message: ".length },
+    ]);
+  });
+
+  it("renames a local value without changing a named argument key", () => {
+    const project = projectFor({
+      "main.tera": [
+        "model IrisNet(num_classes: int):",
+        "  acc = Accuracy(task=\"multiclass\", num_classes=num_classes)",
+      ].join("\n"),
+    }, ["main.tera"]);
+    const edit = rename(project, "main.tera", 1, "  acc = Accuracy(task=\"multiclass\", num_classes=num_classes".length, "classes");
+
+    expect(edit?.changes?.[project.uri("main.tera")]?.map((entry) => entry.range.start)).toEqual([
+      { line: 0, character: "model IrisNet(".length },
+      { line: 1, character: "  acc = Accuracy(task=\"multiclass\", num_classes=".length },
     ]);
   });
 });

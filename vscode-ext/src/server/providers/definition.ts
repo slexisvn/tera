@@ -11,7 +11,7 @@ import {
 } from "../analyzer/modules.ts";
 import { pathOfUri, samePath } from "../analyzer/paths.ts";
 import { receiverNameAt, wordRangeAt } from "../analyzer/position.ts";
-import { isObjectKeyAt } from "../analyzer/token-context.ts";
+import { isNonReferenceIdentifierAt } from "../analyzer/token-context.ts";
 import type { AnalyzedDocument, Position } from "../analyzer/types.ts";
 import { isMemberAccess, resolveReceiverType, symbolsFor } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
@@ -42,7 +42,7 @@ export function computeDefinition(context: ProviderContext, params: DefinitionPa
   if (!word) return null;
   const symbols = symbolsFor(context, params.textDocument.uri, document);
   const localSymbol = symbols.resolve(word.text, params.position);
-  if (isObjectKeyAt(document.tokens, word.range.start) && !isFieldSymbolAt(localSymbol, word.range.start)) return null;
+  if (isNonReferenceIdentifierAt(document.tokens, word.range.start, document.ast) && !isFieldSymbolAt(localSymbol, word.range.start)) return null;
 
   const crossModule = crossModuleDefinition(context, document, params, word.text);
   if (crossModule) return crossModule;

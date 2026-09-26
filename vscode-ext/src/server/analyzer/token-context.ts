@@ -1,3 +1,4 @@
+import { astChildren, NodeType, type ASTNode } from "tera/frontend";
 import type { AnalyzedToken, Position } from "./types.ts";
 
 export function tokenIndexStartingAt(tokens: readonly AnalyzedToken[], position: Position): number {
@@ -6,9 +7,14 @@ export function tokenIndexStartingAt(tokens: readonly AnalyzedToken[], position:
   );
 }
 
-export function isObjectKeyAt(tokens: readonly AnalyzedToken[], position: Position): boolean {
+export function isNonReferenceIdentifierAt(tokens: readonly AnalyzedToken[], position: Position, ast?: unknown): boolean {
   const index = tokenIndexStartingAt(tokens, position);
-  return index >= 0 && isObjectKeyToken(tokens, index);
+  if (index < 0) return false;
+  return nonReferenceIdentifierPositionSet(tokens, ast).has(positionKey(position));
+}
+
+export function nonReferenceIdentifierPositionSet(tokens: readonly AnalyzedToken[], ast?: unknown): ReadonlySet<string> {
+  return new Set([...objectKeyPositionSet(tokens), ...namedArgumentPositionSet(ast)]);
 }
 
 export function objectKeyPositionSet(tokens: readonly AnalyzedToken[]): ReadonlySet<string> {
@@ -28,15 +34,33 @@ export function objectKeyPositionSet(tokens: readonly AnalyzedToken[]): Readonly
   return positions;
 }
 
-export function isObjectKeyToken(tokens: readonly AnalyzedToken[], index: number): boolean {
-  const token = tokens[index];
-  if (token === undefined || token.type !== "identifier") return false;
-  return hasKeyDelimiter(tokens, index) && enclosingDelimiter(tokens, index)?.value === "{";
-}
-
 export function positionKey(position: Position | Pick<AnalyzedToken, "line" | "column">): string {
   if ("character" in position) return `${position.line + 1}:${position.character + 1}`;
   return `${position.line}:${position.column}`;
+}
+
+function namedArgumentPositionSet(ast: unknown): ReadonlySet<string> {
+  const positions = new Set<string>();
+  if (!isAstNode(ast)) return positions;
+
+  const stack = [ast];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (
+      node.type === NodeType.NamedArgument &&
+      typeof node.name === "string" &&
+      typeof node.__line === "number" &&
+      typeof node.__column === "number"
+    ) {
+      positions.add(`${node.__line}:${node.__column}`);
+    }
+    stack.push(...astChildren(node));
+  }
+  return positions;
+}
+
+function isAstNode(value: unknown): value is ASTNode {
+  return !!value && typeof value === "object" && "type" in value;
 }
 
 function nextAfterOptional(tokens: readonly AnalyzedToken[], index: number, optional: string): number {
@@ -46,16 +70,6 @@ function nextAfterOptional(tokens: readonly AnalyzedToken[], index: number, opti
 function hasKeyDelimiter(tokens: readonly AnalyzedToken[], index: number): boolean {
   const next = nextAfterOptional(tokens, index + 1, "?");
   return tokens[next]?.value === ":";
-}
-
-function enclosingDelimiter(tokens: readonly AnalyzedToken[], before: number): AnalyzedToken | null {
-  const stack: AnalyzedToken[] = [];
-  for (let i = 0; i < before; i++) {
-    const value = tokens[i]!.value;
-    if (value === "{" || value === "[" || value === "(") stack.push(tokens[i]!);
-    else if (value === "}" || value === "]" || value === ")") popDelimiter(stack, value);
-  }
-  return stack.at(-1) ?? null;
 }
 
 function popDelimiter(stack: AnalyzedToken[], close: string): void {

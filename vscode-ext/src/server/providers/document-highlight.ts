@@ -2,7 +2,7 @@ import { DocumentHighlightKind, type DocumentHighlight, type DocumentHighlightPa
 import { isFieldSymbolAt, isStringLiteralTextPosition } from "tera/frontend";
 import { pathOfUri } from "../analyzer/paths.ts";
 import { wordRangeAt } from "../analyzer/position.ts";
-import { objectKeyPositionSet, positionKey } from "../analyzer/token-context.ts";
+import { nonReferenceIdentifierPositionSet, positionKey } from "../analyzer/token-context.ts";
 import type { AnalyzedDocument, AnalyzedToken, Position } from "../analyzer/types.ts";
 import { isMemberAccess, resolveReceiverType, symbolsFor } from "../language/members.ts";
 import { defineProvider, type ProviderContext } from "./types.ts";
@@ -30,21 +30,21 @@ export function computeHighlights(context: ProviderContext, params: DocumentHigh
 
   const word = wordRangeAt(document.lines, params.position);
   if (!word) return null;
-  const objectKeys = objectKeyPositionSet(document.tokens);
+  const nonReferences = nonReferenceIdentifierPositionSet(document.tokens, document.ast);
 
-  if (!objectKeys.has(positionKey(word.range.start))) {
-    const imported = importedHighlights(context, params.textDocument.uri, document, word.text, objectKeys);
+  if (!nonReferences.has(positionKey(word.range.start))) {
+    const imported = importedHighlights(context, params.textDocument.uri, document, word.text, nonReferences);
     if (imported) return imported;
   }
 
-  const target = definitionSiteAt(context, params.textDocument.uri, document, params.position, word.text, objectKeys, word.range.start);
+  const target = definitionSiteAt(context, params.textDocument.uri, document, params.position, word.text, nonReferences, word.range.start);
   if (!target) return [{ range: word.range, kind: DocumentHighlightKind.Text }];
 
   const highlights: DocumentHighlight[] = [];
   for (const token of document.tokens) {
     if (token.type !== "identifier" || token.value !== word.text) continue;
     const position = tokenStart(token);
-    const site = definitionSiteAt(context, params.textDocument.uri, document, position, token.value, objectKeys, position);
+    const site = definitionSiteAt(context, params.textDocument.uri, document, position, token.value, nonReferences, position);
     if (site && site.line === target.line && site.column === target.column) {
       highlights.push({ range: tokenRange(token), kind: DocumentHighlightKind.Text });
     }
@@ -57,7 +57,7 @@ function importedHighlights(
   uri: string,
   document: AnalyzedDocument,
   word: string,
-  objectKeys: ReadonlySet<string>,
+  nonReferences: ReadonlySet<string>,
 ): DocumentHighlight[] | null {
   const entryPath = pathOfUri(uri);
   if (entryPath === null) return null;
@@ -75,7 +75,7 @@ function importedHighlights(
   }];
   for (const token of document.tokens) {
     if (token.type !== "identifier" || token.value !== word) continue;
-    if (objectKeys.has(positionKey(token))) continue;
+    if (nonReferences.has(positionKey(token))) continue;
     const start = tokenStart(token);
     if (start.line === target.line && start.character === target.character) continue;
     highlights.push({ range: tokenRange(token), kind: DocumentHighlightKind.Read });
@@ -89,12 +89,12 @@ function definitionSiteAt(
   document: AnalyzedDocument,
   position: Position,
   word: string,
-  objectKeys: ReadonlySet<string>,
+  nonReferences: ReadonlySet<string>,
   wordStart: Position,
 ): DefinitionSite | null {
   const symbols = symbolsFor(context, uri, document);
   const local = symbols.resolve(word, position);
-  if (objectKeys.has(positionKey(wordStart)) && !isFieldSymbolAt(local, wordStart)) return null;
+  if (nonReferences.has(positionKey(wordStart)) && !isFieldSymbolAt(local, wordStart)) return null;
   if (isMemberAccess(document, position)) {
     const receiverType = resolveReceiverType(context, uri, document, position);
     const field = receiverType ? symbols.resolveField(receiverType, word, position) : null;

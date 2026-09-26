@@ -201,6 +201,27 @@ describe("definition", () => {
     expect(value?.range.end).toEqual({ line: 0, character: "async fn fetch_user(id".length });
   });
 
+  it("does not treat named argument keys as variable references", () => {
+    const source = [
+      "model IrisNet(num_classes: int):",
+      "  acc = Accuracy(task=\"multiclass\", num_classes=num_classes)",
+    ].join("\n");
+    const context = contextFor(source);
+
+    const key = computeDefinition(context, {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 1, character: "  acc = Accuracy(task=\"multiclass\", num_classes".length },
+    });
+    const value = computeDefinition(context, {
+      textDocument: { uri: "file:///test.tera" },
+      position: { line: 1, character: "  acc = Accuracy(task=\"multiclass\", num_classes=num_classes".length },
+    });
+
+    expect(key).toBeNull();
+    expect(value?.range.start).toEqual({ line: 0, character: "model IrisNet(".length });
+    expect(value?.range.end).toEqual({ line: 0, character: "model IrisNet(num_classes".length });
+  });
+
   it("does not jump from quoted string literal text to a same-named symbol", () => {
     const source = [
       "a = tensor(0)",

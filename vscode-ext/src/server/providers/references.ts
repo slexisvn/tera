@@ -29,7 +29,7 @@ export function computeReferences(context: ProviderContext, params: ReferencePar
 
   const symbol = moduleSymbolAt(context, params.textDocument.uri, document, params.position, word.text);
   if (symbol === null) {
-    return nameOccurrences(document.text, word.text).map((range) => ({
+    return nameOccurrences(document.text, word.text, new Set(), true, document.ast).map((range) => ({
       uri: params.textDocument.uri,
       range,
     }));

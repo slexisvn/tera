@@ -1,5 +1,7 @@
+import { createReactiveCheckOptions } from "@slexisvn/reactive/tera";
+import { parse } from "tera/frontend";
 import { analyzeTokens } from "./tokens.ts";
-import { objectKeyPositionSet, positionKey } from "./token-context.ts";
+import { nonReferenceIdentifierPositionSet, positionKey } from "./token-context.ts";
 import type { AnalyzedToken, Range } from "./types.ts";
 
 export function nameOccurrences(
@@ -7,18 +9,27 @@ export function nameOccurrences(
   name: string,
   namespaces: ReadonlySet<string> = new Set(),
   plain = true,
+  ast?: unknown,
 ): Range[] {
   const tokens = analyzeTokens(source);
-  const objectKeys = objectKeyPositionSet(tokens);
+  const nonReferences = nonReferenceIdentifierPositionSet(tokens, ast ?? parseAst(source));
   const ranges: Range[] = [];
   for (let at = 0; at < tokens.length; at++) {
     const token = tokens[at]!;
     if (token.type !== "identifier" || token.value !== name) continue;
-    if (objectKeys.has(positionKey(token))) continue;
+    if (nonReferences.has(positionKey(token))) continue;
     if (!reachable(tokens, at, namespaces, plain)) continue;
     ranges.push(rangeOf(token));
   }
   return ranges;
+}
+
+function parseAst(source: string): unknown {
+  try {
+    return parse(source, { syntaxPlugins: createReactiveCheckOptions().syntaxPlugins });
+  } catch {
+    return null;
+  }
 }
 
 function reachable(
