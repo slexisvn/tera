@@ -4396,6 +4396,120 @@
         }
       }
     ],
+    "Set": [
+      {
+        "name": "add",
+        "description": "Add `value` and return the set.",
+        "returns": "Set<T>",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "value",
+              "type": "T",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "add(value: T) -> Set<T>"
+        }
+      },
+      {
+        "name": "has",
+        "description": "True when `value` is present.",
+        "returns": "bool",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "value",
+              "type": "T",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "has(value: T) -> bool"
+        }
+      },
+      {
+        "name": "delete",
+        "description": "Remove `value`, returning whether it was present.",
+        "returns": "bool",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [
+            {
+              "name": "value",
+              "type": "T",
+              "optional": false,
+              "rest": false,
+              "defaultValue": null
+            }
+          ],
+          "display": "delete(value: T) -> bool"
+        }
+      },
+      {
+        "name": "values",
+        "description": "Iterate the values.",
+        "returns": "iterator<T>",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "values() -> iterator<T>"
+        }
+      },
+      {
+        "name": "keys",
+        "description": "Iterate the values.",
+        "returns": "iterator<T>",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "keys() -> iterator<T>"
+        }
+      },
+      {
+        "name": "entries",
+        "description": "Iterate `[value, value]` pairs.",
+        "returns": "[T, T][]",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "entries() -> [T, T][]"
+        }
+      },
+      {
+        "name": "clear",
+        "description": "Remove every value.",
+        "returns": "void",
+        "effect": "sync",
+        "isGetter": false,
+        "signature": {
+          "params": [],
+          "display": "clear() -> void"
+        }
+      },
+      {
+        "name": "size",
+        "description": "Number of values.",
+        "returns": "int",
+        "effect": "sync",
+        "isGetter": true,
+        "signature": {
+          "params": [],
+          "display": "size"
+        }
+      }
+    ],
     "Map": [
       {
         "name": "get",

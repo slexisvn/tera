@@ -37,4 +37,25 @@ describe("member receiver analysis", () => {
     expect(memberReceiverExpression(source, position)).toBe("this");
     expect(resolveMemberReceiverType(source, position, symbols)).toBe("Account");
   });
+
+  it("resolves string literal receivers without borrowing the previous binding type", () => {
+    const source = [
+      "complete: Set<int> = Set()",
+      "\"\".",
+    ].join("\n");
+    const position = { line: 1, character: "\"\".".length };
+    const symbols = buildSourceSymbolTable(source);
+
+    expect(memberReceiverExpression(source, position)).toBe("\"\"");
+    expect(resolveMemberReceiverType(source, position, symbols)).toBe("string");
+  });
+
+  it("resolves single quoted string literal receivers", () => {
+    const source = "''.";
+    const position = { line: 0, character: source.length };
+    const symbols = buildSourceSymbolTable(source);
+
+    expect(memberReceiverExpression(source, position)).toBe("''");
+    expect(resolveMemberReceiverType(source, position, symbols)).toBe("string");
+  });
 });

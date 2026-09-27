@@ -70,7 +70,7 @@ export function computeDefinition(context: ProviderContext, params: DefinitionPa
   }
 
   const symbol = localSymbol;
-  return symbol ? location(params.textDocument.uri, symbol.name, symbol.line, symbol.column) : null;
+  return symbol && symbol.line > 0 ? location(params.textDocument.uri, symbol.name, symbol.line, symbol.column) : null;
 }
 
 function importDefinition(

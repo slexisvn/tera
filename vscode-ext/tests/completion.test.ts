@@ -75,6 +75,15 @@ describe("completion", () => {
     expect(labelsAtEnd(source)).toEqual(expect.arrayContaining(["to_upper_case", "split", "includes"]));
   });
 
+  it("suggests string methods on string literal receivers", () => {
+    for (const source of ["\"\".", "''.", "complete: Set<int> = Set()\n\"\"."]) {
+      const memberLabels = labelsAtEnd(source);
+
+      expect(memberLabels).toEqual(expect.arrayContaining(["to_upper_case", "split", "includes"]));
+      expect(memberLabels).not.toContain("add");
+    }
+  });
+
   it("suggests primitive number and boolean methods", () => {
     expect(labelsAtEnd([
       "score: float = 3.14",
@@ -90,6 +99,29 @@ describe("completion", () => {
       "ready: bool = true",
       "ready.",
     ].join("\n"))).toEqual(expect.arrayContaining(["to_string", "value_of"]));
+  });
+
+  it("suggests generic set members from annotated bindings", () => {
+    const memberLabels = labelsAtEnd([
+      "complete: Set<int> = Set()",
+      "complete.",
+    ].join("\n"));
+
+    expect(memberLabels).toEqual(expect.arrayContaining(["add", "has", "delete", "clear", "size"]));
+    expect(memberLabels).not.toContain("sqrt");
+  });
+
+  it("suggests members for global namespaces while a member access is incomplete", () => {
+    const cases = [
+      ["Math.", ["sqrt", "floor"]],
+      ["JSON.", ["parse", "stringify"]],
+      ["Object.", ["keys", "values"]],
+      ["Promise.", ["resolve", "reject"]],
+    ] as const;
+
+    for (const [source, expected] of cases) {
+      expect(labelsAtEnd(source)).toEqual(expect.arrayContaining(expected));
+    }
   });
 
   it("suggests reactive signal members after reactive syntax declarations", () => {

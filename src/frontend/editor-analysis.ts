@@ -277,12 +277,18 @@ function maskReceiverSource(source: string): string {
 
 function extractReceiverExpressionAt(text: string, masked: string, endOffset: number): string {
   let end = Math.max(0, Math.min(masked.length, endOffset));
-  while (end > 0 && /\s/.test(masked[end - 1])) end--;
+  while (end > 0 && /\s/.test(text[end - 1])) end--;
+  const stringRanges = stringLiteralTextRanges(text);
   let parenDepth = 0;
   let bracketDepth = 0;
   let braceDepth = 0;
   let start = 0;
   for (let i = end - 1; i >= 0; i--) {
+    const stringRange = stringRangeContaining(stringRanges, i);
+    if (stringRange && stringRange.to <= end) {
+      i = stringRange.from;
+      continue;
+    }
     const ch = masked[i];
     if (ch === ")") parenDepth++;
     else if (ch === "]") bracketDepth++;
@@ -314,7 +320,7 @@ function extractReceiverExpressionAt(text: string, masked: string, endOffset: nu
 }
 
 function hasExpressionBase(expression: string | null): expression is string {
-  return expression !== null && /^[A-Za-z_$][\w$]*/.test(expression);
+  return expression !== null && (/^[A-Za-z_$][\w$]*/.test(expression) || stringLiteralBaseEnd(expression) !== null);
 }
 
 function leadingDotReceiverExpression(lines: readonly string[], lineIndex: number): string | null {
@@ -338,10 +344,18 @@ function resolveExpressionType(
   symbols: SourceSymbolTable,
   globals: Record<string, string>,
 ): string | null {
-  const base = expression.match(/^([A-Za-z_$][\w$]*)/);
-  if (!base) return null;
-  let type: string | null = symbols.resolve(base[1], position)?.typeName ?? globals[base[1]] ?? base[1];
-  let rest = expression.slice(base[1].length);
+  const stringEnd = stringLiteralBaseEnd(expression);
+  let type: string | null;
+  let rest: string;
+  if (stringEnd !== null) {
+    type = "string";
+    rest = expression.slice(stringEnd);
+  } else {
+    const base = expression.match(/^([A-Za-z_$][\w$]*)/);
+    if (!base) return null;
+    type = symbols.resolve(base[1], position)?.typeName ?? globals[base[1]] ?? base[1];
+    rest = expression.slice(base[1].length);
+  }
   if (/^\s*\(/.test(rest)) {
     rest = skipBalancedParens(rest);
     type = callResultType(type);
@@ -357,6 +371,34 @@ function resolveExpressionType(
     type = called ? returnTypeAfterArrow(memberType) : memberType;
   }
   return type;
+}
+
+function stringRangeContaining(ranges: readonly SourceRange[], index: number): SourceRange | null {
+  let low = 0;
+  let high = ranges.length - 1;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const range = ranges[mid];
+    if (index < range.from) high = mid - 1;
+    else if (index >= range.to) low = mid + 1;
+    else return range;
+  }
+  return null;
+}
+
+function stringLiteralBaseEnd(expression: string): number | null {
+  const delimiter = expression[0];
+  if (delimiter !== "'" && delimiter !== '"' && delimiter !== "`") return null;
+  for (let index = 1; index < expression.length; index++) {
+    const char = expression[index];
+    if (char === "\\") {
+      index++;
+      continue;
+    }
+    if (delimiter !== "`" && (char === "\n" || char === "\r")) return null;
+    if (char === delimiter) return index + 1;
+  }
+  return null;
 }
 
 function callResultType(type: string): string {

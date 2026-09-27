@@ -2,7 +2,7 @@ import { astChildren, NodeType, type ASTNode } from "../ast/index.js";
 import { TERA_PRIMITIVE_PSEUDO_TYPES, TERA_PSEUDO_TYPES, type TeraPseudoTypeSpec } from "../../../data/tera-language-spec.js";
 import { lowerToSemanticProgram } from "./semantic-lowering.js";
 import type { ClassFieldNode, ClassMemberNode, FunctionNode, SemanticNode } from "./semantic-ast.js";
-import { builtinMethod, createTypeEnv, signatureType, type Binding } from "./type-system.js";
+import { GLOBAL_NAMESPACE_BINDINGS, builtinMethod, createTypeEnv, signatureType, type Binding } from "./type-system.js";
 import type { ExternalBuiltinSignature, ExternalInterface, ExternalModuleSurface, ExternalTypeAlias } from "./binder.js";
 import { DEFAULT_CLASS_VISIBILITY, type ClassVisibility } from "../../core/class-visibility.js";
 import { splitTopLevel } from "../../core/type-text.js";
@@ -130,6 +130,7 @@ class SymbolTableBuilder {
   typeParamsByOwner = new Map<string, string[]>();
   importedSymbols = new Map<string, ImportedSourceSymbol>();
   exactSymbols = new Map<string, SourceSymbol[]>();
+  globalSymbols = globalNamespaceSymbols();
   source: string;
   lexicalSource: string;
   lineStarts: number[];
@@ -209,6 +210,7 @@ class SymbolTableBuilder {
     const fieldsByType = this.fieldsByType;
     const parentsByType = this.parentsByType;
     const exactSymbols = this.exactSymbols;
+    const globalSymbols = this.globalSymbols;
     return {
       root,
       scopes: this.scopes,
@@ -216,6 +218,7 @@ class SymbolTableBuilder {
       findScopeAt: (position) => findScopeAt(root, position.line + 1, lines),
       resolve: (name, position) =>
         resolveExactName(exactSymbols, name, position.line + 1, position.character + 1)
+        ?? globalSymbols.get(name)
         ?? resolveName(root, name, position.line + 1, position.character + 1, lines),
       resolveField: (typeName, fieldName, position) => {
         const scope = position ? findScopeAt(root, position.line + 1, lines) : null;
@@ -547,6 +550,16 @@ function addSymbol(
   return symbol;
 }
 
+function globalNamespaceSymbols(): Map<string, SourceSymbol> {
+  return new Map([...GLOBAL_NAMESPACE_BINDINGS].map(([name, typeName]) => [name, {
+    name,
+    kind: "module",
+    line: SYNTHETIC_LINE,
+    column: SYNTHETIC_LINE,
+    typeName,
+  }]));
+}
+
 function upsertMember(members: SourceSymbol[] | undefined, member: SourceSymbol): void {
   if (!members) return;
   const index = members.findIndex((entry) => entry.name === member.name);
@@ -580,8 +593,10 @@ function builtinFieldsByType(): Map<string, SourceSymbol[]> {
   for (const type of Object.keys(TERA_PSEUDO_TYPES)) owners.add(type);
   for (const owner of owners) {
     const members = fields.get(owner) ?? [];
+    const params = typeParamsFor(owner);
+    const receiver = params.length ? `${owner}<${params.join(", ")}>` : owner;
     for (const candidate of builtinMethodCandidates(owner)) {
-      const method = builtinMethod(owner, candidate, env);
+      const method = builtinMethod(receiver, candidate, env);
       if (!method) continue;
       members.push({
         name: candidate,

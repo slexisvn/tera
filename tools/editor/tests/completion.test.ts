@@ -46,6 +46,40 @@ describe("completing after a dot", () => {
     expect(options.every((option) => option.detail === "Math")).toBe(true);
   });
 
+  it("uses string members for string literal receivers with analysis", () => {
+    for (const doc of ["\"\".", "''.", "complete: Set<int> = Set()\n\"\"."]) {
+      const labels = (completeWithAnalysis(doc)?.options ?? []).map((option) => option.label);
+
+      expect(labels).toEqual(expect.arrayContaining(["to_upper_case", "split", "includes"]));
+      expect(labels).not.toContain("add");
+    }
+  });
+
+  it("uses checker global namespaces with analysis", () => {
+    const cases = [
+      ["Math.", ["sqrt", "floor"]],
+      ["JSON.", ["parse", "stringify"]],
+      ["Object.", ["keys", "values"]],
+      ["Promise.", ["resolve", "reject"]],
+    ] as const;
+
+    for (const [source, expected] of cases) {
+      const options = completeWithAnalysis(source)?.options ?? [];
+      expect(options.map((option) => option.label)).toEqual(expect.arrayContaining(expected));
+    }
+  });
+
+  it("uses checker pseudo type members for annotated sets", () => {
+    const doc = [
+      "complete: Set<int> = Set()",
+      "complete.",
+    ].join("\n");
+    const labels = (completeWithAnalysis(doc)?.options ?? []).map((option) => option.label);
+
+    expect(labels).toEqual(expect.arrayContaining(["add", "has", "delete", "clear", "size"]));
+    expect(labels).not.toContain("sqrt");
+  });
+
   it("keeps chart on its own list", () => {
     const chart = labels("chart.");
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TERA_GLOBAL_NAMESPACES } from "../../../data/tera-language-spec.js";
 import { buildSourceSymbolTable, inferSymbolTypes } from "../../../src/frontend/checker/index.js";
 
 const BOX = [
@@ -160,6 +161,24 @@ describe("buildSourceSymbolTable", () => {
   });
 
   describe("synthetic bindings", () => {
+    it("resolves global namespaces through checker symbols without adding source declarations", () => {
+      const expectedMembers = new Map([
+        ["Math", "sqrt"],
+        ["JSON", "parse"],
+        ["ObjectConstructor", "keys"],
+        ["PromiseConstructor", "resolve"],
+      ]);
+
+      for (const [name, typeName] of Object.entries(TERA_GLOBAL_NAMESPACES)) {
+        const table = buildSourceSymbolTable(`${name}.`);
+        const symbol = table.resolve(name, { line: 0, character: name.length });
+
+        expect(symbol).toMatchObject({ name, kind: "module", typeName, line: 0, column: 0 });
+        expect(table.flat.some((entry) => entry.name === name)).toBe(false);
+        expect(table.membersOf(typeName).map((member) => member.name)).toContain(expectedMembers.get(typeName));
+      }
+    });
+
     it("gives this no source position of its own", () => {
       const self = tableOf(BOX).flat.find((symbol) => symbol.name === "this");
 
@@ -184,6 +203,18 @@ describe("buildSourceSymbolTable", () => {
       const parent = tableOf(source).flat.find((symbol) => symbol.name === "super");
 
       expect(parent).toMatchObject({ typeName: "Base", line: 0, column: 0 });
+    });
+  });
+
+  describe("pseudo types", () => {
+    it("resolves generic set members from annotated bindings", () => {
+      const table = tableOf("complete: Set<int> = Set()");
+      const position = { line: 0, character: "complete".length };
+
+      expect(table.resolve("complete", position)?.typeName).toBe("Set<int>");
+      expect(table.resolveField("Set<int>", "add", position)?.typeName).toBe("(int) -> Set<int>");
+      expect(table.resolveField("Set<int>", "has", position)?.typeName).toBe("(int) -> bool");
+      expect(table.membersOf("Set<int>").map((member) => member.name)).toEqual(expect.arrayContaining(["add", "has", "delete", "clear", "size"]));
     });
   });
 

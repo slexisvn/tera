@@ -7228,6 +7228,73 @@ export const TERA_PSEUDO_TYPES = {
       }
     ]
   },
+  "Set": {
+    "typeParams": ["T"],
+    "methods": [
+      {
+        "name": "add",
+        "params": [
+          param("value", "T")
+        ],
+        "returns": "Set<T>",
+        "isGetter": false,
+        "description": "Add `value` and return the set."
+      },
+      {
+        "name": "has",
+        "params": [
+          param("value", "T")
+        ],
+        "returns": "bool",
+        "isGetter": false,
+        "description": "True when `value` is present."
+      },
+      {
+        "name": "delete",
+        "params": [
+          param("value", "T")
+        ],
+        "returns": "bool",
+        "isGetter": false,
+        "description": "Remove `value`, returning whether it was present."
+      },
+      {
+        "name": "values",
+        "params": [],
+        "returns": "iterator<T>",
+        "isGetter": false,
+        "description": "Iterate the values."
+      },
+      {
+        "name": "keys",
+        "params": [],
+        "returns": "iterator<T>",
+        "isGetter": false,
+        "description": "Iterate the values."
+      },
+      {
+        "name": "entries",
+        "params": [],
+        "returns": "[T, T][]",
+        "isGetter": false,
+        "description": "Iterate `[value, value]` pairs."
+      },
+      {
+        "name": "clear",
+        "params": [],
+        "returns": "void",
+        "isGetter": false,
+        "description": "Remove every value."
+      },
+      {
+        "name": "size",
+        "params": [],
+        "returns": "int",
+        "isGetter": true,
+        "description": "Number of values."
+      }
+    ]
+  },
   "Map": {
     "methods": [
       {
